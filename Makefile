@@ -9,7 +9,7 @@ check: fuse_test
 	./fuse_test
 
 clean:
-	rm -rf *.dSYM *.o *.a *~ libfuse.dylib fuse_test
+	rm -rf *.dSYM *.o *.a *~ libfuse*.dylib fuse_test
 
 .PHONY: all check clean
 
