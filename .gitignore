@@ -1,0 +1,5 @@
+/*.dSYM
+/*.dylib
+/*.a
+/*.o
+/fuse_test
