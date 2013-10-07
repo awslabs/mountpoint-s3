@@ -1,7 +1,3 @@
-// Copyright 2013 Andreas Neuhaus and the Mira project group.
-// This file may not be used in any way (copied, modified, distributed)
-// without explicit permission of the copyright owner. All rights reserved.
-
 /*!
  * FUSE native interface declarations (as of libosxfuse-2.5.5).
  */
