@@ -4,10 +4,10 @@
  * runs a loop that receives, dispatches and replies kernel requests.
  */
 
-use std::{libc, os, ptr, vec};
-use std::io::fd_t;
+use std::{os, ptr, vec};
 use std::libc::{c_char, c_int};
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
+use channel::Channel;
 use Filesystem;
 use native::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 use request::Request;
@@ -16,7 +16,7 @@ use request::Request;
 pub struct Session<FS> {
 	filesystem: ~FS,
 	mountpoint: ~str,
-	priv fd: Option<fd_t>,
+	priv ch: Option<Channel>,
 	proto_major: uint,
 	proto_minor: uint,
 	initialized: bool,
@@ -45,7 +45,7 @@ impl<FS: Filesystem> Session<FS> {
 		let mut se = ~Session {
 			filesystem: filesystem,
 			mountpoint: mountpoint.to_str(),
-			fd: None,
+			ch: None,
 			proto_major: 0,
 			proto_minor: 0,
 			initialized: false,
@@ -55,7 +55,7 @@ impl<FS: Filesystem> Session<FS> {
 			do with_fuse_args(options) |args| {
 				let fd = unsafe { fuse_mount_compat25(mnt, args) };
 				if fd < 0 { fail2!("Mounting FUSE failed. {:s}", os::last_os_error()); }
-				se.fd = Some(fd);
+				se.ch = Some(Channel::new(fd));
 			}
 		}
 		se
@@ -65,7 +65,7 @@ impl<FS: Filesystem> Session<FS> {
 	pub fn run (&mut self) {
 		let mut req = Request::new();
 		loop {
-			match req.read(self.fd.unwrap()) {
+			match req.read(self.ch.unwrap()) {
 				Err(ENOENT) => loop,			// Operation interrupted. Accordingly to FUSE, this is safe to retry
 				Err(EINTR) => loop,				// Interrupted system call, retry
 				Err(EAGAIN) => loop,			// Explicitly try again
@@ -83,8 +83,7 @@ impl<FS: Filesystem> Drop for Session<FS> {
 	fn drop (&mut self) {
 		info2!("Unmounting {:s}", self.mountpoint);
 		// Close kernel channel before unnmounting to prevent sync unmount deadlock
-		if self.fd.is_some() { unsafe { libc::close(self.fd.unwrap()) }; }
-		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X
+		if self.ch.is_some() { self.ch.unwrap().close(); }
 		do self.mountpoint.with_c_str |mnt| {
 			unsafe { fuse_unmount_compat22(mnt) };
 		}

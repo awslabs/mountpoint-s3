@@ -3,11 +3,12 @@
  * wants us to perform.
  */
 
-use std::{cast, libc, os, ptr, sys, vec};
+use std::{cast, ptr, sys, vec};
 use std::io::fd_t;
-use std::libc::{dev_t, c_int, c_void, mode_t, off_t, size_t, ssize_t};
+use std::libc::{dev_t, c_int, c_void, mode_t, off_t, size_t};
 use std::libc::{EIO, ENOSYS, EPROTO, ERANGE};
 use argument::ArgumentIterator;
+use channel::Channel;
 use Filesystem;
 use native::*;
 use native::consts::*;
@@ -48,25 +49,18 @@ impl Request {
 		}
 	}
 
-	/// Read the next request from the given fd (channel to kernel driver)
+	/// Read the next request from the given channel to kernel driver
 	#[fixed_stack_segment]
-	pub fn read (&mut self, fd: fd_t) -> Result<(), c_int> {
+	pub fn read (&mut self, ch: Channel) -> Result<(), c_int> {
+		self.fd = Some(ch.fd);
 		assert!(self.data.capacity() >= MAX_WRITE_SIZE as uint + 4096);
-		let capacity = self.data.capacity();
-		self.data.clear();
-		self.fd = Some(fd);
-		let res = do self.data.as_mut_buf |dataptr, _| {
-			// The kernel driver makes sure that we get exactly one request per read.
-			unsafe { libc::read(fd, dataptr as *mut c_void, capacity as size_t) }
-		};
-		if res < 0 {
-			Err(os::errno() as c_int)
-		} else if res < sys::size_of::<fuse_in_header>() as ssize_t {
+		// The kernel driver makes sure that we get exactly one request per read
+		let res = ch.receive(&mut self.data);
+		if res.is_ok() && self.data.len() < sys::size_of::<fuse_in_header>() {
 			error!("Short read on FUSE device");
 			Err(EIO)
 		} else {
-			unsafe { vec::raw::set_len(&mut self.data, res as uint); }
-			Ok(())
+			res
 		}
 	}
 
