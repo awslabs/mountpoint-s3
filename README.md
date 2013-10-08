@@ -29,9 +29,8 @@ See the examples directory for some basic examples.
 
 There's still a lot of stuff to be done. Feel free to contribute.
 
-- Currently the mount function blocks until the filesystem is unmounted or the process is interrupted. Actually it should run in a background task and return some handle that provides a way to unmount.
-- Signal handling (detection of SIGTERM to safely unmount and exit) is done in C since Rust has no signal handling yet. (watching out for [PR #9318](https://github.com/mozilla/rust/pull/9318)). The plan is to not handle signals at all in this library, but we somehow need to ensure that the filesystem gets unmounted when the process ends.
-- Using readv/writev may block. This should be ported to the new libuv based I/O in Rust. Hopefully it'll support reading from a fd. It Probably won't support indirect writes (via iovecs), so it's open how data can be composed to a single write without copying.
+- Currently the mount function blocks until the filesystem is unmounted externally. Actually it should run in a background task and return some handle that provides a way to unmount. It should also unmount if the process terminates.
+- The session run loop calls readv which can block the scheduler. It either needs to be run on it own single thread scheduler or should be ported to event based I/O of the new Rust rtio. Hopefully it'll support reading from a fd. It Probably won't support indirect writes (via iovecs), so it's open how data can be composed to a single write without copying.
 - Interrupting an operation isn't handled yet.
 - Posix lock operations aren't properly dispatched yet. However this is rarely needed, since the kernel provides local locks automatically and there operations are only used if you want to synchronize with something else.
 - Using `fuse_*_out` in the results of `Filesystem` methods doesn't look right. These native structs should be hidden from the public interface.

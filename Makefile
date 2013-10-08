@@ -1,5 +1,3 @@
-CC ?= cc
-CFLAGS ?= -Os
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 

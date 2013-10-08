@@ -4,11 +4,10 @@
  * runs a loop that receives, dispatches and replies kernel requests.
  */
 
-use std::{libc, os, ptr, task, vec};
+use std::{libc, os, ptr, vec};
 use std::io::fd_t;
 use std::libc::{c_char, c_int};
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use glue::{SignalHandler, wait_for_fd};
 use Filesystem;
 use native::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 use request::Request;
@@ -18,7 +17,6 @@ pub struct Session<FS> {
 	filesystem: ~FS,
 	mountpoint: ~str,
 	priv fd: Option<fd_t>,
-	exited: bool,
 	proto_major: uint,
 	proto_minor: uint,
 	initialized: bool,
@@ -48,7 +46,6 @@ impl<FS: Filesystem> Session<FS> {
 			filesystem: filesystem,
 			mountpoint: mountpoint.to_str(),
 			fd: None,
-			exited: false,
 			proto_major: 0,
 			proto_minor: 0,
 			initialized: false,
@@ -65,29 +62,18 @@ impl<FS: Filesystem> Session<FS> {
 	}
 
 	/// Run the session loop that receives, dispatches and replies to kernel requests
-	#[fixed_stack_segment]
 	pub fn run (&mut self) {
-		let sh = SignalHandler::new();
 		let mut req = Request::new();
-		while !self.exited && !sh.signalled() {
-			if unsafe { wait_for_fd(self.fd.unwrap(), 1000) } > 0 {
-				match req.read(self.fd.unwrap()) {
-					Err(ENOENT) => loop,			// Operation interrupted. Accordingly to FUSE, this is safe to retry
-					Err(EINTR) => loop,				// Interrupted system call, retry
-					Err(EAGAIN) => loop,			// Explicitly try again
-					Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
-					Err(err) => fail2!("Lost connection to FUSE device. Error {:i}", err),
-					Ok(_) => req.dispatch(self),
-				}
+		loop {
+			match req.read(self.fd.unwrap()) {
+				Err(ENOENT) => loop,			// Operation interrupted. Accordingly to FUSE, this is safe to retry
+				Err(EINTR) => loop,				// Interrupted system call, retry
+				Err(EAGAIN) => loop,			// Explicitly try again
+				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
+				Err(err) => fail2!("Lost connection to FUSE device. Error {:i}", err),
+				Ok(_) => req.dispatch(self),
 			}
-			// Yield control to the task scheduler from time to time
-			task::deschedule();
 		}
-	}
-
-	/// Tell a running session loop to exit
-	pub fn exit (&mut self) {
-		self.exited = true;
 	}
 }
 
