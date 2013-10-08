@@ -10,7 +10,6 @@ check: bin/fuse_test
 
 clean:
 	rm -rf bin lib build
-#	rm -rf *.dSYM *.o *.a *~ libfuse*.dylib fuse_test
 
 .PHONY: all check clean
 
