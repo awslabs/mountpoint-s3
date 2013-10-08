@@ -13,7 +13,7 @@
        url = "https://github.com/zargony/rust-fuse.git")];
 #[crate_type = "lib"];
 
-#[comment = "Rust FUSE bindings"];
+#[comment = "Rust FUSE - Filesystem in Userspace"];
 #[author = "Andreas Neuhaus <info@zargony.com>"];
 #[license = "MIT"];
 
