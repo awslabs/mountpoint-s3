@@ -21,3 +21,14 @@ lib/libfuse.dylib: src/lib.rs src/*.rs lib
 
 bin/fuse_test: src/lib.rs src/*.rs bin
 	$(RUSTC) $(RUSTFLAGS) --test -o $@ $<
+
+
+EXAMPLE_SRCS=$(wildcard examples/*.rs)
+EXAMPLE_BINS=$(patsubst examples/%.rs,bin/%,$(EXAMPLE_SRCS))
+
+examples: $(EXAMPLE_BINS)
+
+.PHONY: examples
+
+$(EXAMPLE_BINS): bin/%: examples/%.rs bin lib/libfuse.dylib
+	$(RUSTC) $(RUSTFLAGS) -L lib --bin -o $@ $<
