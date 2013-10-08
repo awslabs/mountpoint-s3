@@ -51,11 +51,11 @@ impl Request {
 
 	/// Read the next request from the given channel to kernel driver
 	#[fixed_stack_segment]
-	pub fn read (&mut self, ch: Channel) -> Result<(), c_int> {
-		self.fd = Some(ch.fd);
+	pub fn read<FS: Filesystem> (&mut self, se: &Session<FS>) -> Result<(), c_int> {
+		self.fd = Some(se.ch.unwrap().fd);
 		assert!(self.data.capacity() >= MAX_WRITE_SIZE as uint + 4096);
 		// The kernel driver makes sure that we get exactly one request per read
-		let res = ch.receive(&mut self.data);
+		let res = se.ch.unwrap().receive(&mut self.data);
 		if res.is_ok() && self.data.len() < sys::size_of::<fuse_in_header>() {
 			error!("Short read on FUSE device");
 			Err(EIO)

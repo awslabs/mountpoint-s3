@@ -16,7 +16,7 @@ use request::Request;
 pub struct Session<FS> {
 	filesystem: ~FS,
 	mountpoint: ~str,
-	priv ch: Option<Channel>,
+	ch: Option<Channel>,
 	proto_major: uint,
 	proto_minor: uint,
 	initialized: bool,
@@ -65,7 +65,7 @@ impl<FS: Filesystem> Session<FS> {
 	pub fn run (&mut self) {
 		let mut req = Request::new();
 		loop {
-			match req.read(self.ch.unwrap()) {
+			match req.read(self) {
 				Err(ENOENT) => loop,			// Operation interrupted. Accordingly to FUSE, this is safe to retry
 				Err(EINTR) => loop,				// Interrupted system call, retry
 				Err(EAGAIN) => loop,			// Explicitly try again
