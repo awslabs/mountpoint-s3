@@ -245,6 +245,7 @@ pub fn mount<FS: Filesystem> (filesystem: ~FS, mountpoint: &Path, options: &[~st
 // --------------------------------------------------------------------------
 
 mod argument;
+mod channel;
 mod native;
 mod request;
 mod sendable;
