@@ -1,5 +1,3 @@
-/*.dSYM
-/*.dylib
-/*.a
-/*.o
-/fuse_test
+/bin
+/lib
+/build
