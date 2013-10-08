@@ -21,13 +21,13 @@
 
 use std::libc::{c_int, mode_t, dev_t, size_t, off_t};
 use std::libc::ENOSYS;
-use sendable::DirBuffer;
 use session::Session;
 
 // Re-export types used in results of filesystem operations
 pub use native::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 pub use native::{fuse_getxtimes_out, fuse_setattr_in, fuse_open_out, fuse_write_out};
 pub use native::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
+pub use sendable::DirBuffer;
 
 /// Filesystem trait.
 ///
