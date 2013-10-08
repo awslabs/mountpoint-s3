@@ -4,7 +4,7 @@
 
 use std::libc::{c_int, c_uint};
 
-#[link_args = "-lglue"]
+#[link_args = "src/glue.c"]
 extern {
 	/// Wait for data to be ready to read from a fd
 	pub fn wait_for_fd (fd: c_int, timeout: c_uint) -> c_int;

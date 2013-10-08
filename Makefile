@@ -9,21 +9,15 @@ check: bin/fuse_test
 	bin/fuse_test
 
 clean:
-	rm -rf bin lib build
+	rm -rf bin lib
 
 .PHONY: all check clean
 
-bin lib build:
+bin lib:
 	mkdir -p $@
 
-build/glue.o: src/glue.c build
-	$(CC) $(CFLAGS) -c -o $@ $<
+lib/libfuse.dylib: src/lib.rs src/*.rs lib
+	$(RUSTC) $(RUSTFLAGS) --lib --out-dir $(dir $@) $<
 
-build/libglue.a: build/glue.o
-	$(AR) -rcs $@ $+
-
-lib/libfuse.dylib: src/lib.rs src/*.rs build/libglue.a lib
-	$(RUSTC) $(RUSTFLAGS) -L build --lib --out-dir $(dir $@) $<
-
-bin/fuse_test: src/lib.rs src/*.rs build/libglue.a bin
-	$(RUSTC) $(RUSTFLAGS) -L build --test -o $@ $<
+bin/fuse_test: src/lib.rs src/*.rs bin
+	$(RUSTC) $(RUSTFLAGS) --test -o $@ $<
