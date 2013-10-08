@@ -6,14 +6,14 @@
 use std::{cast, str, sys};
 use std::libc::c_char;
 
-/// An iterator that can be used to fetch typed arguments from a byte vector
+/// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'self> {
 	priv data: &'self [u8],
 	priv pos: uint,
 }
 
 impl<'self> ArgumentIterator<'self> {
-	/// Create a new argument iterator for the given byte vector
+	/// Create a new argument iterator for the given byte slice
 	pub fn new (data: &'self [u8]) -> ArgumentIterator<'self> {
 		ArgumentIterator { data: data, pos: 0 }
 	}
