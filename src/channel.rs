@@ -7,7 +7,7 @@ use std::io::fd_t;
 use std::libc::{c_int, c_void, size_t};
 
 pub struct Channel {
-	fd: fd_t,
+	priv fd: fd_t,
 }
 
 impl Channel {

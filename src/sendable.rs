@@ -1,77 +1,70 @@
 /*!
- * Helper for sending out a number of arbitrary data structures to a file
- * descriptor in one write call without copying the data.
+ * Helper to compose arbitrary data structures into packets of binary data.
  */
 
-// TODO: Need to find a more Rust-like solution for this, especially because
-// writev may block (though it doesn't when writing to the FUSE kernel driver)
-
 use std::{cast, ptr, sys, vec};
-use std::libc::{c_int, c_void, mode_t, off_t, size_t, ssize_t, S_IFMT};
-use native::fuse_dirent;
-
-/// Iovec data structure for readv and writev calls.
-#[deriving(Clone)]
-pub struct iovec {
-	iov_base: *c_void,
-	iov_len: size_t,
-}
-
-#[nolink]
-extern {
-	/// Read data from fd into multiple buffers
-	pub fn readv (fd: c_int, iov: *mut iovec, iovcnt: c_int) -> ssize_t;
-	/// Write data from multiple buffers to fd
-	pub fn writev (fd: c_int, iov: *iovec, iovcnt: c_int) -> ssize_t;
-}
+use std::libc::{mode_t, off_t, S_IFMT};
+use native::{fuse_entry_out, fuse_attr_out, fuse_getxtimes_out, fuse_open_out};
+use native::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
+use native::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
 
 /// Trait for types that can be sent as a reply to the FUSE kernel driver
 pub trait Sendable {
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
 		// Generally send a memory copy of a type (this works for all
 		// structs, i.e. fuse_*_out)
-		f([iovec {
-			iov_base: ptr::to_unsafe_ptr(self) as *c_void,
-			iov_len: sys::size_of::<Self>() as size_t,
-		}])
+		unsafe {
+			let ptr = ptr::to_unsafe_ptr(self);
+			let len = sys::size_of::<Self>();
+			do vec::raw::buf_as_slice(ptr as *u8, len) |bytes| {
+				f([bytes])
+			}
+		}
 	}
 }
 
+// Implemente sendable trait for fuse_*_out data types
+impl Sendable for fuse_entry_out { }
+impl Sendable for fuse_attr_out { }
+impl Sendable for fuse_getxtimes_out { }
+impl Sendable for fuse_open_out { }
+impl Sendable for fuse_write_out { }
+impl Sendable for fuse_statfs_out { }
+impl Sendable for fuse_getxattr_out { }
+impl Sendable for fuse_lk_out { }
+impl Sendable for fuse_init_out { }
+impl Sendable for fuse_bmap_out { }
+impl Sendable for fuse_out_header { }
+
 impl<S: Sendable> Sendable for ~S {
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
-		(**self).as_iovecs(f)
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+		(**self).as_bytegroups(f)
 	}
 }
 
 impl Sendable for () {
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
 		// A unit value has nothing to send
 		f([])
 	}
 }
 
 impl<'self> Sendable for &'self [u8] {
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
-		// Send the contents of byte-vector
-		do self.as_imm_buf |bufptr, buflen| {
-			f([iovec {
-				iov_base: bufptr as *c_void,
-				iov_len: buflen as size_t,
-			}])
-		}
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+		f([*self])
 	}
 }
 
 impl Sendable for ~[u8] {
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
-		self.as_slice().as_iovecs(f)
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+		f([self.as_slice()])
 	}
 }
 
 impl Sendable for ~str {
-	// Sending a string uses its byte-representation (without trailing NUL)
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
-		self.as_bytes().as_iovecs(f)
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+		// Sending a string uses its byte-representation (without trailing NUL)
+		f([self.as_bytes()])
 	}
 }
 
@@ -123,9 +116,9 @@ impl DirBuffer {
 }
 
 impl Sendable for DirBuffer {
-	fn as_iovecs<T> (&self, f: &fn(&[iovec]) -> T) -> T {
-		// Send a buffer by sending its data vector
-		self.data.as_iovecs(f)
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+		// Send a dirbuffer by sending its data vector
+		self.data.as_bytegroups(f)
 	}
 }
 
@@ -141,49 +134,45 @@ mod test {
 	#[test]
 	fn test_sendable_struct () {
 		let data = test_data_t { p1: 111, p2: 222, p3: 333 };
-		data.as_iovecs(|iovs| {
-			assert!(iovs.len() == 1, "sendable struct should be represented as a single iovec");
-			assert!(iovs[0].iov_len == 4, "sendable struct should be represented by an iovec with the length of the size of the struct");
-			assert!(unsafe { *(iovs[0].iov_base as *[u8, ..4]) } == [0x6f, 0xde, 0x4d, 0x01], "sendable struct should be represented by an iovec with the byte representation of the struct");
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 1, "sendable struct should be represented as a single bytes slice");
+			assert!(bytes[0] == [0x6f, 0xde, 0x4d, 0x01], "sendable struct should be represented by a bytes slice with the byte representation of the struct");
 		});
 	}
 
 	#[test]
 	fn test_sendable_owned_struct () {
 		let data = ~test_data_t { p1: 111, p2: 222, p3: 333 };
-		data.as_iovecs(|iovs| {
-			assert!(iovs.len() == 1, "sendable owned struct should be represented as a single iovec");
-			assert!(iovs[0].iov_len == 4, "sendable owned struct should be represented by an iovec with the length of the size of the owned struct");
-			assert!(unsafe { *(iovs[0].iov_base as *[u8, ..4]) } == [0x6f, 0xde, 0x4d, 0x01], "sendable owned struct should be represented by an iovec with the byte representation of the owned struct");
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 1, "sendable owned struct should be represented as a single bytes slice");
+			assert!(bytes[0] == [0x6f, 0xde, 0x4d, 0x01], "sendable owned struct should be represented by a bytes slice with the byte representation of the owned struct");
 		});
 	}
 
 	#[test]
 	fn test_sendable_null () {
 		let data = ();
-		data.as_iovecs(|iovs| {
-			assert!(iovs.len() == 0, "sendable empty element should be represented by no iovec at all");
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 0, "sendable empty element should be represented by no bytes slice at all");
 		});
 	}
 
 	#[test]
 	fn test_sendable_buffer () {
 		let data: ~[u8] = ~[11, 22, 33, 44, 55];
-		data.as_iovecs(|iovs| {
-			assert!(iovs.len() == 1, "sendabled buffer should be represented as a single iovec");
-			assert!(iovs[0].iov_len == 5, "sendable buffer should be represented by an iovec with the length of the buffer");
-			assert!(unsafe { *(iovs[0].iov_base as *[u8, ..5]) } == data, "sendable buffer should be represented by an iovec with the contents of the buffer");
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
+			assert!(bytes[0] == data, "sendable buffer should be represented by a bytes slice with the contents of the buffer");
 		});
 	}
 
 	#[test]
 	fn test_sendable_string () {
 		let data = ~"hello";
-		let bytes = [104, 101, 108, 108, 111];	// no trailing NUL
-		data.as_iovecs(|iovs| {
-			assert!(iovs.len() == 1, "sendable string should be represented as a single iovec");
-			assert!(iovs[0].iov_len == 5, "sendable string should be represented by an iovec with the length of the string");
-			assert!(unsafe { *(iovs[0].iov_base as *[u8, ..5]) } == bytes, "sendable string should be represented by an iovec with the contents of the string");
+		let expected = [104, 101, 108, 108, 111];	// no trailing NUL
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 1, "sendable string should be represented as a single bytes slice");
+			assert!(bytes[0] == expected, "sendable string should be represented by a bytes slice with the contents of the string");
 		});
 	}
 
@@ -192,14 +181,13 @@ mod test {
 		let mut buf = DirBuffer::new(128);
 		buf.fill(111, 222, S_IFREG as mode_t, "hello");
 		buf.fill(444, 555, S_IFREG as mode_t, "world.rs");
-		let bytes = [
+		let expected = [
 			111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 8, 0, 0, 0, 104, 101, 108, 108, 111,  0,   0,   0,
 			188, 1, 0, 0, 0, 0, 0, 0,  43, 2, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0, 119, 111, 114, 108, 100, 46, 114, 115,
 		];
-		buf.as_iovecs(|iovs| {
-			assert!(iovs.len() == 1, "sendable dirbuffer should be represented by a single iovec");
-			assert!(iovs[0].iov_len == 64, "sendable dirbuffer should be represented by an iovec with the length of the dirbuffer");
-			assert!(unsafe { *(iovs[0].iov_base as *[u8, ..64]) } == bytes, "sendable dirbuffer should be reply_error by an iovec with the contents of the dirbuffer");
+		buf.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 1, "sendable dirbuffer should be represented as a single bytes slice");
+			assert!(bytes[0] == expected, "sendable dirbuffer should be reply_error by a bytes slice with the contents of the dirbuffer");
 		});
 	}
 }
