@@ -27,8 +27,8 @@ pub struct Request {
 
 impl Request {
 	/// Create a new request
-	pub fn new () -> ~Request {
-		~Request { data: vec::with_capacity(MAX_WRITE_SIZE as uint + 4096) }
+	pub fn new () -> Request {
+		Request { data: vec::with_capacity(MAX_WRITE_SIZE as uint + 4096) }
 	}
 
 	/// Read the next request from the given channel to kernel driver
