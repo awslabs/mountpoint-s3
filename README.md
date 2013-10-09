@@ -29,10 +29,10 @@ See the examples directory for some basic examples.
 
 There's still a lot of stuff to be done. Feel free to contribute.
 
-- Currently the mount function blocks until the filesystem is unmounted externally. Actually it should run in a background task and return some handle that provides a way to unmount. It should also unmount if the process terminates.
-- The session run loop calls readv which can block the scheduler. It either needs to be run on it own single thread scheduler or should be ported to event based I/O of the new Rust rtio. Hopefully it'll support reading from a fd. It Probably won't support indirect writes (via iovecs), so it's open how data can be composed to a single write without copying.
-- Interrupting an operation isn't handled yet.
-- Posix lock operations aren't properly dispatched yet. However this is rarely needed, since the kernel provides local locks automatically and there operations are only used if you want to synchronize with something else.
+- Currently mounting a filesystem by calling `mount` blocks until the filesystem is unmounted externally. Actually it should run a background task for the filesystem and return some handle that provides a way to unmount. It should also unmount if the process terminates.
+- The session loop calls readv which can block the scheduler. It either needs to be run on it own single threaded scheduler or should be ported to event based I/O using the new std::rt::io. Hopefully this will support reading from a fd. It probably won't support indirect writes (like iovecs), so it's open how data can be composed to a single write without copying.
+- Interrupting a filesystem operation isn't handled yet.
+- Posix lock operations aren't dispatched yet. However these are rarely needed, since the kernel provides local locks automatically and these operations are only used if you want to synchronize with something externally (like NFS does).
 - Using `fuse_*_out` in the results of `Filesystem` methods doesn't look right. These native structs should be hidden from the public interface.
 
 In general, search for "TODO" or "FIXME" in the source files to see what's still missing.
