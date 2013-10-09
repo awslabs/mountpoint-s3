@@ -1,32 +1,32 @@
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 
-all: lib/libfuse.dylib
+all: build/libfuse.dummy
 
-check: bin/fuse_test
-	bin/fuse_test
+check: build/fuse_test
+	build/fuse_test
 
 clean:
-	rm -rf bin lib
+	rm -rf build
 
 .PHONY: all check clean
 
-bin lib:
+build:
 	mkdir -p $@
 
-lib/libfuse.dylib: src/lib.rs src/*.rs lib
+build/libfuse.dummy: src/lib.rs src/*.rs build
 	$(RUSTC) $(RUSTFLAGS) --lib --out-dir $(dir $@) $<
 
-bin/fuse_test: src/lib.rs src/*.rs bin
+build/fuse_test: src/lib.rs src/*.rs build
 	$(RUSTC) $(RUSTFLAGS) --test -o $@ $<
 
 
 EXAMPLE_SRCS=$(wildcard examples/*.rs)
-EXAMPLE_BINS=$(patsubst examples/%.rs,bin/%,$(EXAMPLE_SRCS))
+EXAMPLE_BINS=$(patsubst examples/%.rs,build/%,$(EXAMPLE_SRCS))
 
 examples: $(EXAMPLE_BINS)
 
 .PHONY: examples
 
-$(EXAMPLE_BINS): bin/%: examples/%.rs bin lib/libfuse.dylib
-	$(RUSTC) $(RUSTFLAGS) -L lib --bin -o $@ $<
+$(EXAMPLE_BINS): build/%: examples/%.rs build build/libfuse.dummy
+	$(RUSTC) $(RUSTFLAGS) -L build --bin -o $@ $<
