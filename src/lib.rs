@@ -237,7 +237,7 @@ pub trait Filesystem {
 }
 
 /// Mount the given filesystem to the given mountpoint
-pub fn mount<FS: Filesystem> (filesystem: ~FS, mountpoint: &Path, options: &[~str]) {
+pub fn mount<FS: Filesystem> (filesystem: ~FS, mountpoint: ~str, options: &[~str]) {
 	let mut se = Session::mount(filesystem, mountpoint, options);
 	se.run();
 }
