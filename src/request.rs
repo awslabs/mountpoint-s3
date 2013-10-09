@@ -35,7 +35,7 @@ impl Request {
 	pub fn read<FS: Filesystem> (&mut self, se: &Session<FS>) -> Result<(), c_int> {
 		assert!(self.data.capacity() >= MAX_WRITE_SIZE as uint + 4096);
 		// The kernel driver makes sure that we get exactly one request per read
-		let res = se.ch.unwrap().receive(&mut self.data);
+		let res = se.ch.receive(&mut self.data);
 		if res.is_ok() && self.data.len() < sys::size_of::<fuse_in_header>() {
 			error!("Short read on FUSE device");
 			Err(EIO)
@@ -54,7 +54,7 @@ impl Request {
 		assert!(self.data.len() >= sys::size_of::<fuse_in_header>());
 		let mut data = ArgumentIterator::new(self.data);
 		let header: &fuse_in_header = data.fetch();
-		let ch = se.ch.unwrap();
+		let ch = se.ch;
 		// FIXME: Ugly (and unsafe) way of conversion to enum. Fix this, once Rust can convert
 		// integers to enums somehow. See https://github.com/mozilla/rust/issues/3868
 		let opcode: fuse_opcode = unsafe { cast::transmute(header.opcode as uint) };
