@@ -13,7 +13,7 @@ pub struct Channel {
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T> (options: &[~str], f: &fn(&fuse_args) -> T) -> T {
+fn with_fuse_args<T> (options: &[&str], f: &fn(&fuse_args) -> T) -> T {
 	let argptrs = ~["progname".with_c_str(|s| s)] +
 		options.map(|arg| { arg.with_c_str(|s| s) }) +
 		~[ptr::null::<c_char>()];
@@ -47,7 +47,7 @@ impl Channel {
 	/// Creates a new communication channel to the kernel driver by
 	/// mounting the given mountpoint
 	#[fixed_stack_segment]
-	pub fn mount (mountpoint: &str, options: &[~str]) -> Result<Channel, c_int> {
+	pub fn mount (mountpoint: &str, options: &[&str]) -> Result<Channel, c_int> {
 		do mountpoint.with_c_str |mnt| {
 			do with_fuse_args(options) |args| {
 				let fd = unsafe { fuse_mount_compat25(mnt, args) };

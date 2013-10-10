@@ -240,7 +240,7 @@ pub trait Filesystem {
 }
 
 /// Mount the given filesystem to the given mountpoint
-pub fn mount<FS: Filesystem+Send> (filesystem: ~FS, mountpoint: ~str, options: &[~str]) -> BackgroundSession {
+pub fn mount<FS: Filesystem+Send> (filesystem: ~FS, mountpoint: &str, options: &[&str]) -> BackgroundSession {
 	Session::mount(filesystem, mountpoint, options).start()
 }
 
