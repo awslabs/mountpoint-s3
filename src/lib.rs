@@ -17,6 +17,8 @@
 #[author = "Andreas Neuhaus <info@zargony.com>"];
 #[license = "MIT"];
 
+#[feature(globs)];
+
 // --------------------------------------------------------------------------
 
 use std::libc::{c_int, mode_t, dev_t, size_t, off_t};

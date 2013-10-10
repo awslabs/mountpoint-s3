@@ -41,9 +41,9 @@ impl<FS: Filesystem> Session<FS> {
 		let mut req = Request::new();
 		loop {
 			match req.read(self) {
-				Err(ENOENT) => loop,			// Operation interrupted. Accordingly to FUSE, this is safe to retry
-				Err(EINTR) => loop,				// Interrupted system call, retry
-				Err(EAGAIN) => loop,			// Explicitly try again
+				Err(ENOENT) => continue,		// Operation interrupted. Accordingly to FUSE, this is safe to retry
+				Err(EINTR) => continue,			// Interrupted system call, retry
+				Err(EAGAIN) => continue,		// Explicitly try again
 				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
 				Err(err) => fail2!("Lost connection to FUSE device. Error {:i}", err),
 				Ok(_) => req.dispatch(self),
