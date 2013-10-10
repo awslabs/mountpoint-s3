@@ -67,8 +67,8 @@ impl Channel {
 	/// Closes the communication channel to the kernel driver
 	#[fixed_stack_segment]
 	pub fn close (&mut self) {
+		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
 		unsafe { ::std::libc::close(self.fd); }
-		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X
 		self.fd = -1;
 	}
 
