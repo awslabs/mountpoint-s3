@@ -29,7 +29,6 @@ See the examples directory for some basic examples.
 
 There's still a lot of stuff to be done. Feel free to contribute.
 
-- Currently mounting a filesystem by calling `mount` blocks until the filesystem is unmounted externally. Actually it should run a background task for the filesystem and return some handle that provides a way to unmount. It should also unmount if the process terminates.
 - The session loop calls readv which can block the scheduler. It either needs to be run on it own single threaded scheduler or should be ported to event based I/O using the new std::rt::io. Hopefully this will support reading from a fd. It probably won't support indirect writes (like iovecs), so it's open how data can be composed to a single write without copying.
 - Interrupting a filesystem operation isn't handled yet.
 - Posix lock operations aren't dispatched yet. However these are rarely needed, since the kernel provides local locks automatically and these operations are only used if you want to synchronize with something externally (like NFS does).

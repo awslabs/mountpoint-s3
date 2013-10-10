@@ -23,7 +23,7 @@
 
 use std::libc::{c_int, mode_t, dev_t, size_t, off_t};
 use std::libc::ENOSYS;
-use session::Session;
+use session::{Session, BackgroundSession};
 
 // Re-export types used in results of filesystem operations
 pub use native::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
@@ -240,9 +240,8 @@ pub trait Filesystem {
 }
 
 /// Mount the given filesystem to the given mountpoint
-pub fn mount<FS: Filesystem> (filesystem: ~FS, mountpoint: ~str, options: &[~str]) {
-	let mut se = Session::mount(filesystem, mountpoint, options);
-	se.run();
+pub fn mount<FS: Filesystem+Send> (filesystem: ~FS, mountpoint: ~str, options: &[~str]) -> BackgroundSession {
+	Session::mount(filesystem, mountpoint, options).start()
 }
 
 // --------------------------------------------------------------------------

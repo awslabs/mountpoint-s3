@@ -4,6 +4,7 @@
  * runs a loop that receives, dispatches and replies kernel requests.
  */
 
+use std::task;
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel::Channel;
 use Filesystem;
@@ -20,7 +21,7 @@ pub struct Session<FS> {
 	destroyed: bool,
 }
 
-impl<FS: Filesystem> Session<FS> {
+impl<FS: Filesystem+Send> Session<FS> {
 	/// Mount the given filesystem to the given mountpoint
 	pub fn mount (filesystem: ~FS, mountpoint: ~str, options: &[~str]) -> Session<FS> {
 		info2!("Mounting {:s}", mountpoint);
@@ -50,15 +51,45 @@ impl<FS: Filesystem> Session<FS> {
 			}
 		}
 	}
+
+	/// Start the session loop in a background task
+	pub fn start (self) -> BackgroundSession {
+		BackgroundSession::start(self)
+	}
 }
 
 #[unsafe_destructor]
-impl<FS: Filesystem> Drop for Session<FS> {
-	#[fixed_stack_segment]
+impl<FS: Filesystem+Send> Drop for Session<FS> {
 	fn drop (&mut self) {
 		info2!("Unmounting {:s}", self.mountpoint);
-		// Close kernel channel before unnmounting to prevent sync unmount deadlock
-		self.ch.close();
+		self.ch.close();		// Close channel before unnmount to prevent sync unmount deadlock
+		Channel::unmount(self.mountpoint);
+	}
+}
+
+/// The background session data structure
+pub struct BackgroundSession {
+	mountpoint: ~str,
+}
+
+impl BackgroundSession {
+	/// Start the session loop of the given session in a background task
+	pub fn start<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
+		let mountpoint = se.mountpoint.clone();
+		let mut t = task::task();
+		// The background task is started using a a new single threaded
+		// scheduler since I/O in the session loop can block
+		t.sched_mode(task::SingleThreaded);
+		do t.spawn_with(se) |mut se| {
+			se.run();
+		}
+		BackgroundSession { mountpoint: mountpoint }
+	}
+
+	/// End the session by unmounting the filesystem (which will
+	/// eventually end the session loop)
+	pub fn unmount (&self) {
+		info2!("Unmounting {:s}", self.mountpoint);
 		Channel::unmount(self.mountpoint);
 	}
 }
