@@ -2,9 +2,9 @@
  * Communication channel to the FUSE kernel driver.
  */
 
-use std::{os, ptr, vec};
+use std::{os, vec};
 use std::io::fd_t;
-use std::libc::{c_char, c_int, c_void, size_t};
+use std::libc::{c_int, c_void, size_t};
 use native::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 pub struct Channel {
@@ -14,15 +14,13 @@ pub struct Channel {
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T> (options: &[&str], f: &fn(&fuse_args) -> T) -> T {
-	let argptrs = ~["progname".with_c_str(|s| s)] +
-		options.map(|arg| { arg.with_c_str(|s| s) }) +
-		~[ptr::null::<c_char>()];
-	let args = fuse_args {
-		argc: options.len() as c_int - 1,
-		argv: vec::raw::to_ptr(argptrs),
-		allocated: 0,
-	};
-	f(&args)
+	do "rust-fuse".with_c_str |progname| {
+		let args = options.map(|arg| arg.to_c_str());
+		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));
+		do argptrs.as_imm_buf |argv, argc| {
+			f(&fuse_args { argc: argc as i32, argv: argv, allocated: 0 })
+		}
+	}
 }
 
 // Libc provides iovec based I/O using readv and writev functions
@@ -98,5 +96,24 @@ impl Channel {
 			unsafe { libc::writev(self.fd, iovptr, iovcnt as c_int) }
 		};
 		if rc < 0 { Err(os::errno() as c_int) } else { Ok(()) }
+	}
+}
+
+
+#[cfg(test)]
+mod test {
+	use super::with_fuse_args;
+	use std::vec;
+
+	#[test]
+	fn test_with_fuse_args () {
+		do with_fuse_args(["foo", "bar"]) |args| {
+			unsafe {
+				assert!(args.argc == 3);
+				do vec::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10) |bytes| { assert!(bytes == bytes!("rust-fuse\0") ); }
+				do vec::raw::buf_as_slice(*args.argv.offset(1) as *u8, 4) |bytes| { assert!(bytes == bytes!("foo\0")); }
+				do vec::raw::buf_as_slice(*args.argv.offset(2) as *u8, 4) |bytes| { assert!(bytes == bytes!("bar\0")); }
+			}
+		}
 	}
 }
