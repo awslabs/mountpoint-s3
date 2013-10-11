@@ -12,7 +12,7 @@ use request::Request;
 
 /// The session data structure
 pub struct Session<FS> {
-	filesystem: ~FS,
+	filesystem: FS,
 	mountpoint: ~str,
 	ch: Channel,
 	proto_major: uint,
@@ -23,7 +23,7 @@ pub struct Session<FS> {
 
 impl<FS: Filesystem+Send> Session<FS> {
 	/// Mount the given filesystem to the given mountpoint
-	pub fn mount (filesystem: ~FS, mountpoint: &str, options: &[&str]) -> Session<FS> {
+	pub fn mount (filesystem: FS, mountpoint: &str, options: &[&str]) -> Session<FS> {
 		info2!("Mounting {:s}", mountpoint);
 		let ch = Channel::mount(mountpoint, options).expect("unable to mount filesystem");
 		Session {

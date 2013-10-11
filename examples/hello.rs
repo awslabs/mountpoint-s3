@@ -53,5 +53,5 @@ impl fuse::Filesystem for HelloFS {
 }
 
 fn main () {
-	fuse::mount(~HelloFS, ::std::os::args()[1], []);
+	fuse::mount(HelloFS, ::std::os::args()[1], []);
 }
