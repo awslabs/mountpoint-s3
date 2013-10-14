@@ -27,9 +27,12 @@ use session::{Session, BackgroundSession};
 
 // Re-export types used in results of filesystem operations
 pub use native::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
-pub use native::{fuse_getxtimes_out, fuse_setattr_in, fuse_open_out, fuse_write_out};
+pub use native::{fuse_setattr_in, fuse_open_out, fuse_write_out};
 pub use native::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
 pub use native::consts;
+#[cfg(target_os = "macos")]
+pub use native::{fuse_getxtimes_out};
+
 pub use sendable::DirBuffer;
 
 /// Filesystem trait.
