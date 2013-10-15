@@ -49,6 +49,7 @@ impl Request {
 			res
 		}
 	}
+
 	/// Dispatch request to the given filesystem.
 	/// This parses a previously read request, calls the appropriate
 	/// filesystem operation method and sends back the returned reply
@@ -250,9 +251,9 @@ impl Request {
 				assert!(value.len() == arg.size as uint);
 				debug2!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", header.unique, header.nodeid, name, arg.size, arg.flags);
 				#[cfg(target_os = "macos")]
-				fn get_position(arg:&fuse_setxattr_in) -> off_t { arg.position as off_t }
+				fn get_position(arg: &fuse_setxattr_in) -> off_t { arg.position as off_t }
 				#[cfg(not(target_os = "macos"))]
-				fn get_position(_arg:&fuse_setxattr_in) -> off_t { 0 }
+				fn get_position(_arg: &fuse_setxattr_in) -> off_t { 0 }
 				self.reply(ch, se.filesystem.setxattr(header.nodeid, name, value, arg.flags as uint, get_position(arg)));
 			},
 			FUSE_GETXATTR => {
