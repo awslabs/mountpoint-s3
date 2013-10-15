@@ -4,9 +4,11 @@
 
 use std::{cast, ptr, sys, vec};
 use std::libc::{mode_t, off_t, S_IFMT};
-use native::{fuse_entry_out, fuse_attr_out, fuse_getxtimes_out, fuse_open_out};
+use native::{fuse_entry_out, fuse_attr_out, fuse_open_out};
 use native::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
 use native::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
+#[cfg(target_os = "macos")]
+use native::{fuse_getxtimes_out};
 
 /// Trait for types that can be sent as a reply to the FUSE kernel driver
 pub trait Sendable {
@@ -26,7 +28,6 @@ pub trait Sendable {
 // Implemente sendable trait for fuse_*_out data types
 impl Sendable for fuse_entry_out { }
 impl Sendable for fuse_attr_out { }
-impl Sendable for fuse_getxtimes_out { }
 impl Sendable for fuse_open_out { }
 impl Sendable for fuse_write_out { }
 impl Sendable for fuse_statfs_out { }
@@ -35,6 +36,8 @@ impl Sendable for fuse_lk_out { }
 impl Sendable for fuse_init_out { }
 impl Sendable for fuse_bmap_out { }
 impl Sendable for fuse_out_header { }
+#[cfg(target_os = "macos")]
+impl Sendable for fuse_getxtimes_out { }
 
 impl<S: Sendable> Sendable for ~S {
 	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {

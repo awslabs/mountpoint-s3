@@ -44,6 +44,7 @@ pub static FUSE_KERNEL_MINOR_VERSION: u32 = 8;
 pub static FUSE_ROOT_ID: u64 = 1;
 
 #[cfg(target_os = "macos")]
+#[deriving(Default)]
 pub struct fuse_attr {
 	ino: u64,
 	size: u64,
@@ -65,6 +66,7 @@ pub struct fuse_attr {
 }
 
 #[cfg(target_os = "linux")]
+#[deriving(Default)]
 pub struct fuse_attr {
 	ino: u64,
 	size: u64,
