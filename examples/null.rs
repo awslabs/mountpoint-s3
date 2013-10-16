@@ -6,5 +6,6 @@ impl fuse::Filesystem for NullFS {
 }
 
 fn main () {
-	fuse::mount(NullFS, ::std::os::args()[1], []);
+	let mount_point = ::std::os::args()[1];
+	fuse::mount(NullFS, mount_point.as_bytes(), []);
 }

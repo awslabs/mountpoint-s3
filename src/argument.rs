@@ -3,8 +3,7 @@
  * structures.
  */
 
-use std::{cast, str, mem};
-use std::libc::c_char;
+use std::{cast, mem};
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'self> {
@@ -29,14 +28,13 @@ impl<'self> ArgumentIterator<'self> {
 	}
 
 	/// Fetch a (zero-terminated) string
-	pub fn fetch_str (&mut self) -> &'self str {
-		do self.data.as_imm_buf |dataptr, _| {
-			// FIXME: this fails if data contains non-utf8 garbage (c_str_to_static_slice asserts an utf8 string)
-			let text = unsafe { str::raw::c_str_to_static_slice(dataptr.offset(self.pos as int) as *c_char) };
-			self.pos += text.len() + 1;
-			assert!(self.pos <= self.data.len(), "trying to get argument behind data");
-			text
+	pub fn fetch_str (&mut self) -> &'self [u8] {
+		let start = self.pos;
+		while(self.data[self.pos] != 0u8) {
+			self.pos += 1
 		}
+		self.pos += 1;  // Eat the null terminator
+		self.data.slice(start, self.pos-1)
 	}
 
 	/// Fetch a slice of the remaining data
@@ -72,9 +70,9 @@ mod test {
 	fn test_argument_string () {
 		let mut it = ArgumentIterator::new(test_data);
 		let arg = it.fetch_str();
-		assert!(arg == "foo", "argument iterator should fetch string from data");
+		assert!(arg == bytes!("foo"), "argument iterator should fetch string from data");
 		let arg = it.fetch_str();
-		assert!(arg == "bar", "argument iterator should fetch string from data");
+		assert!(arg == bytes!("bar"), "argument iterator should fetch string from data");
 	}
 
 	#[test]
@@ -94,7 +92,7 @@ mod test {
 		assert!(arg.p2 == 0x6f, "argument iterator should fetch typed argument from data");
 		assert!(arg.p3 == 0x006f, "argument iterator should fetch typed argument from data");
 		let arg = it.fetch_str();
-		assert!(arg == "bar", "argument iterator should fetch string from data");
+		assert!(arg == bytes!("bar"), "argument iterator should fetch string from data");
 		let arg = it.fetch_data();
 		assert!(arg == [0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
 	}
