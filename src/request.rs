@@ -13,6 +13,7 @@ use native::*;
 use native::consts::*;
 use sendable::{Sendable, DirBuffer};
 use session::Session;
+use super::logstr;
 
 /// Maximum write size. FUSE recommends at least 128k, max 16M. Default on OS X is 16M.
 static MAX_WRITE_SIZE: u32 = 16*1024*1024;
@@ -121,7 +122,7 @@ impl Request {
 
 			FUSE_LOOKUP => {
 				let name = data.fetch_str();
-				debug2!("LOOKUP({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, name);
+				debug2!("LOOKUP({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
 				self.reply(ch, se.filesystem.lookup(header.nodeid, name));
 			},
 			FUSE_FORGET => {
@@ -145,42 +146,42 @@ impl Request {
 			FUSE_MKNOD => {
 				let arg: &fuse_mknod_in = data.fetch();
 				let name = data.fetch_str();
-				debug2!("MKNOD({:u}) parent {:#018x}, name {:s}, mode {:#05o}, rdev {:u}", header.unique, header.nodeid, name, arg.mode, arg.rdev);
+				debug2!("MKNOD({:u}) parent {:#018x}, name {:s}, mode {:#05o}, rdev {:u}", header.unique, header.nodeid, logstr(name), arg.mode, arg.rdev);
 				self.reply(ch, se.filesystem.mknod(header.nodeid, name, arg.mode as mode_t, arg.rdev as dev_t));
 			},
 			FUSE_MKDIR => {
 				let arg: &fuse_mkdir_in = data.fetch();
 				let name = data.fetch_str();
-				debug2!("MKDIR({:u}) parent {:#018x}, name {:s}, mode {:#05o}", header.unique, header.nodeid, name, arg.mode);
+				debug2!("MKDIR({:u}) parent {:#018x}, name {:s}, mode {:#05o}", header.unique, header.nodeid, logstr(name), arg.mode);
 				self.reply(ch, se.filesystem.mkdir(header.nodeid, name, arg.mode as mode_t));
 			},
 			FUSE_UNLINK => {
 				let name = data.fetch_str();
-				debug2!("UNLINK({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, name);
+				debug2!("UNLINK({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
 				self.reply(ch, se.filesystem.unlink(header.nodeid, name));
 			},
 			FUSE_RMDIR => {
 				let name = data.fetch_str();
-				debug2!("RMDIR({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, name);
+				debug2!("RMDIR({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
 				self.reply(ch, se.filesystem.rmdir(header.nodeid, name));
 			},
 			FUSE_SYMLINK => {
 				let name = data.fetch_str();
 				let link = data.fetch_str();
-				debug2!("SYMLINK({:u}) parent {:#018x}, name {:s}, link {:s}", header.unique, header.nodeid, name, link);
+				debug2!("SYMLINK({:u}) parent {:#018x}, name {:s}, link {:s}", header.unique, header.nodeid, logstr(name), logstr(link));
 				self.reply(ch, se.filesystem.symlink(header.nodeid, name, link));
 			},
 			FUSE_RENAME => {
 				let arg: &fuse_rename_in = data.fetch();
 				let name = data.fetch_str();
 				let newname = data.fetch_str();
-				debug2!("RENAME({:u}) parent {:#018x}, name {:s}, newparent {:#018x}, newname {:s}", header.unique, header.nodeid, name, arg.newdir, newname);
+				debug2!("RENAME({:u}) parent {:#018x}, name {:s}, newparent {:#018x}, newname {:s}", header.unique, header.nodeid, logstr(name), arg.newdir, logstr(newname));
 				self.reply(ch, se.filesystem.rename(header.nodeid, name, arg.newdir, newname));
 			},
 			FUSE_LINK => {
 				let arg: &fuse_link_in = data.fetch();
 				let newname = data.fetch_str();
-				debug2!("LINK({:u}) ino {:#018x}, newparent {:#018x}, newname {:s}", header.unique, arg.oldnodeid, header.nodeid, newname);
+				debug2!("LINK({:u}) ino {:#018x}, newparent {:#018x}, newname {:s}", header.unique, arg.oldnodeid, header.nodeid, logstr(newname));
 				self.reply(ch, se.filesystem.link(arg.oldnodeid, header.nodeid, newname));
 			},
 			FUSE_OPEN => {
@@ -249,7 +250,7 @@ impl Request {
 				let name = data.fetch_str();
 				let value = data.fetch_data();
 				assert!(value.len() == arg.size as uint);
-				debug2!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", header.unique, header.nodeid, name, arg.size, arg.flags);
+				debug2!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", header.unique, header.nodeid, logstr(name), arg.size, arg.flags);
 				#[cfg(target_os = "macos")]
 				fn get_position(arg: &fuse_setxattr_in) -> off_t { arg.position as off_t }
 				#[cfg(not(target_os = "macos"))]
@@ -259,7 +260,7 @@ impl Request {
 			FUSE_GETXATTR => {
 				let arg: &fuse_getxattr_in = data.fetch();
 				let name = data.fetch_str();
-				debug2!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", header.unique, header.nodeid, name, arg.size);
+				debug2!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", header.unique, header.nodeid, logstr(name), arg.size);
 				match se.filesystem.getxattr(header.nodeid, name) {
 					// If arg.size is zero, the size of the value should be sent with fuse_getxattr_out
 					Ok(ref value) if arg.size == 0 => self.reply(ch, Ok(fuse_getxattr_out { size: value.len() as u32, padding: 0 })),
@@ -281,7 +282,7 @@ impl Request {
 			},
 			FUSE_REMOVEXATTR => {
 				let name = data.fetch_str();
-				debug2!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", header.unique, header.nodeid, name);
+				debug2!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
 				self.reply(ch, se.filesystem.removexattr(header.nodeid, name));
 			},
 			FUSE_ACCESS => {
@@ -312,7 +313,7 @@ impl Request {
 		match opcode {
 			FUSE_SETVOLNAME => {
 				let name = data.fetch_str();
-				debug2!("SETVOLNAME({:u}) name {:s}", header.unique, name);
+				debug2!("SETVOLNAME({:u}) name {:s}", header.unique, logstr(name));
 				self.reply(ch, se.filesystem.setvolname(name));
 				true
 			},
@@ -320,7 +321,7 @@ impl Request {
 				let arg: &fuse_exchange_in = data.fetch();
 				let oldname = data.fetch_str();
 				let newname = data.fetch_str();
-				debug2!("EXCHANGE({:u}) parent {:#018x}, name {:s}, newparent {:#018x}, newname {:s}, options {:#x}", header.unique, arg.olddir, oldname, arg.newdir, newname, arg.options);
+				debug2!("EXCHANGE({:u}) parent {:#018x}, name {:s}, newparent {:#018x}, newname {:s}, options {:#x}", header.unique, arg.olddir, logstr(oldname), arg.newdir, logstr(newname), arg.options);
 				self.reply(ch, se.filesystem.exchange(arg.olddir, oldname, arg.newdir, newname, arg.options as uint));
 				true
 			},

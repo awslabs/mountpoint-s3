@@ -13,7 +13,7 @@ pub struct Channel {
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T> (options: &[&str], f: &fn(&fuse_args) -> T) -> T {
+fn with_fuse_args<T> (options: &[&[u8]], f: &fn(&fuse_args) -> T) -> T {
 	do "rust-fuse".with_c_str |progname| {
 		let args = options.map(|arg| arg.to_c_str());
 		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));
@@ -45,7 +45,7 @@ impl Channel {
 	/// Creates a new communication channel to the kernel driver by
 	/// mounting the given mountpoint
 	#[fixed_stack_segment]
-	pub fn mount (mountpoint: &str, options: &[&str]) -> Result<Channel, c_int> {
+	pub fn mount (mountpoint: &[u8], options: &[&[u8]]) -> Result<Channel, c_int> {
 		do mountpoint.with_c_str |mnt| {
 			do with_fuse_args(options) |args| {
 				let fd = unsafe { fuse_mount_compat25(mnt, args) };
@@ -56,7 +56,7 @@ impl Channel {
 
 	/// Unmount a given mountpoint
 	#[fixed_stack_segment]
-	pub fn unmount (mountpoint: &str) {
+	pub fn unmount (mountpoint: &[u8]) {
 		do mountpoint.with_c_str |mnt| {
 			unsafe { fuse_unmount_compat22(mnt); }
 		}
@@ -107,7 +107,7 @@ mod test {
 
 	#[test]
 	fn test_with_fuse_args () {
-		do with_fuse_args(["foo", "bar"]) |args| {
+		do with_fuse_args([bytes!("foo"), bytes!("bar")]) |args| {
 			unsafe {
 				assert!(args.argc == 3);
 				do vec::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10) |bytes| { assert!(bytes == bytes!("rust-fuse\0") ); }

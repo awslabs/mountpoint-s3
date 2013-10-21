@@ -18,8 +18,8 @@ fn hello_txt_attr() -> fuse::fuse_attr {
 }
 
 impl fuse::Filesystem for HelloFS {
-	fn lookup (&mut self, parent: u64, name: &str) -> Result<~fuse::fuse_entry_out, c_int> {
-		if parent == 1 && name == "hello.txt" {
+	fn lookup (&mut self, parent: u64, name: &[u8]) -> Result<~fuse::fuse_entry_out, c_int> {
+		if parent == 1 && name == bytes!("hello.txt") {
 			Ok(~fuse::fuse_entry_out { nodeid: 2, generation: 0, attr: hello_txt_attr(), entry_valid: 1, entry_valid_nsec: 0, attr_valid: 1, attr_valid_nsec: 0 })
 		} else {
 			Err(ENOENT)
@@ -58,5 +58,6 @@ impl fuse::Filesystem for HelloFS {
 }
 
 fn main () {
-	fuse::mount(HelloFS, ::std::os::args()[1], []);
+	let mount_point = ::std::os::args()[1];
+	fuse::mount(HelloFS, mount_point.as_bytes(), []);
 }
