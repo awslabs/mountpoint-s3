@@ -3,7 +3,7 @@
  * structures.
  */
 
-use std::{cast, str, sys};
+use std::{cast, str, mem};
 use std::libc::c_char;
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
@@ -22,7 +22,7 @@ impl<'self> ArgumentIterator<'self> {
 	pub fn fetch<T> (&mut self) -> &'self T {
 		do self.data.as_imm_buf |dataptr, _| {
 			let value = unsafe { cast::transmute(dataptr.offset(self.pos as int)) };
-			self.pos += sys::size_of::<T>();
+			self.pos += mem::size_of::<T>();
 			assert!(self.pos <= self.data.len(), "trying to get argument behind data");
 			value
 		}

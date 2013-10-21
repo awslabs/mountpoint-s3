@@ -3,7 +3,7 @@
  * wants us to perform.
  */
 
-use std::{cast, sys, vec};
+use std::{cast, mem, vec};
 use std::libc::{dev_t, c_int, mode_t, off_t, size_t};
 use std::libc::{EIO, ENOSYS, EPROTO, ERANGE};
 use argument::ArgumentIterator;
@@ -42,7 +42,7 @@ impl Request {
 		assert!(self.data.capacity() >= MAX_WRITE_SIZE as uint + 4096);
 		// The kernel driver makes sure that we get exactly one request per read
 		let res = se.ch.receive(&mut self.data);
-		if res.is_ok() && self.data.len() < sys::size_of::<fuse_in_header>() {
+		if res.is_ok() && self.data.len() < mem::size_of::<fuse_in_header>() {
 			error!("Short read on FUSE device");
 			Err(EIO)
 		} else {
@@ -57,7 +57,7 @@ impl Request {
 	pub fn dispatch<FS: Filesystem> (&self, se: &mut Session<FS>) {
 		// Every request begins with a fuse_in_header struct followed by arbitrary
 		// data depending on which opcode it contains
-		assert!(self.data.len() >= sys::size_of::<fuse_in_header>());
+		assert!(self.data.len() >= mem::size_of::<fuse_in_header>());
 		let mut data = ArgumentIterator::new(self.data);
 		let header: &fuse_in_header = data.fetch();
 		let ch = se.ch;
@@ -341,7 +341,7 @@ impl Request {
 		do data.as_bytegroups |databytes| {
 			let datalen = databytes.iter().fold(0, |l, b| { l +  b.len()});
 			let outheader = fuse_out_header {
-				len: sys::size_of::<fuse_out_header>() as u32 + datalen as u32,
+				len: mem::size_of::<fuse_out_header>() as u32 + datalen as u32,
 				error: err as i32,
 				unique: inheader.unique,
 			};

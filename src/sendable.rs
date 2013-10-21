@@ -2,7 +2,7 @@
  * Helper to compose arbitrary data structures into packets of binary data.
  */
 
-use std::{cast, ptr, sys, vec};
+use std::{cast, ptr, mem, vec};
 use std::libc::{mode_t, off_t, S_IFMT};
 use native::{fuse_entry_out, fuse_attr_out, fuse_open_out};
 use native::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
@@ -17,7 +17,7 @@ pub trait Sendable {
 		// structs, i.e. fuse_*_out)
 		unsafe {
 			let ptr = ptr::to_unsafe_ptr(self);
-			let len = sys::size_of::<Self>();
+			let len = mem::size_of::<Self>();
 			do vec::raw::buf_as_slice(ptr as *u8, len) |bytes| {
 				f([bytes])
 			}
@@ -87,8 +87,8 @@ impl DirBuffer {
 	/// kernel uses these value to request more entries in further readdir
 	/// calls
 	pub fn fill (&mut self, ino: u64, off: off_t, mode: mode_t, name: &str) -> bool {
-		let entlen = sys::size_of::<fuse_dirent>() + name.len();
-		let entsize = (entlen + sys::size_of::<u64>() - 1) & !(sys::size_of::<u64>() - 1);	// 64bit align
+		let entlen = mem::size_of::<fuse_dirent>() + name.len();
+		let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);	// 64bit align
 		let padlen = entsize - entlen;
 		if self.data.len() + entsize > self.data.capacity() { return true; }
 		unsafe {
@@ -99,7 +99,7 @@ impl DirBuffer {
 				(*pdirent).off = off as u64;
 				(*pdirent).namelen = name.len() as u32;
 				(*pdirent).typ = (mode as u32 & S_IFMT as u32) >> 12;
-				let p = p.offset(sys::size_of_val(&*pdirent) as int);
+				let p = p.offset(mem::size_of_val(&*pdirent) as int);
 				do name.as_imm_buf |nameptr, namelen| {
 					ptr::copy_memory(p, nameptr, namelen);
 				}
