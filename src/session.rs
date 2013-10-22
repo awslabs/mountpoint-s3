@@ -37,7 +37,9 @@ impl<FS: Filesystem+Send> Session<FS> {
 		}
 	}
 
-	/// Run the session loop that receives, dispatches and replies to kernel requests
+	/// Run the session loop that receives, dispatches and replies to kernel requests.
+	/// Make sure to run it on a new single threaded scheduler since the I/O in the
+	/// session loop can block.
 	pub fn run (&mut self) {
 		let mut req = Request::new();
 		loop {

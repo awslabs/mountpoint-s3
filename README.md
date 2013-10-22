@@ -23,16 +23,18 @@ To create a new filesystem, implement the trait `Filesystem`. All methods have d
 
 To actually mount the filesystem, pass an object that implements `Filesystem` and the path of the mountpoint to the `mount` function.
 
+To unmount the filesystem, call `unmount` on the handle the `mount` function returned, or use any unmount/eject method of your OS.
+
 See the examples directory for some basic examples.
 
 ## To Do
 
 There's still a lot of stuff to be done. Feel free to contribute.
 
-- The session loop calls readv which can block the scheduler. It either needs to be run on it own single threaded scheduler or should be ported to event based I/O using the new std::rt::io. Hopefully this will support reading from a fd. It probably won't support indirect writes (like iovecs), so it's open how data can be composed to a single write without copying.
+- Filesystem operations are currently always dispatched in the same task. Running multiple operations concurrently is probably desirable, especially for read/write operations.
 - Interrupting a filesystem operation isn't handled yet.
-- Posix lock operations aren't dispatched yet. However these are rarely needed, since the kernel provides local locks automatically and these operations are only used if you want to synchronize with something externally (like NFS does).
 - Using `fuse_*_out` in the results of `Filesystem` methods doesn't look right. These native structs should be hidden from the public interface.
+- An additional more high level API would be nice. It should provide pathnames instead inode numbers and automatically handle concurrency and interruption (like the FUSE C library's high level API).
 
 In general, search for "TODO" or "FIXME" in the source files to see what's still missing.
 
