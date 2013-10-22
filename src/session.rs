@@ -9,12 +9,11 @@ use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel::Channel;
 use Filesystem;
 use request::Request;
-use super::logstr;
 
 /// The session data structure
 pub struct Session<FS> {
 	filesystem: FS,
-	mountpoint: ~[u8],
+	mountpoint: Path,
 	ch: Channel,
 	proto_major: uint,
 	proto_minor: uint,
@@ -24,12 +23,12 @@ pub struct Session<FS> {
 
 impl<FS: Filesystem+Send> Session<FS> {
 	/// Mount the given filesystem to the given mountpoint
-	pub fn mount (filesystem: FS, mountpoint: &[u8], options: &[&[u8]]) -> Session<FS> {
-		info2!("Mounting {:s}", logstr(mountpoint));
+	pub fn mount (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
+		info2!("Mounting {}", mountpoint.display());
 		let ch = Channel::mount(mountpoint, options).expect("unable to mount filesystem");
 		Session {
 			filesystem: filesystem,
-			mountpoint: mountpoint.to_owned(),
+			mountpoint: mountpoint.clone(),
 			ch: ch,
 			proto_major: 0,
 			proto_minor: 0,
@@ -62,15 +61,15 @@ impl<FS: Filesystem+Send> Session<FS> {
 #[unsafe_destructor]
 impl<FS: Filesystem+Send> Drop for Session<FS> {
 	fn drop (&mut self) {
-		info2!("Unmounting {:s}", logstr(self.mountpoint));
+		info2!("Unmounting {}", self.mountpoint.display());
 		self.ch.close();		// Close channel before unnmount to prevent sync unmount deadlock
-		Channel::unmount(self.mountpoint);
+		Channel::unmount(&self.mountpoint);
 	}
 }
 
 /// The background session data structure
 pub struct BackgroundSession {
-	mountpoint: ~[u8],
+	mountpoint: Path,
 }
 
 impl BackgroundSession {
@@ -90,7 +89,7 @@ impl BackgroundSession {
 	/// End the session by unmounting the filesystem (which will
 	/// eventually end the session loop)
 	pub fn unmount (&self) {
-		info2!("Unmounting {:s}", logstr(self.mountpoint));
-		Channel::unmount(self.mountpoint);
+		info2!("Unmounting {}", self.mountpoint.display());
+		Channel::unmount(&self.mountpoint);
 	}
 }

@@ -45,7 +45,7 @@ impl Channel {
 	/// Creates a new communication channel to the kernel driver by
 	/// mounting the given mountpoint
 	#[fixed_stack_segment]
-	pub fn mount (mountpoint: &[u8], options: &[&[u8]]) -> Result<Channel, c_int> {
+	pub fn mount (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
 		do mountpoint.with_c_str |mnt| {
 			do with_fuse_args(options) |args| {
 				let fd = unsafe { fuse_mount_compat25(mnt, args) };
@@ -56,7 +56,7 @@ impl Channel {
 
 	/// Unmount a given mountpoint
 	#[fixed_stack_segment]
-	pub fn unmount (mountpoint: &[u8]) {
+	pub fn unmount (mountpoint: &Path) {
 		do mountpoint.with_c_str |mnt| {
 			unsafe { fuse_unmount_compat22(mnt); }
 		}

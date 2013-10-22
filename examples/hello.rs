@@ -6,12 +6,14 @@ use std::default::Default;
 struct HelloFS;
 
 static hello_world: &'static str = "Hello World!\n";
-fn hello_dir_attr() -> fuse::fuse_attr { 
+
+fn hello_dir_attr () -> fuse::fuse_attr {
 	fuse::fuse_attr {
 		ino: 1, mode: S_IFDIR as u32|493, nlink: 2, uid: 501, gid: 20, ..Default::default()
 	}
 }
-fn hello_txt_attr() -> fuse::fuse_attr {
+
+fn hello_txt_attr () -> fuse::fuse_attr {
 	fuse::fuse_attr {
 		ino: 2, size: 13, mode: S_IFREG as u32|420, nlink: 1, uid: 501, gid: 20, ..Default::default()
 	}
@@ -58,6 +60,6 @@ impl fuse::Filesystem for HelloFS {
 }
 
 fn main () {
-	let mount_point = ::std::os::args()[1];
-	fuse::mount(HelloFS, mount_point.as_bytes(), []);
+	let mountpoint = Path::new(::std::os::args()[1]);
+	fuse::mount(HelloFS, &mountpoint, []);
 }
