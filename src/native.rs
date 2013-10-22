@@ -146,7 +146,7 @@ pub mod consts {
 
 pub enum fuse_opcode {
 	FUSE_LOOKUP = 1,
-	FUSE_FORGET = 2,		// no reply
+	FUSE_FORGET = 2,			// no reply
 	FUSE_GETATTR = 3,
 	FUSE_SETATTR = 4,
 	FUSE_READLINK = 5,
@@ -181,9 +181,9 @@ pub enum fuse_opcode {
 	FUSE_INTERRUPT = 36,
 	FUSE_BMAP = 37,
 	FUSE_DESTROY = 38,
-	FUSE_SETVOLNAME = 61,	// OS X only
-	FUSE_GETXTIMES = 62,	// OS X only
-	FUSE_EXCHANGE = 63,		// OS X only
+	FUSE_SETVOLNAME = 61,		// OS X only
+	FUSE_GETXTIMES = 62,		// OS X only
+	FUSE_EXCHANGE = 63,			// OS X only
 }
 
 pub struct fuse_entry_out {
