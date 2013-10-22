@@ -3,7 +3,7 @@
  * wants us to perform.
  */
 
-use std::{cast, mem, vec};
+use std::{mem, vec};
 use std::libc::{dev_t, c_int, mode_t, off_t, size_t};
 use std::libc::{EIO, ENOSYS, EPROTO, ERANGE};
 use argument::ArgumentIterator;
@@ -62,9 +62,14 @@ impl Request {
 		let mut data = ArgumentIterator::new(self.data);
 		let header: &fuse_in_header = data.fetch();
 		let ch = se.ch;
-		// FIXME: Ugly (and unsafe) way of conversion to enum. Fix this, once Rust can convert
-		// integers to enums somehow. See https://github.com/mozilla/rust/issues/3868
-		let opcode: fuse_opcode = unsafe { cast::transmute(header.opcode as uint) };
+		let opcode: fuse_opcode = match FromPrimitive::from_u32(header.opcode) {
+			Some(op) => op,
+			None => {
+				warn2!("Ignoring unknown FUSE operation {:u}", header.opcode)
+				self.reply_error(ch, ENOSYS);
+				return;
+			},
+		};
 		match opcode {
 			// Filesystem initialization
 			FUSE_INIT => {

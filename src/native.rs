@@ -144,6 +144,7 @@ pub mod consts {
 	pub static FUSE_RELEASE_FLUSH: u32		= 1 << 0;
 }
 
+#[deriving(FromPrimitive)]
 pub enum fuse_opcode {
 	FUSE_LOOKUP = 1,
 	FUSE_FORGET = 2,			// no reply
