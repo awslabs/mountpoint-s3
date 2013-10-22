@@ -4,7 +4,7 @@
 
 use std::{cast, ptr, mem, vec};
 use std::libc::{mode_t, off_t, S_IFMT};
-use native::{fuse_entry_out, fuse_attr_out, fuse_open_out};
+use native::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
 use native::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
 use native::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
 #[cfg(target_os = "macos")]
@@ -26,6 +26,7 @@ pub trait Sendable {
 }
 
 // Implemente sendable trait for fuse_*_out data types
+impl Sendable for fuse_file_lock { }
 impl Sendable for fuse_entry_out { }
 impl Sendable for fuse_attr_out { }
 impl Sendable for fuse_open_out { }
@@ -49,6 +50,20 @@ impl Sendable for () {
 	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
 		// A unit value has nothing to send
 		f([])
+	}
+}
+
+impl<S1: Sendable, S2: Sendable> Sendable for (S1, S2) {
+	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+		match self {
+			&(ref s1, ref s2) => {
+				do s1.as_bytegroups |d1| {
+					do s2.as_bytegroups |d2| {
+						f(d1 + d2)
+					}
+				}
+			},
+		}
 	}
 }
 
@@ -157,6 +172,16 @@ mod test {
 		let data = ();
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 0, "sendable empty element should be represented by no bytes slice at all");
+		});
+	}
+
+	#[test]
+	fn test_sendable_tuple () {
+		let data = (test_data_t { p1: 111, p2: 222, p3: 333 }, test_data_t { p1: 112, p2: 223, p3: 334 });
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 2, "sendable tuple should be represented as multiple bytes slices");
+			assert!(bytes[0] == [0x6f, 0xde, 0x4d, 0x01], "sendable tuple should first be represented by a bytes slice with the byte representation of the first element");
+			assert!(bytes[1] == [0x70, 0xdf, 0x4e, 0x01], "sendable tuple should second be represented by a bytes slice with the byte representation of the second element");
 		});
 	}
 
