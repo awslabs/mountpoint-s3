@@ -118,7 +118,12 @@ impl Request {
 				self.reply_error(ch, EIO);
 			}
 
-			// TODO: FUSE_INTERRUPT,
+			FUSE_INTERRUPT => {
+				let arg: &fuse_interrupt_in = data.fetch();
+				debug2!("INTERRUPT({:u}) unique {:u}", header.unique, arg.unique);
+				// TODO: handle FUSE_INTERRUPT
+				self.reply_error(ch, ENOSYS);
+			},
 
 			FUSE_LOOKUP => {
 				let name = data.fetch_str();
