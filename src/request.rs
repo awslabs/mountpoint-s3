@@ -196,7 +196,7 @@ impl Request {
 			},
 			FUSE_OPEN => {
 				let arg: &fuse_open_in = data.fetch();
-				debug2!("OPEN({:u}) ino {:#018x}, flags {:#x}, mode {:#x}", header.unique, header.nodeid, arg.flags, arg.mode);
+				debug2!("OPEN({:u}) ino {:#018x}, flags {:#x}", header.unique, header.nodeid, arg.flags);
 				self.reply(ch, se.filesystem.open(header.nodeid, arg.flags as uint));
 			},
 			FUSE_READ => {
@@ -232,7 +232,7 @@ impl Request {
 			},
 			FUSE_OPENDIR => {
 				let arg: &fuse_open_in = data.fetch();
-				debug2!("OPENDIR({:u}) ino {:#018x}, flags {:#x}, mode {:#x}", header.unique, header.nodeid, arg.flags, arg.mode);
+				debug2!("OPENDIR({:u}) ino {:#018x}, flags {:#x}", header.unique, header.nodeid, arg.flags);
 				self.reply(ch, se.filesystem.opendir(header.nodeid, arg.flags as uint));
 			},
 			FUSE_READDIR => {
@@ -303,7 +303,7 @@ impl Request {
 			FUSE_CREATE => {
 				let arg: &fuse_open_in = data.fetch();
 				let name = data.fetch_str();
-				debug2!("CREATE({:u}) parent {:#018x}, name {:s}, mode {:#x}, flags {:#x}", header.unique, header.nodeid, logstr(name), arg.mode, arg.flags);
+				debug2!("CREATE({:u}) parent {:#018x}, name {:s}, mode {:#05o}, flags {:#x}", header.unique, header.nodeid, logstr(name), arg.mode, arg.flags);
 				self.reply(ch, se.filesystem.create(header.nodeid, name, arg.mode as mode_t, arg.flags as uint));
 			},
 			FUSE_GETLK => {
