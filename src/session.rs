@@ -24,7 +24,7 @@ pub struct Session<FS> {
 impl<FS: Filesystem+Send> Session<FS> {
 	/// Mount the given filesystem to the given mountpoint
 	pub fn mount (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
-		info2!("Mounting {}", mountpoint.display());
+		info!("Mounting {}", mountpoint.display());
 		let ch = Channel::mount(mountpoint, options).expect("unable to mount filesystem");
 		Session {
 			filesystem: filesystem,
@@ -48,7 +48,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 				Err(EINTR) => continue,			// Interrupted system call, retry
 				Err(EAGAIN) => continue,		// Explicitly try again
 				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
-				Err(err) => fail2!("Lost connection to FUSE device. Error {:i}", err),
+				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
 				Ok(_) => req.dispatch(self),
 			}
 		}
@@ -63,7 +63,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 #[unsafe_destructor]
 impl<FS: Filesystem+Send> Drop for Session<FS> {
 	fn drop (&mut self) {
-		info2!("Unmounting {}", self.mountpoint.display());
+		info!("Unmounting {}", self.mountpoint.display());
 		self.ch.close();		// Close channel before unnmount to prevent sync unmount deadlock
 		Channel::unmount(&self.mountpoint);
 	}
@@ -91,7 +91,7 @@ impl BackgroundSession {
 	/// End the session by unmounting the filesystem (which will
 	/// eventually end the session loop)
 	pub fn unmount (&self) {
-		info2!("Unmounting {}", self.mountpoint.display());
+		info!("Unmounting {}", self.mountpoint.display());
 		Channel::unmount(&self.mountpoint);
 	}
 }
