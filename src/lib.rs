@@ -220,7 +220,7 @@ pub trait Filesystem {
 	/// used to fill in this field in getlk(). Note: if the locking methods are not
 	/// implemented, the kernel will still allow file locking to work locally.
 	/// Hence these are only interesting for network filesystems and similar.
-	fn setlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock, _sleep: int) -> Result<(), c_int>		{ Err(ENOSYS) }
+	fn setlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock, _sleep: bool) -> Result<(), c_int>		{ Err(ENOSYS) }
 
 	/// Map block index within file to block index within device
 	/// Note: This makes sense only for block device backed filesystems mounted

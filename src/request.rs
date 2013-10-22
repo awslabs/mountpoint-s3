@@ -290,10 +290,23 @@ impl Request {
 				debug2!("ACCESS({:u}) ino {:#018x}, mask {:#05o}", header.unique, header.nodeid, arg.mask);
 				self.reply(ch, se.filesystem.access(header.nodeid, arg.mask as uint));
 			},
-			// TODO: FUSE_CREATE,
-			// TODO: FUSE_GETLK,
-			// TODO: FUSE_SETLK,
-			// TODO: FUSE_SETLKW,
+			FUSE_CREATE => {
+				let arg: &fuse_open_in = data.fetch();
+				let name = data.fetch_str();
+				debug2!("CREATE({:u}) parent {:#018x}, name {:s}, mode {:#x}, flags {:#x}", header.unique, header.nodeid, logstr(name), arg.mode, arg.flags);
+				self.reply(ch, se.filesystem.create(header.nodeid, name, arg.mode as mode_t, arg.flags as uint));
+			},
+			FUSE_GETLK => {
+				let arg: &fuse_lk_in = data.fetch();
+				debug2!("GETLK({:u}) ino {:#018x}, fh {:u}, lock owner {:u}", header.unique, header.nodeid, arg.fh, arg.owner);
+				self.reply(ch, se.filesystem.getlk(header.nodeid, arg.fh, arg.owner, &arg.lk));
+			},
+			FUSE_SETLK | FUSE_SETLKW => {
+				let arg: &fuse_lk_in = data.fetch();
+				let sleep = match opcode { FUSE_SETLKW => true, _ => false };
+				debug2!("SETLK({:u}) ino {:#018x}, fh {:u}, lock owner {:u}", header.unique, header.nodeid, arg.fh, arg.owner);
+				self.reply(ch, se.filesystem.setlk(header.nodeid, arg.fh, arg.owner, &arg.lk, sleep));
+			},
 			FUSE_BMAP => {
 				let arg: &fuse_bmap_in = data.fetch();
 				debug2!("BMAP({:u}) ino {:#018x}, blocksize {:u}, ids {:u}", header.unique, header.nodeid, arg.blocksize, arg.block);
