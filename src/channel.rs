@@ -3,12 +3,11 @@
  */
 
 use std::{os, vec};
-use std::io::fd_t;
 use std::libc::{c_int, c_void, size_t};
 use native::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 pub struct Channel {
-	priv fd: fd_t,
+	priv fd: c_int,
 }
 
 /// Helper function to provide options as a fuse_args struct
