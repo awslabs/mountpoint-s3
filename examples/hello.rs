@@ -44,9 +44,8 @@ impl fuse::Filesystem for HelloFS {
 		}
 	}
 
-	fn readdir (&mut self, ino: u64, _fh: u64, offset: off_t, buffer: ~fuse::DirBuffer) -> Result<~fuse::DirBuffer, c_int> {
+	fn readdir (&mut self, ino: u64, _fh: u64, offset: off_t, mut buffer: ~fuse::DirBuffer) -> Result<~fuse::DirBuffer, c_int> {
 		if ino == 1 {
-			let mut buffer = buffer;
 			if offset == 0 {
 				buffer.fill(1, 0, hello_dir_attr().mode as mode_t, ".");
 				buffer.fill(1, 1, hello_dir_attr().mode as mode_t, "..");
