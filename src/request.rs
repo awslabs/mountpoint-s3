@@ -18,6 +18,10 @@ use super::logstr;
 /// Maximum write size. FUSE recommends at least 128k, max 16M. Default on OS X is 16M.
 static MAX_WRITE_SIZE: u32 = 16*1024*1024;
 
+/// Size of the buffer for reading a request from the kernel. Since the kernel may send
+/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
+static BUFFER_SIZE: uint = MAX_WRITE_SIZE as uint + 4096;
+
 #[cfg(target_os = "macos")]
 /// We support async reads and our filesystems are usually case-insensitive
 /// TODO: should case sensitivity be an option passable by the implementing FS?
@@ -35,12 +39,12 @@ pub struct Request {
 impl Request {
 	/// Create a new request
 	pub fn new () -> Request {
-		Request { data: vec::with_capacity(MAX_WRITE_SIZE as uint + 4096) }
+		Request { data: vec::with_capacity(BUFFER_SIZE) }
 	}
 
 	/// Read the next request from the given channel to kernel driver
 	pub fn read<FS: Filesystem> (&mut self, se: &Session<FS>) -> Result<(), c_int> {
-		assert!(self.data.capacity() >= MAX_WRITE_SIZE as uint + 4096);
+		assert!(self.data.capacity() >= BUFFER_SIZE);
 		// The kernel driver makes sure that we get exactly one request per read
 		let res = se.ch.receive(&mut self.data);
 		if res.is_ok() && self.data.len() < mem::size_of::<fuse_in_header>() {
