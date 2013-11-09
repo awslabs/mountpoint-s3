@@ -9,13 +9,13 @@ static hello_world: &'static str = "Hello World!\n";
 
 fn hello_dir_attr () -> fuse::fuse_attr {
 	fuse::fuse_attr {
-		ino: 1, mode: S_IFDIR as u32|493, nlink: 2, uid: 501, gid: 20, ..Default::default()
+		ino: 1, mode: S_IFDIR as u32 | 0o755, nlink: 2, uid: 501, gid: 20, ..Default::default()
 	}
 }
 
 fn hello_txt_attr () -> fuse::fuse_attr {
 	fuse::fuse_attr {
-		ino: 2, size: 13, mode: S_IFREG as u32|420, nlink: 1, uid: 501, gid: 20, ..Default::default()
+		ino: 2, size: 13, mode: S_IFREG as u32 | 0o644, nlink: 1, uid: 501, gid: 20, ..Default::default()
 	}
 }
 
