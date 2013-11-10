@@ -326,15 +326,12 @@ impl Request {
 				debug!("BMAP({:u}) ino {:#018x}, blocksize {:u}, ids {:u}", header.unique, header.nodeid, arg.blocksize, arg.block);
 				self.reply(ch, se.filesystem.bmap(header.nodeid, arg.blocksize as size_t, arg.block));
 			},
-			// OS X only
-			FUSE_SETVOLNAME | FUSE_EXCHANGE | FUSE_GETXTIMES => self.dispatch_macos_only(opcode, se, header, ch, &mut data),
-		}
-	}
 
-	/// Handle OS X operation
-	#[cfg(target_os = "macos")]
-	fn dispatch_macos_only<FS: Filesystem> (&self, opcode: fuse_opcode, se: &mut Session<FS>, header: &fuse_in_header, ch: Channel, data: &mut ArgumentIterator) {
-		match opcode {
+			// The following operations are only valid on OS X
+			_ if !cfg!(target_os = "macos") => {
+				warn!("Ignoring unsupported FUSE operation {:u}", header.opcode)
+				self.reply_error(ch, ENOSYS);
+			},
 			FUSE_SETVOLNAME => {
 				let name = data.fetch_str();
 				debug!("SETVOLNAME({:u}) name {:s}", header.unique, logstr(name));
@@ -351,15 +348,7 @@ impl Request {
 				debug!("GETXTIMES({:u}) ino {:#018x}", header.unique, header.nodeid);
 				self.reply(ch, se.filesystem.getxtimes(header.nodeid));
 			},
-			_ => unreachable!(),
 		}
-	}
-
-	/// Warn about unsupported OS X operation on other os
-	#[cfg(not(target_os = "macos"))]
-	fn dispatch_macos_only<FS: Filesystem> (&self, _opcode: fuse_opcode, _se: &mut Session<FS>, header: &fuse_in_header, ch: Channel, _data: &mut ArgumentIterator) {
-		warn!("Ignoring unsupported FUSE operation {:u}", header.opcode)
-		self.reply_error(ch, ENOSYS);
 	}
 
 	/// Reply to a request with the given error code and data
