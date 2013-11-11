@@ -32,7 +32,7 @@ mod libc {
 		iov_len: size_t,
 	}
 
-	extern {
+	extern "system" {
 		/// Read data from fd into multiple buffers
 		pub fn readv (fd: c_int, iov: *mut iovec, iovcnt: c_int) -> ssize_t;
 		/// Write data from multiple buffers to fd

@@ -9,12 +9,12 @@ use std::libc::{c_int, c_char};
 // Link with libosxfuse on OS X
 #[cfg(target_os = "macos")]
 #[link_args = "-losxfuse"]
-extern {}
+extern "system" { }
 
 // Link with libfuse on Linux
 #[cfg(target_os = "linux")]
 #[link_args = "-lfuse"]
-extern {}
+extern "system" { }
 
 /*
  * FUSE arguments (see fuse_opt.h for details)
@@ -30,7 +30,7 @@ pub struct fuse_args {
  * FUSE common (see fuse_common_compat.h for details)
  */
 
-extern {
+extern "system" {
 	pub fn fuse_mount_compat25 (mountpoint: *c_char, args: *fuse_args) -> c_int;
 	pub fn fuse_unmount_compat22 (mountpoint: *c_char);
 }
