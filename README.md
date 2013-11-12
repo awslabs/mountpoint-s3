@@ -1,5 +1,7 @@
 # Rust FUSE - Filesystem in Userspace
 
+[![Build Status](https://travis-ci.org/zargony/rust-fuse.png)](https://travis-ci.org/zargony/rust-fuse)
+
 ## About
 [Rust](http://rust-lang.org/) library for easy implementation of [FUSE](http://osxfuse.github.io) filesystems in userspace.
 
@@ -40,4 +42,4 @@ In general, search for "TODO" or "FIXME" in the source files to see what's still
 
 ## Compatibility
 
-Developed and tested on a Mac with [OSXFUSE](http://osxfuse.github.io), but it should (maybe with minor adjustments) also work with [FUSE on Linux](http://fuse.sourceforge.net) and [FUSE on FreeBSD](https://wiki.freebsd.org/FuseFilesystem).
+Developed and tested on a Mac with [OSXFUSE](http://osxfuse.github.io) and [FUSE on Linux](http://fuse.sourceforge.net). It should (maybe with minor adjustments) also work with [FUSE on FreeBSD](https://wiki.freebsd.org/FuseFilesystem).
