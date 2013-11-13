@@ -43,7 +43,6 @@ mod libc {
 impl Channel {
 	/// Creates a new communication channel to the kernel driver by
 	/// mounting the given mountpoint
-	#[fixed_stack_segment]
 	pub fn mount (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
 		do mountpoint.with_c_str |mnt| {
 			do with_fuse_args(options) |args| {
@@ -54,7 +53,6 @@ impl Channel {
 	}
 
 	/// Unmount a given mountpoint
-	#[fixed_stack_segment]
 	pub fn unmount (mountpoint: &Path) {
 		do mountpoint.with_c_str |mnt| {
 			unsafe { fuse_unmount_compat22(mnt); }
@@ -62,7 +60,6 @@ impl Channel {
 	}
 
 	/// Closes the communication channel to the kernel driver
-	#[fixed_stack_segment]
 	pub fn close (&mut self) {
 		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
 		unsafe { ::std::libc::close(self.fd); }
@@ -70,7 +67,6 @@ impl Channel {
 	}
 
 	/// Receives data up to the capacity of the given buffer
-	#[fixed_stack_segment]
 	pub fn receive (&self, buffer: &mut ~[u8]) -> Result<(), c_int> {
 		buffer.clear();
 		let capacity = buffer.capacity();
@@ -83,7 +79,6 @@ impl Channel {
 	}
 
 	/// Send all data in the slice of slice of bytes in a single write
-	#[fixed_stack_segment]
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
 		let iovecs = do buffer.map |d| {
 			do d.as_imm_buf |bufptr, buflen| {
