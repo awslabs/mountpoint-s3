@@ -4,6 +4,7 @@
  * runs a loop that receives, dispatches and replies kernel requests.
  */
 
+use std::cell::Cell;
 use std::task;
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel::Channel;
@@ -78,12 +79,11 @@ impl BackgroundSession {
 	/// Start the session loop of the given session in a background task
 	pub fn start<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
 		let mountpoint = se.mountpoint.clone();
-		let mut t = task::task();
+		let se = Cell::new(se);
 		// The background task is started using a a new single threaded
 		// scheduler since I/O in the session loop can block
-		t.sched_mode(task::SingleThreaded);
-		do t.spawn_with(se) |mut se| {
-			se.run();
+		do task::spawn_sched(task::SingleThreaded) {
+			se.take().run();
 		}
 		BackgroundSession { mountpoint: mountpoint }
 	}
