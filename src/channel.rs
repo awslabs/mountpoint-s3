@@ -12,7 +12,7 @@ pub struct Channel {
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T> (options: &[&[u8]], f: &fn(&fuse_args) -> T) -> T {
+fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 	do "rust-fuse".with_c_str |progname| {
 		let args = options.map(|arg| arg.to_c_str());
 		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));

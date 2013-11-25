@@ -12,7 +12,7 @@ use native::{fuse_getxtimes_out};
 
 /// Trait for types that can be sent as a reply to the FUSE kernel driver
 pub trait Sendable {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// Generally send a memory copy of a type (this works for all
 		// structs, i.e. fuse_*_out)
 		unsafe {
@@ -41,20 +41,20 @@ impl Sendable for fuse_out_header { }
 impl Sendable for fuse_getxtimes_out { }
 
 impl<S: Sendable> Sendable for ~S {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		(**self).as_bytegroups(f)
 	}
 }
 
 impl Sendable for () {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// A unit value has nothing to send
 		f([])
 	}
 }
 
 impl<S1: Sendable, S2: Sendable> Sendable for (S1, S2) {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		match self {
 			&(ref s1, ref s2) => {
 				do s1.as_bytegroups |d1| {
@@ -68,19 +68,19 @@ impl<S1: Sendable, S2: Sendable> Sendable for (S1, S2) {
 }
 
 impl<'self> Sendable for &'self [u8] {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		f([*self])
 	}
 }
 
 impl Sendable for ~[u8] {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		f([self.as_slice()])
 	}
 }
 
 impl Sendable for ~str {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// Sending a string uses its byte-representation (without trailing NUL)
 		f([self.as_bytes()])
 	}
@@ -134,7 +134,7 @@ impl DirBuffer {
 }
 
 impl Sendable for DirBuffer {
-	fn as_bytegroups<T> (&self, f: &fn(&[&[u8]]) -> T) -> T {
+	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// Send a dirbuffer by sending its data vector
 		self.data.as_bytegroups(f)
 	}
