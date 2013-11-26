@@ -365,17 +365,17 @@ impl Request {
 	/// Reply to a request with the given error code and data
 	fn send<T: Sendable> (&self, ch: Channel, err: c_int, data: &T) {
 		let inheader: &fuse_in_header = ArgumentIterator::new(self.data).fetch();
-		do data.as_bytegroups |databytes| {
+		data.as_bytegroups(|databytes| {
 			let datalen = databytes.iter().fold(0, |l, b| { l +  b.len()});
 			let outheader = fuse_out_header {
 				len: mem::size_of::<fuse_out_header>() as u32 + datalen as u32,
 				error: err as i32,
 				unique: inheader.unique,
 			};
-			do outheader.as_bytegroups |headbytes| {
+			outheader.as_bytegroups(|headbytes| {
 				ch.send(headbytes + databytes);
-			}
-		}
+			});
+		});
 	}
 
 	/// Reply to a request with the given data or error code

@@ -18,9 +18,9 @@ pub trait Sendable {
 		unsafe {
 			let ptr = ptr::to_unsafe_ptr(self);
 			let len = mem::size_of::<Self>();
-			do vec::raw::buf_as_slice(ptr as *u8, len) |bytes| {
+			vec::raw::buf_as_slice(ptr as *u8, len, |bytes| {
 				f([bytes])
-			}
+			})
 		}
 	}
 }
@@ -57,11 +57,11 @@ impl<S1: Sendable, S2: Sendable> Sendable for (S1, S2) {
 	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		match self {
 			&(ref s1, ref s2) => {
-				do s1.as_bytegroups |d1| {
-					do s2.as_bytegroups |d2| {
+				s1.as_bytegroups(|d1| {
+					s2.as_bytegroups(|d2| {
 						f(d1 + d2)
-					}
-				}
+					})
+				})
 			},
 		}
 	}
@@ -107,7 +107,7 @@ impl DirBuffer {
 		let padlen = entsize - entlen;
 		if self.data.len() + entsize > self.data.capacity() { return true; }
 		unsafe {
-			do self.data.as_mut_buf |bufptr, buflen| {
+			self.data.as_mut_buf(|bufptr, buflen| {
 				let p = bufptr.offset(buflen as int);
 				let pdirent: *mut fuse_dirent = cast::transmute(p);
 				(*pdirent).ino = ino;
@@ -115,12 +115,12 @@ impl DirBuffer {
 				(*pdirent).namelen = name.len() as u32;
 				(*pdirent).typ = (mode as u32 & S_IFMT as u32) >> 12;
 				let p = p.offset(mem::size_of_val(&*pdirent) as int);
-				do name.as_imm_buf |nameptr, namelen| {
+				name.as_imm_buf(|nameptr, namelen| {
 					ptr::copy_memory(p, nameptr, namelen);
-				}
+				});
 				let p = p.offset(name.len() as int);
 				ptr::zero_memory(p, padlen);
-			}
+			});
 			let newlen = self.data.len() + entsize;
 			vec::raw::set_len(&mut self.data, newlen);
 		}
