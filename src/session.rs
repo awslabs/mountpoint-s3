@@ -1,8 +1,8 @@
-/*!
- * A session is established with the kernel driver while a userspace
- * filesystem is mounted. The session connects to the kernel driver and
- * runs a loop that receives, dispatches and replies kernel requests.
- */
+//!
+//! A session is established with the kernel driver while a userspace
+//! filesystem is mounted. The session connects to the kernel driver and
+//! runs a loop that receives, dispatches and replies kernel requests.
+//!
 
 use std::cell::Cell;
 use std::task;

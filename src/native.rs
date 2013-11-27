@@ -1,6 +1,6 @@
-/*!
- * FUSE native interface declarations (as of libosxfuse-2.5.5).
- */
+//!
+//! FUSE native interface declarations (as of libosxfuse-2.5.5).
+//!
 
 #[allow(missing_doc)];
 
@@ -16,9 +16,9 @@ extern "system" { }
 #[link_args = "-lfuse"]
 extern "system" { }
 
-/*
- * FUSE arguments (see fuse_opt.h for details)
- */
+//
+// FUSE arguments (see fuse_opt.h for details)
+//
 
 pub struct fuse_args {
 	argc: c_int,
@@ -26,18 +26,18 @@ pub struct fuse_args {
 	allocated: c_int,
 }
 
-/*
- * FUSE common (see fuse_common_compat.h for details)
- */
+//
+// FUSE common (see fuse_common_compat.h for details)
+//
 
 extern "system" {
 	pub fn fuse_mount_compat25 (mountpoint: *c_char, args: *fuse_args) -> c_int;
 	pub fn fuse_unmount_compat22 (mountpoint: *c_char);
 }
 
-/*
- * FUSE kernel (see fuse_kernel.h for details)
- */
+//
+// FUSE kernel (see fuse_kernel.h for details)
+//
 
 pub static FUSE_KERNEL_VERSION: u32 = 7;
 pub static FUSE_KERNEL_MINOR_VERSION: u32 = 8;

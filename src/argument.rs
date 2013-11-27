@@ -1,7 +1,7 @@
-/*!
- * Helper to decompose a packet of binary data into multiple arbitrary data
- * structures.
- */
+//!
+//! Helper to decompose a packet of binary data into multiple arbitrary data
+//! structures.
+//!
 
 use std::{cast, mem};
 

@@ -1,6 +1,6 @@
-/*!
- * Communication channel to the FUSE kernel driver.
- */
+//!
+//! Communication channel to the FUSE kernel driver.
+//!
 
 use std::{os, vec};
 use std::libc::{c_int, c_void, size_t};

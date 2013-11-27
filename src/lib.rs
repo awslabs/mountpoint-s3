@@ -1,11 +1,11 @@
-/*!
- * FUSE userspace library implementation (as of libosxfuse-2.5.5).
- *
- * This is an improved rewrite of the FUSE userspace library (lowlevel
- * interface) to fully take advantage of Rust's architecture. The only thing
- * we rely on in the real libfuse are mount and unmount calls which are
- * needed to establish a fd to talk to the kernel driver.
- */
+//!
+//! FUSE userspace library implementation (as of libosxfuse-2.5.5).
+//!
+//! This is an improved rewrite of the FUSE userspace library (lowlevel
+//! interface) to fully take advantage of Rust's architecture. The only thing
+//! we rely on in the real libfuse are mount and unmount calls which are
+//! needed to establish a fd to talk to the kernel driver.
+//!
 
 #[link(name = "fuse",
        package_id = "fuse",

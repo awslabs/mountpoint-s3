@@ -1,6 +1,6 @@
-/*!
- * Helper to compose arbitrary data structures into packets of binary data.
- */
+//!
+//! Helper to compose arbitrary data structures into packets of binary data.
+//!
 
 use std::{cast, ptr, mem, vec};
 use std::libc::{mode_t, off_t, S_IFMT};

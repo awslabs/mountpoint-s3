@@ -1,7 +1,7 @@
-/*!
- * A request represents information about an operation the kernel driver
- * wants us to perform.
- */
+//!
+//! A request represents information about an operation the kernel driver
+//! wants us to perform.
+//!
 
 use std::{mem, vec};
 use std::libc::{dev_t, c_int, mode_t, off_t, size_t};
