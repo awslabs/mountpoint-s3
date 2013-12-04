@@ -8,12 +8,12 @@ use std::libc::{c_int, c_char};
 
 // Link with libosxfuse on OS X
 #[cfg(target_os = "macos")]
-#[link_args = "-losxfuse"]
+#[link(name = "osxfuse")]
 extern "system" { }
 
 // Link with libfuse on Linux
 #[cfg(target_os = "linux")]
-#[link_args = "-lfuse"]
+#[link(name = "fuse")]
 extern "system" { }
 
 //

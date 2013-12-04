@@ -15,7 +15,7 @@ build:
 	mkdir -p $@
 
 build/libfuse.dummy: src/lib.rs src/*.rs build
-	$(RUSTC) $(RUSTFLAGS) --lib --out-dir $(dir $@) $<
+	$(RUSTC) $(RUSTFLAGS) --dylib --rlib --out-dir $(dir $@) $<
 
 build/libfuse_test: src/lib.rs src/*.rs build
 	$(RUSTC) $(RUSTFLAGS) --test -o $@ $<
