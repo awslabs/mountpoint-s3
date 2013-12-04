@@ -3,8 +3,8 @@ RUSTFLAGS ?= -O --cfg ndebug
 
 all: build/libfuse.dummy
 
-check: build/fuse_test
-	build/fuse_test
+check: build/libfuse_test
+	build/libfuse_test
 
 clean:
 	rm -rf build
@@ -17,7 +17,7 @@ build:
 build/libfuse.dummy: src/lib.rs src/*.rs build
 	$(RUSTC) $(RUSTFLAGS) --lib --out-dir $(dir $@) $<
 
-build/fuse_test: src/lib.rs src/*.rs build
+build/libfuse_test: src/lib.rs src/*.rs build
 	$(RUSTC) $(RUSTFLAGS) --test -o $@ $<
 
 
