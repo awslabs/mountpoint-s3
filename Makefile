@@ -29,4 +29,4 @@ examples: $(EXAMPLE_BINS)
 .PHONY: examples
 
 $(EXAMPLE_BINS): build/%: examples/%.rs build build/libfuse.dummy
-	$(RUSTC) $(RUSTFLAGS) -L build --bin -o $@ $<
+	$(RUSTC) $(RUSTFLAGS) -L build --bin -Z prefer-dynamic -o $@ $<
