@@ -101,7 +101,8 @@ impl DirBuffer {
 	/// A transparent offset value can be provided for each entry. The
 	/// kernel uses these value to request more entries in further readdir
 	/// calls
-	pub fn fill (&mut self, ino: u64, off: off_t, mode: mode_t, name: &str) -> bool {
+	pub fn fill (&mut self, ino: u64, off: off_t, mode: mode_t, name: &PosixPath) -> bool {
+		let name = name.as_vec();
 		let entlen = mem::size_of::<fuse_dirent>() + name.len();
 		let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);	// 64bit align
 		let padlen = entsize - entlen;
@@ -207,8 +208,8 @@ mod test {
 	#[test]
 	fn test_sendable_dirbuffer () {
 		let mut buf = DirBuffer::new(128);
-		buf.fill(111, 222, S_IFREG as mode_t, "hello");
-		buf.fill(444, 555, S_IFREG as mode_t, "world.rs");
+		buf.fill(111, 222, S_IFREG as mode_t, &PosixPath::new("hello"));
+		buf.fill(444, 555, S_IFREG as mode_t, &PosixPath::new("world.rs"));
 		let expected = [
 			111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 8, 0, 0, 0, 104, 101, 108, 108, 111,  0,   0,   0,
 			188, 1, 0, 0, 0, 0, 0, 0,  43, 2, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0, 119, 111, 114, 108, 100, 46, 114, 115,
