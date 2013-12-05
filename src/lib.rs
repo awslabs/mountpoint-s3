@@ -253,14 +253,3 @@ mod native;
 mod request;
 mod sendable;
 mod session;
-
-/// Function to turn [u8] vectors into strings without failing.  The only reason to use this is when
-/// logging, hence the name.  There is an [issue open with
-/// rust](https://github.com/mozilla/rust/issues/8968) to allow for better ways of converting
-/// non-utf8 character streams to string.  Once that's fixed, this should be able to go away.
-fn logstr(s:&[u8]) -> ~str {
-	use std::str::not_utf8::cond;
-	let _t = cond.trap(|error| error);
-	std::str::from_utf8(s)
-}
-

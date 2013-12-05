@@ -13,7 +13,6 @@ use native::*;
 use native::consts::*;
 use sendable::{Sendable, DirBuffer};
 use session::Session;
-use super::logstr;
 
 /// Maximum write size. FUSE recommends at least 128k, max 16M. Default on OS X is 16M.
 static MAX_WRITE_SIZE: u32 = 16*1024*1024;
@@ -30,6 +29,16 @@ static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE;
 #[cfg(not(target_os = "macos"))]
 /// We support async reads
 static INIT_FLAGS: u32 = FUSE_ASYNC_READ;
+
+/// Helper to display strings which may contain unprintable (non-utf8) characters
+/// FIXME: PosixPath is actually only for pathnames, not for arbitrary strings. However, it
+/// FIXME: can display any string while str has no method yet to replace non-utf8 characters.
+/// FIXME: See also https://github.com/mozilla/rust/issues/8968
+fn logstr (s: &[u8]) -> ~str {
+	let p = PosixPath::new(s);
+	p.display().to_str()
+}
+
 
 /// Request data structure
 pub struct Request {
