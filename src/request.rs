@@ -135,9 +135,9 @@ impl Request {
 			},
 
 			FUSE_LOOKUP => {
-				let name = data.fetch_str();
-				debug!("LOOKUP({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
-				self.reply(ch, se.filesystem.lookup(header.nodeid, name));
+				let name = data.fetch_path();
+				debug!("LOOKUP({:u}) parent {:#018x}, name {}", header.unique, header.nodeid, name.display());
+				self.reply(ch, se.filesystem.lookup(header.nodeid, &name));
 			},
 			FUSE_FORGET => {
 				let arg: &fuse_forget_in = data.fetch();
@@ -159,44 +159,44 @@ impl Request {
 			},
 			FUSE_MKNOD => {
 				let arg: &fuse_mknod_in = data.fetch();
-				let name = data.fetch_str();
-				debug!("MKNOD({:u}) parent {:#018x}, name {:s}, mode {:#05o}, rdev {:u}", header.unique, header.nodeid, logstr(name), arg.mode, arg.rdev);
-				self.reply(ch, se.filesystem.mknod(header.nodeid, name, arg.mode as mode_t, arg.rdev as dev_t));
+				let name = data.fetch_path();
+				debug!("MKNOD({:u}) parent {:#018x}, name {}, mode {:#05o}, rdev {:u}", header.unique, header.nodeid, name.display(), arg.mode, arg.rdev);
+				self.reply(ch, se.filesystem.mknod(header.nodeid, &name, arg.mode as mode_t, arg.rdev as dev_t));
 			},
 			FUSE_MKDIR => {
 				let arg: &fuse_mkdir_in = data.fetch();
-				let name = data.fetch_str();
-				debug!("MKDIR({:u}) parent {:#018x}, name {:s}, mode {:#05o}", header.unique, header.nodeid, logstr(name), arg.mode);
-				self.reply(ch, se.filesystem.mkdir(header.nodeid, name, arg.mode as mode_t));
+				let name = data.fetch_path();
+				debug!("MKDIR({:u}) parent {:#018x}, name {}, mode {:#05o}", header.unique, header.nodeid, name.display(), arg.mode);
+				self.reply(ch, se.filesystem.mkdir(header.nodeid, &name, arg.mode as mode_t));
 			},
 			FUSE_UNLINK => {
-				let name = data.fetch_str();
-				debug!("UNLINK({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
-				self.reply(ch, se.filesystem.unlink(header.nodeid, name));
+				let name = data.fetch_path();
+				debug!("UNLINK({:u}) parent {:#018x}, name {}", header.unique, header.nodeid, name.display());
+				self.reply(ch, se.filesystem.unlink(header.nodeid, &name));
 			},
 			FUSE_RMDIR => {
-				let name = data.fetch_str();
-				debug!("RMDIR({:u}) parent {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
-				self.reply(ch, se.filesystem.rmdir(header.nodeid, name));
+				let name = data.fetch_path();
+				debug!("RMDIR({:u}) parent {:#018x}, name {}", header.unique, header.nodeid, name.display());
+				self.reply(ch, se.filesystem.rmdir(header.nodeid, &name));
 			},
 			FUSE_SYMLINK => {
-				let name = data.fetch_str();
-				let link = data.fetch_str();
-				debug!("SYMLINK({:u}) parent {:#018x}, name {:s}, link {:s}", header.unique, header.nodeid, logstr(name), logstr(link));
-				self.reply(ch, se.filesystem.symlink(header.nodeid, name, link));
+				let name = data.fetch_path();
+				let link = data.fetch_path();
+				debug!("SYMLINK({:u}) parent {:#018x}, name {}, link {}", header.unique, header.nodeid, name.display(), link.display());
+				self.reply(ch, se.filesystem.symlink(header.nodeid, &name, &link));
 			},
 			FUSE_RENAME => {
 				let arg: &fuse_rename_in = data.fetch();
-				let name = data.fetch_str();
-				let newname = data.fetch_str();
-				debug!("RENAME({:u}) parent {:#018x}, name {:s}, newparent {:#018x}, newname {:s}", header.unique, header.nodeid, logstr(name), arg.newdir, logstr(newname));
-				self.reply(ch, se.filesystem.rename(header.nodeid, name, arg.newdir, newname));
+				let name = data.fetch_path();
+				let newname = data.fetch_path();
+				debug!("RENAME({:u}) parent {:#018x}, name {}, newparent {:#018x}, newname {}", header.unique, header.nodeid, name.display(), arg.newdir, newname.display());
+				self.reply(ch, se.filesystem.rename(header.nodeid, &name, arg.newdir, &newname));
 			},
 			FUSE_LINK => {
 				let arg: &fuse_link_in = data.fetch();
-				let newname = data.fetch_str();
-				debug!("LINK({:u}) ino {:#018x}, newparent {:#018x}, newname {:s}", header.unique, arg.oldnodeid, header.nodeid, logstr(newname));
-				self.reply(ch, se.filesystem.link(arg.oldnodeid, header.nodeid, newname));
+				let newname = data.fetch_path();
+				debug!("LINK({:u}) ino {:#018x}, newparent {:#018x}, newname {}", header.unique, arg.oldnodeid, header.nodeid, newname.display());
+				self.reply(ch, se.filesystem.link(arg.oldnodeid, header.nodeid, &newname));
 			},
 			FUSE_OPEN => {
 				let arg: &fuse_open_in = data.fetch();
@@ -306,9 +306,9 @@ impl Request {
 			},
 			FUSE_CREATE => {
 				let arg: &fuse_open_in = data.fetch();
-				let name = data.fetch_str();
-				debug!("CREATE({:u}) parent {:#018x}, name {:s}, mode {:#05o}, flags {:#x}", header.unique, header.nodeid, logstr(name), arg.mode, arg.flags);
-				self.reply(ch, se.filesystem.create(header.nodeid, name, arg.mode as mode_t, arg.flags as uint));
+				let name = data.fetch_path();
+				debug!("CREATE({:u}) parent {:#018x}, name {}, mode {:#05o}, flags {:#x}", header.unique, header.nodeid, name.display(), arg.mode, arg.flags);
+				self.reply(ch, se.filesystem.create(header.nodeid, &name, arg.mode as mode_t, arg.flags as uint));
 			},
 			FUSE_GETLK => {
 				let arg: &fuse_lk_in = data.fetch();
@@ -342,10 +342,10 @@ impl Request {
 			},
 			FUSE_EXCHANGE => {
 				let arg: &fuse_exchange_in = data.fetch();
-				let oldname = data.fetch_str();
-				let newname = data.fetch_str();
-				debug!("EXCHANGE({:u}) parent {:#018x}, name {:s}, newparent {:#018x}, newname {:s}, options {:#x}", header.unique, arg.olddir, logstr(oldname), arg.newdir, logstr(newname), arg.options);
-				self.reply(ch, se.filesystem.exchange(arg.olddir, oldname, arg.newdir, newname, arg.options as uint));
+				let oldname = data.fetch_path();
+				let newname = data.fetch_path();
+				debug!("EXCHANGE({:u}) parent {:#018x}, name {}, newparent {:#018x}, newname {}, options {:#x}", header.unique, arg.olddir, oldname.display(), arg.newdir, newname.display(), arg.options);
+				self.reply(ch, se.filesystem.exchange(arg.olddir, &oldname, arg.newdir, &newname, arg.options as uint));
 			},
 			FUSE_GETXTIMES => {
 				debug!("GETXTIMES({:u}) ino {:#018x}", header.unique, header.nodeid);

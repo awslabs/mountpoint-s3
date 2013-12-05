@@ -49,7 +49,7 @@ pub trait Filesystem {
 	fn destroy (&mut self)																										{ }
 
 	/// Look up a directory entry by name and get its attributes.
-	fn lookup (&mut self, _parent: u64, _name: &[u8]) -> Result<~fuse_entry_out, c_int>											{ Err(ENOSYS) }
+	fn lookup (&mut self, _parent: u64, _name: &PosixPath) -> Result<~fuse_entry_out, c_int>									{ Err(ENOSYS) }
 
 	/// Forget about an inode
 	/// The nlookup parameter indicates the number of lookups previously performed on
@@ -73,25 +73,25 @@ pub trait Filesystem {
 
 	/// Create file node
 	/// Create a regular file, character device, block device, fifo or socket node.
-	fn mknod (&mut self, _parent: u64, _name: &[u8], _mode: mode_t, _rdev: dev_t) -> Result<~fuse_entry_out, c_int>				{ Err(ENOSYS) }
+	fn mknod (&mut self, _parent: u64, _name: &PosixPath, _mode: mode_t, _rdev: dev_t) -> Result<~fuse_entry_out, c_int>		{ Err(ENOSYS) }
 
 	/// Create a directory
-	fn mkdir (&mut self, _parent: u64, _name: &[u8], _mode: mode_t) -> Result<~fuse_entry_out, c_int>							{ Err(ENOSYS) }
+	fn mkdir (&mut self, _parent: u64, _name: &PosixPath, _mode: mode_t) -> Result<~fuse_entry_out, c_int>						{ Err(ENOSYS) }
 
 	/// Remove a file
-	fn unlink (&mut self, _parent: u64, _name: &[u8]) -> Result<(), c_int>														{ Err(ENOSYS) }
+	fn unlink (&mut self, _parent: u64, _name: &PosixPath) -> Result<(), c_int>													{ Err(ENOSYS) }
 
 	/// Remove a directory
-	fn rmdir (&mut self, _parent: u64, _name: &[u8]) -> Result<(), c_int>														{ Err(ENOSYS) }
+	fn rmdir (&mut self, _parent: u64, _name: &PosixPath) -> Result<(), c_int>													{ Err(ENOSYS) }
 
 	/// Create a symbolic link
-	fn symlink (&mut self, _parent: u64, _name: &[u8], _link: &[u8]) -> Result<~fuse_entry_out, c_int>							{ Err(ENOSYS) }
+	fn symlink (&mut self, _parent: u64, _name: &PosixPath, _link: &PosixPath) -> Result<~fuse_entry_out, c_int>				{ Err(ENOSYS) }
 
 	/// Rename a file
-	fn rename (&mut self, _parent: u64, _name: &[u8], _newparent: u64, _newname: &[u8]) -> Result<(), c_int>						{ Err(ENOSYS) }
+	fn rename (&mut self, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath) -> Result<(), c_int>			{ Err(ENOSYS) }
 
 	/// Create a hard link
-	fn link (&mut self, _ino: u64, _newparent: u64, _newname: &[u8]) -> Result<~fuse_entry_out, c_int>							{ Err(ENOSYS) }
+	fn link (&mut self, _ino: u64, _newparent: u64, _newname: &PosixPath) -> Result<~fuse_entry_out, c_int>						{ Err(ENOSYS) }
 
 	/// Open a file
 	/// Open flags (with the exception of O_CREAT, O_EXCL, O_NOCTTY and O_TRUNC) are
@@ -179,16 +179,16 @@ pub trait Filesystem {
 	fn statfs (&mut self, _ino: u64) -> Result<~fuse_statfs_out, c_int>															{ Ok(~fuse_statfs_out { st: fuse_kstatfs { blocks: 0, bfree: 0, bavail: 0, files: 0, ffree: 0, bsize: 512, namelen: 255, frsize: 0, padding: 0, spare: [0, ..6] }}) }
 
 	/// Set an extended attribute
-	fn setxattr (&mut self, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: off_t) -> Result<(), c_int>			{ Err(ENOSYS) }
+	fn setxattr (&mut self, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: off_t) -> Result<(), c_int>		{ Err(ENOSYS) }
 
 	/// Get an extended attribute
-	fn getxattr (&mut self, _ino: u64, _name: &[u8]) -> Result<~[u8], c_int>														{ Err(ENOSYS) }
+	fn getxattr (&mut self, _ino: u64, _name: &[u8]) -> Result<~[u8], c_int>													{ Err(ENOSYS) }
 
 	/// List extended attribute names
 	fn listxattr (&mut self, _ino: u64) -> Result<~[&[u8]], c_int>																{ Err(ENOSYS) }
 
 	/// Remove an extended attribute
-	fn removexattr (&mut self, _ino: u64, _name: &[u8]) -> Result<(), c_int>														{ Err(ENOSYS) }
+	fn removexattr (&mut self, _ino: u64, _name: &[u8]) -> Result<(), c_int>													{ Err(ENOSYS) }
 
 	/// Check file access permissions
 	/// This will be called for the access() system call. If the 'default_permissions'
@@ -206,10 +206,10 @@ pub trait Filesystem {
 	/// structure in <fuse_common.h> for more details. If this method is not
 	/// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
 	/// and open() methods will be called instead.
-	fn create (&mut self, _parent: u64, _name: &[u8], _mode: mode_t, _flags: uint) -> Result<(~fuse_entry_out,~fuse_open_out), c_int>	{ Err(ENOSYS) }
+	fn create (&mut self, _parent: u64, _name: &PosixPath, _mode: mode_t, _flags: uint) -> Result<(~fuse_entry_out,~fuse_open_out), c_int>	{ Err(ENOSYS) }
 
 	/// Test for a POSIX file lock
-	fn getlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> Result<~fuse_file_lock, c_int>				{ Err(ENOSYS) }
+	fn getlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> Result<~fuse_file_lock, c_int>					{ Err(ENOSYS) }
 
 	/// Acquire, modify or release a POSIX file lock
 	/// For POSIX threads (NPTL) there's a 1-1 relation between pid and owner, but
@@ -228,11 +228,11 @@ pub trait Filesystem {
 	/// OS X only: Rename the volume. Set fuse_init_out.flags during init to
 	/// FUSE_VOL_RENAME to enable
 	#[cfg(target_os = "macos")]
-	fn setvolname (&mut self, _name: &[u8]) -> Result<(), c_int>																	{ Err(ENOSYS) }
+	fn setvolname (&mut self, _name: &[u8]) -> Result<(), c_int>																{ Err(ENOSYS) }
 
 	/// OS X only (undocumented)
 	#[cfg(target_os = "macos")]
-	fn exchange (&mut self, _parent: u64, _name: &[u8], _newparent: u64, _newname: &[u8], _options: uint) -> Result<(), c_int>	{ Err(ENOSYS) }
+	fn exchange (&mut self, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, _options: uint) -> Result<(), c_int>	{ Err(ENOSYS) }
 
 	/// OS X only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
 	/// during init to FUSE_XTIMES to enable

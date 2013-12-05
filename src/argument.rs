@@ -27,7 +27,7 @@ impl<'self> ArgumentIterator<'self> {
 		})
 	}
 
-	/// Fetch a (zero-terminated) string
+	/// Fetch a (zero-terminated) string (can be non-utf8)
 	pub fn fetch_str (&mut self) -> &'self [u8] {
 		let start = self.pos;
 		while(self.data[self.pos] != 0u8) {
@@ -35,6 +35,11 @@ impl<'self> ArgumentIterator<'self> {
 		}
 		self.pos += 1;  // Eat the null terminator
 		self.data.slice(start, self.pos-1)
+	}
+
+	/// Fetch a (zero-terminated) Posix path
+	pub fn fetch_path (&mut self) -> PosixPath {
+		PosixPath::new(self.fetch_str())
 	}
 
 	/// Fetch a slice of the remaining data
@@ -73,6 +78,15 @@ mod test {
 		assert!(arg == bytes!("foo"), "argument iterator should fetch string from data");
 		let arg = it.fetch_str();
 		assert!(arg == bytes!("bar"), "argument iterator should fetch string from data");
+	}
+
+	#[test]
+	fn test_argument_path () {
+		let mut it = ArgumentIterator::new(test_data);
+		let arg = it.fetch_path();
+		assert!(arg.as_str() == Some("foo"), "argument iterator should fetch path from data");
+		let arg = it.fetch_path();
+		assert!(arg.as_str() == Some("bar"), "argument iterator should fetch path from data");
 	}
 
 	#[test]
