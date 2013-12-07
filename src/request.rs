@@ -1,6 +1,6 @@
 //!
-//! A request represents information about an operation the kernel driver
-//! wants us to perform.
+//! A request represents information about a filesystem operation the
+//! kernel driver wants us to perform.
 //!
 
 use std::{mem, vec};

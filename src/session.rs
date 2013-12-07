@@ -1,7 +1,9 @@
 //!
-//! A session is established with the kernel driver while a userspace
-//! filesystem is mounted. The session connects to the kernel driver and
-//! runs a loop that receives, dispatches and replies kernel requests.
+//! A session runs a filesystem implementation while it is being mounted
+//! to a specific mount point. A session begins by mounting the filesystem
+//! and ends by unmounting it. While the filesystem is mounted, the session
+//! loop receives, dispatches and replies to kernel requests for filesystem
+//! operations under its mount point.
 //!
 
 use std::task;
