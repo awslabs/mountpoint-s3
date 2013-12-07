@@ -1,26 +1,10 @@
 //!
-//! Communication channel to the FUSE kernel driver.
+//! Raw communication channel to the FUSE kernel driver.
 //!
 
 use std::{os, vec};
 use std::libc::{c_int, c_void, size_t};
 use native::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
-
-pub struct Channel {
-	priv fd: c_int,
-}
-
-/// Helper function to provide options as a fuse_args struct
-/// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
-	"rust-fuse".with_c_str(|progname| {
-		let args = options.map(|arg| arg.to_c_str());
-		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));
-		argptrs.as_imm_buf(|argv, argc| {
-			f(&fuse_args { argc: argc as i32, argv: argv, allocated: 0 })
-		})
-	})
-}
 
 // Libc provides iovec based I/O using readv and writev functions
 mod libc {
@@ -40,45 +24,62 @@ mod libc {
 	}
 }
 
+/// Helper function to provide options as a fuse_args struct
+/// (which contains an argc count and an argv pointer)
+fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
+	"rust-fuse".with_c_str(|progname| {
+		let args = options.map(|arg| arg.to_c_str());
+		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));
+		argptrs.as_imm_buf(|argv, argc| {
+			f(&fuse_args { argc: argc as i32, argv: argv, allocated: 0 })
+		})
+	})
+}
+
+/// A raw communication channel to the FUSE kernel driver
+pub struct Channel {
+	priv mountpoint: Path,
+	priv fd: c_int,
+}
+
 impl Channel {
-	/// Creates a new communication channel to the kernel driver by
-	/// mounting the given mountpoint
-	pub fn mount (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
+	/// Create a new communication channel to the kernel driver by mounting the
+	/// given path. The kernel driver will delegate filesystem operations of
+	/// the given path to the channel. If the channel is dropped, the path is
+	/// unmounted.
+	pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
 		mountpoint.with_c_str(|mnt| {
 			with_fuse_args(options, |args| {
 				let fd = unsafe { fuse_mount_compat25(mnt, args) };
-				if fd < 0 { Err(os::errno() as c_int) } else { Ok(Channel { fd: fd }) }
+				if fd < 0 {
+					Err(os::errno() as c_int)
+				} else {
+					Ok(Channel { mountpoint: mountpoint.clone(), fd: fd })
+				}
 			})
 		})
 	}
 
-	/// Unmount a given mountpoint
-	pub fn unmount (mountpoint: &Path) {
-		mountpoint.with_c_str(|mnt| {
-			unsafe { fuse_unmount_compat22(mnt); }
-		});
-	}
-
-	/// Closes the communication channel to the kernel driver
-	pub fn close (&mut self) {
-		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
-		unsafe { ::std::libc::close(self.fd); }
-		self.fd = -1;
-	}
-
-	/// Receives data up to the capacity of the given buffer
+	/// Receives data up to the capacity of the given buffer.
+	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn receive (&self, buffer: &mut ~[u8]) -> Result<(), c_int> {
 		buffer.clear();
 		let capacity = buffer.capacity();
 		let rc = buffer.as_mut_buf(|ptr, _| {
-			// FIXME: This read can block the whole scheduler (and therefore multiple other tasks)
 			unsafe { ::std::libc::read(self.fd, ptr as *mut c_void, capacity as size_t) }
 		});
-		if rc >= 0 { unsafe { vec::raw::set_len(buffer, rc as uint); } }
-		if rc < 0 { Err(os::errno() as c_int) } else { Ok(()) }
+		if rc >= 0 {
+			unsafe { vec::raw::set_len(buffer, rc as uint); }
+		}
+		if rc < 0 {
+			Err(os::errno() as c_int)
+		} else {
+			Ok(())
+		}
 	}
 
-	/// Send all data in the slice of slice of bytes in a single write
+	/// Send all data in the slice of slice of bytes in a single write.
+	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
 		let iovecs = buffer.map(|d| {
 			d.as_imm_buf(|bufptr, buflen| {
@@ -86,11 +87,32 @@ impl Channel {
 			})
 		});
 		let rc = iovecs.as_imm_buf(|iovptr, iovcnt| {
-			// FIXME: This write can block the whole scheduler (and therefore multiple other tasks)
 			unsafe { libc::writev(self.fd, iovptr, iovcnt as c_int) }
 		});
-		if rc < 0 { Err(os::errno() as c_int) } else { Ok(()) }
+		if rc < 0 {
+			Err(os::errno() as c_int)
+		} else {
+			Ok(())
+		}
 	}
+}
+
+impl Drop for Channel {
+	fn drop (&mut self) {
+		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
+		// Close the communication channel to the kernel driver
+		// (closing it before unnmount prevents sync unmount deadlock)
+		unsafe { ::std::libc::close(self.fd); }
+		// Unmount this channel's mount point
+		unmount(&self.mountpoint);
+	}
+}
+
+/// Unmount an arbitrary mount point
+pub fn unmount (mountpoint: &Path) {
+	mountpoint.with_c_str(|mnt| {
+		unsafe { fuse_unmount_compat22(mnt); }
+	});
 }
 
 

@@ -6,7 +6,7 @@
 
 use std::task;
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use channel::Channel;
+use channel, channel::Channel;
 use Filesystem;
 use request::Request;
 
@@ -25,7 +25,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 	/// Mount the given filesystem to the given mountpoint
 	pub fn mount (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
 		info!("Mounting {}", mountpoint.display());
-		let ch = Channel::mount(mountpoint, options).expect("unable to mount filesystem");
+		let ch = Channel::new(mountpoint, options).expect("unable to mount filesystem");
 		Session {
 			filesystem: filesystem,
 			mountpoint: mountpoint.clone(),
@@ -64,8 +64,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 impl<FS: Filesystem+Send> Drop for Session<FS> {
 	fn drop (&mut self) {
 		info!("Unmounting {}", self.mountpoint.display());
-		self.ch.close();		// Close channel before unnmount to prevent sync unmount deadlock
-		Channel::unmount(&self.mountpoint);
+		// The actual unmounting takes place because self.ch is dropped here
 	}
 }
 
@@ -91,6 +90,6 @@ impl BackgroundSession {
 	/// eventually end the session loop)
 	pub fn unmount (&self) {
 		info!("Unmounting {}", self.mountpoint.display());
-		Channel::unmount(&self.mountpoint);
+		channel::unmount(&self.mountpoint);
 	}
 }
