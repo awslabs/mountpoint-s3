@@ -24,8 +24,8 @@ pub struct Session<FS> {
 }
 
 impl<FS: Filesystem+Send> Session<FS> {
-	/// Mount the given filesystem to the given mountpoint
-	pub fn mount (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
+	/// Create a new session by mounting the given filesystem to the given mountpoint
+	pub fn new (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
 		info!("Mounting {}", mountpoint.display());
 		let ch = Channel::new(mountpoint, options).expect("unable to mount filesystem");
 		Session {
@@ -56,16 +56,16 @@ impl<FS: Filesystem+Send> Session<FS> {
 		}
 	}
 
-	/// Start the session loop in a background task
-	pub fn start (self) -> BackgroundSession {
-		BackgroundSession::start(self)
+	/// Run the session loop in a background task
+	pub fn spawn (self) -> BackgroundSession {
+		BackgroundSession::new(self)
 	}
 }
 
 #[unsafe_destructor]
 impl<FS: Filesystem+Send> Drop for Session<FS> {
 	fn drop (&mut self) {
-		info!("Unmounting {}", self.mountpoint.display());
+		info!("Unmounted {}", self.mountpoint.display());
 		// The actual unmounting takes place because self.ch is dropped here
 	}
 }
@@ -76,22 +76,26 @@ pub struct BackgroundSession {
 }
 
 impl BackgroundSession {
-	/// Start the session loop of the given session in a background task
-	pub fn start<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
+	/// Create a new background session for the given session by running its
+	/// session loop in a background task. If the returned handle is dropped,
+	/// the filesystem is unmounted and the given session ends.
+	pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
 		let mountpoint = se.mountpoint.clone();
 		// The background task is started using a a new single threaded
-		// scheduler since I/O in the session loop can block
+		// scheduler since native I/O in the session loop can block
 		do task::spawn_sched(task::SingleThreaded) {
 			let mut se = se;
 			se.run();
 		}
 		BackgroundSession { mountpoint: mountpoint }
 	}
+}
 
-	/// End the session by unmounting the filesystem (which will
-	/// eventually end the session loop)
-	pub fn unmount (&self) {
+impl Drop for BackgroundSession {
+	fn drop (&mut self) {
 		info!("Unmounting {}", self.mountpoint.display());
+		// Unmounting the filesystem will eventually end the session loop,
+		// drop the session and hence end the background task.
 		channel::unmount(&self.mountpoint);
 	}
 }

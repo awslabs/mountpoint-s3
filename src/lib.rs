@@ -240,9 +240,19 @@ pub trait Filesystem {
 	fn getxtimes (&mut self, _ino: u64) -> Result<~fuse_getxtimes_out, c_int>													{ Err(ENOSYS) }
 }
 
-/// Mount the given filesystem to the given mountpoint
-pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> BackgroundSession {
-	Session::mount(filesystem, mountpoint, options).start()
+/// Mount the given filesystem to the given mountpoint. This function will
+/// not return until the filesystem is unmounted.
+pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) {
+	Session::new(filesystem, mountpoint, options).run();
+}
+
+/// Mount the given filesystem to the given mountpoint. This function spawns
+/// a background task to handle filesystem operations while being mounted
+/// and therefore returns immediately. The returned handle should be stored
+/// to reference the mounted filesystem. If it's dropped, the filesystem will
+/// be unmounted.
+pub fn spawn_mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> BackgroundSession {
+	Session::new(filesystem, mountpoint, options).spawn()
 }
 
 // --------------------------------------------------------------------------
