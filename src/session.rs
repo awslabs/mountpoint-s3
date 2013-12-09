@@ -27,7 +27,10 @@ impl<FS: Filesystem+Send> Session<FS> {
 	/// Create a new session by mounting the given filesystem to the given mountpoint
 	pub fn new (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
 		info!("Mounting {}", mountpoint.display());
-		let ch = Channel::new(mountpoint, options).expect("unable to mount filesystem");
+		let ch = match Channel::new(mountpoint, options) {
+			Ok(ch) => ch,
+			Err(err) => fail!("Unable to mount filesystem. Error {:i}", err),
+		};
 		Session {
 			filesystem: filesystem,
 			mountpoint: mountpoint.clone(),
