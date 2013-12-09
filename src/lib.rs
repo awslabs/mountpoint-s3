@@ -29,6 +29,7 @@ pub use native::{fuse_setattr_in, fuse_open_out, fuse_write_out};
 pub use native::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
 #[cfg(target_os = "macos")]
 pub use native::{fuse_getxtimes_out};
+pub use native::FUSE_ROOT_ID;
 pub use native::consts;
 pub use sendable::DirBuffer;
 pub use session::{Session, BackgroundSession};
