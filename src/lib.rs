@@ -7,13 +7,9 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#[link(name = "fuse",
-       package_id = "fuse",
-       vers = "0.1",
-       uuid = "9385b964-5831-426e-b8b1-97acffc564d9",
-       url = "https://github.com/zargony/rust-fuse.git")];
-
+#[pkgid = "fuse#0.1"];
 #[desc = "Rust FUSE - Filesystem in Userspace"];
+#[comment = "https://github.com/zargony/rust-fuse.git"];
 #[license = "MIT"];
 
 #[feature(globs)];
