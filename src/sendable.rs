@@ -67,7 +67,7 @@ impl<S1: Sendable, S2: Sendable> Sendable for (S1, S2) {
 	}
 }
 
-impl<'self> Sendable for &'self [u8] {
+impl<'a> Sendable for &'a [u8] {
 	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		f([*self])
 	}

@@ -6,19 +6,19 @@
 use std::{cast, mem};
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
-pub struct ArgumentIterator<'self> {
-	priv data: &'self [u8],
+pub struct ArgumentIterator<'a> {
+	priv data: &'a [u8],
 	priv pos: uint,
 }
 
-impl<'self> ArgumentIterator<'self> {
+impl<'a> ArgumentIterator<'a> {
 	/// Create a new argument iterator for the given byte slice
-	pub fn new (data: &'self [u8]) -> ArgumentIterator<'self> {
+	pub fn new (data: &'a [u8]) -> ArgumentIterator<'a> {
 		ArgumentIterator { data: data, pos: 0 }
 	}
 
 	/// Fetch a typed argument
-	pub fn fetch<T> (&mut self) -> &'self T {
+	pub fn fetch<T> (&mut self) -> &'a T {
 		self.data.as_imm_buf(|dataptr, _| {
 			let value = unsafe { cast::transmute(dataptr.offset(self.pos as int)) };
 			self.pos += mem::size_of::<T>();
@@ -28,7 +28,7 @@ impl<'self> ArgumentIterator<'self> {
 	}
 
 	/// Fetch a (zero-terminated) string (can be non-utf8)
-	pub fn fetch_str (&mut self) -> &'self [u8] {
+	pub fn fetch_str (&mut self) -> &'a [u8] {
 		let start = self.pos;
 		while(self.data[self.pos] != 0u8) {
 			self.pos += 1
@@ -43,7 +43,7 @@ impl<'self> ArgumentIterator<'self> {
 	}
 
 	/// Fetch a slice of the remaining data
-	pub fn fetch_data (&mut self) -> &'self [u8] {
+	pub fn fetch_data (&mut self) -> &'a [u8] {
 		let bytes = self.data.tailn(self.pos);
 		self.pos = self.data.len();
 		bytes
