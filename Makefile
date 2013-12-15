@@ -14,15 +14,22 @@ clean:
 build:
 	mkdir -p $@
 
-build/libfuse.dummy: src/lib.rs src/*.rs build
-	$(RUSTC) $(RUSTFLAGS) --dylib --rlib --out-dir $(dir $@) $<
+build/libfuse.dummy: src/lib.rs build
+	$(RUSTC) $(RUSTFLAGS) --dep-info --dylib --rlib --out-dir $(dir $@) $<
+	mv build/lib.d build/libfuse.d
+	touch $@
 
-build/libfuse_test: src/lib.rs src/*.rs build
-	$(RUSTC) $(RUSTFLAGS) --test -o $@ $<
+-include build/libfuse.d
+
+build/libfuse_test: src/lib.rs build
+	$(RUSTC) $(RUSTFLAGS) --dep-info --test -o $@ $<
+	mv build/lib.d build/libfuse_test.d
+
+-include build/libfuse_test.d
 
 
-EXAMPLE_SRCS=$(wildcard examples/*.rs)
-EXAMPLE_BINS=$(patsubst examples/%.rs,build/%,$(EXAMPLE_SRCS))
+EXAMPLE_SRCS := $(wildcard examples/*.rs)
+EXAMPLE_BINS := $(patsubst examples/%.rs,build/%,$(EXAMPLE_SRCS))
 
 examples: $(EXAMPLE_BINS)
 
