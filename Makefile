@@ -1,7 +1,17 @@
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 
-all: build/libfuse.dummy
+PKGID := $(shell sed -ne 's/^\#\[ *pkgid *= *"\(.*\)" *\];$$/\1/p' src/lib.rs)
+VERSION := $(shell printf $(PKGID) |sed -ne 's/^[^\#]*\#\(.*\)$$/\1/p')
+HASH := $(shell printf $(PKGID) |shasum -a 256 |sed -ne 's/^\(.\{8\}\).*$$/\1/p')
+ifeq ($(shell uname),Darwin)
+LIBEXT := dylib
+else
+LIBEXT := so
+endif
+LIBNAME := libfuse-$(HASH)-$(VERSION).$(LIBEXT)
+
+all: build/$(LIBNAME)
 
 check: build/libfuse_test
 	build/libfuse_test
@@ -14,10 +24,9 @@ clean:
 build:
 	mkdir -p $@
 
-build/libfuse.dummy: src/lib.rs build
+build/$(LIBNAME): src/lib.rs build
 	$(RUSTC) $(RUSTFLAGS) --dep-info --dylib --rlib --out-dir $(dir $@) $<
 	mv build/lib.d build/libfuse.d
-	touch $@
 
 -include build/libfuse.d
 
@@ -35,5 +44,5 @@ examples: $(EXAMPLE_BINS)
 
 .PHONY: examples
 
-$(EXAMPLE_BINS): build/%: examples/%.rs build build/libfuse.dummy
+$(EXAMPLE_BINS): build/%: examples/%.rs build build/$(LIBNAME)
 	$(RUSTC) $(RUSTFLAGS) -L build --bin -Z prefer-dynamic -o $@ $<
