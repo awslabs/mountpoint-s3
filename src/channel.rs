@@ -2,7 +2,7 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
-use std::{os, vec};
+use std::os;
 use std::libc::{c_int, c_void, size_t};
 use native::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
@@ -70,7 +70,7 @@ impl Channel {
 			unsafe { ::std::libc::read(self.fd, ptr as *mut c_void, capacity as size_t) }
 		});
 		if rc >= 0 {
-			unsafe { vec::raw::set_len(buffer, rc as uint); }
+			unsafe { buffer.set_len(rc as uint); }
 		}
 		if rc < 0 {
 			Err(os::errno() as c_int)

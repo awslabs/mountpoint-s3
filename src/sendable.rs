@@ -123,7 +123,7 @@ impl DirBuffer {
 				ptr::zero_memory(p, padlen);
 			});
 			let newlen = self.data.len() + entsize;
-			vec::raw::set_len(&mut self.data, newlen);
+			self.data.set_len(newlen);
 		}
 		false
 	}
