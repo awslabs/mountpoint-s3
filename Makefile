@@ -1,15 +1,12 @@
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 
-PKGID := $(shell sed -ne 's/^\#\[ *pkgid *= *"\(.*\)" *\];$$/\1/p' src/lib.rs)
-VERSION := $(shell printf $(PKGID) |sed -ne 's/^[^\#]*\#\(.*\)$$/\1/p')
-HASH := $(shell printf $(PKGID) |shasum -a 256 |sed -ne 's/^\(.\{8\}\).*$$/\1/p')
-ifeq ($(shell uname),Darwin)
-LIBEXT := dylib
-else
-LIBEXT := so
-endif
-LIBNAME := libfuse-$(HASH)-$(VERSION).$(LIBEXT)
+CRATE_ID := $(shell sed -ne 's/^\#\[ *pkgid *= *"\(.*\)" *\];$$/\1/p' src/lib.rs)
+CRATE_NAME := $(shell printf $(CRATE_ID) |sed -ne 's/^[^\#]*\#\([^:]*\):.*$$/\1/p')
+CRATE_VERSION := $(shell printf $(CRATE_ID) |sed -ne 's/^[^\#]*\#[^:]*:\(.*\)$$/\1/p')
+CRATE_HASH := $(shell printf $(CRATE_ID) |shasum -a 256 |sed -ne 's/^\(.\{8\}\).*$$/\1/p')
+LIBEXT := $(if $(filter Darwin,$(shell uname)),dylib,so)
+LIBNAME := libfuse-$(CRATE_HASH)-$(CRATE_VERSION).$(LIBEXT)
 
 all: build/$(LIBNAME)
 
