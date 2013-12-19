@@ -31,9 +31,7 @@ fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 	"rust-fuse".with_c_str(|progname| {
 		let args = options.map(|arg| arg.to_c_str());
 		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));
-		argptrs.as_imm_buf(|argv, argc| {
-			f(&fuse_args { argc: argc as i32, argv: argv, allocated: 0 })
-		})
+		f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 	})
 }
 
@@ -65,10 +63,7 @@ impl Channel {
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn receive (&self, buffer: &mut ~[u8]) -> Result<(), c_int> {
 		buffer.clear();
-		let capacity = buffer.capacity();
-		let rc = buffer.as_mut_buf(|ptr, _| {
-			unsafe { ::std::libc::read(self.fd, ptr as *mut c_void, capacity as size_t) }
-		});
+		let rc = unsafe { ::std::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
 		if rc >= 0 {
 			unsafe { buffer.set_len(rc as uint); }
 		}
@@ -83,13 +78,9 @@ impl Channel {
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
 		let iovecs = buffer.map(|d| {
-			d.as_imm_buf(|bufptr, buflen| {
-				libc::iovec { iov_base: bufptr as *c_void, iov_len: buflen as size_t }
-			})
+			libc::iovec { iov_base: d.as_ptr() as *c_void, iov_len: d.len() as size_t }
 		});
-		let rc = iovecs.as_imm_buf(|iovptr, iovcnt| {
-			unsafe { libc::writev(self.fd, iovptr, iovcnt as c_int) }
-		});
+		let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
 		if rc < 0 {
 			Err(os::errno() as c_int)
 		} else {

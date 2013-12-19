@@ -19,12 +19,10 @@ impl<'a> ArgumentIterator<'a> {
 
 	/// Fetch a typed argument
 	pub fn fetch<T> (&mut self) -> &'a T {
-		self.data.as_imm_buf(|dataptr, _| {
-			let value = unsafe { cast::transmute(dataptr.offset(self.pos as int)) };
-			self.pos += mem::size_of::<T>();
-			assert!(self.pos <= self.data.len(), "trying to get argument behind data");
-			value
-		})
+		let value = unsafe { cast::transmute(self.data.as_ptr().offset(self.pos as int)) };
+		self.pos += mem::size_of::<T>();
+		assert!(self.pos <= self.data.len(), "trying to get argument behind data");
+		value
 	}
 
 	/// Fetch a (zero-terminated) string (can be non-utf8)

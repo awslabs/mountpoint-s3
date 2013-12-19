@@ -108,20 +108,16 @@ impl DirBuffer {
 		let padlen = entsize - entlen;
 		if self.data.len() + entsize > self.data.capacity() { return true; }
 		unsafe {
-			self.data.as_mut_buf(|bufptr, buflen| {
-				let p = bufptr.offset(buflen as int);
-				let pdirent: *mut fuse_dirent = cast::transmute(p);
-				(*pdirent).ino = ino;
-				(*pdirent).off = off as u64;
-				(*pdirent).namelen = name.len() as u32;
-				(*pdirent).typ = (mode as u32 & S_IFMT as u32) >> 12;
-				let p = p.offset(mem::size_of_val(&*pdirent) as int);
-				name.as_imm_buf(|nameptr, namelen| {
-					ptr::copy_memory(p, nameptr, namelen);
-				});
-				let p = p.offset(name.len() as int);
-				ptr::zero_memory(p, padlen);
-			});
+			let p = self.data.as_mut_ptr().offset(self.data.len() as int);
+			let pdirent: *mut fuse_dirent = cast::transmute(p);
+			(*pdirent).ino = ino;
+			(*pdirent).off = off as u64;
+			(*pdirent).namelen = name.len() as u32;
+			(*pdirent).typ = (mode as u32 & S_IFMT as u32) >> 12;
+			let p = p.offset(mem::size_of_val(&*pdirent) as int);
+			ptr::copy_memory(p, name.as_ptr(), name.len());
+			let p = p.offset(name.len() as int);
+			ptr::zero_memory(p, padlen);
 			let newlen = self.data.len() + entsize;
 			self.data.set_len(newlen);
 		}

@@ -8,7 +8,8 @@
 
 use std::task;
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use channel, channel::Channel;
+use channel;
+use channel::Channel;
 use Filesystem;
 use request::Request;
 
