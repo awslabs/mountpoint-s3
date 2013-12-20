@@ -1,7 +1,7 @@
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 
-CRATE_ID := $(shell sed -ne 's/^\#\[ *pkgid *= *"\(.*\)" *\];$$/\1/p' src/lib.rs)
+CRATE_ID := $(shell sed -ne 's/^\#\[ *crate_id *= *"\(.*\)" *\];$$/\1/p' src/lib.rs)
 CRATE_NAME := $(shell printf $(CRATE_ID) |sed -ne 's/^[^\#]*\#\([^:]*\):.*$$/\1/p')
 CRATE_VERSION := $(shell printf $(CRATE_ID) |sed -ne 's/^[^\#]*\#[^:]*:\(.*\)$$/\1/p')
 CRATE_HASH := $(shell printf $(CRATE_ID) |shasum -a 256 |sed -ne 's/^\(.\{8\}\).*$$/\1/p')
