@@ -13,10 +13,8 @@ clean:
 
 .PHONY: all check clean
 
-build:
-	mkdir -p $@
-
-$(LIBFUSE): src/lib.rs build
+$(LIBFUSE): src/lib.rs
+	mkdir -p build
 	$(RUSTC) $(RUSTFLAGS) --dep-info --dylib --rlib --out-dir build $<
 	mv build/lib.d build/libfuse.d
 
@@ -36,5 +34,5 @@ examples: $(EXAMPLE_BINS)
 
 .PHONY: examples
 
-$(EXAMPLE_BINS): build/%: examples/%.rs build $(LIBFUSE)
+$(EXAMPLE_BINS): build/%: examples/%.rs $(LIBFUSE)
 	$(RUSTC) $(RUSTFLAGS) -L build --bin -Z prefer-dynamic -o $@ $<
