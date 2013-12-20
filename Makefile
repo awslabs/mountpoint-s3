@@ -1,14 +1,9 @@
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 
-CRATE_ID := $(shell sed -ne 's/^\#\[ *crate_id *= *"\(.*\)" *\];$$/\1/p' src/lib.rs)
-CRATE_NAME := $(shell printf $(CRATE_ID) |sed -ne 's/^[^\#]*\#\([^:]*\):.*$$/\1/p')
-CRATE_VERSION := $(shell printf $(CRATE_ID) |sed -ne 's/^[^\#]*\#[^:]*:\(.*\)$$/\1/p')
-CRATE_HASH := $(shell printf $(CRATE_ID) |shasum -a 256 |sed -ne 's/^\(.\{8\}\).*$$/\1/p')
-LIBEXT := $(if $(filter Darwin,$(shell uname)),dylib,so)
-LIBNAME := libfuse-$(CRATE_HASH)-$(CRATE_VERSION).$(LIBEXT)
+LIBFUSE := $(shell $(RUSTC) --crate-file-name --dylib --out-dir build src/lib.rs)
 
-all: build/$(LIBNAME)
+all: $(LIBFUSE)
 
 check: build/libfuse_test
 	build/libfuse_test
@@ -21,8 +16,8 @@ clean:
 build:
 	mkdir -p $@
 
-build/$(LIBNAME): src/lib.rs build
-	$(RUSTC) $(RUSTFLAGS) --dep-info --dylib --rlib --out-dir $(dir $@) $<
+$(LIBFUSE): src/lib.rs build
+	$(RUSTC) $(RUSTFLAGS) --dep-info --dylib --rlib --out-dir build $<
 	mv build/lib.d build/libfuse.d
 
 -include build/libfuse.d
@@ -41,5 +36,5 @@ examples: $(EXAMPLE_BINS)
 
 .PHONY: examples
 
-$(EXAMPLE_BINS): build/%: examples/%.rs build build/$(LIBNAME)
+$(EXAMPLE_BINS): build/%: examples/%.rs build $(LIBFUSE)
 	$(RUSTC) $(RUSTFLAGS) -L build --bin -Z prefer-dynamic -o $@ $<
