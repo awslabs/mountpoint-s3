@@ -15,15 +15,13 @@ clean:
 
 build/$(LIBFUSE): src/lib.rs
 	mkdir -p build
-	$(RUSTC) $(RUSTFLAGS) --dep-info --dylib --rlib --out-dir $(dir $@) $<
-	mv build/lib.d build/libfuse.d
+	$(RUSTC) $(RUSTFLAGS) --dep-info build/libfuse.d --dylib --rlib --out-dir $(dir $@) $<
 
 -include build/libfuse.d
 
 build/libfuse_test: src/lib.rs
 	mkdir -p build
-	$(RUSTC) $(RUSTFLAGS) --dep-info --test -o $@ $<
-	mv build/lib.d build/libfuse_test.d
+	$(RUSTC) $(RUSTFLAGS) --dep-info build/libfuse_test.d --test -o $@ $<
 
 -include build/libfuse_test.d
 
