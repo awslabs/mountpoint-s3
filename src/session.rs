@@ -6,8 +6,8 @@
 //! operations under its mount point.
 //!
 
-use std::task;
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
+use native;
 use channel;
 use channel::Channel;
 use Filesystem;
@@ -85,9 +85,9 @@ impl BackgroundSession {
 	/// the filesystem is unmounted and the given session ends.
 	pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
 		let mountpoint = se.mountpoint.clone();
-		// The background task is started using a a new single threaded
-		// scheduler since native I/O in the session loop can block
-		do task::spawn_sched(task::SingleThreaded) {
+		// The background task is started using a a new native thread
+		// since native I/O in the session loop can block
+		do native::task::spawn {
 			let mut se = se;
 			se.run();
 		}

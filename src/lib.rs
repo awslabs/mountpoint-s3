@@ -15,6 +15,9 @@
 
 // --------------------------------------------------------------------------
 
+// Import 1:1 task scheduling via Rust's libnative
+extern mod native;
+
 use std::libc::{c_int, mode_t, dev_t, size_t, off_t};
 use std::libc::ENOSYS;
 
@@ -28,6 +31,15 @@ pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use sendable::DirBuffer;
 pub use session::{Session, BackgroundSession};
+
+mod argument;
+mod channel;
+mod fuse;
+mod request;
+mod sendable;
+mod session;
+
+// --------------------------------------------------------------------------
 
 /// Filesystem trait.
 ///
@@ -250,12 +262,3 @@ pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &
 pub fn spawn_mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> BackgroundSession {
 	Session::new(filesystem, mountpoint, options).spawn()
 }
-
-// --------------------------------------------------------------------------
-
-mod argument;
-mod channel;
-mod fuse;
-mod request;
-mod sendable;
-mod session;
