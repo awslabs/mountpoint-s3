@@ -1,9 +1,9 @@
 RUSTC ?= rustc
 RUSTFLAGS ?= -O --cfg ndebug
 
-LIBFUSE := $(shell $(RUSTC) --crate-file-name --dylib src/lib.rs)
+LIBFUSE := $(patsubst %,build/%,$(shell $(RUSTC) --crate-file-name src/lib.rs))
 
-all: build/$(LIBFUSE)
+all: $(LIBFUSE)
 
 check: build/libfuse_test
 	build/libfuse_test
@@ -13,9 +13,9 @@ clean:
 
 .PHONY: all check clean
 
-build/$(LIBFUSE): src/lib.rs
+$(LIBFUSE): src/lib.rs
 	mkdir -p build
-	$(RUSTC) $(RUSTFLAGS) --dep-info build/libfuse.d --dylib --rlib --out-dir $(dir $@) $<
+	$(RUSTC) $(RUSTFLAGS) --dep-info build/libfuse.d --out-dir $(dir $@) $<
 
 -include build/libfuse.d
 
@@ -33,5 +33,5 @@ examples: $(EXAMPLE_BINS)
 
 .PHONY: examples
 
-$(EXAMPLE_BINS): build/%: examples/%.rs build/$(LIBFUSE)
-	$(RUSTC) $(RUSTFLAGS) -L build --bin -Z prefer-dynamic -o $@ $<
+$(EXAMPLE_BINS): build/%: examples/%.rs $(LIBFUSE)
+	$(RUSTC) $(RUSTFLAGS) -L build -Z prefer-dynamic -o $@ $<

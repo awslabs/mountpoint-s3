@@ -10,6 +10,8 @@
 #[crate_id = "github.com/zargony/rust-fuse#fuse:0.1"];
 #[desc = "Rust FUSE - Filesystem in Userspace"];
 #[license = "MIT"];
+#[crate_type = "dylib"];
+#[crate_type = "rlib"];
 
 #[feature(globs)];
 
