@@ -9,8 +9,8 @@ use std::libc::{EIO, ENOSYS, EPROTO, ERANGE};
 use argument::ArgumentIterator;
 use channel::Channel;
 use Filesystem;
-use native::*;
-use native::consts::*;
+use fuse::*;
+use fuse::consts::*;
 use sendable::{Sendable, DirBuffer};
 use session::Session;
 

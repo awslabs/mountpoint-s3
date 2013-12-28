@@ -4,11 +4,11 @@
 
 use std::{cast, ptr, mem, vec};
 use std::libc::{mode_t, off_t, S_IFMT};
-use native::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
-use native::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
-use native::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
+use fuse::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
+use fuse::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
+use fuse::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
 #[cfg(target_os = "macos")]
-use native::{fuse_getxtimes_out};
+use fuse::{fuse_getxtimes_out};
 
 /// Trait for types that can be sent as a reply to the FUSE kernel driver
 pub trait Sendable {
