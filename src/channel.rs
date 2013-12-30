@@ -114,7 +114,7 @@ mod test {
 	use std::vec;
 
 	#[test]
-	fn test_with_fuse_args () {
+	fn fuse_args () {
 		with_fuse_args([bytes!("foo"), bytes!("bar")], |args| {
 			unsafe {
 				assert!(args.argc == 3);

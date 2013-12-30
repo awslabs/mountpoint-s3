@@ -147,7 +147,7 @@ mod test {
 	impl Sendable for test_data_t {}
 
 	#[test]
-	fn test_sendable_struct () {
+	fn sendable_struct () {
 		let data = test_data_t { p1: 111, p2: 222, p3: 333 };
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendable struct should be represented as a single bytes slice");
@@ -156,7 +156,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_sendable_owned_struct () {
+	fn sendable_owned_struct () {
 		let data = ~test_data_t { p1: 111, p2: 222, p3: 333 };
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendable owned struct should be represented as a single bytes slice");
@@ -165,7 +165,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_sendable_null () {
+	fn sendable_null () {
 		let data = ();
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 0, "sendable empty element should be represented by no bytes slice at all");
@@ -173,7 +173,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_sendable_tuple () {
+	fn sendable_tuple () {
 		let data = (test_data_t { p1: 111, p2: 222, p3: 333 }, test_data_t { p1: 112, p2: 223, p3: 334 });
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 2, "sendable tuple should be represented as multiple bytes slices");
@@ -183,7 +183,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_sendable_buffer () {
+	fn sendable_buffer () {
 		let data: ~[u8] = ~[11, 22, 33, 44, 55];
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
@@ -192,7 +192,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_sendable_string () {
+	fn sendable_string () {
 		let data = ~"hello";
 		let expected = [104, 101, 108, 108, 111];	// no trailing NUL
 		data.as_bytegroups(|bytes| {
@@ -202,7 +202,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_sendable_dirbuffer () {
+	fn sendable_dirbuffer () {
 		let mut buf = DirBuffer::new(128);
 		buf.fill(111, 222, S_IFREG as mode_t, &PosixPath::new("hello"));
 		buf.fill(444, 555, S_IFREG as mode_t, &PosixPath::new("world.rs"));

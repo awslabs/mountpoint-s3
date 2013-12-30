@@ -57,7 +57,7 @@ mod test {
 	struct test_argument_t { p1: u8, p2: u8, p3: u16 }
 
 	#[test]
-	fn test_argument_type () {
+	fn generic_argument () {
 		let mut it = ArgumentIterator::new(test_data);
 		let arg: &test_argument_t = it.fetch();
 		assert!(arg.p1 == 0x66, "argument iterator should fetch typed argument from data");
@@ -70,7 +70,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_argument_string () {
+	fn string_argument () {
 		let mut it = ArgumentIterator::new(test_data);
 		let arg = it.fetch_str();
 		assert!(arg == bytes!("foo"), "argument iterator should fetch string from data");
@@ -79,7 +79,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_argument_path () {
+	fn path_argument () {
 		let mut it = ArgumentIterator::new(test_data);
 		let arg = it.fetch_path();
 		assert!(arg.as_str() == Some("foo"), "argument iterator should fetch path from data");
@@ -88,7 +88,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_argument_data () {
+	fn remaining_data_argument () {
 		let mut it = ArgumentIterator::new(test_data);
 		it.fetch_str();
 		it.fetch_str();
@@ -97,7 +97,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_argument_mixed () {
+	fn mixed_arguments () {
 		let mut it = ArgumentIterator::new(test_data);
 		let arg: &test_argument_t = it.fetch();
 		assert!(arg.p1 == 0x66, "argument iterator should fetch typed argument from data");
