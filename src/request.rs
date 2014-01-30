@@ -381,7 +381,7 @@ impl Request {
 				unique: inheader.unique,
 			};
 			outheader.as_bytegroups(|headbytes| {
-				ch.send(headbytes + databytes);
+				let _ = ch.send(headbytes + databytes);
 			});
 		});
 	}
