@@ -87,10 +87,10 @@ impl BackgroundSession {
 		let mountpoint = se.mountpoint.clone();
 		// The background task is started using a a new native thread
 		// since native I/O in the session loop can block
-		do native::task::spawn {
+		native::task::spawn(proc() {
 			let mut se = se;
 			se.run();
-		}
+		});
 		BackgroundSession { mountpoint: mountpoint }
 	}
 }
