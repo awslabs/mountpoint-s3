@@ -298,7 +298,7 @@ impl Request {
 				match se.filesystem.listxattr(header.nodeid) {
 					// TODO: If arg.size is zero, the size of the attribute list should be sent with fuse_getxattr_out
 					// TODO: If arg.size is non-zero, send the attribute list if it fits, or ERANGE otherwise
-					Ok(_) => self.reply_error(&se.ch, ENOSYS),
+					Ok(..) => self.reply_error(&se.ch, ENOSYS),
 					Err(err) => self.reply_error(&se.ch, err),
 				}
 			},

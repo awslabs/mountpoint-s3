@@ -55,7 +55,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 				Err(EAGAIN) => continue,		// Explicitly try again
 				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(_) => req.dispatch(self),
+				Ok(..) => req.dispatch(self),
 			}
 		}
 	}
