@@ -3,6 +3,7 @@ extern mod fuse;
 use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::default::Default;
 use std::os;
+use std::io::{TypeFile, TypeDirectory};
 use fuse::{Filesystem, FuseResult, fuse_attr, fuse_entry_out, fuse_attr_out, DirBuffer};
 
 struct HelloFS;
@@ -49,9 +50,9 @@ impl Filesystem for HelloFS {
 	fn readdir (&mut self, ino: u64, _fh: u64, offset: u64, mut buffer: ~DirBuffer) -> FuseResult<~DirBuffer> {
 		if ino == 1 {
 			if offset == 0 {
-				buffer.fill(1, 0, hello_dir_attr().mode, &PosixPath::new("."));
-				buffer.fill(1, 1, hello_dir_attr().mode, &PosixPath::new(".."));
-				buffer.fill(2, 2, hello_txt_attr().mode, &PosixPath::new("hello.txt"));
+				buffer.fill(1, 0, TypeDirectory, &PosixPath::new("."));
+				buffer.fill(1, 1, TypeDirectory, &PosixPath::new(".."));
+				buffer.fill(2, 2, TypeFile, &PosixPath::new("hello.txt"));
 			}
 			Ok(buffer)
 		} else {

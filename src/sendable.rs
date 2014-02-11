@@ -3,7 +3,8 @@
 //!
 
 use std::{cast, ptr, mem, vec};
-use std::libc::S_IFMT;
+use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown};
+use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use fuse::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
 use fuse::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
 use fuse::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
@@ -99,9 +100,9 @@ impl DirBuffer {
 
 	/// Add an entry to the dir buffer. Returns true if the buffer is full.
 	/// A transparent offset value can be provided for each entry. The
-	/// kernel uses these value to request more entries in further readdir
-	/// calls
-	pub fn fill (&mut self, ino: u64, off: u64, mode: u32, name: &PosixPath) -> bool {
+	/// kernel uses these value to request the next entries in further
+	/// readdir calls
+	pub fn fill (&mut self, ino: u64, offset: u64, typ: FileType, name: &PosixPath) -> bool {
 		let name = name.as_vec();
 		let entlen = mem::size_of::<fuse_dirent>() + name.len();
 		let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);	// 64bit align
@@ -111,9 +112,12 @@ impl DirBuffer {
 			let p = self.data.as_mut_ptr().offset(self.data.len() as int);
 			let pdirent: *mut fuse_dirent = cast::transmute(p);
 			(*pdirent).ino = ino;
-			(*pdirent).off = off;
+			(*pdirent).off = offset;
 			(*pdirent).namelen = name.len() as u32;
-			(*pdirent).typ = (mode & S_IFMT as u32) >> 12;
+			(*pdirent).typ = match typ {
+				TypeFile => S_IFREG, TypeDirectory => S_IFDIR, TypeNamedPipe => S_IFCHR,
+				TypeBlockSpecial => S_IFBLK, TypeSymlink => S_IFLNK, TypeUnknown => 0,
+			} as u32 >> 12;
 			let p = p.offset(mem::size_of_val(&*pdirent) as int);
 			ptr::copy_memory(p, name.as_ptr(), name.len());
 			let p = p.offset(name.len() as int);
@@ -140,8 +144,8 @@ impl Sendable for DirBuffer {
 
 #[cfg(test)]
 mod test {
+	use std::io::{TypeFile, TypeDirectory};
 	use super::{Sendable, DirBuffer};
-	use std::libc::S_IFREG;
 
 	struct test_data_t { p1: u8, p2: u8, p3: u16 }
 	impl Sendable for test_data_t {}
@@ -204,15 +208,15 @@ mod test {
 	#[test]
 	fn sendable_dirbuffer () {
 		let mut buf = DirBuffer::new(128);
-		buf.fill(111, 222, S_IFREG as u32, &PosixPath::new("hello"));
-		buf.fill(444, 555, S_IFREG as u32, &PosixPath::new("world.rs"));
+		buf.fill(111, 222, TypeDirectory, &PosixPath::new("hello"));
+		buf.fill(444, 555, TypeFile, &PosixPath::new("world.rs"));
 		let expected = [
-			111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 8, 0, 0, 0, 104, 101, 108, 108, 111,  0,   0,   0,
+			111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 4, 0, 0, 0, 104, 101, 108, 108, 111,  0,   0,   0,
 			188, 1, 0, 0, 0, 0, 0, 0,  43, 2, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0, 119, 111, 114, 108, 100, 46, 114, 115,
 		];
 		buf.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendable dirbuffer should be represented as a single bytes slice");
-			assert!(bytes[0] == expected, "sendable dirbuffer should be reply_error by a bytes slice with the contents of the dirbuffer");
+			assert!(bytes[0] == expected, "sendable dirbuffer should be represented by a bytes slice with the contents of the dirbuffer");
 		});
 	}
 }
