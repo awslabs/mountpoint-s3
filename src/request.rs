@@ -3,7 +3,7 @@
 //! kernel driver wants us to perform.
 //!
 
-use std::{mem, vec};
+use std::{mem, str, vec};
 use std::libc::{dev_t, c_int, mode_t, off_t, size_t};
 use std::libc::{EIO, ENOSYS, EPROTO, ERANGE};
 use argument::ArgumentIterator;
@@ -29,16 +29,6 @@ static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE;
 #[cfg(not(target_os = "macos"))]
 /// We support async reads
 static INIT_FLAGS: u32 = FUSE_ASYNC_READ;
-
-/// Helper to display strings which may contain unprintable (non-utf8) characters
-/// FIXME: PosixPath is actually only for pathnames, not for arbitrary strings. However, it
-/// FIXME: can display any string while str has no method yet to replace non-utf8 characters.
-/// FIXME: See also https://github.com/mozilla/rust/issues/8968
-fn logstr (s: &[u8]) -> ~str {
-	let p = PosixPath::new(s);
-	p.display().to_str()
-}
-
 
 /// Request data structure
 pub struct Request {
@@ -272,7 +262,7 @@ impl Request {
 				let name = data.fetch_str();
 				let value = data.fetch_data();
 				assert!(value.len() == arg.size as uint);
-				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", header.unique, header.nodeid, logstr(name), arg.size, arg.flags);
+				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", header.unique, header.nodeid, str::from_utf8_lossy(name), arg.size, arg.flags);
 				#[cfg(target_os = "macos")]
 				fn get_position(arg: &fuse_setxattr_in) -> off_t { arg.position as off_t }
 				#[cfg(not(target_os = "macos"))]
@@ -282,7 +272,7 @@ impl Request {
 			FUSE_GETXATTR => {
 				let arg: &fuse_getxattr_in = data.fetch();
 				let name = data.fetch_str();
-				debug!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", header.unique, header.nodeid, logstr(name), arg.size);
+				debug!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", header.unique, header.nodeid, str::from_utf8_lossy(name), arg.size);
 				match se.filesystem.getxattr(header.nodeid, name) {
 					// If arg.size is zero, the size of the value should be sent with fuse_getxattr_out
 					Ok(ref value) if arg.size == 0 => self.reply(&se.ch, Ok(fuse_getxattr_out { size: value.len() as u32, padding: 0 })),
@@ -304,7 +294,7 @@ impl Request {
 			},
 			FUSE_REMOVEXATTR => {
 				let name = data.fetch_str();
-				debug!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", header.unique, header.nodeid, logstr(name));
+				debug!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", header.unique, header.nodeid, str::from_utf8_lossy(name));
 				self.reply(&se.ch, se.filesystem.removexattr(header.nodeid, name));
 			},
 			FUSE_ACCESS => {
@@ -345,7 +335,7 @@ impl Request {
 		match opcode {
 			FUSE_SETVOLNAME => {
 				let name = data.fetch_str();
-				debug!("SETVOLNAME({:u}) name {:s}", header.unique, logstr(name));
+				debug!("SETVOLNAME({:u}) name {:s}", header.unique, str::from_utf8_lossy(name));
 				self.reply(&se.ch, se.filesystem.setvolname(name));
 			},
 			FUSE_EXCHANGE => {
