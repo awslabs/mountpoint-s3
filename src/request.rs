@@ -211,7 +211,7 @@ impl Request {
 				assert!(data.len() == arg.size as uint);
 				debug!("WRITE({:u}) ino {:#018x}, fh {:u}, offset {:u}, size {:u}, flags {:#x}", header.unique, header.nodeid, arg.fh, arg.offset, arg.size, arg.write_flags);
 				self.reply(&se.ch, se.filesystem.write(header.nodeid, arg.fh, arg.offset, data, arg.write_flags as uint).and_then(|written| {
-					Ok(~fuse_write_out { size: written as u32, padding: 0 })
+					Ok(fuse_write_out { size: written as u32, padding: 0 })
 				}));
 			},
 			FUSE_FLUSH => {

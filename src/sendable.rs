@@ -41,12 +41,6 @@ impl Sendable for fuse_out_header { }
 #[cfg(target_os = "macos")]
 impl Sendable for fuse_getxtimes_out { }
 
-impl<S: Sendable> Sendable for ~S {
-	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
-		(**self).as_bytegroups(f)
-	}
-}
-
 impl Sendable for () {
 	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// A unit value has nothing to send
@@ -80,7 +74,7 @@ impl Sendable for ~[u8] {
 	}
 }
 
-impl Sendable for ~str {
+impl<'a> Sendable for &'a str {
 	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// Sending a string uses its byte-representation (without trailing NUL)
 		f([self.as_bytes()])
@@ -94,8 +88,8 @@ pub struct DirBuffer {
 
 impl DirBuffer {
 	/// Create a new dir buffer of the given size
-	pub fn new (size: uint) -> ~DirBuffer {
-		~DirBuffer { data: vec::with_capacity(size) }
+	pub fn new (size: uint) -> DirBuffer {
+		DirBuffer { data: vec::with_capacity(size) }
 	}
 
 	/// Add an entry to the dir buffer. Returns true if the buffer is full.
@@ -160,15 +154,6 @@ mod test {
 	}
 
 	#[test]
-	fn sendable_owned_struct () {
-		let data = ~test_data_t { p1: 111, p2: 222, p3: 333 };
-		data.as_bytegroups(|bytes| {
-			assert!(bytes.len() == 1, "sendable owned struct should be represented as a single bytes slice");
-			assert!(bytes[0] == [0x6f, 0xde, 0x4d, 0x01], "sendable owned struct should be represented by a bytes slice with the byte representation of the owned struct");
-		});
-	}
-
-	#[test]
 	fn sendable_null () {
 		let data = ();
 		data.as_bytegroups(|bytes| {
@@ -187,8 +172,17 @@ mod test {
 	}
 
 	#[test]
-	fn sendable_buffer () {
-		let data: ~[u8] = ~[11, 22, 33, 44, 55];
+	fn sendable_bytevector () {
+		let data = [11, 22, 33, 44, 55];
+		data.as_bytegroups(|bytes| {
+			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
+			assert!(bytes[0] == data, "sendable buffer should be represented by a bytes slice with the contents of the buffer");
+		});
+	}
+
+	#[test]
+	fn sendable_owned_bytevector () {
+		let data = ~[11, 22, 33, 44, 55];
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
 			assert!(bytes[0] == data, "sendable buffer should be represented by a bytes slice with the contents of the buffer");
@@ -197,7 +191,7 @@ mod test {
 
 	#[test]
 	fn sendable_string () {
-		let data = ~"hello";
+		let data = "hello";
 		let expected = [104, 101, 108, 108, 111];	// no trailing NUL
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendable string should be represented as a single bytes slice");

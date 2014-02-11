@@ -59,7 +59,7 @@ pub trait Filesystem {
 	fn destroy (&mut self)																										{ }
 
 	/// Look up a directory entry by name and get its attributes.
-	fn lookup (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<~fuse_entry_out>										{ Err(ENOSYS) }
+	fn lookup (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<fuse_entry_out>										{ Err(ENOSYS) }
 
 	/// Forget about an inode
 	/// The nlookup parameter indicates the number of lookups previously performed on
@@ -71,22 +71,22 @@ pub trait Filesystem {
 	fn forget (&mut self, _ino: u64, _nlookup: uint)																			{ }
 
 	/// Get file attributes
-	fn getattr (&mut self, _ino: u64) -> FuseResult<~fuse_attr_out>																{ Err(ENOSYS) }
+	fn getattr (&mut self, _ino: u64) -> FuseResult<fuse_attr_out>																{ Err(ENOSYS) }
 
 	/// Set file attributes
 	/// In the 'attr' argument only members indicated by the 'valid' bitmask contain
 	/// valid values. Other members contain undefined values.
-	fn setattr (&mut self, _ino: u64, _attr: &fuse_setattr_in) -> FuseResult<~fuse_attr_out>									{ Err(ENOSYS) }
+	fn setattr (&mut self, _ino: u64, _attr: &fuse_setattr_in) -> FuseResult<fuse_attr_out>										{ Err(ENOSYS) }
 
 	/// Read symbolic link
 	fn readlink (&mut self, _ino: u64) -> FuseResult<~[u8]>																		{ Err(ENOSYS) }
 
 	/// Create file node
 	/// Create a regular file, character device, block device, fifo or socket node.
-	fn mknod (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32) -> FuseResult<~fuse_entry_out>				{ Err(ENOSYS) }
+	fn mknod (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32) -> FuseResult<fuse_entry_out>					{ Err(ENOSYS) }
 
 	/// Create a directory
-	fn mkdir (&mut self, _parent: u64, _name: &PosixPath, _mode: u32) -> FuseResult<~fuse_entry_out>							{ Err(ENOSYS) }
+	fn mkdir (&mut self, _parent: u64, _name: &PosixPath, _mode: u32) -> FuseResult<fuse_entry_out>								{ Err(ENOSYS) }
 
 	/// Remove a file
 	fn unlink (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<()>													{ Err(ENOSYS) }
@@ -95,13 +95,13 @@ pub trait Filesystem {
 	fn rmdir (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<()>														{ Err(ENOSYS) }
 
 	/// Create a symbolic link
-	fn symlink (&mut self, _parent: u64, _name: &PosixPath, _link: &PosixPath) -> FuseResult<~fuse_entry_out>					{ Err(ENOSYS) }
+	fn symlink (&mut self, _parent: u64, _name: &PosixPath, _link: &PosixPath) -> FuseResult<fuse_entry_out>					{ Err(ENOSYS) }
 
 	/// Rename a file
 	fn rename (&mut self, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath) -> FuseResult<()>				{ Err(ENOSYS) }
 
 	/// Create a hard link
-	fn link (&mut self, _ino: u64, _newparent: u64, _newname: &PosixPath) -> FuseResult<~fuse_entry_out>						{ Err(ENOSYS) }
+	fn link (&mut self, _ino: u64, _newparent: u64, _newname: &PosixPath) -> FuseResult<fuse_entry_out>							{ Err(ENOSYS) }
 
 	/// Open a file
 	/// Open flags (with the exception of O_CREAT, O_EXCL, O_NOCTTY and O_TRUNC) are
@@ -111,7 +111,7 @@ pub trait Filesystem {
 	/// anything in fh. There are also some flags (direct_io, keep_cache) which the
 	/// filesystem may set, to change the way the file is opened. See fuse_file_info
 	/// structure in <fuse_common.h> for more details.
-	fn open (&mut self, _ino: u64, _flags: uint) -> FuseResult<~fuse_open_out>													{ Ok(~fuse_open_out { fh: 0, open_flags: 0, padding: 0 }) }
+	fn open (&mut self, _ino: u64, _flags: uint) -> FuseResult<fuse_open_out>													{ Ok(fuse_open_out { fh: 0, open_flags: 0, padding: 0 }) }
 
 	/// Read data
 	/// Read should send exactly the number of bytes requested except on EOF or error,
@@ -164,14 +164,14 @@ pub trait Filesystem {
 	/// anything in fh, though that makes it impossible to implement standard conforming
 	/// directory stream operations in case the contents of the directory can change
 	/// between opendir and releasedir.
-	fn opendir (&mut self, _ino: u64, _flags: uint) -> FuseResult<~fuse_open_out>												{ Ok(~fuse_open_out { fh: 0, open_flags: 0, padding: 0 }) }
+	fn opendir (&mut self, _ino: u64, _flags: uint) -> FuseResult<fuse_open_out>												{ Ok(fuse_open_out { fh: 0, open_flags: 0, padding: 0 }) }
 
 	/// Read directory
 	/// Send a buffer filled using buffer.fill(), with size not exceeding the
 	/// requested size. Send an empty buffer on end of stream. fh will contain the
 	/// value set by the opendir method, or will be undefined if the opendir method
 	/// didn't set any value.
-	fn readdir (&mut self, _ino: u64, _fh: u64, _offset: u64, _buffer: ~DirBuffer) -> FuseResult<~DirBuffer>					{ Err(ENOSYS) }
+	fn readdir (&mut self, _ino: u64, _fh: u64, _offset: u64, _buffer: DirBuffer) -> FuseResult<DirBuffer>						{ Err(ENOSYS) }
 
 	/// Release an open directory
 	/// For every opendir call there will be exactly one releasedir call. fh will
@@ -186,7 +186,7 @@ pub trait Filesystem {
 	fn fsyncdir (&mut self, _ino: u64, _fh: u64, _datasync: bool) -> FuseResult<()>												{ Err(ENOSYS) }
 
 	/// Get file system statistics
-	fn statfs (&mut self, _ino: u64) -> FuseResult<~fuse_statfs_out>															{ Ok(~fuse_statfs_out { st: fuse_kstatfs { blocks: 0, bfree: 0, bavail: 0, files: 0, ffree: 0, bsize: 512, namelen: 255, frsize: 0, padding: 0, spare: [0, ..6] }}) }
+	fn statfs (&mut self, _ino: u64) -> FuseResult<fuse_statfs_out>																{ Ok(fuse_statfs_out { st: fuse_kstatfs { blocks: 0, bfree: 0, bavail: 0, files: 0, ffree: 0, bsize: 512, namelen: 255, frsize: 0, padding: 0, spare: [0, ..6] }}) }
 
 	/// Set an extended attribute
 	fn setxattr (&mut self, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: u32) -> FuseResult<()>				{ Err(ENOSYS) }
@@ -216,10 +216,10 @@ pub trait Filesystem {
 	/// structure in <fuse_common.h> for more details. If this method is not
 	/// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
 	/// and open() methods will be called instead.
-	fn create (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint) -> FuseResult<(~fuse_entry_out,~fuse_open_out)>	{ Err(ENOSYS) }
+	fn create (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint) -> FuseResult<(fuse_entry_out,fuse_open_out)>		{ Err(ENOSYS) }
 
 	/// Test for a POSIX file lock
-	fn getlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> FuseResult<~fuse_file_lock>					{ Err(ENOSYS) }
+	fn getlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> FuseResult<fuse_file_lock>					{ Err(ENOSYS) }
 
 	/// Acquire, modify or release a POSIX file lock
 	/// For POSIX threads (NPTL) there's a 1-1 relation between pid and owner, but
@@ -233,7 +233,7 @@ pub trait Filesystem {
 	/// Map block index within file to block index within device
 	/// Note: This makes sense only for block device backed filesystems mounted
 	/// with the 'blkdev' option
-	fn bmap (&mut self, _ino: u64, _blocksize: uint, _idx: u64) -> FuseResult<~fuse_bmap_out>									{ Err(ENOSYS) }
+	fn bmap (&mut self, _ino: u64, _blocksize: uint, _idx: u64) -> FuseResult<fuse_bmap_out>									{ Err(ENOSYS) }
 
 	/// OS X only: Rename the volume. Set fuse_init_out.flags during init to
 	/// FUSE_VOL_RENAME to enable
@@ -247,7 +247,7 @@ pub trait Filesystem {
 	/// OS X only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
 	/// during init to FUSE_XTIMES to enable
 	#[cfg(target_os = "macos")]
-	fn getxtimes (&mut self, _ino: u64) -> FuseResult<~fuse_getxtimes_out>														{ Err(ENOSYS) }
+	fn getxtimes (&mut self, _ino: u64) -> FuseResult<fuse_getxtimes_out>														{ Err(ENOSYS) }
 }
 
 /// Mount the given filesystem to the given mountpoint. This function will

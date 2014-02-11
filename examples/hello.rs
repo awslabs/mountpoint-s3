@@ -23,18 +23,18 @@ fn hello_txt_attr () -> fuse_attr {
 }
 
 impl Filesystem for HelloFS {
-	fn lookup (&mut self, parent: u64, name: &PosixPath) -> FuseResult<~fuse_entry_out> {
+	fn lookup (&mut self, parent: u64, name: &PosixPath) -> FuseResult<fuse_entry_out> {
 		if parent == 1 && name.as_str() == Some("hello.txt") {
-			Ok(~fuse_entry_out { nodeid: 2, generation: 0, attr: hello_txt_attr(), entry_valid: 1, entry_valid_nsec: 0, attr_valid: 1, attr_valid_nsec: 0 })
+			Ok(fuse_entry_out { nodeid: 2, generation: 0, attr: hello_txt_attr(), entry_valid: 1, entry_valid_nsec: 0, attr_valid: 1, attr_valid_nsec: 0 })
 		} else {
 			Err(ENOENT)
 		}
 	}
 
-	fn getattr (&mut self, ino: u64) -> FuseResult<~fuse_attr_out> {
+	fn getattr (&mut self, ino: u64) -> FuseResult<fuse_attr_out> {
 		match ino {
-			1 => Ok(~fuse_attr_out { attr_valid: 1, attr_valid_nsec: 0, dummy: 0, attr: hello_dir_attr() }),
-			2 => Ok(~fuse_attr_out { attr_valid: 1, attr_valid_nsec: 0, dummy: 0, attr: hello_txt_attr() }),
+			1 => Ok(fuse_attr_out { attr_valid: 1, attr_valid_nsec: 0, dummy: 0, attr: hello_dir_attr() }),
+			2 => Ok(fuse_attr_out { attr_valid: 1, attr_valid_nsec: 0, dummy: 0, attr: hello_txt_attr() }),
 			_ => Err(ENOENT),
 		}
 	}
@@ -47,7 +47,7 @@ impl Filesystem for HelloFS {
 		}
 	}
 
-	fn readdir (&mut self, ino: u64, _fh: u64, offset: u64, mut buffer: ~DirBuffer) -> FuseResult<~DirBuffer> {
+	fn readdir (&mut self, ino: u64, _fh: u64, offset: u64, mut buffer: DirBuffer) -> FuseResult<DirBuffer> {
 		if ino == 1 {
 			if offset == 0 {
 				buffer.fill(1, 0, TypeDirectory, &PosixPath::new("."));
