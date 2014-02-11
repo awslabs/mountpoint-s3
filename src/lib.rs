@@ -17,8 +17,7 @@
 
 extern mod native;
 
-use std::libc::{c_int, mode_t, dev_t, size_t, off_t};
-use std::libc::ENOSYS;
+use std::libc::{c_int, ENOSYS};
 
 pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out, fuse_write_out};
@@ -84,10 +83,10 @@ pub trait Filesystem {
 
 	/// Create file node
 	/// Create a regular file, character device, block device, fifo or socket node.
-	fn mknod (&mut self, _parent: u64, _name: &PosixPath, _mode: mode_t, _rdev: dev_t) -> FuseResult<~fuse_entry_out>			{ Err(ENOSYS) }
+	fn mknod (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32) -> FuseResult<~fuse_entry_out>				{ Err(ENOSYS) }
 
 	/// Create a directory
-	fn mkdir (&mut self, _parent: u64, _name: &PosixPath, _mode: mode_t) -> FuseResult<~fuse_entry_out>							{ Err(ENOSYS) }
+	fn mkdir (&mut self, _parent: u64, _name: &PosixPath, _mode: u32) -> FuseResult<~fuse_entry_out>							{ Err(ENOSYS) }
 
 	/// Remove a file
 	fn unlink (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<()>													{ Err(ENOSYS) }
@@ -121,7 +120,7 @@ pub trait Filesystem {
 	/// return value of the read system call will reflect the return value of this
 	/// operation. fh will contain the value set by the open method, or will be undefined
 	/// if the open method didn't set any value.
-	fn read (&mut self, _ino: u64, _fh: u64, _offset: off_t, _size: size_t) -> FuseResult<~[u8]>								{ Err(ENOSYS) }
+	fn read (&mut self, _ino: u64, _fh: u64, _offset: u64, _size: uint) -> FuseResult<~[u8]>									{ Err(ENOSYS) }
 
 	/// Write data
 	/// Write should return exactly the number of bytes requested except on error. An
@@ -129,7 +128,7 @@ pub trait Filesystem {
 	/// which case the return value of the write system call will reflect the return
 	/// value of this operation. fh will contain the value set by the open method, or
 	/// will be undefined if the open method didn't set any value.
-	fn write (&mut self, _ino: u64, _fh: u64, _offset: off_t, _data: &[u8], _flags: uint) -> FuseResult<size_t>					{ Err(ENOSYS) }
+	fn write (&mut self, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: uint) -> FuseResult<uint>						{ Err(ENOSYS) }
 
 	/// Flush method
 	/// This is called on each close() of the opened file. Since file descriptors can
@@ -172,7 +171,7 @@ pub trait Filesystem {
 	/// requested size. Send an empty buffer on end of stream. fh will contain the
 	/// value set by the opendir method, or will be undefined if the opendir method
 	/// didn't set any value.
-	fn readdir (&mut self, _ino: u64, _fh: u64, _offset: off_t, _buffer: ~DirBuffer) -> FuseResult<~DirBuffer>					{ Err(ENOSYS) }
+	fn readdir (&mut self, _ino: u64, _fh: u64, _offset: u64, _buffer: ~DirBuffer) -> FuseResult<~DirBuffer>					{ Err(ENOSYS) }
 
 	/// Release an open directory
 	/// For every opendir call there will be exactly one releasedir call. fh will
@@ -190,7 +189,7 @@ pub trait Filesystem {
 	fn statfs (&mut self, _ino: u64) -> FuseResult<~fuse_statfs_out>															{ Ok(~fuse_statfs_out { st: fuse_kstatfs { blocks: 0, bfree: 0, bavail: 0, files: 0, ffree: 0, bsize: 512, namelen: 255, frsize: 0, padding: 0, spare: [0, ..6] }}) }
 
 	/// Set an extended attribute
-	fn setxattr (&mut self, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: off_t) -> FuseResult<()>			{ Err(ENOSYS) }
+	fn setxattr (&mut self, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: u32) -> FuseResult<()>				{ Err(ENOSYS) }
 
 	/// Get an extended attribute
 	fn getxattr (&mut self, _ino: u64, _name: &[u8]) -> FuseResult<~[u8]>														{ Err(ENOSYS) }
@@ -217,7 +216,7 @@ pub trait Filesystem {
 	/// structure in <fuse_common.h> for more details. If this method is not
 	/// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
 	/// and open() methods will be called instead.
-	fn create (&mut self, _parent: u64, _name: &PosixPath, _mode: mode_t, _flags: uint) -> FuseResult<(~fuse_entry_out,~fuse_open_out)>	{ Err(ENOSYS) }
+	fn create (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint) -> FuseResult<(~fuse_entry_out,~fuse_open_out)>	{ Err(ENOSYS) }
 
 	/// Test for a POSIX file lock
 	fn getlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> FuseResult<~fuse_file_lock>					{ Err(ENOSYS) }
@@ -234,7 +233,7 @@ pub trait Filesystem {
 	/// Map block index within file to block index within device
 	/// Note: This makes sense only for block device backed filesystems mounted
 	/// with the 'blkdev' option
-	fn bmap (&mut self, _ino: u64, _blocksize: size_t, _idx: u64) -> FuseResult<~fuse_bmap_out>									{ Err(ENOSYS) }
+	fn bmap (&mut self, _ino: u64, _blocksize: uint, _idx: u64) -> FuseResult<~fuse_bmap_out>									{ Err(ENOSYS) }
 
 	/// OS X only: Rename the volume. Set fuse_init_out.flags during init to
 	/// FUSE_VOL_RENAME to enable

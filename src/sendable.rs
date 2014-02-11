@@ -3,7 +3,7 @@
 //!
 
 use std::{cast, ptr, mem, vec};
-use std::libc::{mode_t, off_t, S_IFMT};
+use std::libc::S_IFMT;
 use fuse::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
 use fuse::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
 use fuse::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
@@ -101,7 +101,7 @@ impl DirBuffer {
 	/// A transparent offset value can be provided for each entry. The
 	/// kernel uses these value to request more entries in further readdir
 	/// calls
-	pub fn fill (&mut self, ino: u64, off: off_t, mode: mode_t, name: &PosixPath) -> bool {
+	pub fn fill (&mut self, ino: u64, off: u64, mode: u32, name: &PosixPath) -> bool {
 		let name = name.as_vec();
 		let entlen = mem::size_of::<fuse_dirent>() + name.len();
 		let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);	// 64bit align
@@ -111,9 +111,9 @@ impl DirBuffer {
 			let p = self.data.as_mut_ptr().offset(self.data.len() as int);
 			let pdirent: *mut fuse_dirent = cast::transmute(p);
 			(*pdirent).ino = ino;
-			(*pdirent).off = off as u64;
+			(*pdirent).off = off;
 			(*pdirent).namelen = name.len() as u32;
-			(*pdirent).typ = (mode as u32 & S_IFMT as u32) >> 12;
+			(*pdirent).typ = (mode & S_IFMT as u32) >> 12;
 			let p = p.offset(mem::size_of_val(&*pdirent) as int);
 			ptr::copy_memory(p, name.as_ptr(), name.len());
 			let p = p.offset(name.len() as int);
@@ -141,7 +141,7 @@ impl Sendable for DirBuffer {
 #[cfg(test)]
 mod test {
 	use super::{Sendable, DirBuffer};
-	use std::libc::{mode_t, S_IFREG};
+	use std::libc::S_IFREG;
 
 	struct test_data_t { p1: u8, p2: u8, p3: u16 }
 	impl Sendable for test_data_t {}
@@ -204,8 +204,8 @@ mod test {
 	#[test]
 	fn sendable_dirbuffer () {
 		let mut buf = DirBuffer::new(128);
-		buf.fill(111, 222, S_IFREG as mode_t, &PosixPath::new("hello"));
-		buf.fill(444, 555, S_IFREG as mode_t, &PosixPath::new("world.rs"));
+		buf.fill(111, 222, S_IFREG as u32, &PosixPath::new("hello"));
+		buf.fill(444, 555, S_IFREG as u32, &PosixPath::new("world.rs"));
 		let expected = [
 			111, 0, 0, 0, 0, 0, 0, 0, 222, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 8, 0, 0, 0, 104, 101, 108, 108, 111,  0,   0,   0,
 			188, 1, 0, 0, 0, 0, 0, 0,  43, 2, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0, 119, 111, 114, 108, 100, 46, 114, 115,

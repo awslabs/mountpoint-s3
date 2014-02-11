@@ -4,8 +4,7 @@
 //!
 
 use std::{mem, str, vec};
-use std::libc::{dev_t, c_int, mode_t, off_t, size_t};
-use std::libc::{EIO, ENOSYS, EPROTO, ERANGE};
+use std::libc::{c_int, EIO, ENOSYS, EPROTO, ERANGE};
 use argument::ArgumentIterator;
 use channel::Channel;
 use Filesystem;
@@ -159,13 +158,13 @@ impl Request {
 				let arg: &fuse_mknod_in = data.fetch();
 				let name = data.fetch_path();
 				debug!("MKNOD({:u}) parent {:#018x}, name {}, mode {:#05o}, rdev {:u}", header.unique, header.nodeid, name.display(), arg.mode, arg.rdev);
-				self.reply(&se.ch, se.filesystem.mknod(header.nodeid, &name, arg.mode as mode_t, arg.rdev as dev_t));
+				self.reply(&se.ch, se.filesystem.mknod(header.nodeid, &name, arg.mode, arg.rdev));
 			},
 			FUSE_MKDIR => {
 				let arg: &fuse_mkdir_in = data.fetch();
 				let name = data.fetch_path();
 				debug!("MKDIR({:u}) parent {:#018x}, name {}, mode {:#05o}", header.unique, header.nodeid, name.display(), arg.mode);
-				self.reply(&se.ch, se.filesystem.mkdir(header.nodeid, &name, arg.mode as mode_t));
+				self.reply(&se.ch, se.filesystem.mkdir(header.nodeid, &name, arg.mode));
 			},
 			FUSE_UNLINK => {
 				let name = data.fetch_path();
@@ -204,14 +203,14 @@ impl Request {
 			FUSE_READ => {
 				let arg: &fuse_read_in = data.fetch();
 				debug!("READ({:u}) ino {:#018x}, fh {:u}, offset {:u}, size {:u}", header.unique, header.nodeid, arg.fh, arg.offset, arg.size);
-				self.reply(&se.ch, se.filesystem.read(header.nodeid, arg.fh, arg.offset as off_t, arg.size as size_t));
+				self.reply(&se.ch, se.filesystem.read(header.nodeid, arg.fh, arg.offset, arg.size as uint));
 			},
 			FUSE_WRITE => {
 				let arg: &fuse_write_in = data.fetch();
 				let data = data.fetch_data();
 				assert!(data.len() == arg.size as uint);
 				debug!("WRITE({:u}) ino {:#018x}, fh {:u}, offset {:u}, size {:u}, flags {:#x}", header.unique, header.nodeid, arg.fh, arg.offset, arg.size, arg.write_flags);
-				self.reply(&se.ch, se.filesystem.write(header.nodeid, arg.fh, arg.offset as off_t, data, arg.write_flags as uint).and_then(|written| {
+				self.reply(&se.ch, se.filesystem.write(header.nodeid, arg.fh, arg.offset, data, arg.write_flags as uint).and_then(|written| {
 					Ok(~fuse_write_out { size: written as u32, padding: 0 })
 				}));
 			},
@@ -240,7 +239,7 @@ impl Request {
 			FUSE_READDIR => {
 				let arg: &fuse_read_in = data.fetch();
 				debug!("READDIR({:u}) ino {:#018x}, fh {:u}, offset {:u}, size {:u}", header.unique, header.nodeid, arg.fh, arg.offset, arg.size);
-				self.reply(&se.ch, se.filesystem.readdir(header.nodeid, arg.fh, arg.offset as off_t, DirBuffer::new(arg.size as uint)));
+				self.reply(&se.ch, se.filesystem.readdir(header.nodeid, arg.fh, arg.offset, DirBuffer::new(arg.size as uint)));
 			},
 			FUSE_RELEASEDIR => {
 				let arg: &fuse_release_in = data.fetch();
@@ -264,9 +263,9 @@ impl Request {
 				assert!(value.len() == arg.size as uint);
 				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", header.unique, header.nodeid, str::from_utf8_lossy(name), arg.size, arg.flags);
 				#[cfg(target_os = "macos")]
-				fn get_position(arg: &fuse_setxattr_in) -> off_t { arg.position as off_t }
+				fn get_position(arg: &fuse_setxattr_in) -> u32 { arg.position }
 				#[cfg(not(target_os = "macos"))]
-				fn get_position(_arg: &fuse_setxattr_in) -> off_t { 0 }
+				fn get_position(_arg: &fuse_setxattr_in) -> u32 { 0 }
 				self.reply(&se.ch, se.filesystem.setxattr(header.nodeid, name, value, arg.flags as uint, get_position(arg)));
 			},
 			FUSE_GETXATTR => {
@@ -306,7 +305,7 @@ impl Request {
 				let arg: &fuse_open_in = data.fetch();
 				let name = data.fetch_path();
 				debug!("CREATE({:u}) parent {:#018x}, name {}, mode {:#05o}, flags {:#x}", header.unique, header.nodeid, name.display(), arg.mode, arg.flags);
-				self.reply(&se.ch, se.filesystem.create(header.nodeid, &name, arg.mode as mode_t, arg.flags as uint));
+				self.reply(&se.ch, se.filesystem.create(header.nodeid, &name, arg.mode, arg.flags as uint));
 			},
 			FUSE_GETLK => {
 				let arg: &fuse_lk_in = data.fetch();
@@ -322,7 +321,7 @@ impl Request {
 			FUSE_BMAP => {
 				let arg: &fuse_bmap_in = data.fetch();
 				debug!("BMAP({:u}) ino {:#018x}, blocksize {:u}, ids {:u}", header.unique, header.nodeid, arg.blocksize, arg.block);
-				self.reply(&se.ch, se.filesystem.bmap(header.nodeid, arg.blocksize as size_t, arg.block));
+				self.reply(&se.ch, se.filesystem.bmap(header.nodeid, arg.blocksize as uint, arg.block));
 			},
 			// OS X only
 			FUSE_SETVOLNAME | FUSE_EXCHANGE | FUSE_GETXTIMES => self.dispatch_macos_only(opcode, se, header, &mut data),

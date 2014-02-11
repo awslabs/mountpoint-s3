@@ -1,6 +1,6 @@
 extern mod fuse;
 
-use std::libc::{mode_t, off_t, size_t, ENOENT, S_IFDIR, S_IFREG};
+use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::default::Default;
 use std::os;
 use fuse::{Filesystem, FuseResult, fuse_attr, fuse_entry_out, fuse_attr_out, DirBuffer};
@@ -38,7 +38,7 @@ impl Filesystem for HelloFS {
 		}
 	}
 
-	fn read (&mut self, ino: u64, _fh: u64, offset: off_t, _size: size_t) -> FuseResult<~[u8]> {
+	fn read (&mut self, ino: u64, _fh: u64, offset: u64, _size: uint) -> FuseResult<~[u8]> {
 		if ino == 2 {
 			Ok(hello_world.as_bytes().tailn(offset as uint).to_owned())
 		} else {
@@ -46,12 +46,12 @@ impl Filesystem for HelloFS {
 		}
 	}
 
-	fn readdir (&mut self, ino: u64, _fh: u64, offset: off_t, mut buffer: ~DirBuffer) -> FuseResult<~DirBuffer> {
+	fn readdir (&mut self, ino: u64, _fh: u64, offset: u64, mut buffer: ~DirBuffer) -> FuseResult<~DirBuffer> {
 		if ino == 1 {
 			if offset == 0 {
-				buffer.fill(1, 0, hello_dir_attr().mode as mode_t, &PosixPath::new("."));
-				buffer.fill(1, 1, hello_dir_attr().mode as mode_t, &PosixPath::new(".."));
-				buffer.fill(2, 2, hello_txt_attr().mode as mode_t, &PosixPath::new("hello.txt"));
+				buffer.fill(1, 0, hello_dir_attr().mode, &PosixPath::new("."));
+				buffer.fill(1, 1, hello_dir_attr().mode, &PosixPath::new(".."));
+				buffer.fill(2, 2, hello_txt_attr().mode, &PosixPath::new("hello.txt"));
 			}
 			Ok(buffer)
 		} else {
