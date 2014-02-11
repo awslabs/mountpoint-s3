@@ -34,4 +34,4 @@ examples: $(EXAMPLE_BINS)
 .PHONY: examples
 
 $(EXAMPLE_BINS): build/%: examples/%.rs $(LIBFUSE)
-	$(RUSTC) $(RUSTFLAGS) -L build -Z prefer-dynamic -o $@ $<
+	$(RUSTC) $(RUSTFLAGS) -L build -C prefer-dynamic -o $@ $<
