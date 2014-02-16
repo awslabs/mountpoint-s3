@@ -1,4 +1,4 @@
-extern mod fuse;
+extern crate fuse;
 
 use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::default::Default;

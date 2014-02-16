@@ -15,7 +15,7 @@
 
 #[feature(globs)];
 
-extern mod native;
+extern crate native;
 
 use std::libc::{c_int, ENOSYS};
 
