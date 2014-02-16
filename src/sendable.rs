@@ -17,9 +17,8 @@ pub trait Sendable {
 		// Generally send a memory copy of a type (this works for all
 		// structs, i.e. fuse_*_out)
 		unsafe {
-			let ptr = ptr::to_unsafe_ptr(self);
 			let len = mem::size_of::<Self>();
-			vec::raw::buf_as_slice(ptr as *u8, len, |bytes| {
+			vec::raw::buf_as_slice(self as *Self as *u8, len, |bytes| {
 				f([bytes])
 			})
 		}
