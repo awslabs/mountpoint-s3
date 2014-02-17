@@ -1,4 +1,4 @@
-extern mod fuse;
+extern crate fuse;
 
 use std::os;
 use fuse::Filesystem;
