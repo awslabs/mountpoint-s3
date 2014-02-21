@@ -53,17 +53,17 @@ impl<'a> ArgumentIterator<'a> {
 mod test {
 	use super::ArgumentIterator;
 
-	static test_data: [u8, ..12] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61, 0x7a, 0x00];
-	struct test_argument_t { p1: u8, p2: u8, p3: u16 }
+	static TEST_DATA: [u8, ..12] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61, 0x7a, 0x00];
+	struct TestArgument { p1: u8, p2: u8, p3: u16 }
 
 	#[test]
 	fn generic_argument () {
-		let mut it = ArgumentIterator::new(test_data);
-		let arg: &test_argument_t = it.fetch();
+		let mut it = ArgumentIterator::new(TEST_DATA);
+		let arg: &TestArgument = it.fetch();
 		assert!(arg.p1 == 0x66, "argument iterator should fetch typed argument from data");
 		assert!(arg.p2 == 0x6f, "argument iterator should fetch typed argument from data");
 		assert!(arg.p3 == 0x006f, "argument iterator should fetch typed argument from data");
-		let arg: &test_argument_t = it.fetch();
+		let arg: &TestArgument = it.fetch();
 		assert!(arg.p1 == 0x62, "argument iterator should fetch typed argument from data");
 		assert!(arg.p2 == 0x61, "argument iterator should fetch typed argument from data");
 		assert!(arg.p3 == 0x0072, "argument iterator should fetch typed argument from data");
@@ -71,7 +71,7 @@ mod test {
 
 	#[test]
 	fn string_argument () {
-		let mut it = ArgumentIterator::new(test_data);
+		let mut it = ArgumentIterator::new(TEST_DATA);
 		let arg = it.fetch_str();
 		assert!(arg == bytes!("foo"), "argument iterator should fetch string from data");
 		let arg = it.fetch_str();
@@ -80,7 +80,7 @@ mod test {
 
 	#[test]
 	fn path_argument () {
-		let mut it = ArgumentIterator::new(test_data);
+		let mut it = ArgumentIterator::new(TEST_DATA);
 		let arg = it.fetch_path();
 		assert!(arg.as_str() == Some("foo"), "argument iterator should fetch path from data");
 		let arg = it.fetch_path();
@@ -89,7 +89,7 @@ mod test {
 
 	#[test]
 	fn remaining_data_argument () {
-		let mut it = ArgumentIterator::new(test_data);
+		let mut it = ArgumentIterator::new(TEST_DATA);
 		it.fetch_str();
 		it.fetch_str();
 		let arg = it.fetch_data();
@@ -98,8 +98,8 @@ mod test {
 
 	#[test]
 	fn mixed_arguments () {
-		let mut it = ArgumentIterator::new(test_data);
-		let arg: &test_argument_t = it.fetch();
+		let mut it = ArgumentIterator::new(TEST_DATA);
+		let arg: &TestArgument = it.fetch();
 		assert!(arg.p1 == 0x66, "argument iterator should fetch typed argument from data");
 		assert!(arg.p2 == 0x6f, "argument iterator should fetch typed argument from data");
 		assert!(arg.p3 == 0x006f, "argument iterator should fetch typed argument from data");

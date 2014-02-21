@@ -3,6 +3,7 @@
 //!
 
 #[allow(missing_doc)];
+#[allow(non_camel_case_types)];
 
 use std::libc::{c_int, c_char};
 

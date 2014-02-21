@@ -140,12 +140,12 @@ mod test {
 	use std::io::{TypeFile, TypeDirectory};
 	use super::{Sendable, DirBuffer};
 
-	struct test_data_t { p1: u8, p2: u8, p3: u16 }
-	impl Sendable for test_data_t {}
+	struct TestData { p1: u8, p2: u8, p3: u16 }
+	impl Sendable for TestData {}
 
 	#[test]
 	fn sendable_struct () {
-		let data = test_data_t { p1: 111, p2: 222, p3: 333 };
+		let data = TestData { p1: 111, p2: 222, p3: 333 };
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendable struct should be represented as a single bytes slice");
 			assert!(bytes[0] == [0x6f, 0xde, 0x4d, 0x01], "sendable struct should be represented by a bytes slice with the byte representation of the struct");
@@ -162,7 +162,7 @@ mod test {
 
 	#[test]
 	fn sendable_tuple () {
-		let data = (test_data_t { p1: 111, p2: 222, p3: 333 }, test_data_t { p1: 112, p2: 223, p3: 334 });
+		let data = (TestData { p1: 111, p2: 222, p3: 333 }, TestData { p1: 112, p2: 223, p3: 334 });
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 2, "sendable tuple should be represented as multiple bytes slices");
 			assert!(bytes[0] == [0x6f, 0xde, 0x4d, 0x01], "sendable tuple should first be represented by a bytes slice with the byte representation of the first element");

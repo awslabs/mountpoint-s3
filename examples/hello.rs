@@ -8,7 +8,7 @@ use fuse::{Filesystem, FuseResult, fuse_attr, fuse_entry_out, fuse_attr_out, Dir
 
 struct HelloFS;
 
-static hello_world: &'static str = "Hello World!\n";
+static HELLO_WORLD: &'static str = "Hello World!\n";
 
 fn hello_dir_attr () -> fuse_attr {
 	fuse_attr {
@@ -41,7 +41,7 @@ impl Filesystem for HelloFS {
 
 	fn read (&mut self, ino: u64, _fh: u64, offset: u64, _size: uint) -> FuseResult<~[u8]> {
 		if ino == 2 {
-			Ok(hello_world.as_bytes().tailn(offset as uint).to_owned())
+			Ok(HELLO_WORLD.as_bytes().tailn(offset as uint).to_owned())
 		} else {
 			Err(ENOENT)
 		}
