@@ -1,3 +1,4 @@
+language: c
 before_install:
   - yes | sudo add-apt-repository ppa:hansjorg/rust
   - sudo apt-get update
