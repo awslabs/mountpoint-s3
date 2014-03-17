@@ -13,9 +13,11 @@
 #[crate_type = "dylib"];
 #[crate_type = "rlib"];
 
-#[feature(globs)];
+#[feature(globs, phase)];
 
 extern crate native;
+#[phase(link, syntax)]
+extern crate log;
 
 use std::libc::{c_int, ENOSYS};
 
