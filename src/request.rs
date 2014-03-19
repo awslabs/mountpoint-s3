@@ -3,8 +3,9 @@
 //! kernel driver wants us to perform.
 //!
 
-use std::{mem, str, vec};
+use std::{mem, str};
 use std::libc::{c_int, EIO, ENOSYS, EPROTO, ERANGE};
+use std::vec_ng::Vec;
 use argument::ArgumentIterator;
 use channel::Channel;
 use Filesystem;
@@ -31,13 +32,13 @@ static INIT_FLAGS: u32 = FUSE_ASYNC_READ;
 
 /// Request data structure
 pub struct Request {
-	priv data: ~[u8],
+	priv data: Vec<u8>,
 }
 
 impl Request {
 	/// Create a new request
 	pub fn new () -> Request {
-		Request { data: vec::with_capacity(BUFFER_SIZE) }
+		Request { data: Vec::with_capacity(BUFFER_SIZE) }
 	}
 
 	/// Read the next request from the given channel to kernel driver
@@ -61,7 +62,7 @@ impl Request {
 		// Every request begins with a fuse_in_header struct followed by arbitrary
 		// data depending on which opcode it contains
 		assert!(self.data.len() >= mem::size_of::<fuse_in_header>());
-		let mut data = ArgumentIterator::new(self.data);
+		let mut data = ArgumentIterator::new(self.data.as_slice());
 		let header: &fuse_in_header = data.fetch();
 		let opcode: fuse_opcode = match FromPrimitive::from_u32(header.opcode) {
 			Some(op) => op,
@@ -361,7 +362,7 @@ impl Request {
 
 	/// Reply to a request with the given error code and data
 	fn send<T: Sendable> (&self, ch: &Channel, err: c_int, data: &T) {
-		let inheader: &fuse_in_header = ArgumentIterator::new(self.data).fetch();
+		let inheader: &fuse_in_header = ArgumentIterator::new(self.data.as_slice()).fetch();
 		data.as_bytegroups(|databytes| {
 			let datalen = databytes.iter().fold(0, |l, b| { l +  b.len()});
 			let outheader = fuse_out_header {

@@ -1,9 +1,10 @@
 extern crate fuse;
 
-use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::default::Default;
-use std::os;
+use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::io::{TypeFile, TypeDirectory};
+use std::os;
+use std::vec_ng::Vec;
 use fuse::{Filesystem, FuseResult, fuse_attr, fuse_entry_out, fuse_attr_out, DirBuffer};
 
 struct HelloFS;
@@ -39,9 +40,9 @@ impl Filesystem for HelloFS {
 		}
 	}
 
-	fn read (&mut self, ino: u64, _fh: u64, offset: u64, _size: uint) -> FuseResult<~[u8]> {
+	fn read (&mut self, ino: u64, _fh: u64, offset: u64, _size: uint) -> FuseResult<Vec<u8>> {
 		if ino == 2 {
-			Ok(HELLO_WORLD.as_bytes().tailn(offset as uint).to_owned())
+			Ok(Vec::from_slice(HELLO_WORLD.as_bytes().tailn(offset as uint)))
 		} else {
 			Err(ENOENT)
 		}

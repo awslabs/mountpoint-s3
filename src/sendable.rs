@@ -5,6 +5,7 @@
 use std::{cast, ptr, mem, vec};
 use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
+use std::vec_ng::Vec;
 use fuse::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
 use fuse::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
 use fuse::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
@@ -67,7 +68,7 @@ impl<'a> Sendable for &'a [u8] {
 	}
 }
 
-impl Sendable for ~[u8] {
+impl Sendable for Vec<u8> {
 	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		f([self.as_slice()])
 	}
@@ -82,13 +83,13 @@ impl<'a> Sendable for &'a str {
 
 /// Buffer for replying with a list of directory entries
 pub struct DirBuffer {
-	priv data: ~[u8],
+	priv data: Vec<u8>,
 }
 
 impl DirBuffer {
 	/// Create a new dir buffer of the given size
 	pub fn new (size: uint) -> DirBuffer {
-		DirBuffer { data: vec::with_capacity(size) }
+		DirBuffer { data: Vec::with_capacity(size) }
 	}
 
 	/// Add an entry to the dir buffer. Returns true if the buffer is full.
@@ -181,10 +182,10 @@ mod test {
 
 	#[test]
 	fn sendable_owned_bytevector () {
-		let data = ~[11, 22, 33, 44, 55];
+		let data = vec!(11, 22, 33, 44, 55);
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
-			assert!(bytes[0] == data, "sendable buffer should be represented by a bytes slice with the contents of the buffer");
+			assert!(bytes[0] == data.as_slice(), "sendable buffer should be represented by a bytes slice with the contents of the buffer");
 		});
 	}
 

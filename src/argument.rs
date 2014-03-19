@@ -21,7 +21,7 @@ impl<'a> ArgumentIterator<'a> {
 	pub fn fetch<T> (&mut self) -> &'a T {
 		let value = unsafe { cast::transmute(self.data.as_ptr().offset(self.pos as int)) };
 		self.pos += mem::size_of::<T>();
-		assert!(self.pos <= self.data.len(), "trying to get argument behind data");
+		assert!(self.pos <= self.data.len(), "trying to fetch argument behind data");
 		value
 	}
 

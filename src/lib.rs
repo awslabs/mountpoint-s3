@@ -20,6 +20,7 @@ extern crate native;
 extern crate log;
 
 use std::libc::{c_int, ENOSYS};
+use std::vec_ng::Vec;
 
 pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out, fuse_write_out};
@@ -91,7 +92,7 @@ pub trait Filesystem {
 	}
 
 	/// Read symbolic link
-	fn readlink (&mut self, _ino: u64) -> FuseResult<~[u8]> {
+	fn readlink (&mut self, _ino: u64) -> FuseResult<Vec<u8>> {
 		Err(ENOSYS)
 	}
 
@@ -150,7 +151,7 @@ pub trait Filesystem {
 	/// return value of the read system call will reflect the return value of this
 	/// operation. fh will contain the value set by the open method, or will be undefined
 	/// if the open method didn't set any value.
-	fn read (&mut self, _ino: u64, _fh: u64, _offset: u64, _size: uint) -> FuseResult<~[u8]> {
+	fn read (&mut self, _ino: u64, _fh: u64, _offset: u64, _size: uint) -> FuseResult<Vec<u8>> {
 		Err(ENOSYS)
 	}
 
@@ -244,12 +245,12 @@ pub trait Filesystem {
 	}
 
 	/// Get an extended attribute
-	fn getxattr (&mut self, _ino: u64, _name: &[u8]) -> FuseResult<~[u8]> {
+	fn getxattr (&mut self, _ino: u64, _name: &[u8]) -> FuseResult<Vec<u8>> {
 		Err(ENOSYS)
 	}
 
 	/// List extended attribute names
-	fn listxattr (&mut self, _ino: u64) -> FuseResult<~[&[u8]]> {
+	fn listxattr (&mut self, _ino: u64) -> FuseResult<Vec<Vec<u8>>> {
 		Err(ENOSYS)
 	}
 

@@ -2,8 +2,9 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
+use std::libc::{c_int, c_void, c_char, size_t};
 use std::os;
-use std::libc::{c_int, c_void, size_t};
+use std::vec_ng::Vec;
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 // Libc provides iovec based I/O using readv and writev functions
@@ -29,11 +30,15 @@ mod libc {
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
-	"rust-fuse".with_c_str(|progname| {
-		let args = options.map(|arg| arg.to_c_str());
-		let argptrs = [progname] + args.map(|arg| arg.with_ref(|s| s));
-		f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
-	})
+	let progname = "rust-fuse";
+	let args = Vec::from_fn(1+options.len(), |i| {
+		match i {
+			0 => progname.to_c_str(),
+			_ => options[i-1].to_c_str(),
+		}
+	});
+	let argptrs: Vec<*c_char> = args.iter().map(|s| s.with_ref(|s| s)).collect();
+	f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
 
 /// A raw communication channel to the FUSE kernel driver
@@ -62,7 +67,7 @@ impl Channel {
 
 	/// Receives data up to the capacity of the given buffer.
 	/// Note: Can block natively, so it should be called from a separate thread
-	pub fn receive (&self, buffer: &mut ~[u8]) -> Result<(), c_int> {
+	pub fn receive (&self, buffer: &mut Vec<u8>) -> Result<(), c_int> {
 		buffer.clear();
 		let rc = unsafe { ::std::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
 		if rc >= 0 {
@@ -78,9 +83,9 @@ impl Channel {
 	/// Send all data in the slice of slice of bytes in a single write.
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
-		let iovecs = buffer.map(|d| {
+		let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
 			libc::iovec { iov_base: d.as_ptr() as *c_void, iov_len: d.len() as size_t }
-		});
+		}).collect();
 		let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
 		if rc < 0 {
 			Err(os::errno() as c_int)
