@@ -4,7 +4,6 @@ use std::default::Default;
 use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::io::{TypeFile, TypeDirectory};
 use std::os;
-use std::vec_ng::Vec;
 use fuse::{Filesystem, FuseResult, fuse_attr, fuse_entry_out, fuse_attr_out, DirBuffer};
 
 struct HelloFS;

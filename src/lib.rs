@@ -20,7 +20,6 @@ extern crate native;
 extern crate log;
 
 use std::libc::{c_int, ENOSYS};
-use std::vec_ng::Vec;
 
 pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out, fuse_write_out};

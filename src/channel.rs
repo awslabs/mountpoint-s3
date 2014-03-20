@@ -4,7 +4,6 @@
 
 use std::libc::{c_int, c_void, c_char, size_t};
 use std::os;
-use std::vec_ng::Vec;
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 // Libc provides iovec based I/O using readv and writev functions

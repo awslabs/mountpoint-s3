@@ -5,7 +5,6 @@
 
 use std::{mem, str};
 use std::libc::{c_int, EIO, ENOSYS, EPROTO, ERANGE};
-use std::vec_ng::Vec;
 use argument::ArgumentIterator;
 use channel::Channel;
 use Filesystem;

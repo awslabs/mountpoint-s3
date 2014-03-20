@@ -5,7 +5,6 @@
 use std::{cast, mem, ptr, slice};
 use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
-use std::vec_ng::Vec;
 use fuse::{fuse_file_lock, fuse_entry_out, fuse_attr_out, fuse_open_out};
 use fuse::{fuse_write_out, fuse_statfs_out, fuse_getxattr_out, fuse_lk_out};
 use fuse::{fuse_init_out, fuse_bmap_out, fuse_out_header, fuse_dirent};
