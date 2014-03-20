@@ -6,13 +6,19 @@
 //! operations under its mount point.
 //!
 
+use std::{mem, task};
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use std::task;
 use native;
 use channel;
 use channel::Channel;
 use Filesystem;
+use fuse::fuse_in_header;
+use request::MAX_WRITE_SIZE;
 use request::Request;
+
+/// Size of the buffer for reading a request from the kernel. Since the kernel may send
+/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
+static BUFFER_SIZE: uint = MAX_WRITE_SIZE as uint + 4096;
 
 /// The session data structure
 pub struct Session<FS> {
@@ -56,15 +62,22 @@ impl<FS: Filesystem+Send> Session<FS> {
 	/// Make sure to run it on a new single threaded scheduler since the I/O in the
 	/// session loop can block.
 	pub fn run (&mut self) {
-		let mut req = Request::new();
+		let mut buffer = Vec::with_capacity(BUFFER_SIZE);
 		loop {
-			match req.read(self) {
+			// Read the next request from the given channel to kernel driver
+			// The kernel driver makes sure that we get exactly one request per read
+			assert!(buffer.capacity() >= BUFFER_SIZE);
+			match self.ch.receive(&mut buffer) {
 				Err(ENOENT) => continue,		// Operation interrupted. Accordingly to FUSE, this is safe to retry
 				Err(EINTR) => continue,			// Interrupted system call, retry
 				Err(EAGAIN) => continue,		// Explicitly try again
 				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(..) => req.dispatch(self),
+				Ok(..) if buffer.len() < mem::size_of::<fuse_in_header>() => fail!("Short read on FUSE device"),
+				Ok(..) => {
+					let req = Request::new(buffer.as_mut_slice());
+					req.dispatch(self)
+				},
 			}
 		}
 	}

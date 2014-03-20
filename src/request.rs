@@ -14,11 +14,7 @@ use sendable::{Sendable, DirBuffer};
 use session::Session;
 
 /// Maximum write size. FUSE recommends at least 128k, max 16M. Default on OS X is 16M.
-static MAX_WRITE_SIZE: u32 = 16*1024*1024;
-
-/// Size of the buffer for reading a request from the kernel. Since the kernel may send
-/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-static BUFFER_SIZE: uint = MAX_WRITE_SIZE as uint + 4096;
+pub static MAX_WRITE_SIZE: u32 = 16*1024*1024;
 
 #[cfg(target_os = "macos")]
 /// We support async reads and our filesystems are usually case-insensitive
@@ -30,27 +26,14 @@ static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE;
 static INIT_FLAGS: u32 = FUSE_ASYNC_READ;
 
 /// Request data structure
-pub struct Request {
-	priv data: Vec<u8>,
+pub struct Request<'a> {
+	priv data: &'a [u8],
 }
 
-impl Request {
-	/// Create a new request
-	pub fn new () -> Request {
-		Request { data: Vec::with_capacity(BUFFER_SIZE) }
-	}
-
-	/// Read the next request from the given channel to kernel driver
-	pub fn read<FS: Filesystem> (&mut self, se: &Session<FS>) -> Result<(), c_int> {
-		assert!(self.data.capacity() >= BUFFER_SIZE);
-		// The kernel driver makes sure that we get exactly one request per read
-		let res = se.ch.receive(&mut self.data);
-		if res.is_ok() && self.data.len() < mem::size_of::<fuse_in_header>() {
-			error!("Short read on FUSE device");
-			Err(EIO)
-		} else {
-			res
-		}
+impl<'a> Request<'a> {
+	/// Create a new request from the given data
+	pub fn new (data: &'a [u8]) -> Request<'a> {
+		Request { data: data }
 	}
 
 	/// Dispatch request to the given filesystem.
@@ -61,7 +44,7 @@ impl Request {
 		// Every request begins with a fuse_in_header struct followed by arbitrary
 		// data depending on which opcode it contains
 		assert!(self.data.len() >= mem::size_of::<fuse_in_header>());
-		let mut data = ArgumentIterator::new(self.data.as_slice());
+		let mut data = ArgumentIterator::new(self.data);
 		let header: &fuse_in_header = data.fetch();
 		let opcode: fuse_opcode = match FromPrimitive::from_u32(header.opcode) {
 			Some(op) => op,
