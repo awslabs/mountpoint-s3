@@ -77,7 +77,7 @@ impl Request {
 				let arg: &fuse_init_in = data.fetch();
 				debug!("INIT({:u})   kernel: ABI {:u}.{:u}, flags {:#x}, max readahead {:u}", header.unique, arg.major, arg.minor, arg.flags, arg.max_readahead);
 				// We don't support ABI versions before 7.6
-				if arg.major < 7 || (arg.major < 7 && arg.minor < 6) {
+				if arg.major < 7 || (arg.major == 7 && arg.minor < 6) {
 					error!("Unsupported FUSE ABI version {:u}.{:u}", arg.major, arg.minor);
 					self.reply_error(&se.ch, EPROTO);
 					return;
