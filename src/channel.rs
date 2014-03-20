@@ -117,16 +117,16 @@ pub fn unmount (mountpoint: &Path) {
 #[cfg(test)]
 mod test {
 	use super::with_fuse_args;
-	use std::vec;
+	use std::slice;
 
 	#[test]
 	fn fuse_args () {
 		with_fuse_args([bytes!("foo"), bytes!("bar")], |args| {
 			unsafe {
 				assert!(args.argc == 3);
-				vec::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == bytes!("rust-fuse\0") ); });
-				vec::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == bytes!("foo\0")); });
-				vec::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == bytes!("bar\0")); });
+				slice::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == bytes!("rust-fuse\0") ); });
+				slice::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == bytes!("foo\0")); });
+				slice::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == bytes!("bar\0")); });
 			}
 		});
 	}

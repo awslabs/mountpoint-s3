@@ -2,7 +2,7 @@
 //! Helper to compose arbitrary data structures into packets of binary data.
 //!
 
-use std::{cast, ptr, mem, vec};
+use std::{cast, mem, ptr, slice};
 use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use std::vec_ng::Vec;
@@ -19,7 +19,7 @@ pub trait Sendable {
 		// structs, i.e. fuse_*_out)
 		unsafe {
 			let len = mem::size_of::<Self>();
-			vec::raw::buf_as_slice(self as *Self as *u8, len, |bytes| {
+			slice::raw::buf_as_slice(self as *Self as *u8, len, |bytes| {
 				f([bytes])
 			})
 		}
@@ -172,7 +172,7 @@ mod test {
 	}
 
 	#[test]
-	fn sendable_bytevector () {
+	fn sendable_byteslice () {
 		let data = [11, 22, 33, 44, 55];
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
@@ -181,7 +181,7 @@ mod test {
 	}
 
 	#[test]
-	fn sendable_owned_bytevector () {
+	fn sendable_bytevector () {
 		let data = vec!(11, 22, 33, 44, 55);
 		data.as_bytegroups(|bytes| {
 			assert!(bytes.len() == 1, "sendabled buffer should be represented as a single bytes slice");
