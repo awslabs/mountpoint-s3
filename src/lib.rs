@@ -15,6 +15,8 @@
 
 #[feature(globs, phase)];
 
+#[warn(unnecessary_qualification, unnecessary_typecast, missing_doc)];
+
 extern crate native;
 #[phase(link, syntax)]
 extern crate log;

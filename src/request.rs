@@ -366,7 +366,7 @@ impl Request {
 			let datalen = databytes.iter().fold(0, |l, b| { l +  b.len()});
 			let outheader = fuse_out_header {
 				len: mem::size_of::<fuse_out_header>() as u32 + datalen as u32,
-				error: err as i32,
+				error: err,
 				unique: inheader.unique,
 			};
 			outheader.as_bytegroups(|headbytes| {

@@ -16,12 +16,20 @@ use request::Request;
 
 /// The session data structure
 pub struct Session<FS> {
+	/// Filesystem operation implementations
 	filesystem: FS,
+	/// Path of the mounted filesystem
 	mountpoint: Path,
+	/// Communication channel to the kernel driver
+	/// FIXME: should be private
 	ch: Channel,
+	/// FUSE protocol major version
 	proto_major: uint,
+	/// FUSE protocol minor version
 	proto_minor: uint,
+	/// True if the filesystem is initialized (init operation done)
 	initialized: bool,
+	/// True if the filesystem was destroyed (destroy operation done)
 	destroyed: bool,
 }
 
@@ -77,6 +85,7 @@ impl<FS: Filesystem+Send> Drop for Session<FS> {
 
 /// The background session data structure
 pub struct BackgroundSession {
+	/// Path of the mounted filesystem
 	mountpoint: Path,
 }
 

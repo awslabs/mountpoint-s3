@@ -13,6 +13,7 @@ use fuse::{fuse_getxtimes_out};
 
 /// Trait for types that can be sent as a reply to the FUSE kernel driver
 pub trait Sendable {
+	/// Returns the byte representation of a type
 	fn as_bytegroups<T> (&self, f: |&[&[u8]]| -> T) -> T {
 		// Generally send a memory copy of a type (this works for all
 		// structs, i.e. fuse_*_out)
