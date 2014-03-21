@@ -6,13 +6,12 @@
 //! operations under its mount point.
 //!
 
-use std::{mem, task};
+use std::task;
 use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use native;
 use channel;
 use channel::Channel;
 use Filesystem;
-use fuse::fuse_in_header;
 use request::MAX_WRITE_SIZE;
 use request::Request;
 
@@ -68,15 +67,14 @@ impl<FS: Filesystem+Send> Session<FS> {
 			// The kernel driver makes sure that we get exactly one request per read
 			assert!(buffer.capacity() >= BUFFER_SIZE);
 			match self.ch.receive(&mut buffer) {
-				Err(ENOENT) => continue,		// Operation interrupted. Accordingly to FUSE, this is safe to retry
-				Err(EINTR) => continue,			// Interrupted system call, retry
-				Err(EAGAIN) => continue,		// Explicitly try again
-				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
+				Err(ENOENT) => continue,				// Operation interrupted. Accordingly to FUSE, this is safe to retry
+				Err(EINTR) => continue,					// Interrupted system call, retry
+				Err(EAGAIN) => continue,				// Explicitly try again
+				Err(ENODEV) => break,					// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(..) if buffer.len() < mem::size_of::<fuse_in_header>() => fail!("Short read on FUSE device"),
-				Ok(..) => {
-					let req = Request::new(buffer.as_mut_slice());
-					req.dispatch(self)
+				Ok(..) => match Request::new(buffer.as_slice()) {
+					None => break,						// Illegal request, quit the loop
+					Some(req) => req.dispatch(self),	// Process the request
 				},
 			}
 		}
