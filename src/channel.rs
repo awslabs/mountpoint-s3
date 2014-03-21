@@ -79,6 +79,34 @@ impl Channel {
 		}
 	}
 
+	/// Returns a sender object for this channel. The sender object can be
+	/// used to send to the channel. Multiple sender objects can be used
+	/// and they can safely be sent to other tasks.
+	pub fn sender (&self) -> ChannelSender {
+		// Since write/writev syscalls are threadsafe, we can simply create
+		// a sender by using the same fd and use it in other threads. Only
+		// the channel closes the fd when dropped. If any sender is used after
+		// dropping the channel, it'll return an EBADF error.
+		ChannelSender { fd: self.fd }
+	}
+}
+
+impl Drop for Channel {
+	fn drop (&mut self) {
+		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
+		// Close the communication channel to the kernel driver
+		// (closing it before unnmount prevents sync unmount deadlock)
+		unsafe { ::std::libc::close(self.fd); }
+		// Unmount this channel's mount point
+		unmount(&self.mountpoint);
+	}
+}
+
+pub struct ChannelSender {
+	priv fd: c_int,
+}
+
+impl ChannelSender {
 	/// Send all data in the slice of slice of bytes in a single write.
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
@@ -91,17 +119,6 @@ impl Channel {
 		} else {
 			Ok(())
 		}
-	}
-}
-
-impl Drop for Channel {
-	fn drop (&mut self) {
-		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
-		// Close the communication channel to the kernel driver
-		// (closing it before unnmount prevents sync unmount deadlock)
-		unsafe { ::std::libc::close(self.fd); }
-		// Unmount this channel's mount point
-		unmount(&self.mountpoint);
 	}
 }
 

@@ -366,7 +366,7 @@ impl<'a> Request<'a> {
 				unique: self.header.unique,
 			};
 			outheader.as_bytegroups(|headbytes| {
-				let _ = ch.send(headbytes + databytes);
+				let _ = ch.sender().send(headbytes + databytes);
 			});
 		});
 	}
