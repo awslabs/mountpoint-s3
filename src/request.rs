@@ -25,6 +25,16 @@ static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE;
 /// We support async reads
 static INIT_FLAGS: u32 = FUSE_ASYNC_READ;
 
+/// Create a new request from the given buffer
+pub fn request<'a> (ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
+	Request::new(ch, buffer)
+}
+
+/// Dispatch request to the given filesystem
+pub fn dispatch<FS: Filesystem> (req: &Request, se: &mut Session<FS>) {
+	req.dispatch(se);
+}
+
 /// Request data structure
 pub struct Request<'a> {
 	/// Channel sender for sending the reply
@@ -37,7 +47,7 @@ pub struct Request<'a> {
 
 impl<'a> Request<'a> {
 	/// Create a new request from the given buffer
-	pub fn new (ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
+	fn new (ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
 		// Every request always begins with a fuse_in_header struct
 		// followed by arbitrary data depending on which opcode it contains
 		if buffer.len() < mem::size_of::<fuse_in_header>() {
@@ -60,7 +70,7 @@ impl<'a> Request<'a> {
 	/// Dispatch request to the given filesystem.
 	/// This calls the appropriate filesystem operation method for the
 	/// request and sends back the returned reply to the kernel
-	pub fn dispatch<FS: Filesystem> (&self, se: &mut Session<FS>) {
+	fn dispatch<FS: Filesystem> (&self, se: &mut Session<FS>) {
 		let opcode: fuse_opcode = match FromPrimitive::from_u32(self.header.opcode) {
 			Some(op) => op,
 			None => {

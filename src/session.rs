@@ -12,8 +12,7 @@ use native;
 use channel;
 use channel::Channel;
 use Filesystem;
-use request::MAX_WRITE_SIZE;
-use request::Request;
+use request::{MAX_WRITE_SIZE, request, dispatch};
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
@@ -71,9 +70,9 @@ impl<FS: Filesystem+Send> Session<FS> {
 				Err(EAGAIN) => continue,				// Explicitly try again
 				Err(ENODEV) => break,					// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(..) => match Request::new(self.ch.sender(), buffer.as_slice()) {
+				Ok(..) => match request(self.ch.sender(), buffer.as_slice()) {
 					None => break,						// Illegal request, quit the loop
-					Some(req) => req.dispatch(self),	// Process the request
+					Some(req) => dispatch(&req, self),
 				},
 			}
 		}
