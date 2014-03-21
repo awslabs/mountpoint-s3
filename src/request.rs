@@ -40,9 +40,9 @@ pub struct Request<'a> {
 	/// Channel sender for sending the reply
 	priv ch: ChannelSender,
 	/// Header of the FUSE request
-	header: &'a fuse_in_header,
+	priv header: &'a fuse_in_header,
 	/// Operation-specific data payload
-	data: &'a [u8],
+	priv data: &'a [u8],
 }
 
 impl<'a> Request<'a> {
@@ -395,5 +395,29 @@ impl<'a> Request<'a> {
 	/// Reply to a request with the given error code
 	fn reply_error (&self, err: c_int) {
 		self.send(-err, &());
+	}
+
+	/// Returns the unique identifier of this request
+	#[inline] #[allow(dead_code)]
+	pub fn unique (&self) -> u64 {
+		self.header.unique
+	}
+
+	/// Returns the uid of this request
+	#[inline] #[allow(dead_code)]
+	pub fn uid (&self) -> u32 {
+		self.header.uid
+	}
+
+	/// Returns the gid of this request
+	#[inline] #[allow(dead_code)]
+	pub fn gid (&self) -> u32 {
+		self.header.gid
+	}
+
+	/// Returns the pid of this request
+	#[inline] #[allow(dead_code)]
+	pub fn pid (&self) -> u32 {
+		self.header.pid
 	}
 }
