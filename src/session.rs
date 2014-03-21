@@ -26,8 +26,7 @@ pub struct Session<FS> {
 	/// Path of the mounted filesystem
 	mountpoint: Path,
 	/// Communication channel to the kernel driver
-	/// FIXME: should be private
-	ch: Channel,
+	priv ch: Channel,
 	/// FUSE protocol major version
 	proto_major: uint,
 	/// FUSE protocol minor version
@@ -72,7 +71,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 				Err(EAGAIN) => continue,				// Explicitly try again
 				Err(ENODEV) => break,					// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(..) => match Request::new(buffer.as_slice()) {
+				Ok(..) => match Request::new(self.ch.sender(), buffer.as_slice()) {
 					None => break,						// Illegal request, quit the loop
 					Some(req) => req.dispatch(self),	// Process the request
 				},
