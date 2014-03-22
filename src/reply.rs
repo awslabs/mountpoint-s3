@@ -56,12 +56,12 @@ impl<T: Sendable> Reply<T> {
 	}
 
 	/// Reply to a request with the given data
-	pub fn ok (&mut self, data: &T) {
+	pub fn ok (mut self, data: &T) {
 		self.send(0, data);
 	}
 
 	/// Reply to a request with the given error code
-	pub fn error (&mut self, err: c_int) {
+	pub fn error (mut self, err: c_int) {
 		self.send(-err, &());
 	}
 }
@@ -71,7 +71,7 @@ impl<T: Sendable> Drop for Reply<T> {
 	fn drop (&mut self) {
 		if !self.replied {
 			warn!("Reply not sent for operation {:u}, replying with I/O error", self.unique);
-			self.error(EIO);
+			self.send(-EIO, &());
 		}
 	}
 }
