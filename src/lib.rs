@@ -30,6 +30,7 @@ pub use fuse::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
 pub use fuse::{fuse_getxtimes_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
+pub use request::Request;
 pub use sendable::DirBuffer;
 pub use session::{Session, BackgroundSession};
 
@@ -56,17 +57,17 @@ pub type FuseResult<T> = Result<T, c_int>;
 pub trait Filesystem {
 	/// Initialize filesystem
 	/// Called before any other filesystem method.
-	fn init (&mut self) -> FuseResult<()> {
+	fn init (&mut self, _req: &Request) -> FuseResult<()> {
 		Ok(())
 	}
 
 	/// Clean up filesystem
 	/// Called on filesystem exit.
-	fn destroy (&mut self) {
+	fn destroy (&mut self, _req: &Request) {
 	}
 
 	/// Look up a directory entry by name and get its attributes.
-	fn lookup (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<fuse_entry_out> {
+	fn lookup (&mut self, _req: &Request, _parent: u64, _name: &PosixPath) -> FuseResult<fuse_entry_out> {
 		Err(ENOSYS)
 	}
 
@@ -77,59 +78,59 @@ pub trait Filesystem {
 	/// each forget. The filesystem may ignore forget calls, if the inodes don't need to
 	/// have a limited lifetime. On unmount it is not guaranteed, that all referenced
 	/// inodes will receive a forget message.
-	fn forget (&mut self, _ino: u64, _nlookup: uint) {
+	fn forget (&mut self, _req: &Request, _ino: u64, _nlookup: uint) {
 	}
 
 	/// Get file attributes
-	fn getattr (&mut self, _ino: u64) -> FuseResult<fuse_attr_out> {
+	fn getattr (&mut self, _req: &Request, _ino: u64) -> FuseResult<fuse_attr_out> {
 		Err(ENOSYS)
 	}
 
 	/// Set file attributes
 	/// In the 'attr' argument only members indicated by the 'valid' bitmask contain
 	/// valid values. Other members contain undefined values.
-	fn setattr (&mut self, _ino: u64, _attr: &fuse_setattr_in) -> FuseResult<fuse_attr_out> {
+	fn setattr (&mut self, _req: &Request, _ino: u64, _attr: &fuse_setattr_in) -> FuseResult<fuse_attr_out> {
 		Err(ENOSYS)
 	}
 
 	/// Read symbolic link
-	fn readlink (&mut self, _ino: u64) -> FuseResult<Vec<u8>> {
+	fn readlink (&mut self, _req: &Request, _ino: u64) -> FuseResult<Vec<u8>> {
 		Err(ENOSYS)
 	}
 
 	/// Create file node
 	/// Create a regular file, character device, block device, fifo or socket node.
-	fn mknod (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32) -> FuseResult<fuse_entry_out> {
+	fn mknod (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32) -> FuseResult<fuse_entry_out> {
 		Err(ENOSYS)
 	}
 
 	/// Create a directory
-	fn mkdir (&mut self, _parent: u64, _name: &PosixPath, _mode: u32) -> FuseResult<fuse_entry_out> {
+	fn mkdir (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32) -> FuseResult<fuse_entry_out> {
 		Err(ENOSYS)
 	}
 
 	/// Remove a file
-	fn unlink (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<()> {
+	fn unlink (&mut self, _req: &Request, _parent: u64, _name: &PosixPath) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// Remove a directory
-	fn rmdir (&mut self, _parent: u64, _name: &PosixPath) -> FuseResult<()> {
+	fn rmdir (&mut self, _req: &Request, _parent: u64, _name: &PosixPath) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// Create a symbolic link
-	fn symlink (&mut self, _parent: u64, _name: &PosixPath, _link: &PosixPath) -> FuseResult<fuse_entry_out> {
+	fn symlink (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _link: &PosixPath) -> FuseResult<fuse_entry_out> {
 		Err(ENOSYS)
 	}
 
 	/// Rename a file
-	fn rename (&mut self, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath) -> FuseResult<()> {
+	fn rename (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// Create a hard link
-	fn link (&mut self, _ino: u64, _newparent: u64, _newname: &PosixPath) -> FuseResult<fuse_entry_out> {
+	fn link (&mut self, _req: &Request, _ino: u64, _newparent: u64, _newname: &PosixPath) -> FuseResult<fuse_entry_out> {
 		Err(ENOSYS)
 	}
 
@@ -141,7 +142,7 @@ pub trait Filesystem {
 	/// anything in fh. There are also some flags (direct_io, keep_cache) which the
 	/// filesystem may set, to change the way the file is opened. See fuse_file_info
 	/// structure in <fuse_common.h> for more details.
-	fn open (&mut self, _ino: u64, _flags: uint) -> FuseResult<fuse_open_out> {
+	fn open (&mut self, _req: &Request, _ino: u64, _flags: uint) -> FuseResult<fuse_open_out> {
 		Ok(fuse_open_out { fh: 0, open_flags: 0, padding: 0 })
 	}
 
@@ -152,7 +153,7 @@ pub trait Filesystem {
 	/// return value of the read system call will reflect the return value of this
 	/// operation. fh will contain the value set by the open method, or will be undefined
 	/// if the open method didn't set any value.
-	fn read (&mut self, _ino: u64, _fh: u64, _offset: u64, _size: uint) -> FuseResult<Vec<u8>> {
+	fn read (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _size: uint) -> FuseResult<Vec<u8>> {
 		Err(ENOSYS)
 	}
 
@@ -162,7 +163,7 @@ pub trait Filesystem {
 	/// which case the return value of the write system call will reflect the return
 	/// value of this operation. fh will contain the value set by the open method, or
 	/// will be undefined if the open method didn't set any value.
-	fn write (&mut self, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: uint) -> FuseResult<uint> {
+	fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: uint) -> FuseResult<uint> {
 		Err(ENOSYS)
 	}
 
@@ -176,7 +177,7 @@ pub trait Filesystem {
 	/// is not forced to flush pending writes. One reason to flush data, is if the
 	/// filesystem wants to return write errors. If the filesystem supports file locking
 	/// operations (setlk, getlk) it should remove all locks belonging to 'lock_owner'.
-	fn flush (&mut self, _ino: u64, _fh: u64, _lock_owner: u64) -> FuseResult<()> {
+	fn flush (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
@@ -188,14 +189,14 @@ pub trait Filesystem {
 	/// the release. fh will contain the value set by the open method, or will be undefined
 	/// if the open method didn't set any value. flags will contain the same flags as for
 	/// open.
-	fn release (&mut self, _ino: u64, _fh: u64, _flags: uint, _lock_owner: u64, _flush: bool) -> FuseResult<()> {
+	fn release (&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: uint, _lock_owner: u64, _flush: bool) -> FuseResult<()> {
 		Ok(())
 	}
 
 	/// Synchronize file contents
 	/// If the datasync parameter is non-zero, then only the user data should be flushed,
 	/// not the meta data.
-	fn fsync (&mut self, _ino: u64, _fh: u64, _datasync: bool) -> FuseResult<()> {
+	fn fsync (&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
@@ -206,7 +207,7 @@ pub trait Filesystem {
 	/// anything in fh, though that makes it impossible to implement standard conforming
 	/// directory stream operations in case the contents of the directory can change
 	/// between opendir and releasedir.
-	fn opendir (&mut self, _ino: u64, _flags: uint) -> FuseResult<fuse_open_out> {
+	fn opendir (&mut self, _req: &Request, _ino: u64, _flags: uint) -> FuseResult<fuse_open_out> {
 		Ok(fuse_open_out { fh: 0, open_flags: 0, padding: 0 })
 	}
 
@@ -215,7 +216,7 @@ pub trait Filesystem {
 	/// requested size. Send an empty buffer on end of stream. fh will contain the
 	/// value set by the opendir method, or will be undefined if the opendir method
 	/// didn't set any value.
-	fn readdir (&mut self, _ino: u64, _fh: u64, _offset: u64, _buffer: DirBuffer) -> FuseResult<DirBuffer> {
+	fn readdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _buffer: DirBuffer) -> FuseResult<DirBuffer> {
 		Err(ENOSYS)
 	}
 
@@ -223,7 +224,7 @@ pub trait Filesystem {
 	/// For every opendir call there will be exactly one releasedir call. fh will
 	/// contain the value set by the opendir method, or will be undefined if the
 	/// opendir method didn't set any value.
-	fn releasedir (&mut self, _ino: u64, _fh: u64, _flags: uint) -> FuseResult<()> {
+	fn releasedir (&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: uint) -> FuseResult<()> {
 		Ok(())
 	}
 
@@ -231,32 +232,32 @@ pub trait Filesystem {
 	/// If the datasync parameter is set, then only the directory contents should
 	/// be flushed, not the meta data. fh will contain the value set by the opendir
 	/// method, or will be undefined if the opendir method didn't set any value.
-	fn fsyncdir (&mut self, _ino: u64, _fh: u64, _datasync: bool) -> FuseResult<()> {
+	fn fsyncdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// Get file system statistics
-	fn statfs (&mut self, _ino: u64) -> FuseResult<fuse_statfs_out> {
+	fn statfs (&mut self, _req: &Request, _ino: u64) -> FuseResult<fuse_statfs_out> {
 		Ok(fuse_statfs_out { st: fuse_kstatfs { blocks: 0, bfree: 0, bavail: 0, files: 0, ffree: 0, bsize: 512, namelen: 255, frsize: 0, padding: 0, spare: [0, ..6] }})
 	}
 
 	/// Set an extended attribute
-	fn setxattr (&mut self, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: u32) -> FuseResult<()> {
+	fn setxattr (&mut self, _req: &Request, _ino: u64, _name: &[u8], _value: &[u8], _flags: uint, _position: u32) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// Get an extended attribute
-	fn getxattr (&mut self, _ino: u64, _name: &[u8]) -> FuseResult<Vec<u8>> {
+	fn getxattr (&mut self, _req: &Request, _ino: u64, _name: &[u8]) -> FuseResult<Vec<u8>> {
 		Err(ENOSYS)
 	}
 
 	/// List extended attribute names
-	fn listxattr (&mut self, _ino: u64) -> FuseResult<Vec<Vec<u8>>> {
+	fn listxattr (&mut self, _req: &Request, _ino: u64) -> FuseResult<Vec<Vec<u8>>> {
 		Err(ENOSYS)
 	}
 
 	/// Remove an extended attribute
-	fn removexattr (&mut self, _ino: u64, _name: &[u8]) -> FuseResult<()> {
+	fn removexattr (&mut self, _req: &Request, _ino: u64, _name: &[u8]) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
@@ -264,7 +265,7 @@ pub trait Filesystem {
 	/// This will be called for the access() system call. If the 'default_permissions'
 	/// mount option is given, this method is not called. This method is not called
 	/// under Linux kernel versions 2.4.x
-	fn access (&mut self, _ino: u64, _mask: uint) -> FuseResult<()> {
+	fn access (&mut self, _req: &Request, _ino: u64, _mask: uint) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
@@ -278,12 +279,12 @@ pub trait Filesystem {
 	/// structure in <fuse_common.h> for more details. If this method is not
 	/// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
 	/// and open() methods will be called instead.
-	fn create (&mut self, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint) -> FuseResult<(fuse_entry_out,fuse_open_out)> {
+	fn create (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint) -> FuseResult<(fuse_entry_out,fuse_open_out)> {
 		Err(ENOSYS)
 	}
 
 	/// Test for a POSIX file lock
-	fn getlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> FuseResult<fuse_file_lock> {
+	fn getlk (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock) -> FuseResult<fuse_file_lock> {
 		Err(ENOSYS)
 	}
 
@@ -294,34 +295,34 @@ pub trait Filesystem {
 	/// used to fill in this field in getlk(). Note: if the locking methods are not
 	/// implemented, the kernel will still allow file locking to work locally.
 	/// Hence these are only interesting for network filesystems and similar.
-	fn setlk (&mut self, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock, _sleep: bool) -> FuseResult<()> {
+	fn setlk (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock, _sleep: bool) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// Map block index within file to block index within device
 	/// Note: This makes sense only for block device backed filesystems mounted
 	/// with the 'blkdev' option
-	fn bmap (&mut self, _ino: u64, _blocksize: uint, _idx: u64) -> FuseResult<fuse_bmap_out> {
+	fn bmap (&mut self, _req: &Request, _ino: u64, _blocksize: uint, _idx: u64) -> FuseResult<fuse_bmap_out> {
 		Err(ENOSYS)
 	}
 
 	/// OS X only: Rename the volume. Set fuse_init_out.flags during init to
 	/// FUSE_VOL_RENAME to enable
 	#[cfg(target_os = "macos")]
-	fn setvolname (&mut self, _name: &[u8]) -> FuseResult<()> {
+	fn setvolname (&mut self, _req: &Request, _name: &[u8]) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// OS X only (undocumented)
 	#[cfg(target_os = "macos")]
-	fn exchange (&mut self, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, _options: uint) -> FuseResult<()> {
+	fn exchange (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, _options: uint) -> FuseResult<()> {
 		Err(ENOSYS)
 	}
 
 	/// OS X only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
 	/// during init to FUSE_XTIMES to enable
 	#[cfg(target_os = "macos")]
-	fn getxtimes (&mut self, _ino: u64) -> FuseResult<fuse_getxtimes_out> {
+	fn getxtimes (&mut self, _req: &Request, _ino: u64) -> FuseResult<fuse_getxtimes_out> {
 		Err(ENOSYS)
 	}
 }
