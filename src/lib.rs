@@ -7,7 +7,7 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#[crate_id = "github.com/zargony/rust-fuse#fuse:0.1"];
+#[crate_id = "github.com/zargony/rust-fuse#fuse:0.2"];
 #[desc = "Rust FUSE - Filesystem in Userspace"];
 #[license = "MIT"];
 #[crate_type = "dylib"];
