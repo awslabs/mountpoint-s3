@@ -33,6 +33,7 @@ pub struct fuse_args {
 
 extern "system" {
 	pub fn fuse_mount_compat25 (mountpoint: *c_char, args: *fuse_args) -> c_int;
+	#[cfg(not(target_os = "macos"))]
 	pub fn fuse_unmount_compat22 (mountpoint: *c_char);
 }
 

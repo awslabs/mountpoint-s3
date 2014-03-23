@@ -4,13 +4,15 @@
 
 use std::libc::{c_int, c_void, c_char, size_t};
 use std::os;
-use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
+use fuse::{fuse_args, fuse_mount_compat25};
+#[cfg(not(target_os = "macos"))]
+use fuse::fuse_unmount_compat22;
 
 // Libc provides iovec based I/O using readv and writev functions
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
 mod libc {
-	use std::libc::{c_int, c_void, size_t, ssize_t};
+	use std::libc::{c_char, c_int, c_void, size_t, ssize_t};
 
 	/// Iovec data structure for readv and writev calls.
 	pub struct iovec {
@@ -23,7 +25,33 @@ mod libc {
 		pub fn readv (fd: c_int, iov: *mut iovec, iovcnt: c_int) -> ssize_t;
 		/// Write data from multiple buffers to fd
 		pub fn writev (fd: c_int, iov: *iovec, iovcnt: c_int) -> ssize_t;
+
+		pub fn realpath (file_name:*c_char, resolved_name:*mut c_char) -> *c_char;
+
+		#[cfg(target_os = "macos")]
+		pub fn unmount(dir:*c_char, flags:c_int) -> c_int;
 	}
+
+	#[cfg(target_os = "macos")]
+	pub static PATH_MAX:int = 1024;
+
+	#[cfg(target_os = "linux")]
+	pub static PATH_MAX:int = 4096;
+}
+
+/// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
+fn real_path(path:&PosixPath) -> Result<PosixPath, c_int> {
+	path.with_c_str(|p| {
+		let mut resolved = [0 as c_char, ..libc::PATH_MAX];
+		unsafe {
+			let rp = libc::realpath(p, resolved.as_mut_ptr());
+			if rp.is_null() { 
+				Err(::std::os::errno() as c_int)
+			} else { 
+				Ok(PosixPath::new(::std::c_str::CString::new(rp,false)))
+			}
+		}
+	})
 }
 
 /// Helper function to provide options as a fuse_args struct
@@ -52,7 +80,7 @@ impl Channel {
 	/// the given path to the channel. If the channel is dropped, the path is
 	/// unmounted.
 	pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
-		mountpoint.with_c_str(|mnt| {
+		real_path(mountpoint).and_then(|mountpoint| mountpoint.with_c_str(|mnt| {
 			with_fuse_args(options, |args| {
 				let fd = unsafe { fuse_mount_compat25(mnt, args) };
 				if fd < 0 {
@@ -61,7 +89,7 @@ impl Channel {
 					Ok(Channel { mountpoint: mountpoint.clone(), fd: fd })
 				}
 			})
-		})
+		}))
 	}
 
 	/// Receives data up to the capacity of the given buffer.
@@ -122,6 +150,19 @@ impl ChannelSender {
 	}
 }
 
+// On OS X, fuse_unmount_compat22 attempts to call realpath, which in turn calls into the filesystem.
+// If the filesystem returns an error, the unmount does not take place, with no indication of the error
+// available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
+// we already converted to the real path when we first mounted.
+#[cfg(target_os = "macos")]
+/// Unmount an arbitrary mount point
+pub fn unmount (mountpoint: &Path) {
+	mountpoint.with_c_str(|mnt| {
+		unsafe { libc::unmount(mnt, 0); }
+	})
+}
+
+#[cfg(not(target_os = "macos"))]
 /// Unmount an arbitrary mount point
 pub fn unmount (mountpoint: &Path) {
 	mountpoint.with_c_str(|mnt| {
