@@ -21,7 +21,7 @@ Except for a single setup (mount) function call and a final teardown (umount) fu
 
 ## How to
 
-To create a new filesystem, implement the trait `Filesystem`. All methods have default implementations that do nothing, so if you implement no method at all, you still get a mountable filesystem that does nothing.
+To create a new filesystem, implement the trait `Filesystem`. Filesystem operations from the kernel are dispatched to the methods of the `Filesystem` trait. Most methods get a `reply` parameter that must be used to eventually answer the request. All methods have default implementations that reply with neutral answers, so if you implement no method at all, you still get a mountable filesystem that does nothing.
 
 To actually mount the filesystem, pass an object that implements `Filesystem` and the path of an (existing) mountpoint to the `mount` function. `mount` will not return until the filesystem is unmounted.
 
@@ -35,7 +35,6 @@ See the examples directory for some basic examples.
 
 There's still a lot of stuff to be done. Feel free to contribute.
 
-- Filesystem operations are currently always dispatched in the same task. Running multiple operations concurrently is probably desirable, especially for read/write operations.
 - Interrupting a filesystem operation isn't handled yet.
 - Using `fuse_*_out` in the results of `Filesystem` methods doesn't look right. These native structs should be hidden from the public interface.
 - An additional more high level API would be nice. It should provide pathnames instead inode numbers and automatically handle concurrency and interruption (like the FUSE C library's high level API).

@@ -6,13 +6,17 @@
 //! operations under its mount point.
 //!
 
-use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use std::task;
+use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use native;
 use channel;
 use channel::Channel;
 use Filesystem;
-use request::Request;
+use request::{MAX_WRITE_SIZE, request, dispatch};
+
+/// Size of the buffer for reading a request from the kernel. Since the kernel may send
+/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
+static BUFFER_SIZE: uint = MAX_WRITE_SIZE as uint + 4096;
 
 /// The session data structure
 pub struct Session<FS> {
@@ -21,8 +25,7 @@ pub struct Session<FS> {
 	/// Path of the mounted filesystem
 	mountpoint: Path,
 	/// Communication channel to the kernel driver
-	/// FIXME: should be private
-	ch: Channel,
+	priv ch: Channel,
 	/// FUSE protocol major version
 	proto_major: uint,
 	/// FUSE protocol minor version
@@ -56,15 +59,21 @@ impl<FS: Filesystem+Send> Session<FS> {
 	/// Make sure to run it on a new single threaded scheduler since the I/O in the
 	/// session loop can block.
 	pub fn run (&mut self) {
-		let mut req = Request::new();
+		let mut buffer = Vec::with_capacity(BUFFER_SIZE);
 		loop {
-			match req.read(self) {
-				Err(ENOENT) => continue,		// Operation interrupted. Accordingly to FUSE, this is safe to retry
-				Err(EINTR) => continue,			// Interrupted system call, retry
-				Err(EAGAIN) => continue,		// Explicitly try again
-				Err(ENODEV) => break,			// Filesystem was unmounted, quit the loop
+			// Read the next request from the given channel to kernel driver
+			// The kernel driver makes sure that we get exactly one request per read
+			assert!(buffer.capacity() >= BUFFER_SIZE);
+			match self.ch.receive(&mut buffer) {
+				Err(ENOENT) => continue,				// Operation interrupted. Accordingly to FUSE, this is safe to retry
+				Err(EINTR) => continue,					// Interrupted system call, retry
+				Err(EAGAIN) => continue,				// Explicitly try again
+				Err(ENODEV) => break,					// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(..) => req.dispatch(self),
+				Ok(..) => match request(self.ch.sender(), buffer.as_slice()) {
+					None => break,						// Illegal request, quit the loop
+					Some(req) => dispatch(&req, self),
+				},
 			}
 		}
 	}
