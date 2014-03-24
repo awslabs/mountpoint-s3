@@ -351,7 +351,7 @@ impl<'a> Request<'a> {
 
 	/// Warn about unsupported OS X operation on other os
 	#[cfg(not(target_os = "macos"))]
-	fn dispatch_macos_only<FS: Filesystem> (&self, _opcode: fuse_opcode, se: &mut Session<FS>) {
+	fn dispatch_macos_only<FS: Filesystem> (&self, _opcode: fuse_opcode, _se: &mut Session<FS>) {
 		warn!("Ignoring unsupported FUSE operation {:u}", self.header.opcode)
 		self.reply_error(ENOSYS);
 	}
