@@ -35,12 +35,10 @@ impl<T: Sendable> Reply<T> {
 		Reply { ch: ch, unique: unique, replied: false }
 	}
 
-	/// Reply to a request with the given error code and data
+	/// Reply to a request with the given error code and data. Must be called
+	/// only once (the `ok` and `error` methods ensure this by consuming `self`)
 	fn send (&mut self, err: c_int, bytes: &[&[u8]]) {
-		if self.replied {
-			warn!("Ignoring duplicate reply for operation {:u}", self.unique);
-			return;
-		}
+		assert!(!self.replied);
 		let len = bytes.iter().fold(0, |l, b| { l +  b.len()});
 		let outheader = fuse_out_header {
 			len: mem::size_of::<fuse_out_header>() as u32 + len as u32,
