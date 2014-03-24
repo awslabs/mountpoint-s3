@@ -36,33 +36,33 @@ impl<T: Sendable> Reply<T> {
 	}
 
 	/// Reply to a request with the given error code and data
-	fn send<T: Sendable> (&mut self, err: c_int, data: &T) {
+	fn send (&mut self, err: c_int, bytes: &[&[u8]]) {
 		if self.replied {
 			warn!("Ignoring duplicate reply for operation {:u}", self.unique);
 			return;
 		}
-		data.as_bytegroups(|databytes| {
-			let datalen = databytes.iter().fold(0, |l, b| { l +  b.len()});
-			let outheader = fuse_out_header {
-				len: mem::size_of::<fuse_out_header>() as u32 + datalen as u32,
-				error: err,
-				unique: self.unique,
-			};
-			outheader.as_bytegroups(|headbytes| {
-				let _ = self.ch.send(headbytes + databytes);
-				self.replied = true;
-			});
+		let len = bytes.iter().fold(0, |l, b| { l +  b.len()});
+		let outheader = fuse_out_header {
+			len: mem::size_of::<fuse_out_header>() as u32 + len as u32,
+			error: err,
+			unique: self.unique,
+		};
+		outheader.as_bytegroups(|headbytes| {
+			let _ = self.ch.send(headbytes + bytes);
+			self.replied = true;
 		});
 	}
 
 	/// Reply to a request with the given data
 	pub fn ok (mut self, data: &T) {
-		self.send(0, data);
+		data.as_bytegroups(|bytes| {
+			self.send(0, bytes);
+		});
 	}
 
 	/// Reply to a request with the given error code
 	pub fn error (mut self, err: c_int) {
-		self.send(-err, &());
+		self.send(-err, []);
 	}
 }
 
@@ -71,7 +71,7 @@ impl<T: Sendable> Drop for Reply<T> {
 	fn drop (&mut self) {
 		if !self.replied {
 			warn!("Reply not sent for operation {:u}, replying with I/O error", self.unique);
-			self.send(-EIO, &());
+			self.send(-EIO, []);
 		}
 	}
 }
