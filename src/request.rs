@@ -14,8 +14,8 @@ use reply::{reply, Reply};
 use sendable::{Sendable, DirBuffer};
 use session::Session;
 
-/// Maximum write size. FUSE recommends at least 128k, max 16M. Default on OS X is 16M.
-pub static MAX_WRITE_SIZE: u32 = 16*1024*1024;
+/// Maximum write size. FUSE recommends at least 128k, max 16M. Default is 128k, on OS X 16M.
+pub static MAX_WRITE_SIZE: uint = 16*1024*1024;
 
 #[cfg(target_os = "macos")]
 /// We support async reads and our filesystems are usually case-insensitive
@@ -110,7 +110,7 @@ impl<'a> Request<'a> {
 					max_readahead: arg.max_readahead,
 					flags: INIT_FLAGS,
 					unused: 0,
-					max_write: MAX_WRITE_SIZE,
+					max_write: MAX_WRITE_SIZE as u32,
 				};
 				debug!("INIT({:u}) response: ABI {:u}.{:u}, flags {:#x}, max readahead {:u}, max write {:u}", self.header.unique, reply.major, reply.minor, reply.flags, reply.max_readahead, reply.max_write);
 				se.initialized = true;

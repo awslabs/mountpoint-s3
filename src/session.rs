@@ -16,7 +16,7 @@ use request::{MAX_WRITE_SIZE, request, dispatch};
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-static BUFFER_SIZE: uint = MAX_WRITE_SIZE as uint + 4096;
+static BUFFER_SIZE: uint = MAX_WRITE_SIZE + 4096;
 
 /// The session data structure
 pub struct Session<FS> {
@@ -59,7 +59,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 	/// Make sure to run it on a new single threaded scheduler since the I/O in the
 	/// session loop can block.
 	pub fn run (&mut self) {
-		let mut buffer = Vec::from_elem(BUFFER_SIZE, 0u8);
+		let mut buffer = ~[0u8, ..BUFFER_SIZE];
 		loop {
 			// Read the next request from the given channel to kernel driver
 			// The kernel driver makes sure that we get exactly one request per read
