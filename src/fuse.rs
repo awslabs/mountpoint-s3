@@ -135,6 +135,11 @@ pub mod consts {
 	// Init request/reply flags
 	pub static FUSE_ASYNC_READ: u32			= 1 << 0;
 	pub static FUSE_POSIX_LOCKS: u32		= 1 << 1;
+	pub static FUSE_FILE_OPS: u32			= 1 << 2;
+	pub static FUSE_ATOMIC_O_TRUNC: u32		= 1 << 3;
+	pub static FUSE_EXPORT_SUPPORT: u32		= 1 << 4;
+	pub static FUSE_BIG_WRITES: u32			= 1 << 5;
+	pub static FUSE_DONT_MASK: u32			= 1 << 6;
 	#[cfg(target_os = "macos")]
 	pub static FUSE_CASE_INSENSITIVE: u32	= 1 << 29;	// OS X only
 	#[cfg(target_os = "macos")]

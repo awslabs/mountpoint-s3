@@ -17,14 +17,14 @@ use session::Session;
 /// Maximum write size. FUSE recommends at least 128k, max 16M. Default is 128k, on OS X 16M.
 pub static MAX_WRITE_SIZE: uint = 16*1024*1024;
 
-#[cfg(target_os = "macos")]
-/// We support async reads and our filesystems are usually case-insensitive
-/// TODO: should case sensitivity be an option passable by the implementing FS?
-static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE;
-
+/// We generally support async reads, lookups of . and .. and writes larger than 4k
 #[cfg(not(target_os = "macos"))]
-/// We support async reads
-static INIT_FLAGS: u32 = FUSE_ASYNC_READ;
+static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_EXPORT_SUPPORT | FUSE_BIG_WRITES;
+
+/// On OS X, we additionally support case insensitiveness, volume renames and xtimes
+/// TODO: we should eventually let the filesystem implementation decide which flags to set
+#[cfg(target_os = "macos")]
+static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_EXPORT_SUPPORT | FUSE_BIG_WRITES | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
 
 /// Create a new request from the given buffer
 pub fn request<'a> (ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
@@ -107,10 +107,10 @@ impl<'a> Request<'a> {
 				let reply = fuse_init_out {
 					major: FUSE_KERNEL_VERSION,
 					minor: FUSE_KERNEL_MINOR_VERSION,
-					max_readahead: arg.max_readahead,
-					flags: INIT_FLAGS,
+					max_readahead: arg.max_readahead,		// accept any readahead size
+					flags: arg.flags & INIT_FLAGS,			// use features given in INIT_FLAGS and reported as capable
 					unused: 0,
-					max_write: MAX_WRITE_SIZE as u32,
+					max_write: MAX_WRITE_SIZE as u32,		// use a max write size that fits into the session's buffer
 				};
 				debug!("INIT({:u}) response: ABI {:u}.{:u}, flags {:#x}, max readahead {:u}, max write {:u}", self.header.unique, reply.major, reply.minor, reply.flags, reply.max_readahead, reply.max_write);
 				se.initialized = true;
