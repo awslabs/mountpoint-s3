@@ -59,18 +59,17 @@ impl<FS: Filesystem+Send> Session<FS> {
 	/// Make sure to run it on a new single threaded scheduler since the I/O in the
 	/// session loop can block.
 	pub fn run (&mut self) {
-		let mut buffer = Vec::with_capacity(BUFFER_SIZE);
+		let mut buffer = Vec::from_elem(BUFFER_SIZE, 0u8);
 		loop {
 			// Read the next request from the given channel to kernel driver
 			// The kernel driver makes sure that we get exactly one request per read
-			assert!(buffer.capacity() >= BUFFER_SIZE);
-			match self.ch.receive(&mut buffer) {
+			match self.ch.receive(buffer.as_mut_slice()) {
 				Err(ENOENT) => continue,				// Operation interrupted. Accordingly to FUSE, this is safe to retry
 				Err(EINTR) => continue,					// Interrupted system call, retry
 				Err(EAGAIN) => continue,				// Explicitly try again
 				Err(ENODEV) => break,					// Filesystem was unmounted, quit the loop
 				Err(err) => fail!("Lost connection to FUSE device. Error {:i}", err),
-				Ok(..) => match request(self.ch.sender(), buffer.as_slice()) {
+				Ok(len) => match request(self.ch.sender(), buffer.slice_to(len)) {
 					None => break,						// Illegal request, quit the loop
 					Some(req) => dispatch(&req, self),
 				},
