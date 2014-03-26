@@ -26,28 +26,28 @@ mod libc {
 		/// Write data from multiple buffers to fd
 		pub fn writev (fd: c_int, iov: *iovec, iovcnt: c_int) -> ssize_t;
 
-		pub fn realpath (file_name:*c_char, resolved_name:*mut c_char) -> *c_char;
+		pub fn realpath (file_name: *c_char, resolved_name: *mut c_char) -> *c_char;
 
 		#[cfg(target_os = "macos")]
-		pub fn unmount(dir:*c_char, flags:c_int) -> c_int;
+		pub fn unmount(dir: *c_char, flags: c_int) -> c_int;
 	}
 
 	#[cfg(target_os = "macos")]
-	pub static PATH_MAX:int = 1024;
+	pub static PATH_MAX: int = 1024;
 
 	#[cfg(target_os = "linux")]
-	pub static PATH_MAX:int = 4096;
+	pub static PATH_MAX: int = 4096;
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
-fn real_path(path:&PosixPath) -> Result<PosixPath, c_int> {
+fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 	path.with_c_str(|p| {
 		let mut resolved = [0 as c_char, ..libc::PATH_MAX];
 		unsafe {
 			let rp = libc::realpath(p, resolved.as_mut_ptr());
-			if rp.is_null() { 
+			if rp.is_null() {
 				Err(::std::os::errno() as c_int)
-			} else { 
+			} else {
 				Ok(PosixPath::new(::std::c_str::CString::new(rp,false)))
 			}
 		}
