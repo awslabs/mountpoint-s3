@@ -12,7 +12,12 @@ use native;
 use channel;
 use channel::Channel;
 use Filesystem;
-use request::{MAX_WRITE_SIZE, request, dispatch};
+use request::{request, dispatch};
+
+/// The max size of write requests from the kernel. The absolute minimum is 4k,
+/// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on OS X
+/// and 128k on other systems.
+pub static MAX_WRITE_SIZE: uint = 16*1024*1024;
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
@@ -55,15 +60,20 @@ impl<FS: Filesystem+Send> Session<FS> {
 		}
 	}
 
-	/// Run the session loop that receives, dispatches and replies to kernel requests.
-	/// Make sure to run it on a new single threaded scheduler since the I/O in the
+	/// Run the session loop that receives kernel requests and dispatches them to method
+	/// calls into the filesystem. This read-dispatch-loop is non-concurrent to prevent
+	/// having multiple buffers (which take up much memory), but the filesystem methods
+	/// may run concurrent by spawning tasks.
+	/// Make sure to run this on a new single threaded scheduler since native I/O in the
 	/// session loop can block.
 	pub fn run (&mut self) {
+		// Buffer for receiving requests from the kernel. Only one is allocated and
+		// it is reused immediately after dispatching to conserve memory and allocations.
 		let mut buffer = ~[0u8, ..BUFFER_SIZE];
 		loop {
 			// Read the next request from the given channel to kernel driver
 			// The kernel driver makes sure that we get exactly one request per read
-			match self.ch.receive(buffer.as_mut_slice()) {
+			match self.ch.receive(buffer) {
 				Err(ENOENT) => continue,				// Operation interrupted. Accordingly to FUSE, this is safe to retry
 				Err(EINTR) => continue,					// Interrupted system call, retry
 				Err(EAGAIN) => continue,				// Explicitly try again

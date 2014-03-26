@@ -12,10 +12,7 @@ use fuse::*;
 use fuse::consts::*;
 use reply::{reply, Reply};
 use sendable::{Sendable, DirBuffer};
-use session::Session;
-
-/// Maximum write size. FUSE recommends at least 128k, max 16M. Default is 128k, on OS X 16M.
-pub static MAX_WRITE_SIZE: uint = 16*1024*1024;
+use session::{MAX_WRITE_SIZE, Session};
 
 /// We generally support async reads, lookups of . and .. and writes larger than 4k
 #[cfg(not(target_os = "macos"))]
