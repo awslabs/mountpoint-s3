@@ -2,8 +2,8 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
+use std::{os, slice};
 use std::libc::{c_int, c_void, c_char, size_t};
-use std::os;
 use fuse::{fuse_args, fuse_mount_compat25};
 #[cfg(not(target_os = "macos"))]
 use fuse::fuse_unmount_compat22;
@@ -58,13 +58,13 @@ fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 	let progname = "rust-fuse";
-	let args = Vec::from_fn(1+options.len(), |i| {
+	let args = slice::from_fn(1+options.len(), |i| {
 		match i {
 			0 => progname.to_c_str(),
 			_ => options[i-1].to_c_str(),
 		}
 	});
-	let argptrs: Vec<*c_char> = args.iter().map(|s| s.with_ref(|s| s)).collect();
+	let argptrs = args.map(|s| s.with_ref(|s| s));
 	f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
 
@@ -135,9 +135,9 @@ impl ChannelSender {
 	/// Send all data in the slice of slice of bytes in a single write.
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
-		let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
+		let iovecs = buffer.map(|d| {
 			libc::iovec { iov_base: d.as_ptr() as *c_void, iov_len: d.len() as size_t }
-		}).collect();
+		});
 		let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
 		if rc < 0 {
 			Err(os::errno() as c_int)
