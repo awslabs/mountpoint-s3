@@ -42,7 +42,7 @@ impl<T: Sendable> Reply<T> {
 		let len = bytes.iter().fold(0, |l, b| { l +  b.len()});
 		let outheader = fuse_out_header {
 			len: mem::size_of::<fuse_out_header>() as u32 + len as u32,
-			error: err,
+			error: -err,
 			unique: self.unique,
 		};
 		outheader.as_bytegroups(|headbytes| {
@@ -60,7 +60,7 @@ impl<T: Sendable> Reply<T> {
 
 	/// Reply to a request with the given error code
 	pub fn error (mut self, err: c_int) {
-		self.send(-err, []);
+		self.send(err, []);
 	}
 }
 
@@ -69,7 +69,7 @@ impl<T: Sendable> Drop for Reply<T> {
 	fn drop (&mut self) {
 		if !self.replied {
 			warn!("Reply not sent for operation {:u}, replying with I/O error", self.unique);
-			self.send(-EIO, []);
+			self.send(EIO, []);
 		}
 	}
 }
