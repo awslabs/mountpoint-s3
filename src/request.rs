@@ -4,14 +4,14 @@
 //!
 
 use std::{mem, str};
-use std::libc::{c_int, EIO, ENOSYS, EPROTO};
+use std::libc::{EIO, ENOSYS, EPROTO};
 use argument::ArgumentIterator;
 use channel::ChannelSender;
 use Filesystem;
 use fuse::*;
 use fuse::consts::*;
-use reply::{reply, Reply};
-use sendable::{Sendable, DirBuffer};
+use reply::{Reply, ReplyRaw, ReplyEmpty};
+use sendable::DirBuffer;
 use session::{MAX_WRITE_SIZE, Session};
 
 /// We generally support async reads, lookups of . and .. and writes larger than 4k
@@ -73,7 +73,7 @@ impl<'a> Request<'a> {
 			Some(op) => op,
 			None => {
 				warn!("Ignoring unknown FUSE operation {:u}", self.header.opcode)
-				self.reply_error(ENOSYS);
+				self.reply::<ReplyEmpty>().error(ENOSYS);
 				return;
 			},
 		};
@@ -81,12 +81,13 @@ impl<'a> Request<'a> {
 		match opcode {
 			// Filesystem initialization
 			FUSE_INIT => {
+				let reply: ReplyRaw<fuse_init_out> = self.reply();
 				let arg: &fuse_init_in = data.fetch();
 				debug!("INIT({:u})   kernel: ABI {:u}.{:u}, flags {:#x}, max readahead {:u}", self.header.unique, arg.major, arg.minor, arg.flags, arg.max_readahead);
 				// We don't support ABI versions before 7.6
 				if arg.major < 7 || (arg.major == 7 && arg.minor < 6) {
 					error!("Unsupported FUSE ABI version {:u}.{:u}", arg.major, arg.minor);
-					self.reply_error(EPROTO);
+					reply.error(EPROTO);
 					return;
 				}
 				// Remember ABI version supported by kernel
@@ -95,13 +96,13 @@ impl<'a> Request<'a> {
 				// Call filesystem init method and give it a chance to return an error
 				let res = se.filesystem.init(self);
 				if res.is_err() {
-					self.reply_error(res.unwrap_err());
+					reply.error(res.unwrap_err());
 					return;
 				}
 				// Reply with our desired version and settings. If the kernel supports a
 				// larger major version, it'll re-send a matching init message. If it
 				// supports only lower major versions, we replied with an error above.
-				let reply = fuse_init_out {
+				let init = fuse_init_out {
 					major: FUSE_KERNEL_VERSION,
 					minor: FUSE_KERNEL_MINOR_VERSION,
 					max_readahead: arg.max_readahead,		// accept any readahead size
@@ -109,33 +110,33 @@ impl<'a> Request<'a> {
 					unused: 0,
 					max_write: MAX_WRITE_SIZE as u32,		// use a max write size that fits into the session's buffer
 				};
-				debug!("INIT({:u}) response: ABI {:u}.{:u}, flags {:#x}, max readahead {:u}, max write {:u}", self.header.unique, reply.major, reply.minor, reply.flags, reply.max_readahead, reply.max_write);
+				debug!("INIT({:u}) response: ABI {:u}.{:u}, flags {:#x}, max readahead {:u}, max write {:u}", self.header.unique, init.major, init.minor, init.flags, init.max_readahead, init.max_write);
 				se.initialized = true;
-				self.reply().ok(&reply);
+				reply.ok(&init);
 			},
 			// Any operation is invalid before initialization
 			_ if !se.initialized => {
 				warn!("Ignoring FUSE operation {:u} before init", self.header.opcode);
-				self.reply_error(EIO);
+				self.reply::<ReplyEmpty>().error(EIO);
 			},
 			// Filesystem destroyed
 			FUSE_DESTROY => {
 				debug!("DESTROY({:u})", self.header.unique);
 				se.filesystem.destroy(self);
 				se.destroyed = true;
-				self.reply().ok(&());
+				self.reply::<ReplyEmpty>().ok();
 			}
 			// Any operation is invalid after destroy
 			_ if se.destroyed => {
 				warn!("Ignoring FUSE operation {:u} after destroy", self.header.opcode);
-				self.reply_error(EIO);
+				self.reply::<ReplyEmpty>().error(EIO);
 			}
 
 			FUSE_INTERRUPT => {
 				let arg: &fuse_interrupt_in = data.fetch();
 				debug!("INTERRUPT({:u}) unique {:u}", self.header.unique, arg.unique);
 				// TODO: handle FUSE_INTERRUPT
-				self.reply_error(ENOSYS);
+				self.reply::<ReplyEmpty>().error(ENOSYS);
 			},
 
 			FUSE_LOOKUP => {
@@ -350,18 +351,19 @@ impl<'a> Request<'a> {
 	#[cfg(not(target_os = "macos"))] #[inline]
 	fn dispatch_macos_only<FS: Filesystem> (&self, _opcode: fuse_opcode, _se: &mut Session<FS>) {
 		warn!("Ignoring unsupported FUSE operation {:u}", self.header.opcode)
-		self.reply_error(ENOSYS);
+		self.reply::<ReplyEmpty>().error(ENOSYS);
 	}
 
 	/// Create a reply object for this request that can be passed to the filesystem
 	/// implementation and makes sure that a request is replied eventually
-	fn reply<T: Sendable> (&self) -> Reply<T> {
-		reply(self.ch, self.header.unique)
-	}
-
-	/// Shortcut to immediately reply to a request with an error code
-	fn reply_error (&self, err: c_int) {
-		self.reply::<()>().error(err);
+	fn reply<T: Reply> (&self) -> T {
+		let ch = self.ch;
+		Reply::new(self.header.unique, proc(buffer) {
+			match ch.send(buffer) {
+				Ok(()) => (),
+				Err(err) => error!("Failed to send FUSE reply: {}", err),
+			}
+		})
 	}
 
 	/// Returns the unique identifier of this request

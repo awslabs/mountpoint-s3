@@ -8,54 +8,64 @@
 //! exactly once).
 //!
 
-use std::mem;
+use std::{mem, slice};
 use std::libc::{c_int, EIO};
-use channel::ChannelSender;
 use fuse::fuse_out_header;
-use sendable::Sendable;
+use sendable::{Sendable, DirBuffer};
 
-/// Create a new reply for the given request
-pub fn reply<T: Sendable> (ch: ChannelSender, unique: u64) -> Reply<T> {
-	Reply::new(ch, unique)
+/// Generic reply trait
+pub trait Reply {
+	/// Create a new reply for the given request
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> Self;
 }
 
-/// Reply data structure
-pub struct Reply<T> {
-	/// Channel sender for sending the reply
-	ch: ChannelSender,
+/// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
+fn as_bytes<T: Copy, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
+	let len = mem::size_of::<T>();
+	match len {
+		0 => f([]),
+		len => unsafe { slice::raw::buf_as_slice(data as *T as *u8, len, |bytes| f([bytes]) ) },
+	}
+}
+
+///
+/// Raw reply
+///
+pub struct ReplyRaw<T> {
 	/// Unique id of the request to reply to
 	unique: u64,
-	/// Flag whether the reply was sent
-	replied: bool,
+	/// Proc to call for sending the reply
+	sender: Option<proc:Send(&[&[u8]])>,
 }
 
-impl<T: Sendable> Reply<T> {
-	/// Create a new reply for the given request
-	fn new (ch: ChannelSender, unique: u64) -> Reply<T> {
-		Reply { ch: ch, unique: unique, replied: false }
+impl<T: Copy> Reply for ReplyRaw<T> {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyRaw<T> {
+		ReplyRaw { unique: unique, sender: Some(sender) }
 	}
+}
 
+impl<T: Copy> ReplyRaw<T> {
 	/// Reply to a request with the given error code and data. Must be called
 	/// only once (the `ok` and `error` methods ensure this by consuming `self`)
 	fn send (&mut self, err: c_int, bytes: &[&[u8]]) {
-		assert!(!self.replied);
+		assert!(self.sender.is_some());
 		let len = bytes.iter().fold(0, |l, b| { l +  b.len()});
-		let outheader = fuse_out_header {
-			len: mem::size_of::<fuse_out_header>() as u32 + len as u32,
+		let header = fuse_out_header {
+			len: (mem::size_of::<fuse_out_header>() + len) as u32,
 			error: -err,
 			unique: self.unique,
 		};
-		outheader.as_bytegroups(|headbytes| {
-			let _ = self.ch.send(headbytes + bytes);
-			self.replied = true;
+		as_bytes(&header, |headerbytes| {
+			let sender = self.sender.take_unwrap();
+			sender(headerbytes + bytes);
 		});
 	}
 
-	/// Reply to a request with the given data
+	/// Reply to a request with the given type
 	pub fn ok (mut self, data: &T) {
-		data.as_bytegroups(|bytes| {
+		as_bytes(data, |bytes| {
 			self.send(0, bytes);
-		});
+		})
 	}
 
 	/// Reply to a request with the given error code
@@ -65,11 +75,119 @@ impl<T: Sendable> Reply<T> {
 }
 
 #[unsafe_destructor]
-impl<T: Sendable> Drop for Reply<T> {
+impl<T: Copy> Drop for ReplyRaw<T> {
 	fn drop (&mut self) {
-		if !self.replied {
+		if self.sender.is_some() {
 			warn!("Reply not sent for operation {:u}, replying with I/O error", self.unique);
 			self.send(EIO, []);
 		}
+	}
+}
+
+///
+/// Empty reply
+///
+pub struct ReplyEmpty {
+	reply: ReplyRaw<()>,
+}
+
+impl Reply for ReplyEmpty {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyEmpty {
+		ReplyEmpty { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyEmpty {
+	/// Reply to a request with nothing
+	pub fn ok (mut self) {
+		self.reply.send(0, []);
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
+/// Data reply
+///
+pub struct ReplyData {
+	reply: ReplyRaw<()>,
+}
+
+impl Reply for ReplyData {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyData {
+		ReplyData { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyData {
+	/// Reply to a request with the given data
+	pub fn ok (mut self, data: &[u8]) {
+		self.reply.send(0, [data]);
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
+/// Directory reply
+///
+pub struct ReplyDirectory {
+	reply: ReplyRaw<()>,
+}
+
+impl Reply for ReplyDirectory {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyDirectory {
+		ReplyDirectory { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyDirectory {
+	/// Reply to a request with the given data
+	pub fn ok (mut self, buffer: &DirBuffer) {
+		buffer.as_bytegroups(|bytes| {
+			self.reply.send(0, bytes);
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+
+#[cfg(test)]
+mod test {
+	use super::as_bytes;
+
+	#[test]
+	fn serialize_empty () {
+		let data = ();
+		as_bytes(&data, |bytes| {
+			assert!(bytes == []);
+		});
+	}
+
+	#[test]
+	fn serialize_slice () {
+		let data: [u8, ..4] = [0x12, 0x34, 0x56, 0x78];
+		as_bytes(&data, |bytes| {
+			assert!(bytes == [&[0x12, 0x34, 0x56, 0x78]]);
+		});
+	}
+
+	#[test]
+	fn serialize_struct () {
+		struct Data { a: u8, b: u8, c: u16 }
+		let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
+		as_bytes(&data, |bytes| {
+			assert!(bytes == [&[0x12, 0x34, 0x78, 0x56]]);
+		});
 	}
 }
