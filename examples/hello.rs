@@ -4,7 +4,7 @@ use std::default::Default;
 use std::libc::{ENOENT, S_IFDIR, S_IFREG};
 use std::io::{TypeFile, TypeDirectory};
 use std::os;
-use fuse::{Filesystem, Request, ReplyData, ReplyDirectory, ReplyRaw, fuse_attr, fuse_entry_out, fuse_attr_out, DirBuffer};
+use fuse::{Filesystem, Request, ReplyData, ReplyDirectory, ReplyRaw, fuse_attr, fuse_entry_out, fuse_attr_out};
 
 struct HelloFS;
 
@@ -47,14 +47,14 @@ impl Filesystem for HelloFS {
 		}
 	}
 
-	fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, mut buffer: DirBuffer, reply: ReplyDirectory) {
+	fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, mut reply: ReplyDirectory) {
 		if ino == 1 {
 			if offset == 0 {
-				buffer.fill(1, 0, TypeDirectory, &PosixPath::new("."));
-				buffer.fill(1, 1, TypeDirectory, &PosixPath::new(".."));
-				buffer.fill(2, 2, TypeFile, &PosixPath::new("hello.txt"));
+				reply.add(1, 0, TypeDirectory, &PosixPath::new("."));
+				reply.add(1, 1, TypeDirectory, &PosixPath::new(".."));
+				reply.add(2, 2, TypeFile, &PosixPath::new("hello.txt"));
 			}
-			reply.ok(&buffer);
+			reply.ok();
 		} else {
 			reply.error(ENOENT);
 		}

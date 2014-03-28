@@ -10,8 +10,7 @@ use channel::ChannelSender;
 use Filesystem;
 use fuse::*;
 use fuse::consts::*;
-use reply::{Reply, ReplyRaw, ReplyEmpty};
-use sendable::DirBuffer;
+use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
 use session::{MAX_WRITE_SIZE, Session};
 
 /// We generally support async reads, lookups of . and .. and writes larger than 4k
@@ -72,7 +71,7 @@ impl<'a> Request<'a> {
 		let opcode: fuse_opcode = match FromPrimitive::from_u32(self.header.opcode) {
 			Some(op) => op,
 			None => {
-				warn!("Ignoring unknown FUSE operation {:u}", self.header.opcode)
+				warn!("Ignoring unknown FUSE operation {:u}", self.header.opcode);
 				self.reply::<ReplyEmpty>().error(ENOSYS);
 				return;
 			},
@@ -245,7 +244,7 @@ impl<'a> Request<'a> {
 			FUSE_READDIR => {
 				let arg: &fuse_read_in = data.fetch();
 				debug!("READDIR({:u}) ino {:#018x}, fh {:u}, offset {:u}, size {:u}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size);
-				se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset, DirBuffer::new(arg.size as uint), self.reply());
+				se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset, self.reply::<ReplyDirectory>().sized(arg.size as uint));
 			},
 			FUSE_RELEASEDIR => {
 				let arg: &fuse_release_in = data.fetch();

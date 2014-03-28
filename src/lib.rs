@@ -33,7 +33,6 @@ pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyDirectory};
 pub use reply::ReplyRaw;		// FIXME: ReplyRaw is going to be replaced with specialized reply types
 pub use request::Request;
-pub use sendable::DirBuffer;
 pub use session::{Session, BackgroundSession};
 
 mod argument;
@@ -41,7 +40,6 @@ mod channel;
 mod fuse;
 mod reply;
 mod request;
-mod sendable;
 mod session;
 
 /// Filesystem trait.
@@ -212,7 +210,7 @@ pub trait Filesystem {
 	/// requested size. Send an empty buffer on end of stream. fh will contain the
 	/// value set by the opendir method, or will be undefined if the opendir method
 	/// didn't set any value.
-	fn readdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _buffer: DirBuffer, reply: ReplyDirectory) {
+	fn readdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, reply: ReplyDirectory) {
 		reply.error(ENOSYS);
 	}
 
