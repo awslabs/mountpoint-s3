@@ -2,8 +2,7 @@
 //! FUSE native interface declarations (as of libosxfuse-2.5.5).
 //!
 
-#[allow(missing_doc)];
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types, missing_doc)]
 
 use std::libc::{c_int, c_char};
 

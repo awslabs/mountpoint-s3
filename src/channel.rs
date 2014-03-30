@@ -9,8 +9,7 @@ use fuse::{fuse_args, fuse_mount_compat25};
 use fuse::fuse_unmount_compat22;
 
 // Libc provides iovec based I/O using readv and writev functions
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
+#[allow(dead_code, non_camel_case_types)]
 mod libc {
 	use std::libc::{c_char, c_int, c_void, size_t, ssize_t};
 

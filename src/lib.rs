@@ -7,15 +7,15 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#[crate_id = "github.com/zargony/rust-fuse#fuse:0.2"];
-#[desc = "Rust FUSE - Filesystem in Userspace"];
-#[license = "MIT"];
-#[crate_type = "dylib"];
-#[crate_type = "rlib"];
+#![crate_id = "github.com/zargony/rust-fuse#fuse:0.2"]
+#![desc = "Rust FUSE - Filesystem in Userspace"]
+#![license = "MIT"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
 
-#[feature(globs, phase)];
+#![feature(globs, phase)]
 
-#[warn(unnecessary_qualification, unnecessary_typecast, missing_doc)];
+#![warn(missing_doc, unnecessary_qualification, unnecessary_typecast)]
 
 extern crate native;
 #[phase(link, syntax)]
