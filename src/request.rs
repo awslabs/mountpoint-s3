@@ -267,10 +267,10 @@ impl<'a> Request<'a> {
 				let value = data.fetch_data();
 				assert!(value.len() == arg.size as uint);
 				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name), arg.size, arg.flags);
-				#[cfg(target_os = "macos")]
-				fn get_position(arg: &fuse_setxattr_in) -> u32 { arg.position }
-				#[cfg(not(target_os = "macos"))]
-				fn get_position(_arg: &fuse_setxattr_in) -> u32 { 0 }
+				#[cfg(target_os = "macos")] #[inline]
+				fn get_position (arg: &fuse_setxattr_in) -> u32 { arg.position }
+				#[cfg(not(target_os = "macos"))] #[inline]
+				fn get_position (_arg: &fuse_setxattr_in) -> u32 { 0 }
 				se.filesystem.setxattr(self, self.header.nodeid, name, value, arg.flags as uint, get_position(arg), self.reply());
 			},
 			FUSE_GETXATTR => {
@@ -322,7 +322,7 @@ impl<'a> Request<'a> {
 	}
 
 	/// Handle OS X operation
-	#[cfg(target_os = "macos")]
+	#[cfg(target_os = "macos")] #[inline]
 	fn dispatch_macos_only<FS: Filesystem> (&self, opcode: fuse_opcode, se: &mut Session<FS>) {
 		let mut data = ArgumentIterator::new(self.data);
 		match opcode {
@@ -347,7 +347,7 @@ impl<'a> Request<'a> {
 	}
 
 	/// Warn about unsupported OS X operation on other os
-	#[cfg(not(target_os = "macos"))]
+	#[cfg(not(target_os = "macos"))] #[inline]
 	fn dispatch_macos_only<FS: Filesystem> (&self, _opcode: fuse_opcode, _se: &mut Session<FS>) {
 		warn!("Ignoring unsupported FUSE operation {:u}", self.header.opcode)
 		self.reply_error(ENOSYS);
