@@ -44,7 +44,6 @@ pub static FUSE_KERNEL_VERSION: u32 = 7;
 pub static FUSE_KERNEL_MINOR_VERSION: u32 = 8;
 pub static FUSE_ROOT_ID: u64 = 1;
 
-#[cfg(target_os = "macos")]
 #[deriving(Default)]
 pub struct fuse_attr {
 	ino: u64,
@@ -53,36 +52,20 @@ pub struct fuse_attr {
 	atime: i64,
 	mtime: i64,
 	ctime: i64,
+	#[cfg(target_os = "macos")]
 	crtime: i64,			// OS X only
 	atimensec: i32,
 	mtimensec: i32,
 	ctimensec: i32,
+	#[cfg(target_os = "macos")]
 	crtimensec: i32,		// OS X only
 	mode: u32,
 	nlink: u32,
 	uid: u32,
 	gid: u32,
 	rdev: u32,
+	#[cfg(target_os = "macos")]
 	flags: u32,				// OS X only, see chflags(2)
-}
-
-#[cfg(target_os = "linux")]
-#[deriving(Default)]
-pub struct fuse_attr {
-	ino: u64,
-	size: u64,
-	blocks: u64,
-	atime: i64,
-	mtime: i64,
-	ctime: i64,
-	atimensec: i32,
-	mtimensec: i32,
-	ctimensec: i32,
-	mode: u32,
-	nlink: u32,
-	uid: u32,
-	gid: u32,
-	rdev: u32,
 }
 
 pub struct fuse_kstatfs {
@@ -247,7 +230,6 @@ pub struct fuse_link_in {
 	oldnodeid: u64,
 }
 
-#[cfg(target_os = "macos")]
 pub struct fuse_setattr_in {
 	valid: u32,
 	padding: u32,
@@ -265,33 +247,20 @@ pub struct fuse_setattr_in {
 	uid: u32,
 	gid: u32,
 	unused5: u32,
+	#[cfg(target_os = "macos")]
 	bkuptime: i64,			// OS X only
+	#[cfg(target_os = "macos")]
 	chgtime: i64,			// OS X only
+	#[cfg(target_os = "macos")]
 	crtime: i64,			// OS X only
+	#[cfg(target_os = "macos")]
 	bkuptimensec: i32,		// OS X only
+	#[cfg(target_os = "macos")]
 	chgtimensec: i32,		// OS X only
+	#[cfg(target_os = "macos")]
 	crtimensec: i32,		// OS X only
+	#[cfg(target_os = "macos")]
 	flags: u32,				// OS X only
-}
-
-#[cfg(target_os = "linux")]
-pub struct fuse_setattr_in {
-	valid: u32,
-	padding: u32,
-	fh: u64,
-	size: u64,
-	unused1: u64,
-	atime: i64,
-	mtime: i64,
-	unused2: u64,
-	atimensec: i32,
-	mtimensec: i32,
-	unused3: u32,
-	mode: u32,
-	unused4: u32,
-	uid: u32,
-	gid: u32,
-	unused5: u32,
 }
 
 pub struct fuse_open_in {
@@ -348,32 +317,22 @@ pub struct fuse_fsync_in {
 	padding: u32,
 }
 
-#[cfg(target_os = "macos")]
 pub struct fuse_setxattr_in {
 	size: u32,
 	flags: u32,
+	#[cfg(target_os = "macos")]
 	position: u32,			// OS X only
+	#[cfg(target_os = "macos")]
 	padding: u32,			// OS X only
 }
 
-#[cfg(target_os = "linux")]
-pub struct fuse_setxattr_in {
-	size: u32,
-	flags: u32,
-}
-
-#[cfg(target_os = "macos")]
 pub struct fuse_getxattr_in {
 	size: u32,
 	padding: u32,
+	#[cfg(target_os = "macos")]
 	position: u32,			// OS X only
+	#[cfg(target_os = "macos")]
 	padding2: u32,			// OS X only
-}
-
-#[cfg(target_os = "linux")]
-pub struct fuse_getxattr_in {
-	size: u32,
-	padding: u32,
 }
 
 pub struct fuse_getxattr_out {
