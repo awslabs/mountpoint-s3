@@ -20,17 +20,20 @@
 extern crate native;
 #[phase(link, syntax)]
 extern crate log;
+extern crate time;
 
+use std::io::{FileType, FilePermission};
 use std::libc::{c_int, ENOSYS};
+use time::Timespec;
 
-pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
+pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out, fuse_write_out};
 pub use fuse::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
 #[cfg(target_os = "macos")]
 pub use fuse::{fuse_getxtimes_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
-pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyDirectory};
+pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 pub use reply::ReplyRaw;		// FIXME: ReplyRaw is going to be replaced with specialized reply types
 pub use request::Request;
 pub use session::{Session, BackgroundSession};
@@ -41,6 +44,38 @@ mod fuse;
 mod reply;
 mod request;
 mod session;
+
+/// File attributes
+pub struct FileAttr {
+	/// Inode number
+	pub ino: u64,
+	/// Size in bytes
+	pub size: u64,
+	/// Size in blocks
+	pub blocks: u64,
+	/// Time of last access
+	pub atime: Timespec,
+	/// Time of last modification
+	pub mtime: Timespec,
+	/// Time of last change
+	pub ctime: Timespec,
+	/// Time of creation (OS X only)
+	pub crtime: Timespec,
+	/// Kind of file (directory, file, pipe, etc)
+	pub kind: FileType,
+	/// Permissions
+	pub perm: FilePermission,
+	/// Number of hard links
+	pub nlink: u32,
+	/// User id
+	pub uid: u32,
+	/// Group id
+	pub gid: u32,
+	/// Rdev
+	pub rdev: u32,
+	/// Flags (OS X only, see chflags(2))
+	pub flags: u32,
+}
 
 /// Filesystem trait.
 ///
@@ -61,7 +96,7 @@ pub trait Filesystem {
 	}
 
 	/// Look up a directory entry by name and get its attributes.
-	fn lookup (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, reply: ReplyRaw<fuse_entry_out>) {
+	fn lookup (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, reply: ReplyEntry) {
 		reply.error(ENOSYS);
 	}
 
@@ -76,14 +111,14 @@ pub trait Filesystem {
 	}
 
 	/// Get file attributes
-	fn getattr (&mut self, _req: &Request, _ino: u64, reply: ReplyRaw<fuse_attr_out>) {
+	fn getattr (&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
 		reply.error(ENOSYS);
 	}
 
 	/// Set file attributes
 	/// In the 'attr' argument only members indicated by the 'valid' bitmask contain
 	/// valid values. Other members contain undefined values.
-	fn setattr (&mut self, _req: &Request, _ino: u64, _attr: &fuse_setattr_in, reply: ReplyRaw<fuse_attr_out>) {
+	fn setattr (&mut self, _req: &Request, _ino: u64, _attr: &fuse_setattr_in, reply: ReplyAttr) {
 		reply.error(ENOSYS);
 	}
 
@@ -94,12 +129,12 @@ pub trait Filesystem {
 
 	/// Create file node
 	/// Create a regular file, character device, block device, fifo or socket node.
-	fn mknod (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32, reply: ReplyRaw<fuse_entry_out>) {
+	fn mknod (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32, reply: ReplyEntry) {
 		reply.error(ENOSYS);
 	}
 
 	/// Create a directory
-	fn mkdir (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, reply: ReplyRaw<fuse_entry_out>) {
+	fn mkdir (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, reply: ReplyEntry) {
 		reply.error(ENOSYS);
 	}
 
@@ -114,7 +149,7 @@ pub trait Filesystem {
 	}
 
 	/// Create a symbolic link
-	fn symlink (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _link: &PosixPath, reply: ReplyRaw<fuse_entry_out>) {
+	fn symlink (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _link: &PosixPath, reply: ReplyEntry) {
 		reply.error(ENOSYS);
 	}
 
@@ -124,7 +159,7 @@ pub trait Filesystem {
 	}
 
 	/// Create a hard link
-	fn link (&mut self, _req: &Request, _ino: u64, _newparent: u64, _newname: &PosixPath, reply: ReplyRaw<fuse_entry_out>) {
+	fn link (&mut self, _req: &Request, _ino: u64, _newparent: u64, _newname: &PosixPath, reply: ReplyEntry) {
 		reply.error(ENOSYS);
 	}
 
