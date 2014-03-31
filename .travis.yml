@@ -1,9 +1,11 @@
 language: c
 before_install:
-  - yes | sudo add-apt-repository ppa:hansjorg/rust
   - sudo apt-get update
+  - wget http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz -O /tmp/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
 install:
-  - sudo apt-get install rust-nightly libfuse-dev
+  - tar -C /tmp -zxvf /tmp/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
+  - sudo /tmp/rust-nightly-x86_64-unknown-linux-gnu/install.sh
+  - sudo apt-get install libfuse-dev
 script:
   - make all
   - make check
