@@ -26,13 +26,13 @@ use std::io::{FileType, FilePermission};
 use std::libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out};
+pub use fuse::{fuse_attr, fuse_file_lock, fuse_entry_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out};
-pub use fuse::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
+pub use fuse::{fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
-pub use reply::{ReplyOpen, ReplyWrite, ReplyDirectory};
+pub use reply::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyDirectory};
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use request::Request;
@@ -268,8 +268,8 @@ pub trait Filesystem {
 	}
 
 	/// Get file system statistics
-	fn statfs (&mut self, _req: &Request, _ino: u64, reply: ReplyRaw<fuse_statfs_out>) {
-		reply.ok(&fuse_statfs_out { st: fuse_kstatfs { blocks: 0, bfree: 0, bavail: 0, files: 0, ffree: 0, bsize: 512, namelen: 255, frsize: 0, padding: 0, spare: [0, ..6] }});
+	fn statfs (&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+		reply.statfs(0, 0, 0, 0, 0, 512, 255, 0);
 	}
 
 	/// Set an extended attribute

@@ -13,7 +13,8 @@ use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial
 use std::libc::{c_int, EIO};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use time::Timespec;
-use fuse::{fuse_attr, fuse_entry_out, fuse_attr_out, fuse_open_out, fuse_write_out};
+use fuse::{fuse_attr, fuse_kstatfs, fuse_entry_out, fuse_attr_out};
+use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out};
 #[cfg(target_os = "macos")]
 use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
@@ -351,6 +352,44 @@ impl ReplyWrite {
 }
 
 ///
+/// Statfs Reply
+///
+pub struct ReplyStatfs {
+	reply: ReplyRaw<fuse_statfs_out>,
+}
+
+impl Reply for ReplyStatfs {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyStatfs {
+		ReplyStatfs { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyStatfs {
+	/// Reply to a request with the given open result
+	pub fn statfs (self, blocks: u64, bfree: u64, bavail: u64, files: u64, ffree: u64, bsize: u32, namelen: u32, frsize: u32) {
+		self.reply.ok(&fuse_statfs_out {
+			st: fuse_kstatfs {
+				blocks: blocks,
+				bfree: bfree,
+				bavail: bavail,
+				files: files,
+				ffree: ffree,
+				bsize: bsize,
+				namelen: namelen,
+				frsize: frsize,
+				padding: 0,
+				spare: [0, ..6],
+			},
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
 /// Directory reply
 ///
 pub struct ReplyDirectory {
@@ -417,7 +456,7 @@ mod test {
 	use time::Timespec;
 	use super::as_bytes;
 	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
-	use super::{ReplyOpen, ReplyWrite, ReplyDirectory};
+	use super::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyDirectory};
 	#[cfg(target_os = "macos")]
 	use super::ReplyXTimes;
 	use FileAttr;
@@ -602,6 +641,21 @@ mod test {
 			]);
 		});
 		reply.written(0x1122);
+	}
+
+	#[test]
+	fn reply_statfs () {
+		let reply: ReplyStatfs = Reply::new(0xdeadbeef, proc(bytes) {
+			assert!(bytes == [
+				&[0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
+				&[0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				  0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				  0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x66, 0x00, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00,
+				  0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+			]);
+		});
+		reply.statfs(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
 	}
 
 	#[test]
