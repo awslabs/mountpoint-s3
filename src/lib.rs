@@ -29,14 +29,15 @@ use time::Timespec;
 pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out, fuse_write_out};
 pub use fuse::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
-#[cfg(target_os = "macos")]
-pub use fuse::{fuse_getxtimes_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
-pub use reply::ReplyRaw;		// FIXME: ReplyRaw is going to be replaced with specialized reply types
+#[cfg(target_os = "macos")]
+pub use reply::ReplyXTimes;
 pub use request::Request;
 pub use session::{Session, BackgroundSession};
+
+pub use reply::ReplyRaw;		// FIXME: ReplyRaw is going to be replaced with specialized reply types
 
 mod argument;
 mod channel;
@@ -355,7 +356,7 @@ pub trait Filesystem {
 	/// OS X only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
 	/// during init to FUSE_XTIMES to enable
 	#[cfg(target_os = "macos")]
-	fn getxtimes (&mut self, _req: &Request, _ino: u64, reply: ReplyRaw<fuse_getxtimes_out>) {
+	fn getxtimes (&mut self, _req: &Request, _ino: u64, reply: ReplyXTimes) {
 		reply.error(ENOSYS);
 	}
 }

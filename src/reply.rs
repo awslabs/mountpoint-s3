@@ -14,6 +14,8 @@ use std::libc::{c_int, EIO};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use time::Timespec;
 use fuse::{fuse_attr, fuse_entry_out, fuse_attr_out};
+#[cfg(target_os = "macos")]
+use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
 use FileAttr;
 
@@ -259,6 +261,39 @@ impl ReplyAttr {
 }
 
 ///
+/// XTimes Reply
+///
+#[cfg(target_os = "macos")]
+pub struct ReplyXTimes {
+	reply: ReplyRaw<fuse_getxtimes_out>,
+}
+
+#[cfg(target_os = "macos")]
+impl Reply for ReplyXTimes {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyXTimes {
+		ReplyXTimes { reply: Reply::new(unique, sender) }
+	}
+}
+
+#[cfg(target_os = "macos")]
+impl ReplyXTimes {
+	/// Reply to a request with the given xtimes
+	pub fn xtimes (self, bkuptime: Timespec, crtime: Timespec) {
+		self.reply.ok(&fuse_getxtimes_out {
+			bkuptime: bkuptime.sec,
+			crtime: crtime.sec,
+			bkuptimensec: bkuptime.nsec,
+			crtimensec: crtime.nsec,
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
 /// Directory reply
 ///
 pub struct ReplyDirectory {
@@ -325,6 +360,8 @@ mod test {
 	use time::Timespec;
 	use super::as_bytes;
 	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
+	#[cfg(target_os = "macos")]
+	use super::ReplyXTimes;
 	use FileAttr;
 
 	#[test]
@@ -471,6 +508,20 @@ mod test {
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
 			kind: TypeFile, perm: 0x44, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.attr(&time, &attr);
+	}
+
+	#[test]
+	#[cfg(target_os = "macos")]
+	fn reply_xtimes () {
+		let reply: ReplyXTimes = Reply::new(0xdeadbeef, proc(bytes) {
+			assert!(bytes == [
+				&[0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
+				&[0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				  0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00],
+			]);
+		});
+		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
+		reply.xtimes(time, time);
 	}
 
 	#[test]
