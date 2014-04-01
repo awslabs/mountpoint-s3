@@ -26,11 +26,11 @@ use std::io::{FileType, FilePermission};
 use std::libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse::{fuse_attr, fuse_entry_out, fuse_setattr_in, fuse_open_out, fuse_getxattr_out};
+pub use fuse::{fuse_setattr_in, fuse_getxattr_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
-pub use reply::{ReplyWrite, ReplyStatfs, ReplyLock, ReplyBmap, ReplyDirectory};
+pub use reply::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use request::Request;
@@ -312,7 +312,7 @@ pub trait Filesystem {
 	/// structure in <fuse_common.h> for more details. If this method is not
 	/// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
 	/// and open() methods will be called instead.
-	fn create (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint, reply: ReplyRaw<(fuse_entry_out, fuse_open_out)>) {
+	fn create (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint, reply: ReplyCreate) {
 		reply.error(ENOSYS);
 	}
 
