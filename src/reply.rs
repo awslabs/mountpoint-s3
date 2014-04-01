@@ -185,7 +185,7 @@ impl Reply for ReplyData {
 
 impl ReplyData {
 	/// Reply to a request with the given data
-	pub fn ok (mut self, data: &[u8]) {
+	pub fn data (mut self, data: &[u8]) {
 		self.reply.send(0, [data]);
 	}
 
@@ -210,7 +210,7 @@ impl Reply for ReplyEntry {
 
 impl ReplyEntry {
 	/// Reply to a request with the given entry
-	pub fn ok (self, ttl: &Timespec, attr: &FileAttr, generation: u64) {
+	pub fn entry (self, ttl: &Timespec, attr: &FileAttr, generation: u64) {
 		self.reply.ok(&fuse_entry_out {
 			nodeid: attr.ino,
 			generation: generation,
@@ -243,7 +243,7 @@ impl Reply for ReplyAttr {
 
 impl ReplyAttr {
 	/// Reply to a request with the given attribute
-	pub fn ok (self, ttl: &Timespec, attr: &FileAttr) {
+	pub fn attr (self, ttl: &Timespec, attr: &FileAttr) {
 		self.reply.ok(&fuse_attr_out {
 			attr_valid: ttl.sec,
 			attr_valid_nsec: ttl.nsec,
@@ -394,7 +394,7 @@ mod test {
 				&[0xde, 0xad, 0xbe, 0xef],
 			]);
 		});
-		reply.ok([0xde, 0xad, 0xbe, 0xef]);
+		reply.data([0xde, 0xad, 0xbe, 0xef]);
 	}
 
 	#[test]
@@ -434,7 +434,7 @@ mod test {
 		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
 			kind: TypeFile, perm: 0x44, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
-		reply.ok(&time, &attr, 0xaa);
+		reply.entry(&time, &attr, 0xaa);
 	}
 
 	#[test]
@@ -470,7 +470,7 @@ mod test {
 		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
 			kind: TypeFile, perm: 0x44, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
-		reply.ok(&time, &attr);
+		reply.attr(&time, &attr);
 	}
 
 	#[test]

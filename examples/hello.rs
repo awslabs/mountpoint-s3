@@ -52,7 +52,7 @@ struct HelloFS;
 impl Filesystem for HelloFS {
 	fn lookup (&mut self, _req: &Request, parent: u64, name: &PosixPath, reply: ReplyEntry) {
 		if parent == 1 && name.as_str() == Some("hello.txt") {
-			reply.ok(&TTL, &HELLO_TXT_ATTR, 0);
+			reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
 		} else {
 			reply.error(ENOENT);
 		}
@@ -60,15 +60,15 @@ impl Filesystem for HelloFS {
 
 	fn getattr (&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
 		match ino {
-			1 => reply.ok(&TTL, &HELLO_DIR_ATTR),
-			2 => reply.ok(&TTL, &HELLO_TXT_ATTR),
+			1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
+			2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
 			_ => reply.error(ENOENT),
 		}
 	}
 
 	fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, _size: uint, reply: ReplyData) {
 		if ino == 2 {
-			reply.ok(HELLO_TXT_CONTENT.as_bytes().tailn(offset as uint));
+			reply.data(HELLO_TXT_CONTENT.as_bytes().tailn(offset as uint));
 		} else {
 			reply.error(ENOENT);
 		}
