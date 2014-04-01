@@ -26,19 +26,19 @@ static BUFFER_SIZE: uint = MAX_WRITE_SIZE + 4096;
 /// The session data structure
 pub struct Session<FS> {
 	/// Filesystem operation implementations
-	filesystem: FS,
+	pub filesystem: FS,
 	/// Path of the mounted filesystem
-	mountpoint: Path,
+	pub mountpoint: Path,
 	/// Communication channel to the kernel driver
-	priv ch: Channel,
+	ch: Channel,
 	/// FUSE protocol major version
-	proto_major: uint,
+	pub proto_major: uint,
 	/// FUSE protocol minor version
-	proto_minor: uint,
+	pub proto_minor: uint,
 	/// True if the filesystem is initialized (init operation done)
-	initialized: bool,
+	pub initialized: bool,
 	/// True if the filesystem was destroyed (destroy operation done)
-	destroyed: bool,
+	pub destroyed: bool,
 }
 
 impl<FS: Filesystem+Send> Session<FS> {
@@ -104,7 +104,7 @@ impl<FS: Filesystem+Send> Drop for Session<FS> {
 /// The background session data structure
 pub struct BackgroundSession {
 	/// Path of the mounted filesystem
-	mountpoint: Path,
+	pub mountpoint: Path,
 }
 
 impl BackgroundSession {

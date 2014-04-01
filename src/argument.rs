@@ -7,8 +7,8 @@ use std::{cast, mem};
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'a> {
-	priv data: &'a [u8],
-	priv pos: uint,
+	data: &'a [u8],
+	pos: uint,
 }
 
 impl<'a> ArgumentIterator<'a> {

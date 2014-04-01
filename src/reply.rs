@@ -22,11 +22,11 @@ pub fn reply<T: Sendable> (ch: ChannelSender, unique: u64) -> Reply<T> {
 /// Reply data structure
 pub struct Reply<T> {
 	/// Channel sender for sending the reply
-	priv ch: ChannelSender,
+	ch: ChannelSender,
 	/// Unique id of the request to reply to
-	priv unique: u64,
+	unique: u64,
 	/// Flag whether the reply was sent
-	priv replied: bool,
+	replied: bool,
 }
 
 impl<T: Sendable> Reply<T> {

@@ -21,9 +21,9 @@ extern "system" { }
 //
 
 pub struct fuse_args {
-	argc: c_int,
-	argv: **c_char,
-	allocated: c_int,
+	pub argc: c_int,
+	pub argv: **c_char,
+	pub allocated: c_int,
 }
 
 //
@@ -46,46 +46,46 @@ pub static FUSE_ROOT_ID: u64 = 1;
 
 #[deriving(Default)]
 pub struct fuse_attr {
-	ino: u64,
-	size: u64,
-	blocks: u64,
-	atime: i64,
-	mtime: i64,
-	ctime: i64,
+	pub ino: u64,
+	pub size: u64,
+	pub blocks: u64,
+	pub atime: i64,
+	pub mtime: i64,
+	pub ctime: i64,
 	#[cfg(target_os = "macos")]
-	crtime: i64,			// OS X only
-	atimensec: i32,
-	mtimensec: i32,
-	ctimensec: i32,
+	pub crtime: i64,			// OS X only
+	pub atimensec: i32,
+	pub mtimensec: i32,
+	pub ctimensec: i32,
 	#[cfg(target_os = "macos")]
-	crtimensec: i32,		// OS X only
-	mode: u32,
-	nlink: u32,
-	uid: u32,
-	gid: u32,
-	rdev: u32,
+	pub crtimensec: i32,		// OS X only
+	pub mode: u32,
+	pub nlink: u32,
+	pub uid: u32,
+	pub gid: u32,
+	pub rdev: u32,
 	#[cfg(target_os = "macos")]
-	flags: u32,				// OS X only, see chflags(2)
+	pub flags: u32,				// OS X only, see chflags(2)
 }
 
 pub struct fuse_kstatfs {
-	blocks: u64,			// Total blocks (in units of frsize)
-	bfree: u64,				// Free blocks
-	bavail: u64,			// Free blocks for unprivileged users
-	files: u64,				// Total inodes
-	ffree: u64,				// Free inodes
-	bsize: u32,				// Filesystem block size
-	namelen: u32,			// Maximum filename length
-	frsize: u32,			// Fundamental file system block size
-	padding: u32,
-	spare: [u32, ..6],
+	pub blocks: u64,			// Total blocks (in units of frsize)
+	pub bfree: u64,				// Free blocks
+	pub bavail: u64,			// Free blocks for unprivileged users
+	pub files: u64,				// Total inodes
+	pub ffree: u64,				// Free inodes
+	pub bsize: u32,				// Filesystem block size
+	pub namelen: u32,			// Maximum filename length
+	pub frsize: u32,			// Fundamental file system block size
+	pub padding: u32,
+	pub spare: [u32, ..6],
 }
 
 pub struct fuse_file_lock {
-	start: u64,
-	end: u64,
-	typ: u32,
-	pid: u32,
+	pub start: u64,
+	pub end: u64,
+	pub typ: u32,
+	pub pid: u32,
 }
 
 pub mod consts {
@@ -177,235 +177,235 @@ pub enum fuse_opcode {
 }
 
 pub struct fuse_entry_out {
-	nodeid: u64,
-	generation: u64,
-	entry_valid: i64,
-	attr_valid: i64,
-	entry_valid_nsec: i32,
-	attr_valid_nsec: i32,
-	attr: fuse_attr,
+	pub nodeid: u64,
+	pub generation: u64,
+	pub entry_valid: i64,
+	pub attr_valid: i64,
+	pub entry_valid_nsec: i32,
+	pub attr_valid_nsec: i32,
+	pub attr: fuse_attr,
 }
 
 pub struct fuse_forget_in {
-	nlookup: u64,
+	pub nlookup: u64,
 }
 
 pub struct fuse_attr_out {
-	attr_valid: i64,
-	attr_valid_nsec: i32,
-	dummy: u32,
-	attr: fuse_attr,
+	pub attr_valid: i64,
+	pub attr_valid_nsec: i32,
+	pub dummy: u32,
+	pub attr: fuse_attr,
 }
 
 #[cfg(target_os = "macos")]
 pub struct fuse_getxtimes_out {	// OS X only
-	bkuptime: i64,
-	crtime: i64,
-	bkuptimensec: i32,
-	crtimensec: i32,
+	pub bkuptime: i64,
+	pub crtime: i64,
+	pub bkuptimensec: i32,
+	pub crtimensec: i32,
 }
 
 pub struct fuse_mknod_in {
-	mode: u32,
-	rdev: u32,
+	pub mode: u32,
+	pub rdev: u32,
 }
 
 pub struct fuse_mkdir_in {
-	mode: u32,
-	padding: u32,
+	pub mode: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_rename_in {
-	newdir: u64,
+	pub newdir: u64,
 }
 
 #[cfg(target_os = "macos")]
 pub struct fuse_exchange_in {	// OS X only
-	olddir: u64,
-	newdir: u64,
-	options: u64,
+	pub olddir: u64,
+	pub newdir: u64,
+	pub options: u64,
 }
 
 pub struct fuse_link_in {
-	oldnodeid: u64,
+	pub oldnodeid: u64,
 }
 
 pub struct fuse_setattr_in {
-	valid: u32,
-	padding: u32,
-	fh: u64,
-	size: u64,
-	unused1: u64,
-	atime: i64,
-	mtime: i64,
-	unused2: u64,
-	atimensec: i32,
-	mtimensec: i32,
-	unused3: u32,
-	mode: u32,
-	unused4: u32,
-	uid: u32,
-	gid: u32,
-	unused5: u32,
+	pub valid: u32,
+	pub padding: u32,
+	pub fh: u64,
+	pub size: u64,
+	pub unused1: u64,
+	pub atime: i64,
+	pub mtime: i64,
+	pub unused2: u64,
+	pub atimensec: i32,
+	pub mtimensec: i32,
+	pub unused3: u32,
+	pub mode: u32,
+	pub unused4: u32,
+	pub uid: u32,
+	pub gid: u32,
+	pub unused5: u32,
 	#[cfg(target_os = "macos")]
-	bkuptime: i64,			// OS X only
+	pub bkuptime: i64,			// OS X only
 	#[cfg(target_os = "macos")]
-	chgtime: i64,			// OS X only
+	pub chgtime: i64,			// OS X only
 	#[cfg(target_os = "macos")]
-	crtime: i64,			// OS X only
+	pub crtime: i64,			// OS X only
 	#[cfg(target_os = "macos")]
-	bkuptimensec: i32,		// OS X only
+	pub bkuptimensec: i32,		// OS X only
 	#[cfg(target_os = "macos")]
-	chgtimensec: i32,		// OS X only
+	pub chgtimensec: i32,		// OS X only
 	#[cfg(target_os = "macos")]
-	crtimensec: i32,		// OS X only
+	pub crtimensec: i32,		// OS X only
 	#[cfg(target_os = "macos")]
-	flags: u32,				// OS X only
+	pub flags: u32,				// OS X only
 }
 
 pub struct fuse_open_in {
-	flags: u32,
-	mode: u32,
+	pub flags: u32,
+	pub mode: u32,
 }
 
 pub struct fuse_open_out {
-	fh: u64,
-	open_flags: u32,
-	padding: u32,
+	pub fh: u64,
+	pub open_flags: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_release_in {
-	fh: u64,
-	flags: u32,
-	release_flags: u32,
-	lock_owner: u64,
+	pub fh: u64,
+	pub flags: u32,
+	pub release_flags: u32,
+	pub lock_owner: u64,
 }
 
 pub struct fuse_flush_in {
-	fh: u64,
-	unused: u32,
-	padding: u32,
-	lock_owner: u64,
+	pub fh: u64,
+	pub unused: u32,
+	pub padding: u32,
+	pub lock_owner: u64,
 }
 
 pub struct fuse_read_in {
-	fh: u64,
-	offset: u64,
-	size: u32,
-	padding: u32,
+	pub fh: u64,
+	pub offset: u64,
+	pub size: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_write_in {
-	fh: u64,
-	offset: u64,
-	size: u32,
-	write_flags: u32,
+	pub fh: u64,
+	pub offset: u64,
+	pub size: u32,
+	pub write_flags: u32,
 }
 
 pub struct fuse_write_out {
-	size: u32,
-	padding: u32,
+	pub size: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_statfs_out {
-	st: fuse_kstatfs,
+	pub st: fuse_kstatfs,
 }
 
 pub struct fuse_fsync_in {
-	fh: u64,
-	fsync_flags: u32,
-	padding: u32,
+	pub fh: u64,
+	pub fsync_flags: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_setxattr_in {
-	size: u32,
-	flags: u32,
+	pub size: u32,
+	pub flags: u32,
 	#[cfg(target_os = "macos")]
-	position: u32,			// OS X only
+	pub position: u32,			// OS X only
 	#[cfg(target_os = "macos")]
-	padding: u32,			// OS X only
+	pub padding: u32,			// OS X only
 }
 
 pub struct fuse_getxattr_in {
-	size: u32,
-	padding: u32,
+	pub size: u32,
+	pub padding: u32,
 	#[cfg(target_os = "macos")]
-	position: u32,			// OS X only
+	pub position: u32,			// OS X only
 	#[cfg(target_os = "macos")]
-	padding2: u32,			// OS X only
+	pub padding2: u32,			// OS X only
 }
 
 pub struct fuse_getxattr_out {
-	size: u32,
-	padding: u32,
+	pub size: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_lk_in {
-	fh: u64,
-	owner: u64,
-	lk: fuse_file_lock,
+	pub fh: u64,
+	pub owner: u64,
+	pub lk: fuse_file_lock,
 }
 
 pub struct fuse_lk_out {
-	lk: fuse_file_lock,
+	pub lk: fuse_file_lock,
 }
 
 pub struct fuse_access_in {
-	mask: u32,
-	padding: u32,
+	pub mask: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_init_in {
-	major: u32,
-	minor: u32,
-	max_readahead: u32,
-	flags: u32,
+	pub major: u32,
+	pub minor: u32,
+	pub max_readahead: u32,
+	pub flags: u32,
 }
 
 pub struct fuse_init_out {
-	major: u32,
-	minor: u32,
-	max_readahead: u32,
-	flags: u32,
-	unused: u32,
-	max_write: u32,
+	pub major: u32,
+	pub minor: u32,
+	pub max_readahead: u32,
+	pub flags: u32,
+	pub unused: u32,
+	pub max_write: u32,
 }
 
 pub struct fuse_interrupt_in {
-	unique: u64,
+	pub unique: u64,
 }
 
 pub struct fuse_bmap_in {
-	block: u64,
-	blocksize: u32,
-	padding: u32,
+	pub block: u64,
+	pub blocksize: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_bmap_out {
-	block: u64,
+	pub block: u64,
 }
 
 pub struct fuse_in_header {
-	len: u32,
-	opcode: u32,
-	unique: u64,
-	nodeid: u64,
-	uid: u32,
-	gid: u32,
-	pid: u32,
-	padding: u32,
+	pub len: u32,
+	pub opcode: u32,
+	pub unique: u64,
+	pub nodeid: u64,
+	pub uid: u32,
+	pub gid: u32,
+	pub pid: u32,
+	pub padding: u32,
 }
 
 pub struct fuse_out_header {
-	len: u32,
-	error: i32,
-	unique: u64,
+	pub len: u32,
+	pub error: i32,
+	pub unique: u64,
 }
 
 pub struct fuse_dirent {
-	ino: u64,
-	off: u64,
-	namelen: u32,
-	typ: u32,
+	pub ino: u64,
+	pub off: u64,
+	pub namelen: u32,
+	pub typ: u32,
 	// followed by name of namelen bytes
 }

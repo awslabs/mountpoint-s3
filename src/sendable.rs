@@ -83,7 +83,7 @@ impl<'a> Sendable for &'a str {
 
 /// Buffer for replying with a list of directory entries
 pub struct DirBuffer {
-	priv data: Vec<u8>,
+	data: Vec<u8>,
 }
 
 impl DirBuffer {

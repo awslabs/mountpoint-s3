@@ -15,8 +15,8 @@ mod libc {
 
 	/// Iovec data structure for readv and writev calls.
 	pub struct iovec {
-		iov_base: *c_void,
-		iov_len: size_t,
+		pub iov_base: *c_void,
+		pub iov_len: size_t,
 	}
 
 	extern "system" {
@@ -69,8 +69,8 @@ fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 
 /// A raw communication channel to the FUSE kernel driver
 pub struct Channel {
-	priv mountpoint: Path,
-	priv fd: c_int,
+	mountpoint: Path,
+	fd: c_int,
 }
 
 impl Channel {
@@ -127,7 +127,7 @@ impl Drop for Channel {
 }
 
 pub struct ChannelSender {
-	priv fd: c_int,
+	fd: c_int,
 }
 
 impl ChannelSender {

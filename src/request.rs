@@ -36,11 +36,11 @@ pub fn dispatch<FS: Filesystem> (req: &Request, se: &mut Session<FS>) {
 /// Request data structure
 pub struct Request<'a> {
 	/// Channel sender for sending the reply
-	priv ch: ChannelSender,
+	ch: ChannelSender,
 	/// Header of the FUSE request
-	priv header: &'a fuse_in_header,
+	header: &'a fuse_in_header,
 	/// Operation-specific data payload
-	priv data: &'a [u8],
+	data: &'a [u8],
 }
 
 impl<'a> Request<'a> {
