@@ -35,8 +35,6 @@ pub use reply::ReplyXTimes;
 pub use request::Request;
 pub use session::{Session, BackgroundSession};
 
-pub use reply::ReplyRaw;		// FIXME: ReplyRaw is going to be replaced with specialized reply types
-
 mod argument;
 mod channel;
 mod fuse;
