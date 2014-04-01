@@ -5,6 +5,7 @@
 
 use std::{mem, str};
 use std::libc::{EIO, ENOSYS, EPROTO};
+use time::Timespec;
 use argument::ArgumentIterator;
 use channel::ChannelSender;
 use Filesystem;
@@ -155,7 +156,27 @@ impl<'a> Request<'a> {
 			FUSE_SETATTR => {
 				let arg: &fuse_setattr_in = data.fetch();
 				debug!("SETATTR({:u}) ino {:#018x}, valid {:#x}", self.header.unique, self.header.nodeid, arg.valid);
-				se.filesystem.setattr(self, self.header.nodeid, arg, self.reply());
+				let mode = match arg.valid & FATTR_MODE { 0 => None, _ => Some(arg.mode) };
+				let uid = match arg.valid & FATTR_UID { 0 => None, _ => Some(arg.uid) };
+				let gid = match arg.valid & FATTR_GID { 0 => None, _ => Some(arg.gid) };
+				let size = match arg.valid & FATTR_SIZE { 0 => None, _ => Some(arg.size) };
+				let atime = match arg.valid & FATTR_ATIME { 0 => None, _ => Some(Timespec { sec: arg.atime, nsec: arg.atimensec }) };
+				let mtime = match arg.valid & FATTR_MTIME { 0 => None, _ => Some(Timespec { sec: arg.mtime, nsec: arg.mtimensec }) };
+				let fh = match arg.valid & FATTR_FH { 0 => None, _ => Some(arg.fh) };
+				#[cfg(target_os = "macos")] #[inline]
+				fn get_macos_setattr (arg: &fuse_setattr_in) -> (Option<Timespec>, Option<Timespec>, Option<Timespec>, Option<u32>) {
+					let crtime = match arg.valid & FATTR_CRTIME { 0 => None, _ => Some(Timespec { sec: arg.crtime, nsec: arg.crtimensec }) };
+					let chgtime = match arg.valid & FATTR_CHGTIME { 0 => None, _ => Some(Timespec { sec: arg.chgtime, nsec: arg.chgtimensec }) };
+					let bkuptime = match arg.valid & FATTR_BKUPTIME { 0 => None, _ => Some(Timespec { sec: arg.bkuptime, nsec: arg.bkuptimensec }) };
+					let flags = match arg.valid & FATTR_FLAGS { 0 => None, _ => Some(arg.flags) };
+					(crtime, chgtime, bkuptime, flags)
+				}
+				#[cfg(not(target_os = "macos"))] #[inline]
+				fn get_macos_setattr (_arg: &fuse_setattr_in) -> (Option<Timespec>, Option<Timespec>, Option<Timespec>, Option<u32>) {
+					(None, None, None, None)
+				}
+				let (crtime, chgtime, bkuptime, flags) = get_macos_setattr(arg);
+				se.filesystem.setattr(self, self.header.nodeid, mode, uid, gid, size, atime, mtime, fh, crtime, chgtime, bkuptime, flags, self.reply());
 			},
 			FUSE_READLINK => {
 				debug!("READLINK({:u}) ino {:#018x}", self.header.unique, self.header.nodeid);

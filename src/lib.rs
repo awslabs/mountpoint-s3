@@ -26,7 +26,6 @@ use std::io::{FileType, FilePermission};
 use std::libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse::{fuse_setattr_in, fuse_getxattr_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
@@ -116,9 +115,7 @@ pub trait Filesystem {
 	}
 
 	/// Set file attributes
-	/// In the 'attr' argument only members indicated by the 'valid' bitmask contain
-	/// valid values. Other members contain undefined values.
-	fn setattr (&mut self, _req: &Request, _ino: u64, _attr: &fuse_setattr_in, reply: ReplyAttr) {
+	fn setattr (&mut self, _req: &Request, _ino: u64, _mode: Option<u32>, _uid: Option<u32>, _gid: Option<u32>, _size: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>, _fh: Option<u64>, _crtime: Option<Timespec>, _chgtime: Option<Timespec>, _bkuptime: Option<Timespec>, _flags: Option<u32>, reply: ReplyAttr) {
 		reply.error(ENOSYS);
 	}
 
