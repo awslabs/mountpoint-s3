@@ -14,7 +14,7 @@ use std::libc::{c_int, EIO};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use time::Timespec;
 use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
-use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out};
+use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
 #[cfg(target_os = "macos")]
 use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
@@ -422,6 +422,33 @@ impl ReplyLock {
 }
 
 ///
+/// Bmap Reply
+///
+pub struct ReplyBmap {
+	reply: ReplyRaw<fuse_bmap_out>,
+}
+
+impl Reply for ReplyBmap {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyBmap {
+		ReplyBmap { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyBmap {
+	/// Reply to a request with the given open result
+	pub fn bmap (self, block: u64) {
+		self.reply.ok(&fuse_bmap_out {
+			block: block,
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
 /// Directory reply
 ///
 pub struct ReplyDirectory {
@@ -488,7 +515,7 @@ mod test {
 	use time::Timespec;
 	use super::as_bytes;
 	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
-	use super::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyLock, ReplyDirectory};
+	use super::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyLock, ReplyBmap, ReplyDirectory};
 	#[cfg(target_os = "macos")]
 	use super::ReplyXTimes;
 	use FileAttr;
@@ -700,6 +727,17 @@ mod test {
 			]);
 		});
 		reply.locked(0x11, 0x22, 0x33, 0x44);
+	}
+
+	#[test]
+	fn reply_bmap () {
+		let reply: ReplyBmap = Reply::new(0xdeadbeef, proc(bytes) {
+			assert!(bytes == [
+				&[0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
+				&[0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+			]);
+		});
+		reply.bmap(0x1234);
 	}
 
 	#[test]

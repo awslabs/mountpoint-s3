@@ -26,13 +26,11 @@ use std::io::{FileType, FilePermission};
 use std::libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse::{fuse_attr, fuse_entry_out};
-pub use fuse::{fuse_setattr_in, fuse_open_out};
-pub use fuse::{fuse_getxattr_out, fuse_bmap_out};
+pub use fuse::{fuse_attr, fuse_entry_out, fuse_setattr_in, fuse_open_out, fuse_getxattr_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
-pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
-pub use reply::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyLock, ReplyDirectory};
+pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
+pub use reply::{ReplyWrite, ReplyStatfs, ReplyLock, ReplyBmap, ReplyDirectory};
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use request::Request;
@@ -337,7 +335,7 @@ pub trait Filesystem {
 	/// Map block index within file to block index within device
 	/// Note: This makes sense only for block device backed filesystems mounted
 	/// with the 'blkdev' option
-	fn bmap (&mut self, _req: &Request, _ino: u64, _blocksize: uint, _idx: u64, reply: ReplyRaw<fuse_bmap_out>) {
+	fn bmap (&mut self, _req: &Request, _ino: u64, _blocksize: uint, _idx: u64, reply: ReplyBmap) {
 		reply.error(ENOSYS);
 	}
 
