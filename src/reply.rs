@@ -13,7 +13,7 @@ use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial
 use std::libc::{c_int, EIO};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use time::Timespec;
-use fuse::{fuse_attr, fuse_entry_out, fuse_attr_out};
+use fuse::{fuse_attr, fuse_entry_out, fuse_attr_out, fuse_open_out, fuse_write_out};
 #[cfg(target_os = "macos")]
 use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
@@ -294,6 +294,63 @@ impl ReplyXTimes {
 }
 
 ///
+/// Open Reply
+///
+pub struct ReplyOpen {
+	reply: ReplyRaw<fuse_open_out>,
+}
+
+impl Reply for ReplyOpen {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyOpen {
+		ReplyOpen { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyOpen {
+	/// Reply to a request with the given open result
+	pub fn opened (self, fh: u64, flags: u32) {
+		self.reply.ok(&fuse_open_out {
+			fh: fh,
+			open_flags: flags,
+			padding: 0,
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
+/// Write Reply
+///
+pub struct ReplyWrite {
+	reply: ReplyRaw<fuse_write_out>,
+}
+
+impl Reply for ReplyWrite {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyWrite {
+		ReplyWrite { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyWrite {
+	/// Reply to a request with the given open result
+	pub fn written (self, size: u32) {
+		self.reply.ok(&fuse_write_out {
+			size: size,
+			padding: 0,
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
 /// Directory reply
 ///
 pub struct ReplyDirectory {
@@ -359,7 +416,8 @@ mod test {
 	use std::io::{TypeFile, TypeDirectory};
 	use time::Timespec;
 	use super::as_bytes;
-	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
+	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
+	use super::{ReplyOpen, ReplyWrite, ReplyDirectory};
 	#[cfg(target_os = "macos")]
 	use super::ReplyXTimes;
 	use FileAttr;
@@ -522,6 +580,28 @@ mod test {
 		});
 		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
 		reply.xtimes(time, time);
+	}
+
+	#[test]
+	fn reply_open () {
+		let reply: ReplyOpen = Reply::new(0xdeadbeef, proc(bytes) {
+			assert!(bytes == [
+				&[0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
+				&[0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+			]);
+		});
+		reply.opened(0x1122, 0x33);
+	}
+
+	#[test]
+	fn reply_write () {
+		let reply: ReplyWrite = Reply::new(0xdeadbeef, proc(bytes) {
+			assert!(bytes == [
+				&[0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
+				&[0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+			]);
+		});
+		reply.written(0x1122);
 	}
 
 	#[test]

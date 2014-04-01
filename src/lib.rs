@@ -27,11 +27,12 @@ use std::libc::{c_int, ENOSYS};
 use time::Timespec;
 
 pub use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out};
-pub use fuse::{fuse_setattr_in, fuse_open_out, fuse_write_out};
+pub use fuse::{fuse_setattr_in, fuse_open_out};
 pub use fuse::{fuse_statfs_out, fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
-pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
+pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
+pub use reply::{ReplyOpen, ReplyWrite, ReplyDirectory};
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use request::Request;
@@ -172,8 +173,8 @@ pub trait Filesystem {
 	/// anything in fh. There are also some flags (direct_io, keep_cache) which the
 	/// filesystem may set, to change the way the file is opened. See fuse_file_info
 	/// structure in <fuse_common.h> for more details.
-	fn open (&mut self, _req: &Request, _ino: u64, _flags: uint, reply: ReplyRaw<fuse_open_out>) {
-		reply.ok(&fuse_open_out { fh: 0, open_flags: 0, padding: 0 });
+	fn open (&mut self, _req: &Request, _ino: u64, _flags: uint, reply: ReplyOpen) {
+		reply.opened(0, 0);
 	}
 
 	/// Read data
@@ -193,7 +194,7 @@ pub trait Filesystem {
 	/// which case the return value of the write system call will reflect the return
 	/// value of this operation. fh will contain the value set by the open method, or
 	/// will be undefined if the open method didn't set any value.
-	fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: uint, reply: ReplyRaw<fuse_write_out>) {
+	fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: uint, reply: ReplyWrite) {
 		reply.error(ENOSYS);
 	}
 
@@ -237,8 +238,8 @@ pub trait Filesystem {
 	/// anything in fh, though that makes it impossible to implement standard conforming
 	/// directory stream operations in case the contents of the directory can change
 	/// between opendir and releasedir.
-	fn opendir (&mut self, _req: &Request, _ino: u64, _flags: uint, reply: ReplyRaw<fuse_open_out>) {
-		reply.ok(&fuse_open_out { fh: 0, open_flags: 0, padding: 0 });
+	fn opendir (&mut self, _req: &Request, _ino: u64, _flags: uint, reply: ReplyOpen) {
+		reply.opened(0, 0);
 	}
 
 	/// Read directory
