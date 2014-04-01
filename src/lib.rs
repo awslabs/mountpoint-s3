@@ -26,13 +26,13 @@ use std::io::{FileType, FilePermission};
 use std::libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse::{fuse_attr, fuse_file_lock, fuse_entry_out};
+pub use fuse::{fuse_attr, fuse_entry_out};
 pub use fuse::{fuse_setattr_in, fuse_open_out};
-pub use fuse::{fuse_getxattr_out, fuse_lk_out, fuse_bmap_out};
+pub use fuse::{fuse_getxattr_out, fuse_bmap_out};
 pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
-pub use reply::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyDirectory};
+pub use reply::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyLock, ReplyDirectory};
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use request::Request;
@@ -319,7 +319,7 @@ pub trait Filesystem {
 	}
 
 	/// Test for a POSIX file lock
-	fn getlk (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock, reply: ReplyRaw<fuse_file_lock>) {
+	fn getlk (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _start: u64, _end: u64, _typ: u32, _pid: u32, reply: ReplyLock) {
 		reply.error(ENOSYS);
 	}
 
@@ -330,7 +330,7 @@ pub trait Filesystem {
 	/// used to fill in this field in getlk(). Note: if the locking methods are not
 	/// implemented, the kernel will still allow file locking to work locally.
 	/// Hence these are only interesting for network filesystems and similar.
-	fn setlk (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _lock: &fuse_file_lock, _sleep: bool, reply: ReplyEmpty) {
+	fn setlk (&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, _start: u64, _end: u64, _typ: u32, _pid: u32, _sleep: bool, reply: ReplyEmpty) {
 		reply.error(ENOSYS);
 	}
 

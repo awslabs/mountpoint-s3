@@ -303,13 +303,13 @@ impl<'a> Request<'a> {
 			FUSE_GETLK => {
 				let arg: &fuse_lk_in = data.fetch();
 				debug!("GETLK({:u}) ino {:#018x}, fh {:u}, lock owner {:u}", self.header.unique, self.header.nodeid, arg.fh, arg.owner);
-				se.filesystem.getlk(self, self.header.nodeid, arg.fh, arg.owner, &arg.lk, self.reply());
+				se.filesystem.getlk(self, self.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, self.reply());
 			},
 			FUSE_SETLK | FUSE_SETLKW => {
 				let arg: &fuse_lk_in = data.fetch();
 				let sleep = match opcode { FUSE_SETLKW => true, _ => false };
 				debug!("SETLK({:u}) ino {:#018x}, fh {:u}, lock owner {:u}", self.header.unique, self.header.nodeid, arg.fh, arg.owner);
-				se.filesystem.setlk(self, self.header.nodeid, arg.fh, arg.owner, &arg.lk, sleep, self.reply());
+				se.filesystem.setlk(self, self.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, sleep, self.reply());
 			},
 			FUSE_BMAP => {
 				let arg: &fuse_bmap_in = data.fetch();

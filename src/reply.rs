@@ -13,8 +13,8 @@ use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial
 use std::libc::{c_int, EIO};
 use std::libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use time::Timespec;
-use fuse::{fuse_attr, fuse_kstatfs, fuse_entry_out, fuse_attr_out};
-use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out};
+use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
+use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out};
 #[cfg(target_os = "macos")]
 use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
@@ -390,6 +390,38 @@ impl ReplyStatfs {
 }
 
 ///
+/// Lock Reply
+///
+pub struct ReplyLock {
+	reply: ReplyRaw<fuse_lk_out>,
+}
+
+impl Reply for ReplyLock {
+	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyLock {
+		ReplyLock { reply: Reply::new(unique, sender) }
+	}
+}
+
+impl ReplyLock {
+	/// Reply to a request with the given open result
+	pub fn locked (self, start: u64, end: u64, typ: u32, pid: u32) {
+		self.reply.ok(&fuse_lk_out {
+			lk: fuse_file_lock {
+				start: start,
+				end: end,
+				typ: typ,
+				pid: pid,
+			},
+		});
+	}
+
+	/// Reply to a request with the given error code
+	pub fn error (self, err: c_int) {
+		self.reply.error(err);
+	}
+}
+
+///
 /// Directory reply
 ///
 pub struct ReplyDirectory {
@@ -456,7 +488,7 @@ mod test {
 	use time::Timespec;
 	use super::as_bytes;
 	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr};
-	use super::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyDirectory};
+	use super::{ReplyOpen, ReplyWrite, ReplyStatfs, ReplyLock, ReplyDirectory};
 	#[cfg(target_os = "macos")]
 	use super::ReplyXTimes;
 	use FileAttr;
@@ -656,6 +688,18 @@ mod test {
 			]);
 		});
 		reply.statfs(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
+	}
+
+	#[test]
+	fn reply_lock () {
+		let reply: ReplyLock = Reply::new(0xdeadbeef, proc(bytes) {
+			assert!(bytes == [
+				&[0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
+				&[0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				  0x33, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00],
+			]);
+		});
+		reply.locked(0x11, 0x22, 0x33, 0x44);
 	}
 
 	#[test]
