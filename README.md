@@ -1,6 +1,6 @@
 # Rust FUSE - Filesystem in Userspace
 
-[![Build Status](https://travis-ci.org/zargony/rust-fuse.png)](https://travis-ci.org/zargony/rust-fuse)
+[![Build Status](https://travis-ci.org/zargony/rust-fuse.svg?branch=master)](https://travis-ci.org/zargony/rust-fuse)
 
 ## About
 [Rust](http://rust-lang.org/) library for easy implementation of [FUSE](http://osxfuse.github.io) filesystems in userspace.
