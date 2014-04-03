@@ -36,7 +36,6 @@ See the examples directory for some basic examples.
 There's still a lot of stuff to be done. Feel free to contribute.
 
 - Interrupting a filesystem operation isn't handled yet.
-- Using `fuse_*_out` in the results of `Filesystem` methods doesn't look right. These native structs should be hidden from the public interface.
 - An additional more high level API would be nice. It should provide pathnames instead inode numbers and automatically handle concurrency and interruption (like the FUSE C library's high level API).
 
 In general, search for "TODO" or "FIXME" in the source files to see what's still missing.

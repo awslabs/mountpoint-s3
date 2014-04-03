@@ -44,7 +44,6 @@ pub static FUSE_KERNEL_VERSION: u32 = 7;
 pub static FUSE_KERNEL_MINOR_VERSION: u32 = 8;
 pub static FUSE_ROOT_ID: u64 = 1;
 
-#[deriving(Default)]
 pub struct fuse_attr {
 	pub ino: u64,
 	pub size: u64,
