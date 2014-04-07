@@ -4,7 +4,7 @@
 
 #![allow(non_camel_case_types, missing_doc)]
 
-use std::libc::{c_int, c_char};
+use libc::{c_int, c_char};
 
 // Link with libosxfuse on OS X
 #[cfg(target_os = "macos")]

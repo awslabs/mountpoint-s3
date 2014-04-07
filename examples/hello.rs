@@ -1,9 +1,10 @@
 extern crate fuse;
+extern crate libc;
 extern crate time;
 
-use std::libc::ENOENT;
 use std::io::{TypeFile, TypeDirectory, UserFile, UserDir};
 use std::os;
+use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 

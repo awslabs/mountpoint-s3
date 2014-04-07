@@ -3,7 +3,7 @@
 //!
 
 use std::{os, slice};
-use std::libc::{c_int, c_void, c_char, size_t};
+use libc::{c_int, c_void, c_char, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
 #[cfg(not(target_os = "macos"))]
 use fuse::fuse_unmount_compat22;
@@ -11,7 +11,7 @@ use fuse::fuse_unmount_compat22;
 // Libc provides iovec based I/O using readv and writev functions
 #[allow(dead_code, non_camel_case_types)]
 mod libc {
-	use std::libc::{c_char, c_int, c_void, size_t, ssize_t};
+	use libc::{c_char, c_int, c_void, size_t, ssize_t};
 
 	/// Iovec data structure for readv and writev calls.
 	pub struct iovec {
@@ -95,7 +95,7 @@ impl Channel {
 	/// of the received data.
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn receive (&self, buffer: &mut [u8]) -> Result<uint, c_int> {
-		let rc = unsafe { ::std::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.len() as size_t) };
+		let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.len() as size_t) };
 		if rc < 0 {
 			Err(os::errno() as c_int)
 		} else {
@@ -120,7 +120,7 @@ impl Drop for Channel {
 		// TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
 		// Close the communication channel to the kernel driver
 		// (closing it before unnmount prevents sync unmount deadlock)
-		unsafe { ::std::libc::close(self.fd); }
+		unsafe { ::libc::close(self.fd); }
 		// Unmount this channel's mount point
 		unmount(&self.mountpoint);
 	}

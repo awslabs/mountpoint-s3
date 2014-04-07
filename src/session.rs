@@ -7,7 +7,7 @@
 //!
 
 use std::task;
-use std::libc::{EAGAIN, EINTR, ENODEV, ENOENT};
+use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use native;
 use channel;
 use channel::Channel;

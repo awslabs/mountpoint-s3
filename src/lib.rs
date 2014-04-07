@@ -18,12 +18,13 @@
 #![warn(missing_doc, unnecessary_qualification, unnecessary_typecast)]
 
 extern crate native;
+extern crate libc;
 #[phase(link, syntax)]
 extern crate log;
 extern crate time;
 
 use std::io::{FileType, FilePermission};
-use std::libc::{c_int, ENOSYS};
+use libc::{c_int, ENOSYS};
 use time::Timespec;
 
 pub use fuse::FUSE_ROOT_ID;

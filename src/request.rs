@@ -4,7 +4,7 @@
 //!
 
 use std::{mem, str};
-use std::libc::{EIO, ENOSYS, EPROTO};
+use libc::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
 use argument::ArgumentIterator;
 use channel::ChannelSender;
