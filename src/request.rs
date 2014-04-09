@@ -160,14 +160,14 @@ impl<'a> Request<'a> {
 				let uid = match arg.valid & FATTR_UID { 0 => None, _ => Some(arg.uid) };
 				let gid = match arg.valid & FATTR_GID { 0 => None, _ => Some(arg.gid) };
 				let size = match arg.valid & FATTR_SIZE { 0 => None, _ => Some(arg.size) };
-				let atime = match arg.valid & FATTR_ATIME { 0 => None, _ => Some(Timespec { sec: arg.atime, nsec: arg.atimensec }) };
-				let mtime = match arg.valid & FATTR_MTIME { 0 => None, _ => Some(Timespec { sec: arg.mtime, nsec: arg.mtimensec }) };
+				let atime = match arg.valid & FATTR_ATIME { 0 => None, _ => Some(Timespec::new(arg.atime, arg.atimensec)) };
+				let mtime = match arg.valid & FATTR_MTIME { 0 => None, _ => Some(Timespec::new(arg.mtime, arg.mtimensec)) };
 				let fh = match arg.valid & FATTR_FH { 0 => None, _ => Some(arg.fh) };
 				#[cfg(target_os = "macos")] #[inline]
 				fn get_macos_setattr (arg: &fuse_setattr_in) -> (Option<Timespec>, Option<Timespec>, Option<Timespec>, Option<u32>) {
-					let crtime = match arg.valid & FATTR_CRTIME { 0 => None, _ => Some(Timespec { sec: arg.crtime, nsec: arg.crtimensec }) };
-					let chgtime = match arg.valid & FATTR_CHGTIME { 0 => None, _ => Some(Timespec { sec: arg.chgtime, nsec: arg.chgtimensec }) };
-					let bkuptime = match arg.valid & FATTR_BKUPTIME { 0 => None, _ => Some(Timespec { sec: arg.bkuptime, nsec: arg.bkuptimensec }) };
+					let crtime = match arg.valid & FATTR_CRTIME { 0 => None, _ => Some(Timespec::new(arg.crtime, arg.crtimensec)) };
+					let chgtime = match arg.valid & FATTR_CHGTIME { 0 => None, _ => Some(Timespec::new(arg.chgtime, arg.chgtimensec)) };
+					let bkuptime = match arg.valid & FATTR_BKUPTIME { 0 => None, _ => Some(Timespec::new(arg.bkuptime, arg.bkuptimensec)) };
 					let flags = match arg.valid & FATTR_FLAGS { 0 => None, _ => Some(arg.flags) };
 					(crtime, chgtime, bkuptime, flags)
 				}

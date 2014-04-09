@@ -657,7 +657,7 @@ mod test {
 				]);
 			}
 		});
-		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
+		let time = Timespec::new(0x1234, 0x5678);
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
 			kind: TypeFile, perm: 0x44, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.entry(&time, &attr, 0xaa);
@@ -689,7 +689,7 @@ mod test {
 				]);
 			}
 		});
-		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
+		let time = Timespec::new(0x1234, 0x5678);
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
 			kind: TypeFile, perm: 0x44, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.attr(&time, &attr);
@@ -705,7 +705,7 @@ mod test {
 				  0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00],
 			]);
 		});
-		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
+		let time = Timespec::new(0x1234, 0x5678);
 		reply.xtimes(time, time);
 	}
 
@@ -778,7 +778,7 @@ mod test {
 				]);
 			}
 		});
-		let time = Timespec { sec: 0x1234, nsec: 0x5678 };
+		let time = Timespec::new(0x1234, 0x5678);
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
 			kind: TypeFile, perm: 0x44, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);
