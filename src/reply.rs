@@ -23,7 +23,7 @@ use FileAttr;
 /// Generic reply trait
 pub trait Reply {
 	/// Create a new reply for the given request
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> Self;
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> Self;
 }
 
 /// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
@@ -99,11 +99,11 @@ pub struct ReplyRaw<T> {
 	/// Unique id of the request to reply to
 	unique: u64,
 	/// Proc to call for sending the reply
-	sender: Option<proc:Send(&[&[u8]])>,
+	sender: Option<proc(&[&[u8]]):Send>,
 }
 
 impl<T: Copy> Reply for ReplyRaw<T> {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyRaw<T> {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyRaw<T> {
 		ReplyRaw { unique: unique, sender: Some(sender) }
 	}
 }
@@ -156,7 +156,7 @@ pub struct ReplyEmpty {
 }
 
 impl Reply for ReplyEmpty {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyEmpty {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyEmpty {
 		ReplyEmpty { reply: Reply::new(unique, sender) }
 	}
 }
@@ -181,7 +181,7 @@ pub struct ReplyData {
 }
 
 impl Reply for ReplyData {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyData {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyData {
 		ReplyData { reply: Reply::new(unique, sender) }
 	}
 }
@@ -206,7 +206,7 @@ pub struct ReplyEntry {
 }
 
 impl Reply for ReplyEntry {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyEntry {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyEntry {
 		ReplyEntry { reply: Reply::new(unique, sender) }
 	}
 }
@@ -239,7 +239,7 @@ pub struct ReplyAttr {
 }
 
 impl Reply for ReplyAttr {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyAttr {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyAttr {
 		ReplyAttr { reply: Reply::new(unique, sender) }
 	}
 }
@@ -271,7 +271,7 @@ pub struct ReplyXTimes {
 
 #[cfg(target_os = "macos")]
 impl Reply for ReplyXTimes {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyXTimes {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyXTimes {
 		ReplyXTimes { reply: Reply::new(unique, sender) }
 	}
 }
@@ -302,7 +302,7 @@ pub struct ReplyOpen {
 }
 
 impl Reply for ReplyOpen {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyOpen {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyOpen {
 		ReplyOpen { reply: Reply::new(unique, sender) }
 	}
 }
@@ -331,7 +331,7 @@ pub struct ReplyWrite {
 }
 
 impl Reply for ReplyWrite {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyWrite {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyWrite {
 		ReplyWrite { reply: Reply::new(unique, sender) }
 	}
 }
@@ -359,7 +359,7 @@ pub struct ReplyStatfs {
 }
 
 impl Reply for ReplyStatfs {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyStatfs {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyStatfs {
 		ReplyStatfs { reply: Reply::new(unique, sender) }
 	}
 }
@@ -397,7 +397,7 @@ pub struct ReplyCreate {
 }
 
 impl Reply for ReplyCreate {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyCreate {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyCreate {
 		ReplyCreate { reply: Reply::new(unique, sender) }
 	}
 }
@@ -434,7 +434,7 @@ pub struct ReplyLock {
 }
 
 impl Reply for ReplyLock {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyLock {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyLock {
 		ReplyLock { reply: Reply::new(unique, sender) }
 	}
 }
@@ -466,7 +466,7 @@ pub struct ReplyBmap {
 }
 
 impl Reply for ReplyBmap {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyBmap {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyBmap {
 		ReplyBmap { reply: Reply::new(unique, sender) }
 	}
 }
@@ -495,7 +495,7 @@ pub struct ReplyDirectory {
 }
 
 impl Reply for ReplyDirectory {
-	fn new (unique: u64, sender: proc:Send(&[&[u8]])) -> ReplyDirectory {
+	fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyDirectory {
 		ReplyDirectory { reply: Reply::new(unique, sender), size: 0, data: Vec::with_capacity(4096) }
 	}
 }
