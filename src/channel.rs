@@ -4,9 +4,7 @@
 
 use std::{os, slice};
 use libc::{c_int, c_void, c_char, size_t};
-use fuse::{fuse_args, fuse_mount_compat25};
-#[cfg(not(target_os = "macos"))]
-use fuse::fuse_unmount_compat22;
+use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 // Libc provides iovec based I/O using readv and writev functions
 #[allow(dead_code, non_camel_case_types)]
@@ -27,18 +25,15 @@ mod libc {
 
 		pub fn realpath (file_name: *c_char, resolved_name: *mut c_char) -> *c_char;
 
-		#[cfg(target_os = "macos")]
 		pub fn unmount(dir: *c_char, flags: c_int) -> c_int;
 	}
 
-	#[cfg(target_os = "macos")]
-	pub static PATH_MAX: int = 1024;
-
-	#[cfg(target_os = "linux")]
+	/// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
 	pub static PATH_MAX: int = 4096;
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
+/// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 	path.with_c_str(|p| {
 		let mut resolved = [0 as c_char, ..libc::PATH_MAX];
@@ -146,24 +141,19 @@ impl ChannelSender {
 	}
 }
 
-// On OS X, fuse_unmount_compat22 attempts to call realpath, which in turn calls into the filesystem.
-// If the filesystem returns an error, the unmount does not take place, with no indication of the error
-// available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
-// we already converted to the real path when we first mounted.
-#[cfg(target_os = "macos")]
 /// Unmount an arbitrary mount point
 pub fn unmount (mountpoint: &Path) {
 	mountpoint.with_c_str(|mnt| {
-		unsafe { libc::unmount(mnt, 0); }
+		// On OS X, fuse_unmount_compat22 attempts to call realpath, which in turn calls into the filesystem.
+		// If the filesystem returns an error, the unmount does not take place, with no indication of the error
+		// available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
+		// we already converted to the real path when we first mounted.
+		if cfg!(target_os = "macos") {
+			unsafe { libc::unmount(mnt, 0); }
+		} else {
+			unsafe { fuse_unmount_compat22(mnt); }
+		}
 	})
-}
-
-#[cfg(not(target_os = "macos"))]
-/// Unmount an arbitrary mount point
-pub fn unmount (mountpoint: &Path) {
-	mountpoint.with_c_str(|mnt| {
-		unsafe { fuse_unmount_compat22(mnt); }
-	});
 }
 
 
