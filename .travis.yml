@@ -10,3 +10,4 @@ script:
   - make all
   - make check
   - make examples
+  - make doc
