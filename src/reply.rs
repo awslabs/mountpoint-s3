@@ -10,7 +10,8 @@
 
 use std::{cast, mem, ptr, slice};
 use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown, FilePermission};
-use libc::{c_int, EIO};
+use libc::c_int;
+use libc::consts::os::posix88::EIO;
 use libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
 use time::Timespec;
 use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
