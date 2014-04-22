@@ -24,7 +24,8 @@ extern crate log;
 extern crate time;
 
 use std::io::{FileType, FilePermission};
-use libc::{c_int, ENOSYS};
+use libc::c_int;
+use libc::consts::os::posix88::ENOSYS;
 use time::Timespec;
 
 pub use fuse::FUSE_ROOT_ID;
