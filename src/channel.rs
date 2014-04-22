@@ -2,7 +2,7 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
-use std::{os, slice};
+use std::os;
 use libc::{c_int, c_void, c_char, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
@@ -52,7 +52,7 @@ fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 	let progname = "rust-fuse";
-	let args = slice::from_fn(1+options.len(), |i| {
+	let args = Vec::from_fn(1+options.len(), |i| {
 		match i {
 			0 => progname.to_c_str(),
 			_ => options[i-1].to_c_str(),
