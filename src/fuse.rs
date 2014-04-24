@@ -169,8 +169,11 @@ pub enum fuse_opcode {
 	FUSE_INTERRUPT = 36,
 	FUSE_BMAP = 37,
 	FUSE_DESTROY = 38,
+	#[cfg(target_os = "macos")]
 	FUSE_SETVOLNAME = 61,		// OS X only
+	#[cfg(target_os = "macos")]
 	FUSE_GETXTIMES = 62,		// OS X only
+	#[cfg(target_os = "macos")]
 	FUSE_EXCHANGE = 63,			// OS X only
 }
 

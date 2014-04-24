@@ -337,41 +337,26 @@ impl<'a> Request<'a> {
 				debug!("BMAP({:u}) ino {:#018x}, blocksize {:u}, ids {:u}", self.header.unique, self.header.nodeid, arg.blocksize, arg.block);
 				se.filesystem.bmap(self, self.header.nodeid, arg.blocksize as uint, arg.block, self.reply());
 			},
-			// OS X only
-			FUSE_SETVOLNAME | FUSE_EXCHANGE | FUSE_GETXTIMES => self.dispatch_macos_only(opcode, se),
-		}
-	}
-
-	/// Handle OS X operation
-	#[cfg(target_os = "macos")] #[inline]
-	fn dispatch_macos_only<FS: Filesystem> (&self, opcode: fuse_opcode, se: &mut Session<FS>) {
-		let mut data = ArgumentIterator::new(self.data);
-		match opcode {
-			FUSE_SETVOLNAME => {
+			#[cfg(target_os = "macos")]
+			FUSE_SETVOLNAME => {						// OS X only
 				let name = data.fetch_str();
 				debug!("SETVOLNAME({:u}) name {:s}", self.header.unique, str::from_utf8_lossy(name));
 				se.filesystem.setvolname(self, name, self.reply());
 			},
-			FUSE_EXCHANGE => {
+			#[cfg(target_os = "macos")]
+			FUSE_EXCHANGE => {							// OS X only
 				let arg: &fuse_exchange_in = data.fetch();
 				let oldname = data.fetch_path();
 				let newname = data.fetch_path();
 				debug!("EXCHANGE({:u}) parent {:#018x}, name {}, newparent {:#018x}, newname {}, options {:#x}", self.header.unique, arg.olddir, oldname.display(), arg.newdir, newname.display(), arg.options);
 				se.filesystem.exchange(self, arg.olddir, &oldname, arg.newdir, &newname, arg.options as uint, self.reply());
 			},
-			FUSE_GETXTIMES => {
+			#[cfg(target_os = "macos")]
+			FUSE_GETXTIMES => {							// OS X only
 				debug!("GETXTIMES({:u}) ino {:#018x}", self.header.unique, self.header.nodeid);
 				se.filesystem.getxtimes(self, self.header.nodeid, self.reply());
 			},
-			_ => unreachable!(),
 		}
-	}
-
-	/// Warn about unsupported OS X operation on other os
-	#[cfg(not(target_os = "macos"))] #[inline]
-	fn dispatch_macos_only<FS: Filesystem> (&self, _opcode: fuse_opcode, _se: &mut Session<FS>) {
-		warn!("Ignoring unsupported FUSE operation {:u}", self.header.opcode)
-		self.reply::<ReplyEmpty>().error(ENOSYS);
 	}
 
 	/// Create a reply object for this request that can be passed to the filesystem
