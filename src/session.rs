@@ -6,7 +6,7 @@
 //! operations under its mount point.
 //!
 
-use std::task;
+use std::task::TaskBuilder;
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use native;
 use channel;
@@ -115,7 +115,7 @@ impl BackgroundSession {
 		let mountpoint = se.mountpoint.clone();
 		// The background task is started using a a new native thread
 		// since native I/O in the session loop can block
-		let task = task::task().named(format!("FUSE {}", mountpoint.display()));
+		let task = TaskBuilder::new().named(format!("FUSE {}", mountpoint.display()));
 		native::task::spawn_opts(task.opts, proc() {
 			let mut se = se;
 			se.run();
