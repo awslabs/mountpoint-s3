@@ -58,7 +58,7 @@ fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 			_ => options[i-1].to_c_str(),
 		}
 	});
-	let argptrs: ~[*i8] = args.iter().map(|s| s.with_ref(|s| s)).collect();
+	let argptrs: Vec<*i8> = args.iter().map(|s| s.with_ref(|s| s)).collect();
 	f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
 
@@ -129,7 +129,7 @@ impl ChannelSender {
 	/// Send all data in the slice of slice of bytes in a single write.
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
-		let iovecs: ~[libc::iovec] = buffer.iter().map(|d| {
+		let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
 			libc::iovec { iov_base: d.as_ptr() as *c_void, iov_len: d.len() as size_t }
 		}).collect();
 		let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };

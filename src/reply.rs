@@ -122,7 +122,7 @@ impl<T: Copy> ReplyRaw<T> {
 		};
 		as_bytes(&header, |headerbytes| {
 			let sender = self.sender.take_unwrap();
-			sender(headerbytes + bytes);
+			sender(Vec::from_slice(headerbytes).append(bytes).as_slice());
 		});
 	}
 

@@ -90,6 +90,6 @@ impl Filesystem for HelloFS {
 }
 
 fn main () {
-	let mountpoint = Path::new(os::args()[1]);
+	let mountpoint = Path::new(os::args().get(1).as_slice());
 	fuse::mount(HelloFS, &mountpoint, []);
 }
