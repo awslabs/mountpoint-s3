@@ -8,7 +8,7 @@
 //! exactly once).
 //!
 
-use std::{cast, mem, ptr, slice};
+use std::{mem, ptr, slice};
 use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown, FilePermission};
 use libc::c_int;
 use libc::consts::os::posix88::EIO;
@@ -520,7 +520,7 @@ impl ReplyDirectory {
 		if self.data.len() + entsize > self.data.capacity() { return true; }
 		unsafe {
 			let p = self.data.as_mut_ptr().offset(self.data.len() as int);
-			let pdirent: *mut fuse_dirent = cast::transmute(p);
+			let pdirent: *mut fuse_dirent = mem::transmute(p);
 			(*pdirent).ino = ino;
 			(*pdirent).off = offset;
 			(*pdirent).namelen = name.len() as u32;
