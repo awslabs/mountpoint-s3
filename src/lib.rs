@@ -19,7 +19,7 @@
 
 extern crate native;
 extern crate libc;
-#[phase(link, syntax)]
+#[phase(link, plugin)]
 extern crate log;
 extern crate time;
 
