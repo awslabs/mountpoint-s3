@@ -8,7 +8,6 @@
 
 use std::task::TaskBuilder;
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use native;
 use channel;
 use channel::Channel;
 use Filesystem;
@@ -116,7 +115,7 @@ impl BackgroundSession {
 		// The background task is started using a a new native thread
 		// since native I/O in the session loop can block
 		let task = TaskBuilder::new().named(format!("FUSE {}", mountpoint.display()));
-		native::task::spawn_opts(task.opts, proc() {
+		task.spawn(proc() {
 			let mut se = se;
 			se.run();
 		});
