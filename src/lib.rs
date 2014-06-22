@@ -14,6 +14,7 @@
 #![crate_type = "rlib"]
 
 #![feature(globs, phase)]
+#![feature(unsafe_destructor)]
 
 #![warn(missing_doc, unnecessary_qualification, unnecessary_typecast)]
 
