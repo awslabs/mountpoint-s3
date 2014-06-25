@@ -164,12 +164,12 @@ mod test {
 
 	#[test]
 	fn fuse_args () {
-		with_fuse_args([bytes!("foo"), bytes!("bar")], |args| {
+		with_fuse_args([b"foo", b"bar"], |args| {
 			unsafe {
 				assert!(args.argc == 3);
-				slice::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == bytes!("rust-fuse\0") ); });
-				slice::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == bytes!("foo\0")); });
-				slice::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == bytes!("bar\0")); });
+				slice::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == b"rust-fuse\0" ); });
+				slice::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == b"foo\0"); });
+				slice::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == b"bar\0"); });
 			}
 		});
 	}
