@@ -3,7 +3,7 @@
 //!
 
 use std::os;
-use libc::{c_int, c_void, c_char, size_t};
+use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 // Libc provides iovec based I/O using readv and writev functions
@@ -36,7 +36,7 @@ mod libc {
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 	path.with_c_str(|p| {
-		let mut resolved = [0 as c_char, ..libc::PATH_MAX];
+		let mut resolved = [0, ..libc::PATH_MAX as uint];
 		unsafe {
 			let rp = libc::realpath(p, resolved.as_mut_ptr());
 			if rp.is_null() {
