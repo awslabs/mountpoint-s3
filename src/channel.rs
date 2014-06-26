@@ -3,7 +3,7 @@
 //!
 
 use std::os;
-use libc::{c_int, c_void, c_char, size_t};
+use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
 // Libc provides iovec based I/O using readv and writev functions
@@ -36,7 +36,7 @@ mod libc {
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 	path.with_c_str(|p| {
-		let mut resolved = [0 as c_char, ..libc::PATH_MAX];
+		let mut resolved = [0, ..libc::PATH_MAX as uint];
 		unsafe {
 			let rp = libc::realpath(p, resolved.as_mut_ptr());
 			if rp.is_null() {
@@ -164,12 +164,12 @@ mod test {
 
 	#[test]
 	fn fuse_args () {
-		with_fuse_args([bytes!("foo"), bytes!("bar")], |args| {
+		with_fuse_args([b"foo", b"bar"], |args| {
 			unsafe {
 				assert!(args.argc == 3);
-				slice::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == bytes!("rust-fuse\0") ); });
-				slice::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == bytes!("foo\0")); });
-				slice::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == bytes!("bar\0")); });
+				slice::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == b"rust-fuse\0" ); });
+				slice::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == b"foo\0"); });
+				slice::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == b"bar\0"); });
 			}
 		});
 	}

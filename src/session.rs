@@ -8,7 +8,6 @@
 
 use std::task::TaskBuilder;
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use native;
 use channel;
 use channel::Channel;
 use Filesystem;
@@ -69,11 +68,11 @@ impl<FS: Filesystem+Send> Session<FS> {
 	pub fn run (&mut self) {
 		// Buffer for receiving requests from the kernel. Only one is allocated and
 		// it is reused immediately after dispatching to conserve memory and allocations.
-		let mut buffer = ~[0u8, ..BUFFER_SIZE];
+		let mut buffer = Vec::from_elem(BUFFER_SIZE, 0u8);
 		loop {
 			// Read the next request from the given channel to kernel driver
 			// The kernel driver makes sure that we get exactly one request per read
-			match self.ch.receive(buffer) {
+			match self.ch.receive(buffer.as_mut_slice()) {
 				Err(ENOENT) => continue,				// Operation interrupted. Accordingly to FUSE, this is safe to retry
 				Err(EINTR) => continue,					// Interrupted system call, retry
 				Err(EAGAIN) => continue,				// Explicitly try again
@@ -116,7 +115,7 @@ impl BackgroundSession {
 		// The background task is started using a a new native thread
 		// since native I/O in the session loop can block
 		let task = TaskBuilder::new().named(format!("FUSE {}", mountpoint.display()));
-		native::task::spawn_opts(task.opts, proc() {
+		task.spawn(proc() {
 			let mut se = se;
 			se.run();
 		});

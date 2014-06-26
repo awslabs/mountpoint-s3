@@ -73,9 +73,9 @@ mod test {
 	fn string_argument () {
 		let mut it = ArgumentIterator::new(TEST_DATA);
 		let arg = it.fetch_str();
-		assert!(arg == bytes!("foo"), "argument iterator should fetch string from data");
+		assert!(arg == b"foo", "argument iterator should fetch string from data");
 		let arg = it.fetch_str();
-		assert!(arg == bytes!("bar"), "argument iterator should fetch string from data");
+		assert!(arg == b"bar", "argument iterator should fetch string from data");
 	}
 
 	#[test]
@@ -104,7 +104,7 @@ mod test {
 		assert!(arg.p2 == 0x6f, "argument iterator should fetch typed argument from data");
 		assert!(arg.p3 == 0x006f, "argument iterator should fetch typed argument from data");
 		let arg = it.fetch_str();
-		assert!(arg == bytes!("bar"), "argument iterator should fetch string from data");
+		assert!(arg == b"bar", "argument iterator should fetch string from data");
 		let arg = it.fetch_data();
 		assert!(arg == [0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
 	}
