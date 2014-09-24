@@ -22,7 +22,7 @@ extern "system" { }
 
 pub struct fuse_args {
 	pub argc: c_int,
-	pub argv: **c_char,
+	pub argv: *const *const c_char,
 	pub allocated: c_int,
 }
 
@@ -31,8 +31,8 @@ pub struct fuse_args {
 //
 
 extern "system" {
-	pub fn fuse_mount_compat25 (mountpoint: *c_char, args: *fuse_args) -> c_int;
-	pub fn fuse_unmount_compat22 (mountpoint: *c_char);
+	pub fn fuse_mount_compat25 (mountpoint: *const c_char, args: *const fuse_args) -> c_int;
+	pub fn fuse_unmount_compat22 (mountpoint: *const c_char);
 }
 
 //

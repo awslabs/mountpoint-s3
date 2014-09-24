@@ -13,7 +13,7 @@ mod libc {
 
 	/// Iovec data structure for readv and writev calls.
 	pub struct iovec {
-		pub iov_base: *c_void,
+		pub iov_base: *const c_void,
 		pub iov_len: size_t,
 	}
 
@@ -21,11 +21,11 @@ mod libc {
 		/// Read data from fd into multiple buffers
 		pub fn readv (fd: c_int, iov: *mut iovec, iovcnt: c_int) -> ssize_t;
 		/// Write data from multiple buffers to fd
-		pub fn writev (fd: c_int, iov: *iovec, iovcnt: c_int) -> ssize_t;
+		pub fn writev (fd: c_int, iov: *const iovec, iovcnt: c_int) -> ssize_t;
 
-		pub fn realpath (file_name: *c_char, resolved_name: *mut c_char) -> *c_char;
+		pub fn realpath (file_name: *const c_char, resolved_name: *mut c_char) -> *const c_char;
 
-		pub fn unmount(dir: *c_char, flags: c_int) -> c_int;
+		pub fn unmount(dir: *const c_char, flags: c_int) -> c_int;
 	}
 
 	/// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
@@ -58,7 +58,7 @@ fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 			_ => options[i-1].to_c_str(),
 		}
 	});
-	let argptrs: Vec<*i8> = args.iter().map(|s| s.with_ref(|s| s)).collect();
+	let argptrs: Vec<*const i8> = args.iter().map(|s| s.with_ref(|s| s)).collect();
 	f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
 
@@ -130,7 +130,7 @@ impl ChannelSender {
 	/// Note: Can block natively, so it should be called from a separate thread
 	pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
 		let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
-			libc::iovec { iov_base: d.as_ptr() as *c_void, iov_len: d.len() as size_t }
+			libc::iovec { iov_base: d.as_ptr() as *const c_void, iov_len: d.len() as size_t }
 		}).collect();
 		let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
 		if rc < 0 {
@@ -167,9 +167,15 @@ mod test {
 		with_fuse_args([b"foo", b"bar"], |args| {
 			unsafe {
 				assert!(args.argc == 3);
-				slice::raw::buf_as_slice(*args.argv.offset(0) as *u8, 10, |bytes| { assert!(bytes == b"rust-fuse\0" ); });
-				slice::raw::buf_as_slice(*args.argv.offset(1) as *u8,  4, |bytes| { assert!(bytes == b"foo\0"); });
-				slice::raw::buf_as_slice(*args.argv.offset(2) as *u8,  4, |bytes| { assert!(bytes == b"bar\0"); });
+				slice::raw::buf_as_slice(*args.argv.offset(0) as *const u8, 10, |bytes| {
+					assert!(bytes == b"rust-fuse\0" );
+				});
+				slice::raw::buf_as_slice(*args.argv.offset(1) as *const u8,  4, |bytes| {
+					assert!(bytes == b"foo\0");
+				});
+				slice::raw::buf_as_slice(*args.argv.offset(2) as *const u8,  4, |bytes| {
+					assert!(bytes == b"bar\0");
+				});
 			}
 		});
 	}
