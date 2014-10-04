@@ -6,3 +6,11 @@ authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 [lib]
 name = "fuse"
 path = "src/lib.rs"
+
+[[bin]]
+name = "hello"
+path = "examples/hello.rs"
+
+[[bin]]
+name = "null"
+path = "examples/null.rs"
