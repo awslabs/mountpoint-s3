@@ -1,8 +1,8 @@
 [project]
 name = "rust-fuse"
 version = "0.2.0"
-authors = []
+authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 
-[[lib]]
+[lib]
 name = "fuse"
 path = "src/lib.rs"
