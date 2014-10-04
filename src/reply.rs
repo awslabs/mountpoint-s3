@@ -47,7 +47,7 @@ fn mode_from_kind_and_perm (kind: FileType, perm: FilePermission) -> u32 {
 		TypeBlockSpecial => S_IFBLK,
 		TypeSymlink => S_IFLNK,
 		TypeUnknown => 0,
-	}) as u32 | perm.bits()
+	}) | perm.bits()
 }
 
 /// Returns a fuse_attr from FileAttr
