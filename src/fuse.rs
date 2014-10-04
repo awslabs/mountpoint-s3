@@ -20,6 +20,7 @@ extern "system" { }
 // FUSE arguments (see fuse_opt.h for details)
 //
 
+#[repr(C)]
 pub struct fuse_args {
 	pub argc: c_int,
 	pub argv: *const *const c_char,

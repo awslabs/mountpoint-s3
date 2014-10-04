@@ -12,6 +12,7 @@ mod libc {
 	use libc::{c_char, c_int, c_void, size_t, ssize_t};
 
 	/// Iovec data structure for readv and writev calls.
+	#[repr(C)]
 	pub struct iovec {
 		pub iov_base: *const c_void,
 		pub iov_len: size_t,
