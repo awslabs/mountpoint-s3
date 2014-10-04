@@ -1,18 +1,15 @@
-language: c
+language: rust
 env:
   global:
     - secure: GMDU5g5cG1LmlhcXUmDwEV57oNYWOqi8YXswhP7oMdZkC+Nf/Bw0UX18dNlJ9zaqoKKJ07wIVdKO5Jy5VLtybt+/f8NF1OgOKgx6sYAPDEHc4jZtqEj16bxfRXuzOUtTut3nuf41ZJhNgj4+W8qDSkFEWuhp7EJ3DcXHnXl9/3A=
 before_install:
   - sudo apt-get update
-  - wget http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - tar -zxvf rust-nightly-x86_64-unknown-linux-gnu.tar.gz
 install:
   - sudo apt-get install libfuse-dev
-  - sudo ./rust-nightly-x86_64-unknown-linux-gnu/install.sh
 script:
-  - make all
-  - make check
-  - make examples
-  - make doc
-after_script:
-  - curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
+  - cargo build --verbose
+  - cargo test --verbose
+  - cargo doc --verbose
+after_success: |
+  mv target/doc . &&
+  (curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh)
