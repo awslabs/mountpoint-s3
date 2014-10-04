@@ -8,7 +8,7 @@ RUSTFLAGS ?= -O --cfg ndebug
 RUSTDOCFLAGS ?= --cfg ndebug
 endif
 
-LIBFUSE := $(patsubst %,build/%,$(shell $(RUSTC) --crate-file-name src/lib.rs))
+LIBFUSE := $(patsubst %,build/%,$(shell $(RUSTC) --print-file-name src/lib.rs))
 
 all: $(LIBFUSE)
 
