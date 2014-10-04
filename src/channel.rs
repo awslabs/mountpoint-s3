@@ -58,7 +58,7 @@ fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
 			_ => options[i-1].to_c_str(),
 		}
 	});
-	let argptrs: Vec<*const i8> = args.iter().map(|s| s.with_ref(|s| s)).collect();
+	let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
 	f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
 

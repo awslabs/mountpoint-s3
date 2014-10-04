@@ -123,8 +123,10 @@ impl<T: Copy> ReplyRaw<T> {
 			unique: self.unique,
 		};
 		as_bytes(&header, |headerbytes| {
-			let sender = self.sender.take_unwrap();
-			sender(Vec::from_slice(headerbytes).append(bytes).as_slice());
+			let sender = self.sender.take().unwrap();
+			let mut sendbytes = headerbytes.to_vec();
+			sendbytes.push_all(bytes);
+			sender(sendbytes.as_slice());
 		});
 	}
 
