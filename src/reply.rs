@@ -553,7 +553,7 @@ impl ReplyDirectory {
 
 #[cfg(test)]
 mod test {
-	use std::io::{TypeFile, TypeDirectory, UserFile};
+	use std::io::{TypeFile, TypeDirectory, USER_FILE};
 	use time::Timespec;
 	use super::as_bytes;
 	use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
@@ -664,7 +664,7 @@ mod test {
 		});
 		let time = Timespec::new(0x1234, 0x5678);
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-			kind: TypeFile, perm: UserFile, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+			kind: TypeFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.entry(&time, &attr, 0xaa);
 	}
 
@@ -696,7 +696,7 @@ mod test {
 		});
 		let time = Timespec::new(0x1234, 0x5678);
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-			kind: TypeFile, perm: UserFile, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+			kind: TypeFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.attr(&time, &attr);
 	}
 
@@ -785,7 +785,7 @@ mod test {
 		});
 		let time = Timespec::new(0x1234, 0x5678);
 		let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-			kind: TypeFile, perm: UserFile, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+			kind: TypeFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
 		reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);
 	}
 
