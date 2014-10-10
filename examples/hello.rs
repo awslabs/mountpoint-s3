@@ -2,7 +2,7 @@ extern crate fuse;
 extern crate libc;
 extern crate time;
 
-use std::io::{TypeFile, TypeDirectory, UserFile, UserDir};
+use std::io::{TypeFile, TypeDirectory, USER_FILE, USER_DIR};
 use std::os;
 use libc::ENOENT;
 use time::Timespec;
@@ -21,7 +21,7 @@ static HELLO_DIR_ATTR: FileAttr = FileAttr {
 	ctime: CREATE_TIME,
 	crtime: CREATE_TIME,
 	kind: TypeDirectory,
-	perm: UserDir,
+	perm: USER_DIR,
 	nlink: 2,
 	uid: 501,
 	gid: 20,
@@ -40,7 +40,7 @@ static HELLO_TXT_ATTR: FileAttr = FileAttr {
 	ctime: CREATE_TIME,
 	crtime: CREATE_TIME,
 	kind: TypeFile,
-	perm: UserFile,
+	perm: USER_FILE,
 	nlink: 1,
 	uid: 501,
 	gid: 20,
