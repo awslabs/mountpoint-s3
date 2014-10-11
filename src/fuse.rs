@@ -40,9 +40,9 @@ extern "system" {
 // FUSE kernel (see fuse_kernel.h for details)
 //
 
-pub static FUSE_KERNEL_VERSION: u32 = 7;
-pub static FUSE_KERNEL_MINOR_VERSION: u32 = 8;
-pub static FUSE_ROOT_ID: u64 = 1;
+pub const FUSE_KERNEL_VERSION: u32 = 7;
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 8;
+pub const FUSE_ROOT_ID: u64 = 1;
 
 pub struct fuse_attr {
 	pub ino: u64,
@@ -89,47 +89,47 @@ pub struct fuse_file_lock {
 
 pub mod consts {
 	// Bitmasks for fuse_setattr_in.valid
-	pub static FATTR_MODE: u32				= 1 << 0;
-	pub static FATTR_UID: u32				= 1 << 1;
-	pub static FATTR_GID: u32				= 1 << 2;
-	pub static FATTR_SIZE: u32				= 1 << 3;
-	pub static FATTR_ATIME: u32				= 1 << 4;
-	pub static FATTR_MTIME: u32				= 1 << 5;
-	pub static FATTR_FH: u32				= 1 << 6;
+	pub const FATTR_MODE: u32				= 1 << 0;
+	pub const FATTR_UID: u32				= 1 << 1;
+	pub const FATTR_GID: u32				= 1 << 2;
+	pub const FATTR_SIZE: u32				= 1 << 3;
+	pub const FATTR_ATIME: u32				= 1 << 4;
+	pub const FATTR_MTIME: u32				= 1 << 5;
+	pub const FATTR_FH: u32					= 1 << 6;
 	#[cfg(target_os = "macos")]
-	pub static FATTR_CRTIME: u32			= 1 << 28;	// OS X only
+	pub const FATTR_CRTIME: u32				= 1 << 28;	// OS X only
 	#[cfg(target_os = "macos")]
-	pub static FATTR_CHGTIME: u32			= 1 << 29;	// OS X only
+	pub const FATTR_CHGTIME: u32			= 1 << 29;	// OS X only
 	#[cfg(target_os = "macos")]
-	pub static FATTR_BKUPTIME: u32			= 1 << 30;	// OS X only
+	pub const FATTR_BKUPTIME: u32			= 1 << 30;	// OS X only
 	#[cfg(target_os = "macos")]
-	pub static FATTR_FLAGS: u32				= 1 << 31;	// OS X only
+	pub const FATTR_FLAGS: u32				= 1 << 31;	// OS X only
 
 	// Flags returned by the open request
-	pub static FOPEN_DIRECT_IO: u32			= 1 << 0;	// bypass page cache for this open file
-	pub static FOPEN_KEEP_CACHE: u32		= 1 << 1;	// don't invalidate the data cache on open
+	pub const FOPEN_DIRECT_IO: u32			= 1 << 0;	// bypass page cache for this open file
+	pub const FOPEN_KEEP_CACHE: u32			= 1 << 1;	// don't invalidate the data cache on open
 	#[cfg(target_os = "macos")]
-	pub static FOPEN_PURGE_ATTR: u32		= 1 << 30;	// OS X only
+	pub const FOPEN_PURGE_ATTR: u32			= 1 << 30;	// OS X only
 	#[cfg(target_os = "macos")]
-	pub static FOPEN_PURGE_UBC: u32			= 1 << 31;	// OS X only
+	pub const FOPEN_PURGE_UBC: u32			= 1 << 31;	// OS X only
 
 	// Init request/reply flags
-	pub static FUSE_ASYNC_READ: u32			= 1 << 0;
-	pub static FUSE_POSIX_LOCKS: u32		= 1 << 1;
-	pub static FUSE_FILE_OPS: u32			= 1 << 2;
-	pub static FUSE_ATOMIC_O_TRUNC: u32		= 1 << 3;
-	pub static FUSE_EXPORT_SUPPORT: u32		= 1 << 4;
-	pub static FUSE_BIG_WRITES: u32			= 1 << 5;
-	pub static FUSE_DONT_MASK: u32			= 1 << 6;
+	pub const FUSE_ASYNC_READ: u32			= 1 << 0;
+	pub const FUSE_POSIX_LOCKS: u32			= 1 << 1;
+	pub const FUSE_FILE_OPS: u32			= 1 << 2;
+	pub const FUSE_ATOMIC_O_TRUNC: u32		= 1 << 3;
+	pub const FUSE_EXPORT_SUPPORT: u32		= 1 << 4;
+	pub const FUSE_BIG_WRITES: u32			= 1 << 5;
+	pub const FUSE_DONT_MASK: u32			= 1 << 6;
 	#[cfg(target_os = "macos")]
-	pub static FUSE_CASE_INSENSITIVE: u32	= 1 << 29;	// OS X only
+	pub const FUSE_CASE_INSENSITIVE: u32	= 1 << 29;	// OS X only
 	#[cfg(target_os = "macos")]
-	pub static FUSE_VOL_RENAME: u32			= 1 << 30;	// OS X only
+	pub const FUSE_VOL_RENAME: u32			= 1 << 30;	// OS X only
 	#[cfg(target_os = "macos")]
-	pub static FUSE_XTIMES: u32				= 1 << 31;	// OS X only
+	pub const FUSE_XTIMES: u32				= 1 << 31;	// OS X only
 
 	// Release flags
-	pub static FUSE_RELEASE_FLUSH: u32		= 1 << 0;
+	pub const FUSE_RELEASE_FLUSH: u32		= 1 << 0;
 }
 
 #[deriving(FromPrimitive)]

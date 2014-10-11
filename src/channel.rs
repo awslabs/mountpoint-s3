@@ -30,7 +30,7 @@ mod libc {
 	}
 
 	/// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
-	pub static PATH_MAX: int = 4096;
+	pub const PATH_MAX: int = 4096;
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.

@@ -8,11 +8,11 @@ use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
-static TTL: Timespec = Timespec { sec: 1, nsec: 0 };					// 1 second
+const TTL: Timespec = Timespec { sec: 1, nsec: 0 };					// 1 second
 
-static CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };	// 2013-10-08 08:56
+const CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };	// 2013-10-08 08:56
 
-static HELLO_DIR_ATTR: FileAttr = FileAttr {
+const HELLO_DIR_ATTR: FileAttr = FileAttr {
 	ino: 1,
 	size: 0,
 	blocks: 0,
@@ -29,9 +29,9 @@ static HELLO_DIR_ATTR: FileAttr = FileAttr {
 	flags: 0,
 };
 
-static HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
+const HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
 
-static HELLO_TXT_ATTR: FileAttr = FileAttr {
+const HELLO_TXT_ATTR: FileAttr = FileAttr {
 	ino: 2,
 	size: 13,
 	blocks: 1,
