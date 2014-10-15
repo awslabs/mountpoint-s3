@@ -38,6 +38,9 @@ fn as_bytes<T: Copy, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
 	}
 }
 
+// Some platforms like Linux x86_64 have mode_t = u32, and lint warns of an unnecessary_typecast.
+// But others like MacOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
+#[allow(unnecessary_typecast)]
 /// Returns the mode for a given file kind and permission
 fn mode_from_kind_and_perm (kind: FileType, perm: FilePermission) -> u32 {
 	(match kind {
@@ -47,7 +50,7 @@ fn mode_from_kind_and_perm (kind: FileType, perm: FilePermission) -> u32 {
 		TypeBlockSpecial => S_IFBLK,
 		TypeSymlink => S_IFLNK,
 		TypeUnknown => 0,
-	}) | perm.bits()
+	}) as u32 | perm.bits()
 }
 
 /// Returns a fuse_attr from FileAttr
