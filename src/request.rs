@@ -3,7 +3,7 @@
 //! kernel driver wants us to perform.
 //!
 
-use std::{mem, str};
+use std::mem;
 use libc::consts::os::posix88::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
 use argument::ArgumentIterator;
@@ -287,7 +287,7 @@ impl<'a> Request<'a> {
 				let name = data.fetch_str();
 				let value = data.fetch_data();
 				assert!(value.len() == arg.size as uint);
-				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name), arg.size, arg.flags);
+				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name), arg.size, arg.flags);
 				#[cfg(target_os = "macos")] #[inline]
 				fn get_position (arg: &fuse_setxattr_in) -> u32 { arg.position }
 				#[cfg(not(target_os = "macos"))] #[inline]
@@ -297,7 +297,7 @@ impl<'a> Request<'a> {
 			FUSE_GETXATTR => {
 				let arg: &fuse_getxattr_in = data.fetch();
 				let name = data.fetch_str();
-				debug!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name), arg.size);
+				debug!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name), arg.size);
 				se.filesystem.getxattr(self, self.header.nodeid, name, self.reply());
 			},
 			FUSE_LISTXATTR => {
@@ -307,7 +307,7 @@ impl<'a> Request<'a> {
 			},
 			FUSE_REMOVEXATTR => {
 				let name = data.fetch_str();
-				debug!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name));
+				debug!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name));
 				se.filesystem.removexattr(self, self.header.nodeid, name, self.reply());
 			},
 			FUSE_ACCESS => {
