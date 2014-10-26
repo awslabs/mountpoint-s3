@@ -340,7 +340,7 @@ impl<'a> Request<'a> {
 			#[cfg(target_os = "macos")]
 			FUSE_SETVOLNAME => {						// OS X only
 				let name = data.fetch_str();
-				debug!("SETVOLNAME({:u}) name {:s}", self.header.unique, str::from_utf8_lossy(name));
+				debug!("SETVOLNAME({:u}) name {:s}", self.header.unique, String::from_utf8_lossy(name));
 				se.filesystem.setvolname(self, name, self.reply());
 			},
 			#[cfg(target_os = "macos")]
