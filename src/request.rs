@@ -3,7 +3,7 @@
 //! kernel driver wants us to perform.
 //!
 
-use std::{mem, str};
+use std::mem;
 use libc::consts::os::posix88::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
 use argument::ArgumentIterator;
@@ -16,12 +16,12 @@ use session::{MAX_WRITE_SIZE, Session};
 
 /// We generally support async reads, lookups of . and .. and writes larger than 4k
 #[cfg(not(target_os = "macos"))]
-static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_EXPORT_SUPPORT | FUSE_BIG_WRITES;
+const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_EXPORT_SUPPORT | FUSE_BIG_WRITES;
 
 /// On OS X, we additionally support case insensitiveness, volume renames and xtimes
 /// TODO: we should eventually let the filesystem implementation decide which flags to set
 #[cfg(target_os = "macos")]
-static INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_EXPORT_SUPPORT | FUSE_BIG_WRITES | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
+const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_EXPORT_SUPPORT | FUSE_BIG_WRITES | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
 
 /// Create a new request from the given buffer
 pub fn request<'a> (ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
@@ -287,7 +287,7 @@ impl<'a> Request<'a> {
 				let name = data.fetch_str();
 				let value = data.fetch_data();
 				assert!(value.len() == arg.size as uint);
-				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name), arg.size, arg.flags);
+				debug!("SETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}, flags {:#x}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name), arg.size, arg.flags);
 				#[cfg(target_os = "macos")] #[inline]
 				fn get_position (arg: &fuse_setxattr_in) -> u32 { arg.position }
 				#[cfg(not(target_os = "macos"))] #[inline]
@@ -297,7 +297,7 @@ impl<'a> Request<'a> {
 			FUSE_GETXATTR => {
 				let arg: &fuse_getxattr_in = data.fetch();
 				let name = data.fetch_str();
-				debug!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name), arg.size);
+				debug!("GETXATTR({:u}) ino {:#018x}, name {:s}, size {:u}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name), arg.size);
 				se.filesystem.getxattr(self, self.header.nodeid, name, self.reply());
 			},
 			FUSE_LISTXATTR => {
@@ -307,7 +307,7 @@ impl<'a> Request<'a> {
 			},
 			FUSE_REMOVEXATTR => {
 				let name = data.fetch_str();
-				debug!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", self.header.unique, self.header.nodeid, str::from_utf8_lossy(name));
+				debug!("REMOVEXATTR({:u}) ino {:#018x}, name {:s}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name));
 				se.filesystem.removexattr(self, self.header.nodeid, name, self.reply());
 			},
 			FUSE_ACCESS => {
@@ -340,7 +340,7 @@ impl<'a> Request<'a> {
 			#[cfg(target_os = "macos")]
 			FUSE_SETVOLNAME => {						// OS X only
 				let name = data.fetch_str();
-				debug!("SETVOLNAME({:u}) name {:s}", self.header.unique, str::from_utf8_lossy(name));
+				debug!("SETVOLNAME({:u}) name {:s}", self.header.unique, String::from_utf8_lossy(name));
 				se.filesystem.setvolname(self, name, self.reply());
 			},
 			#[cfg(target_os = "macos")]

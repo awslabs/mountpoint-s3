@@ -42,7 +42,7 @@ impl<'a> ArgumentIterator<'a> {
 
 	/// Fetch a slice of the remaining data
 	pub fn fetch_data (&mut self) -> &'a [u8] {
-		let bytes = self.data.tailn(self.pos);
+		let bytes = self.data.slice_from(self.pos);
 		self.pos = self.data.len();
 		bytes
 	}

@@ -2,17 +2,17 @@ extern crate fuse;
 extern crate libc;
 extern crate time;
 
-use std::io::{TypeFile, TypeDirectory, UserFile, UserDir};
+use std::io::{TypeFile, TypeDirectory, USER_FILE, USER_DIR};
 use std::os;
 use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
-static TTL: Timespec = Timespec { sec: 1, nsec: 0 };					// 1 second
+const TTL: Timespec = Timespec { sec: 1, nsec: 0 };					// 1 second
 
-static CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };	// 2013-10-08 08:56
+const CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };	// 2013-10-08 08:56
 
-static HELLO_DIR_ATTR: FileAttr = FileAttr {
+const HELLO_DIR_ATTR: FileAttr = FileAttr {
 	ino: 1,
 	size: 0,
 	blocks: 0,
@@ -21,7 +21,7 @@ static HELLO_DIR_ATTR: FileAttr = FileAttr {
 	ctime: CREATE_TIME,
 	crtime: CREATE_TIME,
 	kind: TypeDirectory,
-	perm: UserDir,
+	perm: USER_DIR,
 	nlink: 2,
 	uid: 501,
 	gid: 20,
@@ -29,9 +29,9 @@ static HELLO_DIR_ATTR: FileAttr = FileAttr {
 	flags: 0,
 };
 
-static HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
+const HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
 
-static HELLO_TXT_ATTR: FileAttr = FileAttr {
+const HELLO_TXT_ATTR: FileAttr = FileAttr {
 	ino: 2,
 	size: 13,
 	blocks: 1,
@@ -40,7 +40,7 @@ static HELLO_TXT_ATTR: FileAttr = FileAttr {
 	ctime: CREATE_TIME,
 	crtime: CREATE_TIME,
 	kind: TypeFile,
-	perm: UserFile,
+	perm: USER_FILE,
 	nlink: 1,
 	uid: 501,
 	gid: 20,
@@ -69,7 +69,7 @@ impl Filesystem for HelloFS {
 
 	fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, _size: uint, reply: ReplyData) {
 		if ino == 2 {
-			reply.data(HELLO_TXT_CONTENT.as_bytes().tailn(offset as uint));
+			reply.data(HELLO_TXT_CONTENT.as_bytes().slice_from(offset as uint));
 		} else {
 			reply.error(ENOENT);
 		}
@@ -90,6 +90,6 @@ impl Filesystem for HelloFS {
 }
 
 fn main () {
-	let mountpoint = Path::new(os::args().get(1).as_slice());
+	let mountpoint = Path::new(os::args()[1].as_slice());
 	fuse::mount(HelloFS, &mountpoint, []);
 }
