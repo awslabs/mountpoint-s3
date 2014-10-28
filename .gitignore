@@ -1,4 +1,2 @@
-/build
-/doc
-/target
 /Cargo.lock
+/target

@@ -7,14 +7,7 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#![crate_name = "fuse"]
-#![desc = "Rust FUSE - Filesystem in Userspace"]
-#![license = "MIT"]
-#![crate_type = "dylib"]
-#![crate_type = "rlib"]
-
-#![feature(globs, phase)]
-#![feature(unsafe_destructor)]
+#![feature(globs, phase, unsafe_destructor)]
 
 #![warn(missing_doc, unnecessary_qualification, unnecessary_typecast)]
 
