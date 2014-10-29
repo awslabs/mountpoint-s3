@@ -1,5 +1,5 @@
 [project]
-name = "rust-fuse"
+name = "fuse"
 version = "0.2.0"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 
