@@ -150,7 +150,7 @@ impl<T: Copy> ReplyRaw<T> {
 impl<T: Copy> Drop for ReplyRaw<T> {
     fn drop (&mut self) {
         if self.sender.is_some() {
-            warn!("Reply not sent for operation {:u}, replying with I/O error", self.unique);
+            warn!("Reply not sent for operation {}, replying with I/O error", self.unique);
             self.send(EIO, []);
         }
     }
