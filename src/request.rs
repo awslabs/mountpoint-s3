@@ -11,6 +11,7 @@ use channel::ChannelSender;
 use Filesystem;
 use fuse::*;
 use fuse::consts::*;
+use fuse::fuse_opcode::*;
 use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
 use session::{MAX_WRITE_SIZE, Session};
 
