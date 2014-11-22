@@ -31,9 +31,9 @@ pub trait Reply {
 fn as_bytes<T: Copy, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
     let len = mem::size_of::<T>();
     match len {
-        0 => f([]),
+        0 => f(&[]),
         len => unsafe {
-            slice::raw::buf_as_slice(data as *const T as *const u8, len, |bytes| f([bytes]) )
+            slice::raw::buf_as_slice(data as *const T as *const u8, len, |bytes| f(&[bytes]) )
         },
     }
 }
@@ -142,7 +142,7 @@ impl<T: Copy> ReplyRaw<T> {
 
     /// Reply to a request with the given error code
     pub fn error (mut self, err: c_int) {
-        self.send(err, []);
+        self.send(err, &[]);
     }
 }
 
@@ -151,7 +151,7 @@ impl<T: Copy> Drop for ReplyRaw<T> {
     fn drop (&mut self) {
         if self.sender.is_some() {
             warn!("Reply not sent for operation {}, replying with I/O error", self.unique);
-            self.send(EIO, []);
+            self.send(EIO, &[]);
         }
     }
 }
@@ -172,7 +172,7 @@ impl Reply for ReplyEmpty {
 impl ReplyEmpty {
     /// Reply to a request with nothing
     pub fn ok (mut self) {
-        self.reply.send(0, []);
+        self.reply.send(0, &[]);
     }
 
     /// Reply to a request with the given error code
@@ -197,7 +197,7 @@ impl Reply for ReplyData {
 impl ReplyData {
     /// Reply to a request with the given data
     pub fn data (mut self, data: &[u8]) {
-        self.reply.send(0, [data]);
+        self.reply.send(0, &[data]);
     }
 
     /// Reply to a request with the given error code
@@ -544,7 +544,7 @@ impl ReplyDirectory {
 
     /// Reply to a request with the filled directory buffer
     pub fn ok (mut self) {
-        self.reply.send(0, [self.data.as_slice()]);
+        self.reply.send(0, &[self.data.as_slice()]);
     }
 
     /// Reply to a request with the given error code
