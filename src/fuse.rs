@@ -2,7 +2,7 @@
 //! FUSE native interface declarations (as of libosxfuse-2.5.5).
 //!
 
-#![allow(non_camel_case_types, missing_doc)]
+#![allow(non_camel_case_types, missing_docs)]
 
 use libc::{c_int, c_char};
 
