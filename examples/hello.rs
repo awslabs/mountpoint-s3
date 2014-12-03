@@ -2,7 +2,7 @@ extern crate fuse;
 extern crate libc;
 extern crate time;
 
-use std::io::{TypeFile, TypeDirectory, USER_FILE, USER_DIR};
+use std::io::{FileType, USER_FILE, USER_DIR};
 use std::os;
 use libc::ENOENT;
 use time::Timespec;
@@ -20,7 +20,7 @@ const HELLO_DIR_ATTR: FileAttr = FileAttr {
     mtime: CREATE_TIME,
     ctime: CREATE_TIME,
     crtime: CREATE_TIME,
-    kind: TypeDirectory,
+    kind: FileType::Directory,
     perm: USER_DIR,
     nlink: 2,
     uid: 501,
@@ -39,7 +39,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
     mtime: CREATE_TIME,
     ctime: CREATE_TIME,
     crtime: CREATE_TIME,
-    kind: TypeFile,
+    kind: FileType::RegularFile,
     perm: USER_FILE,
     nlink: 1,
     uid: 501,
@@ -78,9 +78,9 @@ impl Filesystem for HelloFS {
     fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, mut reply: ReplyDirectory) {
         if ino == 1 {
             if offset == 0 {
-                reply.add(1, 0, TypeDirectory, &PosixPath::new("."));
-                reply.add(1, 1, TypeDirectory, &PosixPath::new(".."));
-                reply.add(2, 2, TypeFile, &PosixPath::new("hello.txt"));
+                reply.add(1, 0, FileType::Directory, &PosixPath::new("."));
+                reply.add(1, 1, FileType::Directory, &PosixPath::new(".."));
+                reply.add(2, 2, FileType::RegularFile, &PosixPath::new("hello.txt"));
             }
             reply.ok();
         } else {

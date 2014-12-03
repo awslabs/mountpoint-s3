@@ -9,7 +9,7 @@
 //!
 
 use std::{mem, ptr, slice};
-use std::io::{FileType, TypeFile, TypeDirectory, TypeNamedPipe, TypeBlockSpecial, TypeSymlink, TypeUnknown, FilePermission};
+use std::io::{FileType, FilePermission};
 use libc::c_int;
 use libc::consts::os::posix88::EIO;
 use libc::{S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
@@ -44,12 +44,12 @@ fn as_bytes<T: Copy, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
 /// Returns the mode for a given file kind and permission
 fn mode_from_kind_and_perm (kind: FileType, perm: FilePermission) -> u32 {
     (match kind {
-        TypeFile => S_IFREG,
-        TypeDirectory => S_IFDIR,
-        TypeNamedPipe => S_IFCHR,
-        TypeBlockSpecial => S_IFBLK,
-        TypeSymlink => S_IFLNK,
-        TypeUnknown => 0,
+        FileType::RegularFile => S_IFREG,
+        FileType::Directory => S_IFDIR,
+        FileType::NamedPipe => S_IFCHR,
+        FileType::BlockSpecial => S_IFBLK,
+        FileType::Symlink => S_IFLNK,
+        FileType::Unknown => 0,
     }) as u32 | perm.bits()
 }
 
@@ -556,7 +556,7 @@ impl ReplyDirectory {
 
 #[cfg(test)]
 mod test {
-    use std::io::{TypeFile, TypeDirectory, USER_FILE};
+    use std::io::{FileType, USER_FILE};
     use time::Timespec;
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
@@ -667,7 +667,7 @@ mod test {
         });
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-            kind: TypeFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+            kind: FileType::RegularFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.entry(&time, &attr, 0xaa);
     }
 
@@ -699,7 +699,7 @@ mod test {
         });
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-            kind: TypeFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+            kind: FileType::RegularFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.attr(&time, &attr);
     }
 
@@ -788,7 +788,7 @@ mod test {
         });
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-            kind: TypeFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+            kind: FileType::RegularFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);
     }
 
@@ -826,8 +826,8 @@ mod test {
                   0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,  0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73].as_slice(),
             ].as_slice());
         });
-        reply.add(0xaabb, 1, TypeDirectory, &PosixPath::new("hello"));
-        reply.add(0xccdd, 2, TypeFile, &PosixPath::new("world.rs"));
+        reply.add(0xaabb, 1, FileType::Directory, &PosixPath::new("hello"));
+        reply.add(0xccdd, 2, FileType::RegularFile, &PosixPath::new("world.rs"));
         reply.ok();
     }
 }
