@@ -165,7 +165,7 @@ mod test {
 
     #[test]
     fn fuse_args () {
-        with_fuse_args([b"foo", b"bar"], |args| {
+        with_fuse_args(&[b"foo", b"bar"], |args| {
             unsafe {
                 assert!(args.argc == 3);
                 slice::raw::buf_as_slice(*args.argv.offset(0) as *const u8, 10, |bytes| {

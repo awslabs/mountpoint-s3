@@ -58,7 +58,7 @@ mod test {
 
     #[test]
     fn generic_argument () {
-        let mut it = ArgumentIterator::new(TEST_DATA);
+        let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg: &TestArgument = it.fetch();
         assert!(arg.p1 == 0x66, "argument iterator should fetch typed argument from data");
         assert!(arg.p2 == 0x6f, "argument iterator should fetch typed argument from data");
@@ -71,7 +71,7 @@ mod test {
 
     #[test]
     fn string_argument () {
-        let mut it = ArgumentIterator::new(TEST_DATA);
+        let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg = it.fetch_str();
         assert!(arg == b"foo", "argument iterator should fetch string from data");
         let arg = it.fetch_str();
@@ -80,7 +80,7 @@ mod test {
 
     #[test]
     fn path_argument () {
-        let mut it = ArgumentIterator::new(TEST_DATA);
+        let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg = it.fetch_path();
         assert!(arg.as_str() == Some("foo"), "argument iterator should fetch path from data");
         let arg = it.fetch_path();
@@ -89,16 +89,16 @@ mod test {
 
     #[test]
     fn remaining_data_argument () {
-        let mut it = ArgumentIterator::new(TEST_DATA);
+        let mut it = ArgumentIterator::new(&TEST_DATA);
         it.fetch_str();
         it.fetch_str();
         let arg = it.fetch_data();
-        assert!(arg == [0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
+        assert!(arg == &[0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
     }
 
     #[test]
     fn mixed_arguments () {
-        let mut it = ArgumentIterator::new(TEST_DATA);
+        let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg: &TestArgument = it.fetch();
         assert!(arg.p1 == 0x66, "argument iterator should fetch typed argument from data");
         assert!(arg.p2 == 0x6f, "argument iterator should fetch typed argument from data");
@@ -106,6 +106,6 @@ mod test {
         let arg = it.fetch_str();
         assert!(arg == b"bar", "argument iterator should fetch string from data");
         let arg = it.fetch_data();
-        assert!(arg == [0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
+        assert!(arg == &[0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
     }
 }

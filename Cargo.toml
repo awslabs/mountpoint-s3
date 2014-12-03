@@ -7,6 +7,9 @@ authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 name = "fuse"
 path = "src/lib.rs"
 
+[dependencies.time]
+git = "http://github.com/rust-lang/time"
+
 [[bin]]
 name = "hello"
 path = "examples/hello.rs"

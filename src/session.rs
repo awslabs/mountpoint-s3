@@ -46,7 +46,7 @@ impl<FS: Filesystem+Send> Session<FS> {
         info!("Mounting {}", mountpoint.display());
         let ch = match Channel::new(mountpoint, options) {
             Ok(ch) => ch,
-            Err(err) => panic!("Unable to mount filesystem. Error {:i}", err),
+            Err(err) => panic!("Unable to mount filesystem. Error {}", err),
         };
         Session {
             filesystem: filesystem,
@@ -77,7 +77,7 @@ impl<FS: Filesystem+Send> Session<FS> {
                 Err(EINTR) => continue,                 // Interrupted system call, retry
                 Err(EAGAIN) => continue,                // Explicitly try again
                 Err(ENODEV) => break,                   // Filesystem was unmounted, quit the loop
-                Err(err) => panic!("Lost connection to FUSE device. Error {:i}", err),
+                Err(err) => panic!("Lost connection to FUSE device. Error {}", err),
                 Ok(len) => match request(self.ch.sender(), buffer.slice_to(len)) {
                     None => break,                      // Illegal request, quit the loop
                     Some(req) => dispatch(&req, self),

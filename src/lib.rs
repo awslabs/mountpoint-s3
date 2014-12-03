@@ -9,9 +9,8 @@
 
 #![feature(globs, phase, unsafe_destructor)]
 
-#![warn(missing_doc, unnecessary_qualification, unnecessary_typecast)]
+#![warn(missing_docs, unused_qualifications, unused_typecasts)]
 
-extern crate native;
 extern crate libc;
 #[phase(link, plugin)]
 extern crate log;
