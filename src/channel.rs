@@ -161,23 +161,19 @@ pub fn unmount (mountpoint: &Path) {
 #[cfg(test)]
 mod test {
     use super::with_fuse_args;
-    use std::slice;
+    use std::c_str::CString;
 
     #[test]
     fn fuse_args () {
         with_fuse_args(&[b"foo", b"bar"], |args| {
-            unsafe {
-                assert!(args.argc == 3);
-                slice::raw::buf_as_slice(*args.argv.offset(0) as *const u8, 10, |bytes| {
-                    assert!(bytes == b"rust-fuse\0" );
-                });
-                slice::raw::buf_as_slice(*args.argv.offset(1) as *const u8,  4, |bytes| {
-                    assert!(bytes == b"foo\0");
-                });
-                slice::raw::buf_as_slice(*args.argv.offset(2) as *const u8,  4, |bytes| {
-                    assert!(bytes == b"bar\0");
-                });
-            }
+            assert!(args.argc == 3);
+            let cmp_arg = |i, val: &[u8]| {
+                let arg = unsafe { CString::new(*args.argv.offset(i), false) };
+                assert_eq!(arg.as_bytes(), val);
+            };
+            cmp_arg(0, b"rust-fuse\0");
+            cmp_arg(1, b"foo\0");
+            cmp_arg(2, b"bar\0");
         });
     }
 }

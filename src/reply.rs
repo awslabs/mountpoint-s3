@@ -32,8 +32,10 @@ fn as_bytes<T: Copy, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
     let len = mem::size_of::<T>();
     match len {
         0 => f(&[]),
-        len => unsafe {
-            slice::raw::buf_as_slice(data as *const T as *const u8, len, |bytes| f(&[bytes]) )
+        len => {
+            let p = data as *const T as *const u8;
+            let bytes = unsafe { slice::from_raw_buf(&p, len) };
+            f(&[bytes])
         },
     }
 }
