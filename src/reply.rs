@@ -567,6 +567,9 @@ mod test {
     use super::ReplyXTimes;
     use FileAttr;
 
+    #[allow(dead_code)]
+    struct Data { a: u8, b: u8, c: u16 }
+
     #[test]
     fn serialize_empty () {
         let data = ();
@@ -585,7 +588,6 @@ mod test {
 
     #[test]
     fn serialize_struct () {
-        struct Data { a: u8, b: u8, c: u16 }
         let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
         as_bytes(&data, |bytes| {
             assert_eq!(bytes, [[0x12, 0x34, 0x78, 0x56].as_slice()].as_slice());
@@ -594,7 +596,6 @@ mod test {
 
     #[test]
     fn reply_raw () {
-        struct Data { a: u8, b: u8, c: u16 }
         let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
         let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, proc(bytes) {
             assert_eq!(bytes, [
@@ -607,7 +608,6 @@ mod test {
 
     #[test]
     fn reply_error () {
-        struct Data { a: u8, b: u8, c: u16 }
         let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, proc(bytes) {
             assert_eq!(bytes, [
                 [0x10, 0x00, 0x00, 0x00, 0xbe, 0xff, 0xff, 0xff,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00].as_slice(),
