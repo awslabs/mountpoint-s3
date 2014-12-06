@@ -571,7 +571,7 @@ mod test {
     fn serialize_empty () {
         let data = ();
         as_bytes(&data, |bytes| {
-            assert!(bytes == &[]);
+            assert!(bytes.is_empty());
         });
     }
 

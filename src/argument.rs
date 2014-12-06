@@ -93,7 +93,7 @@ mod test {
         it.fetch_str();
         it.fetch_str();
         let arg = it.fetch_data();
-        assert!(arg == &[0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
+        assert!(arg == [0x62, 0x61, 0x7a, 0x00].as_slice(), "argument iterator should fetch data from data");
     }
 
     #[test]
@@ -106,6 +106,6 @@ mod test {
         let arg = it.fetch_str();
         assert!(arg == b"bar", "argument iterator should fetch string from data");
         let arg = it.fetch_data();
-        assert!(arg == &[0x62, 0x61, 0x7a, 0x00], "argument iterator should fetch data from data");
+        assert!(arg == [0x62, 0x61, 0x7a, 0x00].as_slice(), "argument iterator should fetch data from data");
     }
 }
