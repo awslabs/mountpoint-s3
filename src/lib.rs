@@ -38,6 +38,7 @@ mod request;
 mod session;
 
 /// File attributes
+#[deriving(Copy)]
 pub struct FileAttr {
     /// Inode number
     pub ino: u64,

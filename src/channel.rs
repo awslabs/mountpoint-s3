@@ -122,6 +122,7 @@ impl Drop for Channel {
     }
 }
 
+#[deriving(Copy)]
 pub struct ChannelSender {
     fd: c_int,
 }

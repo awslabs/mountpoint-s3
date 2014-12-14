@@ -28,7 +28,7 @@ pub trait Reply {
 }
 
 /// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
-fn as_bytes<T: Copy, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
+fn as_bytes<T, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
     let len = mem::size_of::<T>();
     match len {
         0 => f(&[]),
@@ -110,13 +110,13 @@ pub struct ReplyRaw<T> {
     sender: Option<proc(&[&[u8]]):Send>,
 }
 
-impl<T: Copy> Reply for ReplyRaw<T> {
+impl<T> Reply for ReplyRaw<T> {
     fn new (unique: u64, sender: proc(&[&[u8]]):Send) -> ReplyRaw<T> {
         ReplyRaw { unique: unique, sender: Some(sender) }
     }
 }
 
-impl<T: Copy> ReplyRaw<T> {
+impl<T> ReplyRaw<T> {
     /// Reply to a request with the given error code and data. Must be called
     /// only once (the `ok` and `error` methods ensure this by consuming `self`)
     fn send (&mut self, err: c_int, bytes: &[&[u8]]) {
@@ -149,7 +149,7 @@ impl<T: Copy> ReplyRaw<T> {
 }
 
 #[unsafe_destructor]
-impl<T: Copy> Drop for ReplyRaw<T> {
+impl<T> Drop for ReplyRaw<T> {
     fn drop (&mut self) {
         if self.sender.is_some() {
             warn!("Reply not sent for operation {}, replying with I/O error", self.unique);
