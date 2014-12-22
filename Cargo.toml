@@ -1,14 +1,20 @@
-[project]
+[package]
 name = "fuse"
 version = "0.2.0"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
+description = "Rust library for filesystems in userspace (FUSE)"
+homepage = "https://github.com/zargony/rust-fuse"
+repository = "https://github.com/zargony/rust-fuse"
+readme = "README.md"
+keywords = ["fuse", "filesystem", "system", "bindings"]
+license = "MIT"
+
+[dependencies]
+time = "*"
 
 [lib]
 name = "fuse"
 path = "src/lib.rs"
-
-[dependencies.time]
-git = "http://github.com/rust-lang/time"
 
 [[bin]]
 name = "hello"
