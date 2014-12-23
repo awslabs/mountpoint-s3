@@ -82,9 +82,9 @@ mod test {
     fn path_argument () {
         let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg = it.fetch_path();
-        assert_eq!(arg.as_str(), Some("foo"));
+        assert!(arg == PosixPath::new("foo"));
         let arg = it.fetch_path();
-        assert_eq!(arg.as_str(), Some("bar"));
+        assert!(arg == PosixPath::new("bar"));
     }
 
     #[test]
