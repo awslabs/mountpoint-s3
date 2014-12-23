@@ -597,6 +597,14 @@ mod test {
     }
 
     #[test]
+    fn serialize_tuple () {
+        let data = (Data { a: 0x12, b: 0x34, c: 0x5678 }, Data { a: 0x9a, b: 0xbc, c: 0xdef0 });
+        as_bytes(&data, |bytes| {
+            assert_eq!(bytes, [[0x12, 0x34, 0x78, 0x56, 0x9a, 0xbc, 0xf0, 0xde].as_slice()].as_slice());
+        });
+    }
+
+    #[test]
     fn reply_raw () {
         let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
         let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, |bytes| {
