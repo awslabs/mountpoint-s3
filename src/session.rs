@@ -115,7 +115,7 @@ impl BackgroundSession {
         // The background task is started using a a new native thread
         // since native I/O in the session loop can block
         let task = TaskBuilder::new().named(format!("FUSE {}", mountpoint.display()));
-        task.spawn(proc() {
+        task.spawn(move || {
             let mut se = se;
             se.run();
         });

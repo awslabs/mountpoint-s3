@@ -7,7 +7,7 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#![feature(globs, phase, unsafe_destructor)]
+#![feature(globs, phase, unsafe_destructor, default_type_params)]
 
 #![warn(missing_docs, unused_qualifications, unused_typecasts)]
 
