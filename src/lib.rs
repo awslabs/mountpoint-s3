@@ -358,7 +358,7 @@ pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &
 }
 
 /// Mount the given filesystem to the given mountpoint. This function spawns
-/// a background task to handle filesystem operations while being mounted
+/// a background thread to handle filesystem operations while being mounted
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.

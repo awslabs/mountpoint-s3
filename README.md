@@ -25,7 +25,7 @@ To create a new filesystem, implement the trait `Filesystem`. Filesystem operati
 
 To actually mount the filesystem, pass an object that implements `Filesystem` and the path of an (existing) mountpoint to the `mount` function. `mount` will not return until the filesystem is unmounted.
 
-To mount a filesystem and keep running other code, use `spawn_mount` instead of `mount`. `spawn_mount` spawns a background task to handle filesystem operations while the filesystem is mounted. It returns a handle that should be stored to reference the mounted filesystem. If the handle is dropped, the filesystem is unmounted.
+To mount a filesystem and keep running other code, use `spawn_mount` instead of `mount`. `spawn_mount` spawns a background thread to handle filesystem operations while the filesystem is mounted. It returns a handle that should be stored to reference the mounted filesystem. If the handle is dropped, the filesystem is unmounted.
 
 To unmount a filesystem, use any arbitrary unmount/eject method of your OS.
 

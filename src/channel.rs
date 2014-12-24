@@ -87,9 +87,8 @@ impl Channel {
         }))
     }
 
-    /// Receives data up to the size of the given buffer and returns the size
-    /// of the received data.
-    /// Note: Can block natively, so it should be called from a separate thread
+    /// Receives data up to the size of the given buffer (can block) and returns
+    /// the size of the received data.
     pub fn receive (&self, buffer: &mut [u8]) -> Result<uint, c_int> {
         let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.len() as size_t) };
         if rc < 0 {
@@ -101,7 +100,7 @@ impl Channel {
 
     /// Returns a sender object for this channel. The sender object can be
     /// used to send to the channel. Multiple sender objects can be used
-    /// and they can safely be sent to other tasks.
+    /// and they can safely be sent to other threads.
     pub fn sender (&self) -> ChannelSender {
         // Since write/writev syscalls are threadsafe, we can simply create
         // a sender by using the same fd and use it in other threads. Only
@@ -128,8 +127,7 @@ pub struct ChannelSender {
 }
 
 impl ChannelSender {
-    /// Send all data in the slice of slice of bytes in a single write.
-    /// Note: Can block natively, so it should be called from a separate thread
+    /// Send all data in the slice of slice of bytes in a single write (can block).
     pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
         let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
             libc::iovec { iov_base: d.as_ptr() as *const c_void, iov_len: d.len() as size_t }

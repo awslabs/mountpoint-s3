@@ -1,7 +1,7 @@
 //!
 //! A reply is passed to filesystem operation implementations and must
 //! be used to send back the result of an operation.
-//! The reply can optionally be sent to another task to asynchronously
+//! The reply can optionally be sent to another thread to asynchronously
 //! work on an operation and provide the result later. Also it allows
 //! replying with a block of data without cloning the data.
 //! A reply *must always* be used (by calling either ok() or error()

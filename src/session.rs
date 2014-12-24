@@ -6,7 +6,7 @@
 //! operations under its mount point.
 //!
 
-use std::task::TaskBuilder;
+use std::thread::{Builder, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
 use channel::Channel;
@@ -62,9 +62,7 @@ impl<FS: Filesystem+Send> Session<FS> {
     /// Run the session loop that receives kernel requests and dispatches them to method
     /// calls into the filesystem. This read-dispatch-loop is non-concurrent to prevent
     /// having multiple buffers (which take up much memory), but the filesystem methods
-    /// may run concurrent by spawning tasks.
-    /// Make sure to run this on a new single threaded scheduler since native I/O in the
-    /// session loop can block.
+    /// may run concurrent by spawning threads.
     pub fn run (&mut self) {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
@@ -86,7 +84,7 @@ impl<FS: Filesystem+Send> Session<FS> {
         }
     }
 
-    /// Run the session loop in a background task
+    /// Run the session loop in a background thread
     pub fn spawn (self) -> BackgroundSession {
         BackgroundSession::new(self)
     }
@@ -104,22 +102,22 @@ impl<FS: Filesystem+Send> Drop for Session<FS> {
 pub struct BackgroundSession {
     /// Path of the mounted filesystem
     pub mountpoint: Path,
+    /// Thread guard of the background session
+    pub guard: JoinGuard<()>,
 }
 
 impl BackgroundSession {
     /// Create a new background session for the given session by running its
-    /// session loop in a background task. If the returned handle is dropped,
+    /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
     pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
         let mountpoint = se.mountpoint.clone();
-        // The background task is started using a a new native thread
-        // since native I/O in the session loop can block
-        let task = TaskBuilder::new().named(format!("FUSE {}", mountpoint.display()));
-        task.spawn(move || {
+        let thread = Builder::new().name(format!("FUSE {}", mountpoint.display()));
+        let guard = thread.spawn(move || {
             let mut se = se;
             se.run();
         });
-        BackgroundSession { mountpoint: mountpoint }
+        BackgroundSession { mountpoint: mountpoint, guard: guard }
     }
 }
 
@@ -127,7 +125,7 @@ impl Drop for BackgroundSession {
     fn drop (&mut self) {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,
-        // drop the session and hence end the background task.
+        // drop the session and hence end the background thread.
         channel::unmount(&self.mountpoint);
     }
 }
