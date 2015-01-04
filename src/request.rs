@@ -4,6 +4,7 @@
 //!
 
 use std::mem;
+use std::num::FromPrimitive;
 use libc::consts::os::posix88::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
 use argument::ArgumentIterator;

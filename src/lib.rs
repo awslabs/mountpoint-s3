@@ -17,6 +17,7 @@ extern crate log;
 extern crate time;
 
 use std::io::{FileType, FilePermission};
+use std::path::posix::Path;
 use libc::c_int;
 use libc::consts::os::posix88::ENOSYS;
 use time::Timespec;
@@ -38,7 +39,7 @@ mod request;
 mod session;
 
 /// File attributes
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct FileAttr {
     /// Inode number
     pub ino: u64,
@@ -89,7 +90,7 @@ pub trait Filesystem {
     }
 
     /// Look up a directory entry by name and get its attributes.
-    fn lookup (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, reply: ReplyEntry) {
+    fn lookup (&mut self, _req: &Request, _parent: u64, _name: &Path, reply: ReplyEntry) {
         reply.error(ENOSYS);
     }
 
@@ -120,37 +121,37 @@ pub trait Filesystem {
 
     /// Create file node
     /// Create a regular file, character device, block device, fifo or socket node.
-    fn mknod (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _rdev: u32, reply: ReplyEntry) {
+    fn mknod (&mut self, _req: &Request, _parent: u64, _name: &Path, _mode: u32, _rdev: u32, reply: ReplyEntry) {
         reply.error(ENOSYS);
     }
 
     /// Create a directory
-    fn mkdir (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, reply: ReplyEntry) {
+    fn mkdir (&mut self, _req: &Request, _parent: u64, _name: &Path, _mode: u32, reply: ReplyEntry) {
         reply.error(ENOSYS);
     }
 
     /// Remove a file
-    fn unlink (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, reply: ReplyEmpty) {
+    fn unlink (&mut self, _req: &Request, _parent: u64, _name: &Path, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
     /// Remove a directory
-    fn rmdir (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, reply: ReplyEmpty) {
+    fn rmdir (&mut self, _req: &Request, _parent: u64, _name: &Path, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
     /// Create a symbolic link
-    fn symlink (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _link: &PosixPath, reply: ReplyEntry) {
+    fn symlink (&mut self, _req: &Request, _parent: u64, _name: &Path, _link: &Path, reply: ReplyEntry) {
         reply.error(ENOSYS);
     }
 
     /// Rename a file
-    fn rename (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, reply: ReplyEmpty) {
+    fn rename (&mut self, _req: &Request, _parent: u64, _name: &Path, _newparent: u64, _newname: &Path, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
     /// Create a hard link
-    fn link (&mut self, _req: &Request, _ino: u64, _newparent: u64, _newname: &PosixPath, reply: ReplyEntry) {
+    fn link (&mut self, _req: &Request, _ino: u64, _newparent: u64, _newname: &Path, reply: ReplyEntry) {
         reply.error(ENOSYS);
     }
 
@@ -303,7 +304,7 @@ pub trait Filesystem {
     /// structure in <fuse_common.h> for more details. If this method is not
     /// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
     /// and open() methods will be called instead.
-    fn create (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _flags: uint, reply: ReplyCreate) {
+    fn create (&mut self, _req: &Request, _parent: u64, _name: &Path, _mode: u32, _flags: uint, reply: ReplyCreate) {
         reply.error(ENOSYS);
     }
 
@@ -339,7 +340,7 @@ pub trait Filesystem {
 
     /// OS X only (undocumented)
     #[cfg(target_os = "macos")]
-    fn exchange (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, _options: uint, reply: ReplyEmpty) {
+    fn exchange (&mut self, _req: &Request, _parent: u64, _name: &Path, _newparent: u64, _newname: &Path, _options: uint, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 

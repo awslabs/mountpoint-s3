@@ -2,7 +2,7 @@
 //! FUSE native interface declarations (as of libosxfuse-2.5.5).
 //!
 
-#![allow(non_camel_case_types, missing_docs)]
+#![allow(non_camel_case_types, missing_docs, dead_code)]
 
 use libc::{c_int, c_char};
 
@@ -77,7 +77,7 @@ pub struct fuse_kstatfs {
     pub namelen: u32,           // Maximum filename length
     pub frsize: u32,            // Fundamental file system block size
     pub padding: u32,
-    pub spare: [u32, ..6],
+    pub spare: [u32; 6],
 }
 
 pub struct fuse_file_lock {
@@ -132,7 +132,7 @@ pub mod consts {
     pub const FUSE_RELEASE_FLUSH: u32       = 1 << 0;
 }
 
-#[deriving(FromPrimitive)]
+#[derive(FromPrimitive)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
     FUSE_FORGET = 2,            // no reply
