@@ -3,6 +3,8 @@
 //!
 
 use std::os;
+use std::c_str::{CString, ToCStr};
+use std::path::posix::Path;
 use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
@@ -35,15 +37,15 @@ mod libc {
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
-fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
+fn real_path (path: &Path) -> Result<Path, c_int> {
     path.with_c_str(|p| {
-        let mut resolved = [0, ..libc::PATH_MAX as uint];
+        let mut resolved = [0; libc::PATH_MAX as uint];
         unsafe {
             let rp = libc::realpath(p, resolved.as_mut_ptr());
             if rp.is_null() {
                 Err(::std::os::errno() as c_int)
             } else {
-                Ok(PosixPath::new(::std::c_str::CString::new(rp,false)))
+                Ok(Path::new(::std::c_str::CString::new(rp,false)))
             }
         }
     })
@@ -53,12 +55,12 @@ fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
     let progname = "rust-fuse";
-    let args = Vec::from_fn(1+options.len(), |i| {
+    let args: Vec<CString> = range(0, 1+options.len()).map(|i| {
         match i {
             0 => progname.to_c_str(),
             _ => options[i-1].to_c_str(),
         }
-    });
+    }).collect();
     let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
@@ -121,7 +123,7 @@ impl Drop for Channel {
     }
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct ChannelSender {
     fd: c_int,
 }

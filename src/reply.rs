@@ -10,6 +10,7 @@
 
 use std::{mem, ptr, slice};
 use std::io::{FileType, FilePermission};
+use std::path::posix::Path;
 use std::thunk::Invoke;
 use libc::c_int;
 use libc::consts::os::posix88::EIO;
@@ -390,7 +391,7 @@ impl ReplyStatfs {
                 namelen: namelen,
                 frsize: frsize,
                 padding: 0,
-                spare: [0, ..6],
+                spare: [0; 6],
             },
         });
     }
@@ -523,7 +524,7 @@ impl ReplyDirectory {
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
-    pub fn add (&mut self, ino: u64, offset: u64, kind: FileType, name: &PosixPath) -> bool {
+    pub fn add (&mut self, ino: u64, offset: u64, kind: FileType, name: &Path) -> bool {
         let name = name.as_vec();
         let entlen = mem::size_of::<fuse_dirent>() + name.len();
         let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);  // 64bit align
@@ -582,7 +583,7 @@ mod test {
 
     #[test]
     fn serialize_slice () {
-        let data: [u8, ..4] = [0x12, 0x34, 0x56, 0x78];
+        let data: [u8; 4] = [0x12, 0x34, 0x56, 0x78];
         as_bytes(&data, |bytes| {
             assert_eq!(bytes, [[0x12, 0x34, 0x56, 0x78].as_slice()].as_slice());
         });
@@ -838,8 +839,8 @@ mod test {
                  0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,  0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73].as_slice(),
             ].as_slice());
         });
-        reply.add(0xaabb, 1, FileType::Directory, &PosixPath::new("hello"));
-        reply.add(0xccdd, 2, FileType::RegularFile, &PosixPath::new("world.rs"));
+        reply.add(0xaabb, 1, FileType::Directory, &Path::new("hello"));
+        reply.add(0xccdd, 2, FileType::RegularFile, &Path::new("world.rs"));
         reply.ok();
     }
 }

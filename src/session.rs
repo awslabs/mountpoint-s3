@@ -6,6 +6,7 @@
 //! operations under its mount point.
 //!
 
+use std::iter;
 use std::thread::{Builder, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
@@ -66,7 +67,7 @@ impl<FS: Filesystem+Send> Session<FS> {
     pub fn run (&mut self) {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
-        let mut buffer = Vec::from_elem(BUFFER_SIZE, 0u8);
+        let mut buffer: Vec<u8> = iter::repeat(0u8).take(BUFFER_SIZE).collect();
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
