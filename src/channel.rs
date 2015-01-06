@@ -168,7 +168,7 @@ mod test {
     fn fuse_args () {
         with_fuse_args(&[b"foo", b"bar"], |args| {
             assert!(args.argc == 3);
-            let cmp_arg = |i, val: &[u8]| {
+            let cmp_arg = |&: i, val: &[u8]| {
                 let arg = unsafe { CString::new(*args.argv.offset(i), false) };
                 assert_eq!(arg.as_bytes(), val);
             };
