@@ -53,7 +53,7 @@ fn real_path (path: &Path) -> Result<Path, c_int> {
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T> (options: &[&[u8]], f: |&fuse_args| -> T) -> T {
+fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&[u8]], f: F) -> T {
     let progname = "rust-fuse";
     let args: Vec<CString> = range(0, 1+options.len()).map(|i| {
         match i {

@@ -30,7 +30,7 @@ pub trait Reply {
 }
 
 /// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
-fn as_bytes<T, U> (data: &T, f: |&[&[u8]]| -> U) -> U {
+fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
     let len = mem::size_of::<T>();
     match len {
         0 => f(&[]),
