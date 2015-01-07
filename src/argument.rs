@@ -4,7 +4,7 @@
 //!
 
 use std::mem;
-use std::path::posix::Path;
+use std::path::PosixPath;
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'a> {
@@ -37,8 +37,8 @@ impl<'a> ArgumentIterator<'a> {
     }
 
     /// Fetch a (zero-terminated) Posix path
-    pub fn fetch_path (&mut self) -> Path {
-        Path::new(self.fetch_str())
+    pub fn fetch_path (&mut self) -> PosixPath {
+        PosixPath::new(self.fetch_str())
     }
 
     /// Fetch a slice of the remaining data
@@ -52,6 +52,7 @@ impl<'a> ArgumentIterator<'a> {
 
 #[cfg(test)]
 mod test {
+    use std::path::PosixPath;
     use super::ArgumentIterator;
 
     static TEST_DATA: [u8; 12] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61, 0x7a, 0x00];
@@ -83,9 +84,9 @@ mod test {
     fn path_argument () {
         let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg = it.fetch_path();
-        assert!(arg == Path::new("foo"));
+        assert!(arg == PosixPath::new("foo"));
         let arg = it.fetch_path();
-        assert!(arg == Path::new("bar"));
+        assert!(arg == PosixPath::new("bar"));
     }
 
     #[test]

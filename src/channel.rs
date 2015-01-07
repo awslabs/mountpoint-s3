@@ -4,7 +4,7 @@
 
 use std::{ffi, os};
 use std::ffi::CString;
-use std::path::posix::Path;
+use std::path::PosixPath;
 use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
@@ -37,14 +37,14 @@ mod libc {
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
-fn real_path (path: &Path) -> Result<Path, c_int> {
+fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
     let cpath = CString::from_slice(path.as_vec());
     let mut resolved = [0; libc::PATH_MAX as uint];
     unsafe {
         if libc::realpath(cpath.as_ptr(), resolved.as_mut_ptr()).is_null() {
             Err(os::errno() as c_int)
         } else {
-            Ok(Path::new(ffi::c_str_to_bytes(&resolved.as_ptr())))
+            Ok(PosixPath::new(ffi::c_str_to_bytes(&resolved.as_ptr())))
         }
     }
 }

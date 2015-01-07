@@ -4,7 +4,7 @@ extern crate time;
 
 use std::io::{FileType, USER_FILE, USER_DIR};
 use std::os;
-use std::path::posix::Path;
+use std::path::PosixPath;
 use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
@@ -52,7 +52,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 struct HelloFS;
 
 impl Filesystem for HelloFS {
-    fn lookup (&mut self, _req: &Request, parent: u64, name: &Path, reply: ReplyEntry) {
+    fn lookup (&mut self, _req: &Request, parent: u64, name: &PosixPath, reply: ReplyEntry) {
         if parent == 1 && name.as_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
         } else {
@@ -79,9 +79,9 @@ impl Filesystem for HelloFS {
     fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, mut reply: ReplyDirectory) {
         if ino == 1 {
             if offset == 0 {
-                reply.add(1, 0, FileType::Directory, &Path::new("."));
-                reply.add(1, 1, FileType::Directory, &Path::new(".."));
-                reply.add(2, 2, FileType::RegularFile, &Path::new("hello.txt"));
+                reply.add(1, 0, FileType::Directory, &PosixPath::new("."));
+                reply.add(1, 1, FileType::Directory, &PosixPath::new(".."));
+                reply.add(2, 2, FileType::RegularFile, &PosixPath::new("hello.txt"));
             }
             reply.ok();
         } else {
