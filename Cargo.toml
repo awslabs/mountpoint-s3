@@ -2,12 +2,16 @@
 name = "fuse"
 version = "0.2.0"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
+build = "build.rs"
 description = "Rust library for filesystems in userspace (FUSE)"
 homepage = "https://github.com/zargony/rust-fuse"
 repository = "https://github.com/zargony/rust-fuse"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
 license = "MIT"
+
+[build-dependencies]
+pkg-config = "*"
 
 [dependencies]
 log = "*"

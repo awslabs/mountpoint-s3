@@ -6,16 +6,6 @@
 
 use libc::{c_int, c_char};
 
-// Link with libosxfuse on OS X
-#[cfg(target_os = "macos")]
-#[link(name = "osxfuse")]
-extern "system" { }
-
-// Link with libfuse on Linux
-#[cfg(target_os = "linux")]
-#[link(name = "fuse")]
-extern "system" { }
-
 //
 // FUSE arguments (see fuse_opt.h for details)
 //
