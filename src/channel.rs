@@ -2,8 +2,8 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
-use std::os;
-use std::c_str::{CString, ToCStr};
+use std::{ffi, os};
+use std::ffi::CString;
 use std::path::posix::Path;
 use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
@@ -38,17 +38,15 @@ mod libc {
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &Path) -> Result<Path, c_int> {
-    path.with_c_str(|p| {
-        let mut resolved = [0; libc::PATH_MAX as uint];
-        unsafe {
-            let rp = libc::realpath(p, resolved.as_mut_ptr());
-            if rp.is_null() {
-                Err(::std::os::errno() as c_int)
-            } else {
-                Ok(Path::new(::std::c_str::CString::new(rp,false)))
-            }
+    let cpath = CString::from_slice(path.as_vec());
+    let mut resolved = [0; libc::PATH_MAX as uint];
+    unsafe {
+        if libc::realpath(cpath.as_ptr(), resolved.as_mut_ptr()).is_null() {
+            Err(os::errno() as c_int)
+        } else {
+            Ok(Path::new(ffi::c_str_to_bytes(&resolved.as_ptr())))
         }
-    })
+    }
 }
 
 /// Helper function to provide options as a fuse_args struct
@@ -57,8 +55,8 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&[u8]], f: F) -> T 
     let progname = "rust-fuse";
     let args: Vec<CString> = range(0, 1+options.len()).map(|i| {
         match i {
-            0 => progname.to_c_str(),
-            _ => options[i-1].to_c_str(),
+            0 => CString::from_slice(progname.as_bytes()),
+            _ => CString::from_slice(options[i-1]),
         }
     }).collect();
     let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
@@ -77,8 +75,9 @@ impl Channel {
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
     pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
-        real_path(mountpoint).and_then(|mountpoint| mountpoint.with_c_str(|mnt| {
+        real_path(mountpoint).and_then(|mountpoint| {
             with_fuse_args(options, |args| {
+                let mnt = CString::from_slice(mountpoint.as_vec()).as_ptr();
                 let fd = unsafe { fuse_mount_compat25(mnt, args) };
                 if fd < 0 {
                     Err(os::errno() as c_int)
@@ -86,7 +85,7 @@ impl Channel {
                     Ok(Channel { mountpoint: mountpoint.clone(), fd: fd })
                 }
             })
-        }))
+        })
     }
 
     /// Receives data up to the size of the given buffer (can block) and returns
@@ -145,36 +144,31 @@ impl ChannelSender {
 
 /// Unmount an arbitrary mount point
 pub fn unmount (mountpoint: &Path) {
-    mountpoint.with_c_str(|mnt| {
-        // On OS X, fuse_unmount_compat22 attempts to call realpath, which in turn calls into the filesystem.
-        // If the filesystem returns an error, the unmount does not take place, with no indication of the error
-        // available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
-        // we already converted to the real path when we first mounted.
-        if cfg!(target_os = "macos") {
-            unsafe { libc::unmount(mnt, 0); }
-        } else {
-            unsafe { fuse_unmount_compat22(mnt); }
-        }
-    })
+    // On OS X, fuse_unmount_compat22 attempts to call realpath, which in turn calls into the filesystem.
+    // If the filesystem returns an error, the unmount does not take place, with no indication of the error
+    // available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
+    // we already converted to the real path when we first mounted.
+    let mnt = CString::from_slice(mountpoint.as_vec()).as_ptr();
+    if cfg!(target_os = "macos") {
+        unsafe { libc::unmount(mnt, 0); }
+    } else {
+        unsafe { fuse_unmount_compat22(mnt); }
+    }
 }
 
 
 #[cfg(test)]
 mod test {
     use super::with_fuse_args;
-    use std::c_str::CString;
+    use std::ffi;
 
     #[test]
     fn fuse_args () {
         with_fuse_args(&[b"foo", b"bar"], |args| {
             assert!(args.argc == 3);
-            let cmp_arg = |&: i, val: &[u8]| {
-                let arg = unsafe { CString::new(*args.argv.offset(i), false) };
-                assert_eq!(arg.as_bytes(), val);
-            };
-            cmp_arg(0, b"rust-fuse\0");
-            cmp_arg(1, b"foo\0");
-            cmp_arg(2, b"bar\0");
+            assert_eq!(unsafe { ffi::c_str_to_bytes(&*args.argv.offset(0)) }, b"rust-fuse");
+            assert_eq!(unsafe { ffi::c_str_to_bytes(&*args.argv.offset(1)) }, b"foo");
+            assert_eq!(unsafe { ffi::c_str_to_bytes(&*args.argv.offset(2)) }, b"bar");
         });
     }
 }

@@ -7,12 +7,11 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#![feature(globs, phase, unsafe_destructor, default_type_params)]
-
+#![feature(unsafe_destructor)]
 #![warn(missing_docs, unused_qualifications, unused_typecasts)]
 
 extern crate libc;
-#[phase(link, plugin)]
+#[macro_use]
 extern crate log;
 extern crate time;
 
