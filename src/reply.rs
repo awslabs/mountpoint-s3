@@ -114,7 +114,7 @@ pub struct ReplyRaw<T> {
 
 impl<T> Reply for ReplyRaw<T> {
     fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyRaw<T> {
-        let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = box sender;
+        let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = Box::new(sender);
         ReplyRaw { unique: unique, sender: Some(sender) }
     }
 }
