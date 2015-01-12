@@ -68,9 +68,9 @@ impl Filesystem for HelloFS {
         }
     }
 
-    fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, _size: uint, reply: ReplyData) {
+    fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, _size: usize, reply: ReplyData) {
         if ino == 2 {
-            reply.data(HELLO_TXT_CONTENT.as_bytes().slice_from(offset as uint));
+            reply.data(HELLO_TXT_CONTENT.as_bytes().slice_from(offset as usize));
         } else {
             reply.error(ENOENT);
         }

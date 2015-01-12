@@ -17,11 +17,11 @@ use request::{request, dispatch};
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on OS X
 /// and 128k on other systems.
-pub const MAX_WRITE_SIZE: uint = 16*1024*1024;
+pub const MAX_WRITE_SIZE: usize = 16*1024*1024;
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-const BUFFER_SIZE: uint = MAX_WRITE_SIZE + 4096;
+const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 /// The session data structure
 pub struct Session<FS> {
@@ -32,9 +32,9 @@ pub struct Session<FS> {
     /// Communication channel to the kernel driver
     ch: Channel,
     /// FUSE protocol major version
-    pub proto_major: uint,
+    pub proto_major: usize,
     /// FUSE protocol minor version
-    pub proto_minor: uint,
+    pub proto_minor: usize,
     /// True if the filesystem is initialized (init operation done)
     pub initialized: bool,
     /// True if the filesystem was destroyed (destroy operation done)

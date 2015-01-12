@@ -9,7 +9,7 @@ use std::path::PosixPath;
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'a> {
     data: &'a [u8],
-    pos: uint,
+    pos: usize,
 }
 
 impl<'a> ArgumentIterator<'a> {
@@ -20,7 +20,7 @@ impl<'a> ArgumentIterator<'a> {
 
     /// Fetch a typed argument
     pub fn fetch<T> (&mut self) -> &'a T {
-        let value = unsafe { mem::transmute(self.data.as_ptr().offset(self.pos as int)) };
+        let value = unsafe { mem::transmute(self.data.as_ptr().offset(self.pos as isize)) };
         self.pos += mem::size_of::<T>();
         assert!(self.pos <= self.data.len(), "trying to fetch argument behind data");
         value
