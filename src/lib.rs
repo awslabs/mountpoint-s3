@@ -362,6 +362,6 @@ pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
-pub fn spawn_mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> BackgroundSession {
+pub fn spawn_mount<'a, FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> BackgroundSession<'a> {
     Session::new(filesystem, mountpoint, options).spawn()
 }
