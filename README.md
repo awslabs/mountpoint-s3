@@ -19,7 +19,20 @@ The kernel driver is provided by the FUSE project, the userspace implementation 
 
 Except for a single setup (mount) function call and a final teardown (umount) function call to libfuse, everything runs in Rust.
 
-## How to
+## Usage
+
+Put this in your `Cargo.toml`:
+
+```toml
+[dependencies]
+fuse = "*"
+```
+
+and in your crate root:
+
+```rust
+extern crate fuse;
+```
 
 To create a new filesystem, implement the trait `Filesystem`. Filesystem operations from the kernel are dispatched to the methods of the `Filesystem` trait. Most methods get a `reply` parameter that must be used to eventually answer the request. All methods have default implementations that reply with neutral answers, so if you implement no method at all, you still get a mountable filesystem that does nothing.
 
@@ -38,8 +51,8 @@ There's still a lot of stuff to be done. Feel free to contribute.
 - Interrupting a filesystem operation isn't handled yet.
 - An additional more high level API would be nice. It should provide pathnames instead inode numbers and automatically handle concurrency and interruption (like the FUSE C library's high level API).
 
-In general, search for "TODO" or "FIXME" in the source files to see what's still missing.
+In general, see the [list of issues](https://github.com/zargony/rust-fuse/issues) on GitHub and search the source files for comments containing "TODO" or "FIXME" to see what's still missing.
 
 ## Compatibility
 
-Developed and tested on a Mac with [OSXFUSE](http://osxfuse.github.io) and [FUSE on Linux](http://fuse.sourceforge.net). It should (maybe with minor adjustments) also work with [FUSE on FreeBSD](https://wiki.freebsd.org/FuseFilesystem).
+Developed and tested using [Rust nightly versions](http://www.rust-lang.org/install.html) on Mac with [OSXFUSE](http://osxfuse.github.io) and on Linux with [FUSE](http://fuse.sourceforge.net) (see [Travis CI](https://travis-ci.org/zargony/rust-fuse) for details). It should (maybe with minor adjustments) also work with [FUSE on FreeBSD](https://wiki.freebsd.org/FuseFilesystem).
