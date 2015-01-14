@@ -17,11 +17,11 @@ use request::{request, dispatch};
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on OS X
 /// and 128k on other systems.
-pub const MAX_WRITE_SIZE: uint = 16*1024*1024;
+pub const MAX_WRITE_SIZE: usize = 16*1024*1024;
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-const BUFFER_SIZE: uint = MAX_WRITE_SIZE + 4096;
+const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 /// The session data structure
 pub struct Session<FS> {
@@ -32,9 +32,9 @@ pub struct Session<FS> {
     /// Communication channel to the kernel driver
     ch: Channel,
     /// FUSE protocol major version
-    pub proto_major: uint,
+    pub proto_major: usize,
     /// FUSE protocol minor version
-    pub proto_minor: uint,
+    pub proto_minor: usize,
     /// True if the filesystem is initialized (init operation done)
     pub initialized: bool,
     /// True if the filesystem was destroyed (destroy operation done)
@@ -86,7 +86,7 @@ impl<FS: Filesystem+Send> Session<FS> {
     }
 
     /// Run the session loop in a background thread
-    pub fn spawn (self) -> BackgroundSession {
+    pub fn spawn<'a> (self) -> BackgroundSession<'a> {
         BackgroundSession::new(self)
     }
 }
@@ -100,21 +100,21 @@ impl<FS: Filesystem+Send> Drop for Session<FS> {
 }
 
 /// The background session data structure
-pub struct BackgroundSession {
+pub struct BackgroundSession<'a> {
     /// Path of the mounted filesystem
     pub mountpoint: Path,
     /// Thread guard of the background session
-    pub guard: JoinGuard<()>,
+    pub guard: JoinGuard<'a ()>,
 }
 
-impl BackgroundSession {
+impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession {
+    pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession<'a> {
         let mountpoint = se.mountpoint.clone();
-        let thread = Builder::new().name(format!("FUSE {}", mountpoint.display()));
-        let guard = thread.spawn(move || {
+        let builder = Builder::new().name(format!("FUSE {}", mountpoint.display()));
+        let guard = builder.scoped(move || {
             let mut se = se;
             se.run();
         });
@@ -122,7 +122,8 @@ impl BackgroundSession {
     }
 }
 
-impl Drop for BackgroundSession {
+#[unsafe_destructor]
+impl<'a> Drop for BackgroundSession<'a> {
     fn drop (&mut self) {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,

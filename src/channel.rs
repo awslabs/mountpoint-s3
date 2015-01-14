@@ -32,14 +32,14 @@ mod libc {
     }
 
     /// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
-    pub const PATH_MAX: int = 4096;
+    pub const PATH_MAX: isize = 4096;
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
     let cpath = CString::from_slice(path.as_vec());
-    let mut resolved = [0; libc::PATH_MAX as uint];
+    let mut resolved = [0; libc::PATH_MAX as usize];
     unsafe {
         if libc::realpath(cpath.as_ptr(), resolved.as_mut_ptr()).is_null() {
             Err(os::errno() as c_int)
@@ -90,12 +90,12 @@ impl Channel {
 
     /// Receives data up to the size of the given buffer (can block) and returns
     /// the size of the received data.
-    pub fn receive (&self, buffer: &mut [u8]) -> Result<uint, c_int> {
+    pub fn receive (&self, buffer: &mut [u8]) -> Result<usize, c_int> {
         let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.len() as size_t) };
         if rc < 0 {
             Err(os::errno() as c_int)
         } else {
-            Ok(rc as uint)
+            Ok(rc as usize)
         }
     }
 

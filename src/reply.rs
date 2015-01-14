@@ -114,7 +114,7 @@ pub struct ReplyRaw<T> {
 
 impl<T> Reply for ReplyRaw<T> {
     fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyRaw<T> {
-        let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = box sender;
+        let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = Box::new(sender);
         ReplyRaw { unique: unique, sender: Some(sender) }
     }
 }
@@ -503,7 +503,7 @@ impl ReplyBmap {
 ///
 pub struct ReplyDirectory {
     reply: ReplyRaw<()>,
-    size: uint,
+    size: usize,
     data: Vec<u8>,
 }
 
@@ -515,7 +515,7 @@ impl Reply for ReplyDirectory {
 
 impl ReplyDirectory {
     /// Changes the max size of the directory buffer
-    pub fn sized (mut self, size: uint) -> ReplyDirectory {
+    pub fn sized (mut self, size: usize) -> ReplyDirectory {
         self.size = size;
         self.data.reserve(size);
         self
@@ -531,15 +531,15 @@ impl ReplyDirectory {
         let padlen = entsize - entlen;
         if self.data.len() + entsize > self.data.capacity() { return true; }
         unsafe {
-            let p = self.data.as_mut_ptr().offset(self.data.len() as int);
+            let p = self.data.as_mut_ptr().offset(self.data.len() as isize);
             let pdirent: *mut fuse_dirent = mem::transmute(p);
             (*pdirent).ino = ino;
             (*pdirent).off = offset;
             (*pdirent).namelen = name.len() as u32;
             (*pdirent).typ = mode_from_kind_and_perm(kind, FilePermission::empty()) >> 12;
-            let p = p.offset(mem::size_of_val(&*pdirent) as int);
+            let p = p.offset(mem::size_of_val(&*pdirent) as isize);
             ptr::copy_memory(p, name.as_ptr(), name.len());
-            let p = p.offset(name.len() as int);
+            let p = p.offset(name.len() as isize);
             ptr::zero_memory(p, padlen);
             let newlen = self.data.len() + entsize;
             self.data.set_len(newlen);
