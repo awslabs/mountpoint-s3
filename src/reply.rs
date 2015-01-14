@@ -563,6 +563,8 @@ impl ReplyDirectory {
 mod test {
     use std::io::{FileType, USER_FILE};
     use std::path::PosixPath;
+    use std::sync::mpsc::channel;
+    use std::thread::Thread;
     use time::Timespec;
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
@@ -843,5 +845,17 @@ mod test {
         reply.add(0xaabb, 1, FileType::Directory, &PosixPath::new("hello"));
         reply.add(0xccdd, 2, FileType::RegularFile, &PosixPath::new("world.rs"));
         reply.ok();
+    }
+
+    #[test]
+    fn async_reply () {
+        let (tx, rx) = channel::<()>();
+        let reply: ReplyEmpty = Reply::new(0xdeadbeef, move |_| {
+            tx.send(()).unwrap();
+        });
+        Thread::spawn(move || {
+            reply.ok();
+        });
+        rx.recv().unwrap();
     }
 }
