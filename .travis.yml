@@ -1,16 +1,24 @@
+os:
+  - linux
+  - osx
 language: rust
 env:
   global:
     - secure: atCJyliV0MQp8aNBrDc1iymeAxNJWFZPU0OmyhK94+/1FjU1pw7MU3cdSCN1dHY82/4bmKGsewRwCnpj5SPYPG2BbOSAuKobLvGO/mlagqFrdnJtmCmsGda0F2wZ3PNC30zfx0L+TsngB34URcgWGCfzPvyDS0JuHTIwl25YiX8=
 before_install:
-  - sudo apt-get update
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then sudo apt-get update; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew update; fi
 install:
-  - sudo apt-get install libfuse-dev
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then sudo apt-get install libfuse-dev; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install osxfuse; fi
+before_script:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then export DYLD_LIBRARY_PATH="$HOME/rust/lib"; fi
 script:
   - cargo build --verbose
   - cargo test --verbose
   - cargo doc --verbose
 after_success: |
-  [ $TRAVIS_BRANCH = master ] &&
-  mv target/doc . &&
-  (curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh)
+  if [ "$TRAVIS_BRANCH" = "master" ]; then
+    mv target/doc . &&
+    (curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh)
+  fi
