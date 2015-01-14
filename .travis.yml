@@ -11,6 +11,8 @@ before_install:
 install:
   - if [ "$TRAVIS_OS_NAME" = "linux" ]; then sudo apt-get install libfuse-dev; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install osxfuse; fi
+before_script:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then export DYLD_LIBRARY_PATH="$HOME/rust/lib"; fi
 script:
   - cargo build --verbose
   - cargo test --verbose
