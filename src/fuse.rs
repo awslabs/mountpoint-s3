@@ -34,6 +34,7 @@ pub const FUSE_KERNEL_VERSION: u32 = 7;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 8;
 pub const FUSE_ROOT_ID: u64 = 1;
 
+#[repr(C)]
 pub struct fuse_attr {
     pub ino: u64,
     pub size: u64,
@@ -57,6 +58,7 @@ pub struct fuse_attr {
     pub flags: u32,             // OS X only, see chflags(2)
 }
 
+#[repr(C)]
 pub struct fuse_kstatfs {
     pub blocks: u64,            // Total blocks (in units of frsize)
     pub bfree: u64,             // Free blocks
@@ -70,6 +72,7 @@ pub struct fuse_kstatfs {
     pub spare: [u32; 6],
 }
 
+#[repr(C)]
 pub struct fuse_file_lock {
     pub start: u64,
     pub end: u64,
@@ -122,6 +125,7 @@ pub mod consts {
     pub const FUSE_RELEASE_FLUSH: u32       = 1 << 0;
 }
 
+#[repr(C)]
 #[derive(FromPrimitive)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
@@ -168,6 +172,7 @@ pub enum fuse_opcode {
     FUSE_EXCHANGE = 63,         // OS X only
 }
 
+#[repr(C)]
 pub struct fuse_entry_out {
     pub nodeid: u64,
     pub generation: u64,
@@ -178,10 +183,12 @@ pub struct fuse_entry_out {
     pub attr: fuse_attr,
 }
 
+#[repr(C)]
 pub struct fuse_forget_in {
     pub nlookup: u64,
 }
 
+#[repr(C)]
 pub struct fuse_attr_out {
     pub attr_valid: i64,
     pub attr_valid_nsec: i32,
@@ -190,6 +197,7 @@ pub struct fuse_attr_out {
 }
 
 #[cfg(target_os = "macos")]
+#[repr(C)]
 pub struct fuse_getxtimes_out { // OS X only
     pub bkuptime: i64,
     pub crtime: i64,
@@ -197,31 +205,37 @@ pub struct fuse_getxtimes_out { // OS X only
     pub crtimensec: i32,
 }
 
+#[repr(C)]
 pub struct fuse_mknod_in {
     pub mode: u32,
     pub rdev: u32,
 }
 
+#[repr(C)]
 pub struct fuse_mkdir_in {
     pub mode: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_rename_in {
     pub newdir: u64,
 }
 
 #[cfg(target_os = "macos")]
+#[repr(C)]
 pub struct fuse_exchange_in {   // OS X only
     pub olddir: u64,
     pub newdir: u64,
     pub options: u64,
 }
 
+#[repr(C)]
 pub struct fuse_link_in {
     pub oldnodeid: u64,
 }
 
+#[repr(C)]
 pub struct fuse_setattr_in {
     pub valid: u32,
     pub padding: u32,
@@ -255,17 +269,20 @@ pub struct fuse_setattr_in {
     pub flags: u32,             // OS X only
 }
 
+#[repr(C)]
 pub struct fuse_open_in {
     pub flags: u32,
     pub mode: u32,
 }
 
+#[repr(C)]
 pub struct fuse_open_out {
     pub fh: u64,
     pub open_flags: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_release_in {
     pub fh: u64,
     pub flags: u32,
@@ -273,6 +290,7 @@ pub struct fuse_release_in {
     pub lock_owner: u64,
 }
 
+#[repr(C)]
 pub struct fuse_flush_in {
     pub fh: u64,
     pub unused: u32,
@@ -280,6 +298,7 @@ pub struct fuse_flush_in {
     pub lock_owner: u64,
 }
 
+#[repr(C)]
 pub struct fuse_read_in {
     pub fh: u64,
     pub offset: u64,
@@ -287,6 +306,7 @@ pub struct fuse_read_in {
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_write_in {
     pub fh: u64,
     pub offset: u64,
@@ -294,21 +314,25 @@ pub struct fuse_write_in {
     pub write_flags: u32,
 }
 
+#[repr(C)]
 pub struct fuse_write_out {
     pub size: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_statfs_out {
     pub st: fuse_kstatfs,
 }
 
+#[repr(C)]
 pub struct fuse_fsync_in {
     pub fh: u64,
     pub fsync_flags: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_setxattr_in {
     pub size: u32,
     pub flags: u32,
@@ -318,6 +342,7 @@ pub struct fuse_setxattr_in {
     pub padding: u32,           // OS X only
 }
 
+#[repr(C)]
 pub struct fuse_getxattr_in {
     pub size: u32,
     pub padding: u32,
@@ -327,26 +352,31 @@ pub struct fuse_getxattr_in {
     pub padding2: u32,          // OS X only
 }
 
+#[repr(C)]
 pub struct fuse_getxattr_out {
     pub size: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_lk_in {
     pub fh: u64,
     pub owner: u64,
     pub lk: fuse_file_lock,
 }
 
+#[repr(C)]
 pub struct fuse_lk_out {
     pub lk: fuse_file_lock,
 }
 
+#[repr(C)]
 pub struct fuse_access_in {
     pub mask: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_init_in {
     pub major: u32,
     pub minor: u32,
@@ -354,6 +384,7 @@ pub struct fuse_init_in {
     pub flags: u32,
 }
 
+#[repr(C)]
 pub struct fuse_init_out {
     pub major: u32,
     pub minor: u32,
@@ -363,20 +394,24 @@ pub struct fuse_init_out {
     pub max_write: u32,
 }
 
+#[repr(C)]
 pub struct fuse_interrupt_in {
     pub unique: u64,
 }
 
+#[repr(C)]
 pub struct fuse_bmap_in {
     pub block: u64,
     pub blocksize: u32,
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_bmap_out {
     pub block: u64,
 }
 
+#[repr(C)]
 pub struct fuse_in_header {
     pub len: u32,
     pub opcode: u32,
@@ -388,12 +423,14 @@ pub struct fuse_in_header {
     pub padding: u32,
 }
 
+#[repr(C)]
 pub struct fuse_out_header {
     pub len: u32,
     pub error: i32,
     pub unique: u64,
 }
 
+#[repr(C)]
 pub struct fuse_dirent {
     pub ino: u64,
     pub off: u64,
