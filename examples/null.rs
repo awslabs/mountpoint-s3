@@ -1,3 +1,5 @@
+#![allow(unstable)]
+
 extern crate fuse;
 
 use std::os;

@@ -8,7 +8,8 @@
 //!
 
 #![feature(unsafe_destructor)]
-#![warn(missing_docs, unused_qualifications, unused_typecasts)]
+#![allow(unstable)]
+#![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications, unused_typecasts)]
 
 extern crate libc;
 #[macro_use]
