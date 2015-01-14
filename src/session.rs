@@ -41,7 +41,7 @@ pub struct Session<FS> {
     pub destroyed: bool,
 }
 
-impl<FS: Filesystem+Send> Session<FS> {
+impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
     pub fn new (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
         info!("Mounting {}", mountpoint.display());
@@ -84,7 +84,9 @@ impl<FS: Filesystem+Send> Session<FS> {
             }
         }
     }
+}
 
+impl<FS: Filesystem+Send> Session<FS> {
     /// Run the session loop in a background thread
     pub fn spawn<'a> (self) -> BackgroundSession<'a> {
         BackgroundSession::new(self)
