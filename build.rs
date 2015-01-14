@@ -1,3 +1,5 @@
+#![allow(unstable)]
+
 extern crate "pkg-config" as pkg_config;
 
 use std::os;
