@@ -32,9 +32,9 @@ pub struct Session<FS> {
     /// Communication channel to the kernel driver
     ch: Channel,
     /// FUSE protocol major version
-    pub proto_major: usize,
+    pub proto_major: u32,
     /// FUSE protocol minor version
-    pub proto_minor: usize,
+    pub proto_minor: u32,
     /// True if the filesystem is initialized (init operation done)
     pub initialized: bool,
     /// True if the filesystem was destroyed (destroy operation done)

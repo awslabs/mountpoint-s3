@@ -101,7 +101,7 @@ pub trait Filesystem {
     /// each forget. The filesystem may ignore forget calls, if the inodes don't need to
     /// have a limited lifetime. On unmount it is not guaranteed, that all referenced
     /// inodes will receive a forget message.
-    fn forget (&mut self, _req: &Request, _ino: u64, _nlookup: usize) {
+    fn forget (&mut self, _req: &Request, _ino: u64, _nlookup: u64) {
     }
 
     /// Get file attributes
@@ -163,7 +163,7 @@ pub trait Filesystem {
     /// anything in fh. There are also some flags (direct_io, keep_cache) which the
     /// filesystem may set, to change the way the file is opened. See fuse_file_info
     /// structure in <fuse_common.h> for more details.
-    fn open (&mut self, _req: &Request, _ino: u64, _flags: usize, reply: ReplyOpen) {
+    fn open (&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         reply.opened(0, 0);
     }
 
@@ -174,7 +174,7 @@ pub trait Filesystem {
     /// return value of the read system call will reflect the return value of this
     /// operation. fh will contain the value set by the open method, or will be undefined
     /// if the open method didn't set any value.
-    fn read (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _size: usize, reply: ReplyData) {
+    fn read (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _size: u32, reply: ReplyData) {
         reply.error(ENOSYS);
     }
 
@@ -184,7 +184,7 @@ pub trait Filesystem {
     /// which case the return value of the write system call will reflect the return
     /// value of this operation. fh will contain the value set by the open method, or
     /// will be undefined if the open method didn't set any value.
-    fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: usize, reply: ReplyWrite) {
+    fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: u32, reply: ReplyWrite) {
         reply.error(ENOSYS);
     }
 
@@ -210,7 +210,7 @@ pub trait Filesystem {
     /// the release. fh will contain the value set by the open method, or will be undefined
     /// if the open method didn't set any value. flags will contain the same flags as for
     /// open.
-    fn release (&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: usize, _lock_owner: u64, _flush: bool, reply: ReplyEmpty) {
+    fn release (&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool, reply: ReplyEmpty) {
         reply.ok();
     }
 
@@ -228,7 +228,7 @@ pub trait Filesystem {
     /// anything in fh, though that makes it impossible to implement standard conforming
     /// directory stream operations in case the contents of the directory can change
     /// between opendir and releasedir.
-    fn opendir (&mut self, _req: &Request, _ino: u64, _flags: usize, reply: ReplyOpen) {
+    fn opendir (&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         reply.opened(0, 0);
     }
 
@@ -245,7 +245,7 @@ pub trait Filesystem {
     /// For every opendir call there will be exactly one releasedir call. fh will
     /// contain the value set by the opendir method, or will be undefined if the
     /// opendir method didn't set any value.
-    fn releasedir (&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: usize, reply: ReplyEmpty) {
+    fn releasedir (&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
         reply.ok();
     }
 
@@ -263,7 +263,7 @@ pub trait Filesystem {
     }
 
     /// Set an extended attribute
-    fn setxattr (&mut self, _req: &Request, _ino: u64, _name: &[u8], _value: &[u8], _flags: usize, _position: u32, reply: ReplyEmpty) {
+    fn setxattr (&mut self, _req: &Request, _ino: u64, _name: &[u8], _value: &[u8], _flags: u32, _position: u32, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
@@ -290,7 +290,7 @@ pub trait Filesystem {
     /// This will be called for the access() system call. If the 'default_permissions'
     /// mount option is given, this method is not called. This method is not called
     /// under Linux kernel versions 2.4.x
-    fn access (&mut self, _req: &Request, _ino: u64, _mask: usize, reply: ReplyEmpty) {
+    fn access (&mut self, _req: &Request, _ino: u64, _mask: u32, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
@@ -304,7 +304,7 @@ pub trait Filesystem {
     /// structure in <fuse_common.h> for more details. If this method is not
     /// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
     /// and open() methods will be called instead.
-    fn create (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _flags: usize, reply: ReplyCreate) {
+    fn create (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _mode: u32, _flags: u32, reply: ReplyCreate) {
         reply.error(ENOSYS);
     }
 
@@ -327,7 +327,7 @@ pub trait Filesystem {
     /// Map block index within file to block index within device
     /// Note: This makes sense only for block device backed filesystems mounted
     /// with the 'blkdev' option
-    fn bmap (&mut self, _req: &Request, _ino: u64, _blocksize: usize, _idx: u64, reply: ReplyBmap) {
+    fn bmap (&mut self, _req: &Request, _ino: u64, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
         reply.error(ENOSYS);
     }
 
@@ -340,7 +340,7 @@ pub trait Filesystem {
 
     /// OS X only (undocumented)
     #[cfg(target_os = "macos")]
-    fn exchange (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, _options: usize, reply: ReplyEmpty) {
+    fn exchange (&mut self, _req: &Request, _parent: u64, _name: &PosixPath, _newparent: u64, _newname: &PosixPath, _options: u64, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 

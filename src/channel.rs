@@ -32,14 +32,14 @@ mod libc {
     }
 
     /// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
-    pub const PATH_MAX: isize = 4096;
+    pub const PATH_MAX: usize = 4096;
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
     let cpath = CString::from_slice(path.as_vec());
-    let mut resolved = [0; libc::PATH_MAX as usize];
+    let mut resolved = [0; libc::PATH_MAX];
     unsafe {
         if libc::realpath(cpath.as_ptr(), resolved.as_mut_ptr()).is_null() {
             Err(os::errno() as c_int)
