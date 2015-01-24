@@ -72,7 +72,7 @@ impl Filesystem for HelloFS {
 
     fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, _size: u32, reply: ReplyData) {
         if ino == 2 {
-            reply.data(HELLO_TXT_CONTENT.as_bytes().slice_from(offset as usize));
+            reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
             reply.error(ENOENT);
         }

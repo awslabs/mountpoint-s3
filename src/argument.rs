@@ -33,7 +33,7 @@ impl<'a> ArgumentIterator<'a> {
             self.pos += 1
         }
         self.pos += 1;  // Eat the null terminator
-        self.data.slice(start, self.pos-1)
+        &self.data[start..self.pos-1]
     }
 
     /// Fetch a (zero-terminated) Posix path
@@ -43,7 +43,7 @@ impl<'a> ArgumentIterator<'a> {
 
     /// Fetch a slice of the remaining data
     pub fn fetch_data (&mut self) -> &'a [u8] {
-        let bytes = self.data.slice_from(self.pos);
+        let bytes = &self.data[self.pos..];
         self.pos = self.data.len();
         bytes
     }

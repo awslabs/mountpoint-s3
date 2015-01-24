@@ -77,7 +77,7 @@ impl<FS: Filesystem> Session<FS> {
                 Err(EAGAIN) => continue,                // Explicitly try again
                 Err(ENODEV) => break,                   // Filesystem was unmounted, quit the loop
                 Err(err) => panic!("Lost connection to FUSE device. Error {}", err),
-                Ok(len) => match request(self.ch.sender(), buffer.slice_to(len)) {
+                Ok(len) => match request(self.ch.sender(), &buffer[..len]) {
                     None => break,                      // Illegal request, quit the loop
                     Some(req) => dispatch(&req, self),
                 },
