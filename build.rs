@@ -1,4 +1,4 @@
-#![allow(unstable)]
+#![feature(os)]
 
 extern crate "pkg-config" as pkg_config;
 

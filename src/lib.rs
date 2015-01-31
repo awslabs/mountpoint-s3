@@ -7,8 +7,7 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#![feature(unsafe_destructor)]
-#![allow(unstable)]
+#![feature(collections, core, io, libc, os, path, std_misc, unsafe_destructor)]
 #![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications, unused_typecasts)]
 
 extern crate libc;
@@ -16,7 +15,7 @@ extern crate libc;
 extern crate log;
 extern crate time;
 
-use std::io::{FileType, FilePermission};
+use std::old_io::{FileType, FilePermission};
 use std::path::PosixPath;
 use libc::c_int;
 use libc::consts::os::posix88::ENOSYS;

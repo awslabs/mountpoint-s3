@@ -1,4 +1,4 @@
-#![allow(unstable)]
+#![feature(core, os, path)]
 
 extern crate fuse;
 

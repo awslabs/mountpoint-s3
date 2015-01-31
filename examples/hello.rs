@@ -1,10 +1,10 @@
-#![allow(unstable)]
+#![feature(core, io, libc, os, path)]
 
 extern crate fuse;
 extern crate libc;
 extern crate time;
 
-use std::io::{FileType, USER_FILE, USER_DIR};
+use std::old_io::{FileType, USER_FILE, USER_DIR};
 use std::os;
 use std::path::PosixPath;
 use libc::ENOENT;
