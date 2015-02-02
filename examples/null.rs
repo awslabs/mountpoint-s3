@@ -1,4 +1,6 @@
-#![feature(core, os, path)]
+#![feature(core)]
+#![feature(os)]
+#![feature(path)]
 
 extern crate fuse;
 

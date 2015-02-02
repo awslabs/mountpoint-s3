@@ -1,4 +1,8 @@
-#![feature(core, io, libc, os, path)]
+#![feature(core)]
+#![feature(io)]
+#![feature(libc)]
+#![feature(os)]
+#![feature(path)]
 
 extern crate fuse;
 extern crate libc;
