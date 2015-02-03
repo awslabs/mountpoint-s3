@@ -1,4 +1,3 @@
-#![feature(core)]
 #![feature(os)]
 #![feature(path)]
 
@@ -13,6 +12,6 @@ impl Filesystem for NullFS {
 }
 
 fn main () {
-    let mountpoint = Path::new(os::args()[1].as_slice());
+    let mountpoint = Path::new(&os::args()[1]);
     fuse::mount(NullFS, &mountpoint, &[]);
 }

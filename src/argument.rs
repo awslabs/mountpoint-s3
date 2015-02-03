@@ -95,7 +95,7 @@ mod test {
         it.fetch_str();
         it.fetch_str();
         let arg = it.fetch_data();
-        assert_eq!(arg, [0x62, 0x61, 0x7a, 0x00].as_slice());
+        assert_eq!(arg, [0x62, 0x61, 0x7a, 0x00]);
     }
 
     #[test]
@@ -108,6 +108,6 @@ mod test {
         let arg = it.fetch_str();
         assert_eq!(arg, b"bar");
         let arg = it.fetch_data();
-        assert_eq!(arg, [0x62, 0x61, 0x7a, 0x00].as_slice());
+        assert_eq!(arg, [0x62, 0x61, 0x7a, 0x00]);
     }
 }

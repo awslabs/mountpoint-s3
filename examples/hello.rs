@@ -1,4 +1,3 @@
-#![feature(core)]
 #![feature(io)]
 #![feature(libc)]
 #![feature(os)]
@@ -97,6 +96,6 @@ impl Filesystem for HelloFS {
 }
 
 fn main () {
-    let mountpoint = Path::new(os::args()[1].as_slice());
+    let mountpoint = Path::new(&os::args()[1]);
     fuse::mount(HelloFS, &mountpoint, &[]);
 }
