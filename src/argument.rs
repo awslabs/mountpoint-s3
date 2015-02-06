@@ -29,7 +29,7 @@ impl<'a> ArgumentIterator<'a> {
     /// Fetch a (zero-terminated) string (can be non-utf8)
     pub fn fetch_str (&mut self) -> &'a [u8] {
         let start = self.pos;
-        while self.data[self.pos] != 0u8 {
+        while self.data[self.pos] != 0 {
             self.pos += 1
         }
         self.pos += 1;  // Eat the null terminator
