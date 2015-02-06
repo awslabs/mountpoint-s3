@@ -88,14 +88,14 @@ impl Channel {
         })
     }
 
-    /// Receives data up to the size of the given buffer (can block) and returns
-    /// the size of the received data.
-    pub fn receive (&self, buffer: &mut [u8]) -> Result<usize, c_int> {
-        let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.len() as size_t) };
+    /// Receives data up to the capacity of the given buffer (can block).
+    pub fn receive (&self, buffer: &mut Vec<u8>) -> Result<(), c_int> {
+        let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
         if rc < 0 {
             Err(os::errno() as c_int)
         } else {
-            Ok(rc as usize)
+            unsafe { buffer.set_len(rc as usize); }
+            Ok(())
         }
     }
 
