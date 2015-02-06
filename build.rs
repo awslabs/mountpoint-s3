@@ -1,11 +1,11 @@
-#![feature(os)]
+#![feature(env)]
 
 extern crate "pkg-config" as pkg_config;
 
-use std::os;
+use std::env;
 
 fn main () {
-    let target = os::getenv("TARGET").unwrap();
+    let target = env::var("TARGET").unwrap();
     if target.ends_with("-apple-darwin") {
         // Use libosxfuse on OS X
         pkg_config::find_library("osxfuse").unwrap();

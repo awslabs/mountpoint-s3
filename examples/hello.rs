@@ -1,14 +1,14 @@
+#![feature(env)]
 #![feature(io)]
 #![feature(libc)]
-#![feature(os)]
 #![feature(path)]
 
 extern crate fuse;
 extern crate libc;
 extern crate time;
 
+use std::env;
 use std::old_io::{FileType, USER_FILE, USER_DIR};
-use std::os;
 use std::old_path::PosixPath;
 use libc::ENOENT;
 use time::Timespec;
@@ -96,6 +96,7 @@ impl Filesystem for HelloFS {
 }
 
 fn main () {
-    let mountpoint = Path::new(&os::args()[1]);
+    // FIXME: use env::args_os to circumvent temporary utf-8 requirement
+    let mountpoint = Path::new(env::args().skip(1).next().unwrap());
     fuse::mount(HelloFS, &mountpoint, &[]);
 }

@@ -36,7 +36,7 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
         0 => f(&[]),
         len => {
             let p = data as *const T as *const u8;
-            let bytes = unsafe { slice::from_raw_buf(&p, len) };
+            let bytes = unsafe { slice::from_raw_parts(p, len) };
             f(&[bytes])
         },
     }
