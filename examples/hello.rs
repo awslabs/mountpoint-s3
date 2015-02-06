@@ -9,7 +9,7 @@ extern crate time;
 
 use std::old_io::{FileType, USER_FILE, USER_DIR};
 use std::os;
-use std::path::PosixPath;
+use std::old_path::PosixPath;
 use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};

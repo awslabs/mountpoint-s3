@@ -10,7 +10,7 @@
 
 use std::{mem, ptr, slice};
 use std::old_io::{FileType, FilePermission};
-use std::path::PosixPath;
+use std::old_path::PosixPath;
 use std::thunk::Invoke;
 use libc::c_int;
 use libc::consts::os::posix88::EIO;
@@ -562,7 +562,7 @@ impl ReplyDirectory {
 #[cfg(test)]
 mod test {
     use std::old_io::{FileType, USER_FILE};
-    use std::path::PosixPath;
+    use std::old_path::PosixPath;
     use std::sync::mpsc::channel;
     use std::thread::Thread;
     use time::Timespec;

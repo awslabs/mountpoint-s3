@@ -24,7 +24,7 @@ extern crate log;
 extern crate time;
 
 use std::old_io::{FileType, FilePermission};
-use std::path::PosixPath;
+use std::old_path::PosixPath;
 use libc::c_int;
 use libc::consts::os::posix88::ENOSYS;
 use time::Timespec;

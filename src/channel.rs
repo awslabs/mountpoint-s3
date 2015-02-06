@@ -4,7 +4,7 @@
 
 use std::{ffi, os};
 use std::ffi::CString;
-use std::path::PosixPath;
+use std::old_path::PosixPath;
 use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 

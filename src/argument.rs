@@ -4,7 +4,7 @@
 //!
 
 use std::mem;
-use std::path::PosixPath;
+use std::old_path::PosixPath;
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'a> {
@@ -52,7 +52,7 @@ impl<'a> ArgumentIterator<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::path::PosixPath;
+    use std::old_path::PosixPath;
     use super::ArgumentIterator;
 
     static TEST_DATA: [u8; 12] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61, 0x7a, 0x00];
