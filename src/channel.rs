@@ -52,13 +52,7 @@ fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&[u8]], f: F) -> T {
-    let progname = "rust-fuse";
-    let args: Vec<CString> = range(0, 1+options.len()).map(|i| {
-        match i {
-            0 => CString::from_slice(progname.as_bytes()),
-            _ => CString::from_slice(options[i-1]),
-        }
-    }).collect();
+    let args: Vec<CString> = Some(b"rust-fuse").iter().chain(options.iter()).map(|s| CString::from_slice(s)).collect();
     let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
