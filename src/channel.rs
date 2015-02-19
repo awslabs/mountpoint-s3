@@ -37,12 +37,12 @@ mod libc {
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
-fn real_path (path: &PosixPath) -> Result<PosixPath, c_int> {
+fn real_path (path: &PosixPath) -> Result<PosixPath, i32> {
     let cpath = CString::from_slice(path.as_vec());
     let mut resolved = [0; libc::PATH_MAX];
     unsafe {
         if libc::realpath(cpath.as_ptr(), resolved.as_mut_ptr()).is_null() {
-            Err(os::errno() as c_int)
+            Err(os::errno())
         } else {
             Ok(PosixPath::new(ffi::c_str_to_bytes(&resolved.as_ptr())))
         }
@@ -68,13 +68,13 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, c_int> {
+    pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, i32> {
         real_path(mountpoint).and_then(|mountpoint| {
             with_fuse_args(options, |args| {
                 let mnt = CString::from_slice(mountpoint.as_vec()).as_ptr();
                 let fd = unsafe { fuse_mount_compat25(mnt, args) };
                 if fd < 0 {
-                    Err(os::errno() as c_int)
+                    Err(os::errno())
                 } else {
                     Ok(Channel { mountpoint: mountpoint.clone(), fd: fd })
                 }
@@ -83,10 +83,10 @@ impl Channel {
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
-    pub fn receive (&self, buffer: &mut Vec<u8>) -> Result<(), c_int> {
+    pub fn receive (&self, buffer: &mut Vec<u8>) -> Result<(), i32> {
         let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
         if rc < 0 {
-            Err(os::errno() as c_int)
+            Err(os::errno())
         } else {
             unsafe { buffer.set_len(rc as usize); }
             Ok(())
@@ -123,13 +123,13 @@ pub struct ChannelSender {
 
 impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
-    pub fn send (&self, buffer: &[&[u8]]) -> Result<(), c_int> {
+    pub fn send (&self, buffer: &[&[u8]]) -> Result<(), i32> {
         let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
             libc::iovec { iov_base: d.as_ptr() as *const c_void, iov_len: d.len() as size_t }
         }).collect();
         let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
         if rc < 0 {
-            Err(os::errno() as c_int)
+            Err(os::errno())
         } else {
             Ok(())
         }
