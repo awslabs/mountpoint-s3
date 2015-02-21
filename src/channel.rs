@@ -2,9 +2,9 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
-use std::os;
+use std::{os, str};
 use std::ffi::{CString, CStr};
-use std::old_path::PosixPath;
+use std::path::{PathBuf, Path};
 use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
 
@@ -37,14 +37,15 @@ mod libc {
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
-fn real_path (path: &PosixPath) -> Result<PosixPath, i32> {
-    let cpath = CString::new(path.as_vec()).unwrap();
+fn real_path (path: &CStr) -> Result<CString, i32> {
     let mut resolved = [0; libc::PATH_MAX];
     unsafe {
-        if libc::realpath(cpath.as_ptr(), resolved.as_mut_ptr()).is_null() {
+        if libc::realpath(path.as_ptr(), resolved.as_mut_ptr()).is_null() {
             Err(os::errno())
         } else {
-            Ok(PosixPath::new(CStr::from_ptr(resolved.as_ptr()).to_bytes()))
+            // FIXME: Build CString from &[c_char] in a more elegant way
+            let cresolved = CStr::from_ptr(resolved.as_ptr());
+            Ok(CString::new(cresolved.to_bytes()).unwrap())
         }
     }
 }
@@ -59,7 +60,7 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&[u8]], f: F) -> T 
 
 /// A raw communication channel to the FUSE kernel driver
 pub struct Channel {
-    mountpoint: Path,
+    mountpoint: PathBuf,
     fd: c_int,
 }
 
@@ -69,17 +70,25 @@ impl Channel {
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
     pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, i32> {
-        real_path(mountpoint).and_then(|mountpoint| {
+        // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
+        let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
+        real_path(&mnt).and_then(|mnt| {
             with_fuse_args(options, |args| {
-                let mnt = CString::new(mountpoint.as_vec()).unwrap().as_ptr();
-                let fd = unsafe { fuse_mount_compat25(mnt, args) };
+                let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
                 if fd < 0 {
                     Err(os::errno())
                 } else {
-                    Ok(Channel { mountpoint: mountpoint.clone(), fd: fd })
+                    // FIXME: Convert CString to PathBuf without utf-8 restrictions and without copying
+                    let mountpoint = PathBuf::new(str::from_utf8(mnt.as_bytes()).unwrap());
+                    Ok(Channel { mountpoint: mountpoint, fd: fd })
                 }
             })
         })
+    }
+
+    /// Return path of the mounted filesystem
+    pub fn mountpoint (&self) -> &Path {
+        &self.mountpoint
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
@@ -142,11 +151,12 @@ pub fn unmount (mountpoint: &Path) {
     // If the filesystem returns an error, the unmount does not take place, with no indication of the error
     // available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
     // we already converted to the real path when we first mounted.
-    let mnt = CString::new(mountpoint.as_vec()).unwrap().as_ptr();
+    // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
+    let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
     if cfg!(target_os = "macos") {
-        unsafe { libc::unmount(mnt, 0); }
+        unsafe { libc::unmount(mnt.as_ptr(), 0); }
     } else {
-        unsafe { fuse_unmount_compat22(mnt); }
+        unsafe { fuse_unmount_compat22(mnt.as_ptr()); }
     }
 }
 

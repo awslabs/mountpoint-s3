@@ -7,6 +7,7 @@
 //!
 
 use std::io;
+use std::path::{PathBuf, Path};
 use std::thread::{Builder, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
@@ -27,8 +28,6 @@ const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 pub struct Session<FS> {
     /// Filesystem operation implementations
     pub filesystem: FS,
-    /// Path of the mounted filesystem
-    pub mountpoint: Path,
     /// Communication channel to the kernel driver
     ch: Channel,
     /// FUSE protocol major version
@@ -51,13 +50,17 @@ impl<FS: Filesystem> Session<FS> {
         };
         Session {
             filesystem: filesystem,
-            mountpoint: mountpoint.clone(),
             ch: ch,
             proto_major: 0,
             proto_minor: 0,
             initialized: false,
             destroyed: false,
         }
+    }
+
+    /// Return path of the mounted filesystem
+    pub fn mountpoint (&self) -> &Path {
+        &self.ch.mountpoint()
     }
 
     /// Run the session loop that receives kernel requests and dispatches them to method
@@ -96,7 +99,7 @@ impl<FS: Filesystem+Send+'static> Session<FS> {
 #[unsafe_destructor]
 impl<FS: Filesystem> Drop for Session<FS> {
     fn drop (&mut self) {
-        info!("Unmounted {}", self.mountpoint.display());
+        info!("Unmounted {}", self.mountpoint().display());
         // The actual unmounting takes place because self.ch is dropped here
     }
 }
@@ -104,7 +107,7 @@ impl<FS: Filesystem> Drop for Session<FS> {
 /// The background session data structure
 pub struct BackgroundSession<'a> {
     /// Path of the mounted filesystem
-    pub mountpoint: Path,
+    pub mountpoint: PathBuf,
     /// Thread guard of the background session
     pub guard: JoinGuard<'a ()>,
 }
@@ -114,7 +117,7 @@ impl<'a> BackgroundSession<'a> {
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
     pub fn new<FS: Filesystem+Send+'static> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
-        let mountpoint = se.mountpoint.clone();
+        let mountpoint = se.mountpoint().to_path_buf();
         let builder = Builder::new().name(format!("FUSE {}", mountpoint.display()));
         let guard = try!(builder.scoped(move || {
             let mut se = se;

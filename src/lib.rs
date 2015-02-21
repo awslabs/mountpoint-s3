@@ -14,6 +14,7 @@
 #![feature(old_io)]
 #![feature(old_path)]
 #![feature(os)]
+#![feature(path)]
 #![feature(std_misc)]
 #![feature(unsafe_destructor)]
 
@@ -27,6 +28,7 @@ extern crate time;
 use std::io;
 use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
+use std::path::AsPath;
 use libc::c_int;
 use libc::consts::os::posix88::ENOSYS;
 use time::Timespec;
@@ -363,8 +365,8 @@ pub trait Filesystem {
 
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
-pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) {
-    Session::new(filesystem, mountpoint, options).run();
+pub fn mount<FS: Filesystem+Send, P: AsPath> (filesystem: FS, mountpoint: &P, options: &[&[u8]]) {
+    Session::new(filesystem, mountpoint.as_path(), options).run();
 }
 
 /// Mount the given filesystem to the given mountpoint. This function spawns
@@ -372,6 +374,6 @@ pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
-pub fn spawn_mount<'a, FS: Filesystem+Send+'static> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> io::Result<BackgroundSession<'a>> {
-    Session::new(filesystem, mountpoint, options).spawn()
+pub fn spawn_mount<'a, FS: Filesystem+Send+'static, P: AsPath> (filesystem: FS, mountpoint: &P, options: &[&[u8]]) -> io::Result<BackgroundSession<'a>> {
+    Session::new(filesystem, mountpoint.as_path(), options).spawn()
 }

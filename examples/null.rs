@@ -1,5 +1,4 @@
 #![feature(env)]
-#![feature(old_path)]
 
 extern crate fuse;
 
@@ -12,7 +11,6 @@ impl Filesystem for NullFS {
 }
 
 fn main () {
-    // FIXME: use env::args_os to circumvent temporary utf-8 requirement
-    let mountpoint = Path::new(env::args().skip(1).next().unwrap());
+    let mountpoint = env::args_os().skip(1).next().unwrap();
     fuse::mount(NullFS, &mountpoint, &[]);
 }
