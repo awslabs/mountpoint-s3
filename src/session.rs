@@ -6,6 +6,7 @@
 //! operations under its mount point.
 //!
 
+use std::io;
 use std::thread::{Builder, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
@@ -87,7 +88,7 @@ impl<FS: Filesystem> Session<FS> {
 
 impl<FS: Filesystem+Send> Session<FS> {
     /// Run the session loop in a background thread
-    pub fn spawn<'a> (self) -> BackgroundSession<'a> {
+    pub fn spawn<'a> (self) -> io::Result<BackgroundSession<'a>> {
         BackgroundSession::new(self)
     }
 }
@@ -112,14 +113,14 @@ impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> BackgroundSession<'a> {
+    pub fn new<FS: Filesystem+Send> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
         let mountpoint = se.mountpoint.clone();
         let builder = Builder::new().name(format!("FUSE {}", mountpoint.display()));
-        let guard = builder.scoped(move || {
+        let guard = try!(builder.scoped(move || {
             let mut se = se;
             se.run();
-        });
-        BackgroundSession { mountpoint: mountpoint, guard: guard }
+        }));
+        Ok(BackgroundSession { mountpoint: mountpoint, guard: guard })
     }
 }
 

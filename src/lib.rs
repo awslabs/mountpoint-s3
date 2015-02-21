@@ -23,6 +23,7 @@ extern crate libc;
 extern crate log;
 extern crate time;
 
+use std::io;
 use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
 use libc::c_int;
@@ -370,6 +371,6 @@ pub fn mount<FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
-pub fn spawn_mount<'a, FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> BackgroundSession<'a> {
+pub fn spawn_mount<'a, FS: Filesystem+Send> (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> io::Result<BackgroundSession<'a>> {
     Session::new(filesystem, mountpoint, options).spawn()
 }
