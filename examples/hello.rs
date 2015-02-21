@@ -1,7 +1,7 @@
 #![feature(env)]
-#![feature(io)]
 #![feature(libc)]
-#![feature(path)]
+#![feature(old_io)]
+#![feature(old_path)]
 
 extern crate fuse;
 extern crate libc;

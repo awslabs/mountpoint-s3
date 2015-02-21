@@ -1,5 +1,5 @@
 #![feature(env)]
-#![feature(path)]
+#![feature(old_path)]
 
 extern crate fuse;
 

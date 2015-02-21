@@ -117,7 +117,7 @@ pub struct ReplyRaw<T> {
 }
 
 impl<T> Reply for ReplyRaw<T> {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyRaw<T> {
+    fn new<F: FnOnce(&[&[u8]])+Send+'static> (unique: u64, sender: F) -> ReplyRaw<T> {
         let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = Box::new(sender);
         ReplyRaw { unique: unique, sender: Some(sender), marker: PhantomData }
     }
@@ -565,10 +565,10 @@ impl ReplyDirectory {
 
 #[cfg(test)]
 mod test {
+    use std::thread;
     use std::old_io::{FileType, USER_FILE};
     use std::old_path::PosixPath;
     use std::sync::mpsc::channel;
-    use std::thread::Thread;
     use time::Timespec;
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
@@ -857,7 +857,7 @@ mod test {
         let reply: ReplyEmpty = Reply::new(0xdeadbeef, move |_| {
             tx.send(()).unwrap();
         });
-        Thread::spawn(move || {
+        thread::spawn(move || {
             reply.ok();
         });
         rx.recv().unwrap();
