@@ -94,7 +94,7 @@ impl<FS: Filesystem+Send> Session<FS> {
 }
 
 #[unsafe_destructor]
-impl<FS: Filesystem+Send> Drop for Session<FS> {
+impl<FS: Filesystem> Drop for Session<FS> {
     fn drop (&mut self) {
         info!("Unmounted {}", self.mountpoint.display());
         // The actual unmounting takes place because self.ch is dropped here
