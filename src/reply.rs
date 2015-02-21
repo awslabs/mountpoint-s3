@@ -9,6 +9,7 @@
 //!
 
 use std::{mem, ptr, slice};
+use std::marker::PhantomData;
 use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
 use std::thunk::Invoke;
@@ -110,12 +111,15 @@ pub struct ReplyRaw<T> {
     unique: u64,
     /// Closure to call for sending the reply
     sender: Option<Box<for<'a> Invoke<&'a [&'a [u8]]> + Send>>,
+    /// Marker for being able to have T on this struct (which enforces
+    /// reply types to send the correct type of data)
+    marker: PhantomData<T>,
 }
 
 impl<T> Reply for ReplyRaw<T> {
     fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyRaw<T> {
         let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = Box::new(sender);
-        ReplyRaw { unique: unique, sender: Some(sender) }
+        ReplyRaw { unique: unique, sender: Some(sender), marker: PhantomData }
     }
 }
 
