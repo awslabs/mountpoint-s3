@@ -1,6 +1,6 @@
 [package]
 name = "fuse"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 build = "build.rs"
 description = "Rust library for filesystems in userspace (FUSE)"
