@@ -7,6 +7,7 @@
 //!
 
 use std::io;
+use std::ffi::OsStr;
 use std::path::{PathBuf, Path};
 use std::thread::{Builder, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
@@ -42,7 +43,7 @@ pub struct Session<FS> {
 
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
-    pub fn new (filesystem: FS, mountpoint: &Path, options: &[&[u8]]) -> Session<FS> {
+    pub fn new (filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> Session<FS> {
         info!("Mounting {}", mountpoint.display());
         let ch = match Channel::new(mountpoint, options) {
             Ok(ch) => ch,

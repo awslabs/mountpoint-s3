@@ -26,6 +26,7 @@ extern crate log;
 extern crate time;
 
 use std::io;
+use std::ffi::OsStr;
 use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
 use std::path::AsPath;
@@ -365,7 +366,7 @@ pub trait Filesystem {
 
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
-pub fn mount<FS: Filesystem+Send, P: AsPath> (filesystem: FS, mountpoint: &P, options: &[&[u8]]) {
+pub fn mount<FS: Filesystem+Send, P: AsPath> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) {
     Session::new(filesystem, mountpoint.as_path(), options).run();
 }
 
@@ -374,6 +375,6 @@ pub fn mount<FS: Filesystem+Send, P: AsPath> (filesystem: FS, mountpoint: &P, op
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
-pub fn spawn_mount<'a, FS: Filesystem+Send+'static, P: AsPath> (filesystem: FS, mountpoint: &P, options: &[&[u8]]) -> io::Result<BackgroundSession<'a>> {
+pub fn spawn_mount<'a, FS: Filesystem+Send+'static, P: AsPath> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<BackgroundSession<'a>> {
     Session::new(filesystem, mountpoint.as_path(), options).spawn()
 }

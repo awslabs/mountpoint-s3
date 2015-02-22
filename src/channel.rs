@@ -3,7 +3,7 @@
 //!
 
 use std::{os, str};
-use std::ffi::{CString, CStr};
+use std::ffi::{CString, CStr, OsStr};
 use std::path::{PathBuf, Path};
 use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
@@ -52,8 +52,10 @@ fn real_path (path: &CStr) -> Result<CString, i32> {
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&[u8]], f: F) -> T {
-    let args: Vec<CString> = Some(b"rust-fuse").iter().chain(options.iter()).map(|s| CString::new(*s).unwrap()).collect();
+fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&OsStr], f: F) -> T {
+    let mut args: Vec<CString> = vec![CString::new("rust-fuse").unwrap()];
+    // FIXME: Convert &OsStr to CString without utf-8 restrictions and without copying
+    args.extend(options.iter().map(|s| CString::new(s.to_str().unwrap()).unwrap() ));
     let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
@@ -69,7 +71,7 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    pub fn new (mountpoint: &Path, options: &[&[u8]]) -> Result<Channel, i32> {
+    pub fn new (mountpoint: &Path, options: &[&OsStr]) -> Result<Channel, i32> {
         // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
         let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
         real_path(&mnt).and_then(|mnt| {
@@ -164,11 +166,11 @@ pub fn unmount (mountpoint: &Path) {
 #[cfg(test)]
 mod test {
     use super::with_fuse_args;
-    use std::ffi::CStr;
+    use std::ffi::{CStr, OsStr};
 
     #[test]
     fn fuse_args () {
-        with_fuse_args(&[b"foo", b"bar"], |args| {
+        with_fuse_args(&[OsStr::from_str("foo"), OsStr::from_str("bar")], |args| {
             assert!(args.argc == 3);
             assert_eq!(unsafe { CStr::from_ptr(*args.argv.offset(0)).to_bytes() }, b"rust-fuse");
             assert_eq!(unsafe { CStr::from_ptr(*args.argv.offset(1)).to_bytes() }, b"foo");
