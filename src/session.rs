@@ -10,7 +10,6 @@ use std::io;
 use std::ffi::OsStr;
 use std::path::{PathBuf, Path};
 use std::thread::{Builder, JoinGuard};
-use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
 use channel::Channel;
 use Filesystem;
@@ -76,14 +75,24 @@ impl<FS: Filesystem> Session<FS> {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
             match self.ch.receive(&mut buffer) {
-                Err(ENOENT) => continue,                // Operation interrupted. Accordingly to FUSE, this is safe to retry
-                Err(EINTR) => continue,                 // Interrupted system call, retry
-                Err(EAGAIN) => continue,                // Explicitly try again
-                Err(ENODEV) => break,                   // Filesystem was unmounted, quit the loop
-                Err(err) => panic!("Lost connection to FUSE device. Error {}", err),
                 Ok(()) => match request(self.ch.sender(), &buffer) {
-                    None => break,                      // Illegal request, quit the loop
+                    // Dispatch request
                     Some(req) => dispatch(&req, self),
+                    // Quit loop on illegal request
+                    None => break,
+                },
+                Err(ref err) => match err.kind() {
+                    // ENOENT: operation interrupted. Accordingly to FUSE, this is safe to retry
+                    io::ErrorKind::FileNotFound => continue,
+                    // EINTR: interrupted system call, retry
+                    io::ErrorKind::Interrupted => continue,
+                    // EAGAIN: explicitly try again
+                    io::ErrorKind::ResourceUnavailable => continue,
+                    // ENODEV: filesystem was unmounted, quit the loop
+                    // FIXME: This does match more error codes than just ENODEV
+                    io::ErrorKind::Other => break,
+                    // Unhandled error
+                    _ => panic!("Lost connection to FUSE device. Error {}", err),
                 },
             }
         }

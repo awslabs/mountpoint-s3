@@ -2,7 +2,7 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
-use std::{os, str};
+use std::{io, str};
 use std::ffi::{CString, CStr, OsStr};
 use std::path::{PathBuf, Path};
 use libc::{c_int, c_void, size_t};
@@ -37,11 +37,11 @@ mod libc {
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
-fn real_path (path: &CStr) -> Result<CString, i32> {
+fn real_path (path: &CStr) -> io::Result<CString> {
     let mut resolved = [0; libc::PATH_MAX];
     unsafe {
         if libc::realpath(path.as_ptr(), resolved.as_mut_ptr()).is_null() {
-            Err(os::errno())
+            Err(io::Error::last_os_error())
         } else {
             // FIXME: Build CString from &[c_char] in a more elegant way
             let cresolved = CStr::from_ptr(resolved.as_ptr());
@@ -71,14 +71,14 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    pub fn new (mountpoint: &Path, options: &[&OsStr]) -> Result<Channel, i32> {
+    pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
         let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
         real_path(&mnt).and_then(|mnt| {
             with_fuse_args(options, |args| {
                 let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
                 if fd < 0 {
-                    Err(os::errno())
+                    Err(io::Error::last_os_error())
                 } else {
                     // FIXME: Convert CString to PathBuf without utf-8 restrictions and without copying
                     let mountpoint = PathBuf::new(str::from_utf8(mnt.as_bytes()).unwrap());
@@ -94,10 +94,10 @@ impl Channel {
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
-    pub fn receive (&self, buffer: &mut Vec<u8>) -> Result<(), i32> {
+    pub fn receive (&self, buffer: &mut Vec<u8>) -> io::Result<()> {
         let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
         if rc < 0 {
-            Err(os::errno())
+            Err(io::Error::last_os_error())
         } else {
             unsafe { buffer.set_len(rc as usize); }
             Ok(())
@@ -134,13 +134,13 @@ pub struct ChannelSender {
 
 impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
-    pub fn send (&self, buffer: &[&[u8]]) -> Result<(), i32> {
+    pub fn send (&self, buffer: &[&[u8]]) -> io::Result<()> {
         let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
             libc::iovec { iov_base: d.as_ptr() as *const c_void, iov_len: d.len() as size_t }
         }).collect();
         let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
         if rc < 0 {
-            Err(os::errno())
+            Err(io::Error::last_os_error())
         } else {
             Ok(())
         }
