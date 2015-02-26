@@ -30,8 +30,7 @@ use std::ffi::OsStr;
 use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
 use std::path::AsPath;
-use libc::c_int;
-use libc::consts::os::posix88::ENOSYS;
+use libc::{c_int, ENOSYS};
 use time::Timespec;
 
 pub use fuse::FUSE_ROOT_ID;
