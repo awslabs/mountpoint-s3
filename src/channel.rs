@@ -6,7 +6,7 @@ use std::{io, str};
 use std::ffi::{CString, CStr, OsStr};
 use std::path::{PathBuf, Path};
 use libc::{c_int, c_void, size_t};
-use fuse::{fuse_args, fuse_mount_compat25, fuse_unmount_compat22};
+use fuse::{fuse_args, fuse_mount_compat25};
 
 // Libc provides iovec based I/O using readv and writev functions
 #[allow(dead_code, non_camel_case_types)]
@@ -123,7 +123,7 @@ impl Drop for Channel {
         // (closing it before unnmount prevents sync unmount deadlock)
         unsafe { ::libc::close(self.fd); }
         // Unmount this channel's mount point
-        unmount(&self.mountpoint);
+        let _ = unmount(&self.mountpoint);
     }
 }
 
@@ -148,17 +148,20 @@ impl ChannelSender {
 }
 
 /// Unmount an arbitrary mount point
-pub fn unmount (mountpoint: &Path) {
-    // On OS X, fuse_unmount_compat22 attempts to call realpath, which in turn calls into the filesystem.
-    // If the filesystem returns an error, the unmount does not take place, with no indication of the error
-    // available to the caller.  So we call unmount directly, which is what osxfuse does anyway, since
-    // we already converted to the real path when we first mounted.
+pub fn unmount (mountpoint: &Path) -> io::Result<()> {
+    // fuse_unmount_compat22 unfortunately doesn't return a status. Additionally,
+    // it attempts to call realpath, which in turn calls into the filesystem. So
+    // if the filesystem returns an error, the unmount does not take place, with
+    // no indication of the error available to the caller. So we call unmount
+    // directly, which is what osxfuse does anyway, since we already converted
+    // to the real path when we first mounted.
     // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
     let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
-    if cfg!(target_os = "macos") {
-        unsafe { libc::unmount(mnt.as_ptr(), 0); }
+    let rc = unsafe { libc::unmount(mnt.as_ptr(), 0) };
+    if rc < 0 {
+        Err(io::Error::last_os_error())
     } else {
-        unsafe { fuse_unmount_compat22(mnt.as_ptr()); }
+        Ok(())
     }
 }
 

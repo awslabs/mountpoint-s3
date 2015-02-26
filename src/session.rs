@@ -110,7 +110,6 @@ impl<FS: Filesystem+Send+'static> Session<FS> {
 impl<FS: Filesystem> Drop for Session<FS> {
     fn drop (&mut self) {
         info!("Unmounted {}", self.mountpoint().display());
-        // The actual unmounting takes place because self.ch is dropped here
     }
 }
 
@@ -143,6 +142,9 @@ impl<'a> Drop for BackgroundSession<'a> {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,
         // drop the session and hence end the background thread.
-        channel::unmount(&self.mountpoint);
+        match channel::unmount(&self.mountpoint) {
+            Ok(()) => (),
+            Err(err) => error!("Failed to unmount {}: {}", self.mountpoint.display(), err),
+        }
     }
 }
