@@ -541,9 +541,9 @@ impl ReplyDirectory {
             (*pdirent).namelen = name.len() as u32;
             (*pdirent).typ = mode_from_kind_and_perm(kind, FilePermission::empty()) >> 12;
             let p = p.offset(mem::size_of_val(&*pdirent) as isize);
-            ptr::copy_memory(p, name.as_ptr(), name.len());
+            ptr::copy_nonoverlapping(p, name.as_ptr(), name.len());
             let p = p.offset(name.len() as isize);
-            ptr::zero_memory(p, padlen);
+            ptr::write_bytes(p, 0u8, padlen);
             let newlen = self.data.len() + entsize;
             self.data.set_len(newlen);
         }
