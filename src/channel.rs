@@ -2,10 +2,11 @@
 //! Raw communication channel to the FUSE kernel driver.
 //!
 
-use std::{io, str};
-use std::ffi::{CString, CStr, OsStr};
+use std::io;
+use std::ffi::{CString, CStr, OsStr, AsOsStr};
+use std::os::unix::OsStrExt;
 use std::path::{PathBuf, Path};
-use libc::{c_int, c_void, size_t};
+use libc::{c_char, c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
 
 // Libc provides iovec based I/O using readv and writev functions
@@ -38,12 +39,12 @@ mod libc {
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
 /// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
 fn real_path (path: &CStr) -> io::Result<CString> {
-    let mut resolved = [0; libc::PATH_MAX];
+    let mut resolved: Vec<c_char> = Vec::with_capacity(libc::PATH_MAX);
     unsafe {
         if libc::realpath(path.as_ptr(), resolved.as_mut_ptr()).is_null() {
             Err(io::Error::last_os_error())
         } else {
-            // FIXME: Build CString from &[c_char] in a more elegant way
+            // Using CStr::from_ptr gets the correct string length via strlen()
             let cresolved = CStr::from_ptr(resolved.as_ptr());
             Ok(CString::new(cresolved.to_bytes()).unwrap())
         }
@@ -54,8 +55,7 @@ fn real_path (path: &CStr) -> io::Result<CString> {
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&OsStr], f: F) -> T {
     let mut args: Vec<CString> = vec![CString::new("rust-fuse").unwrap()];
-    // FIXME: Convert &OsStr to CString without utf-8 restrictions and without copying
-    args.extend(options.iter().map(|s| CString::new(s.to_str().unwrap()).unwrap() ));
+    args.extend(options.iter().map(|s| s.to_cstring().unwrap() ));
     let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
@@ -72,16 +72,14 @@ impl Channel {
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
     pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
-        // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
-        let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
+        let mnt = try!(mountpoint.as_os_str().to_cstring());
         real_path(&mnt).and_then(|mnt| {
             with_fuse_args(options, |args| {
                 let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
                 if fd < 0 {
                     Err(io::Error::last_os_error())
                 } else {
-                    // FIXME: Convert CString to PathBuf without utf-8 restrictions and without copying
-                    let mountpoint = PathBuf::new(str::from_utf8(mnt.as_bytes()).unwrap());
+                    let mountpoint = PathBuf::new(<OsStr as OsStrExt>::from_bytes(mnt.as_bytes()));
                     Ok(Channel { mountpoint: mountpoint, fd: fd })
                 }
             })
@@ -155,8 +153,7 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     // no indication of the error available to the caller. So we call unmount
     // directly, which is what osxfuse does anyway, since we already converted
     // to the real path when we first mounted.
-    // FIXME: Convert &Path to CStr without utf-8 restrictions and without copying
-    let mnt = CString::new(mountpoint.to_str().unwrap()).unwrap();
+    let mnt = try!(mountpoint.as_os_str().to_cstring());
     let rc = unsafe { libc::unmount(mnt.as_ptr(), 0) };
     if rc < 0 {
         Err(io::Error::last_os_error())
