@@ -29,7 +29,10 @@ mod libc {
 
         pub fn realpath (file_name: *const c_char, resolved_name: *mut c_char) -> *const c_char;
 
+        #[cfg(target_os = "macos")]
         pub fn unmount(dir: *const c_char, flags: c_int) -> c_int;
+        #[cfg(not(target_os = "macos"))]
+        pub fn umount(dir: *const c_char) -> c_int;
     }
 
     /// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
@@ -153,8 +156,13 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     // no indication of the error available to the caller. So we call unmount
     // directly, which is what osxfuse does anyway, since we already converted
     // to the real path when we first mounted.
+    #[cfg(target_os = "macos")] #[inline]
+    fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::unmount(mnt.as_ptr(), 0) } }
+    #[cfg(not(target_os = "macos"))] #[inline]
+    fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::umount(mnt.as_ptr()) } }
+
     let mnt = try!(mountpoint.as_os_str().to_cstring());
-    let rc = unsafe { libc::unmount(mnt.as_ptr(), 0) };
+    let rc = libc_umount(&mnt);
     if rc < 0 {
         Err(io::Error::last_os_error())
     } else {
