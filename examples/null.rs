@@ -1,5 +1,3 @@
-#![feature(env)]
-
 extern crate fuse;
 
 use std::env;
