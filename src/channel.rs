@@ -4,7 +4,7 @@
 
 use std::io;
 use std::ffi::{CString, CStr, OsStr, AsOsStr};
-use std::os::unix::OsStrExt;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
 use libc::{c_char, c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
