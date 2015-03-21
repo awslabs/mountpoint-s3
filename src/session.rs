@@ -10,6 +10,7 @@ use std::io;
 use std::ffi::OsStr;
 use std::path::{PathBuf, Path};
 use std::thread::{Builder, JoinGuard};
+use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
 use channel::Channel;
 use Filesystem;
@@ -81,18 +82,17 @@ impl<FS: Filesystem> Session<FS> {
                     // Quit loop on illegal request
                     None => break,
                 },
-                Err(ref err) => match err.kind() {
-                    // ENOENT: operation interrupted. Accordingly to FUSE, this is safe to retry
-                    io::ErrorKind::FileNotFound => continue,
-                    // EINTR: interrupted system call, retry
-                    io::ErrorKind::Interrupted => continue,
-                    // EAGAIN: explicitly try again
-                    io::ErrorKind::ResourceUnavailable => continue,
-                    // ENODEV: filesystem was unmounted, quit the loop
-                    // FIXME: This does match more error codes than just ENODEV
-                    io::ErrorKind::Other => break,
+                Err(ref err) => match err.raw_os_error() {
+                    // Operation interrupted. Accordingly to FUSE, this is safe to retry
+                    Some(ENOENT) => continue,
+                    // Interrupted system call, retry
+                    Some(EINTR) => continue,
+                    // Explicitly try again
+                    Some(EAGAIN) => continue,
+                    // Filesystem was unmounted, quit the loop
+                    Some(ENODEV) => break,
                     // Unhandled error
-                    _ => panic!("Lost connection to FUSE device. Error {}", err),
+                    _ => panic!("Lost connection to FUSE device. Error: {}", err),
                 },
             }
         }
