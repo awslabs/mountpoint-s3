@@ -9,9 +9,10 @@
 //!
 
 use std::{mem, ptr, slice};
+use std::ffi::AsOsStr;
 use std::marker::PhantomData;
-use std::old_path::PosixPath;
 use std::thunk::Invoke;
+use std::os::unix::ffi::OsStrExt;
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK};
 use libc::consts::os::posix88::EIO;
 use time::Timespec;
@@ -526,8 +527,8 @@ impl ReplyDirectory {
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
-    pub fn add (&mut self, ino: u64, offset: u64, kind: FileType, name: &PosixPath) -> bool {
-        let name = name.as_vec();
+    pub fn add<T: AsOsStr> (&mut self, ino: u64, offset: u64, kind: FileType, name: T) -> bool {
+        let name = name.as_os_str().as_bytes();
         let entlen = mem::size_of::<fuse_dirent>() + name.len();
         let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);  // 64bit align
         let padlen = entsize - entlen;
@@ -564,7 +565,6 @@ impl ReplyDirectory {
 #[cfg(test)]
 mod test {
     use std::thread;
-    use std::old_path::PosixPath;
     use std::sync::mpsc::channel;
     use time::Timespec;
     use super::as_bytes;
@@ -843,8 +843,8 @@ mod test {
                      0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,  0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73],
             ]);
         });
-        reply.add(0xaabb, 1, FileType::Directory, &PosixPath::new("hello"));
-        reply.add(0xccdd, 2, FileType::RegularFile, &PosixPath::new("world.rs"));
+        reply.add(0xaabb, 1, FileType::Directory, "hello");
+        reply.add(0xccdd, 2, FileType::RegularFile, "world.rs");
         reply.ok();
     }
 

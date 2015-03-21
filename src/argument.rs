@@ -4,7 +4,10 @@
 //!
 
 use std::mem;
-use std::old_path::PosixPath;
+use std::ffi::{CStr, OsStr};
+use std::path::Path;
+use std::os::unix::ffi::OsStrExt;
+use libc::c_char;
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'a> {
@@ -20,25 +23,24 @@ impl<'a> ArgumentIterator<'a> {
 
     /// Fetch a typed argument
     pub fn fetch<T> (&mut self) -> &'a T {
-        let value = unsafe { mem::transmute(self.data.as_ptr().offset(self.pos as isize)) };
+        let ptr = unsafe { self.data.as_ptr().offset(self.pos as isize) };
+        let value = unsafe { mem::transmute(ptr) };
         self.pos += mem::size_of::<T>();
         assert!(self.pos <= self.data.len(), "trying to fetch argument behind data");
         value
     }
 
     /// Fetch a (zero-terminated) string (can be non-utf8)
-    pub fn fetch_str (&mut self) -> &'a [u8] {
-        let start = self.pos;
-        while self.data[self.pos] != 0 {
-            self.pos += 1
-        }
-        self.pos += 1;  // Eat the null terminator
-        &self.data[start..self.pos-1]
+    pub fn fetch_str (&mut self) -> &'a OsStr {
+        let ptr = unsafe { self.data.as_ptr().offset(self.pos as isize) };
+        let s = unsafe { CStr::from_ptr(ptr as *const c_char) };
+        self.pos += s.to_bytes_with_nul().len();
+        OsStr::from_bytes(s.to_bytes())
     }
 
-    /// Fetch a (zero-terminated) Posix path
-    pub fn fetch_path (&mut self) -> PosixPath {
-        PosixPath::new(self.fetch_str())
+    /// Fetch a (zero-terminated) path (can be non-utf8)
+    pub fn fetch_path (&mut self) -> &'a Path {
+        Path::new(self.fetch_str())
     }
 
     /// Fetch a slice of the remaining data
@@ -52,7 +54,7 @@ impl<'a> ArgumentIterator<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::old_path::PosixPath;
+    use std::path::Path;
     use super::ArgumentIterator;
 
     static TEST_DATA: [u8; 12] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61, 0x7a, 0x00];
@@ -75,18 +77,18 @@ mod test {
     fn string_argument () {
         let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg = it.fetch_str();
-        assert_eq!(arg, b"foo");
+        assert_eq!(arg, "foo");
         let arg = it.fetch_str();
-        assert_eq!(arg, b"bar");
+        assert_eq!(arg, "bar");
     }
 
     #[test]
     fn path_argument () {
         let mut it = ArgumentIterator::new(&TEST_DATA);
         let arg = it.fetch_path();
-        assert!(arg == PosixPath::new("foo"));
+        assert_eq!(arg, Path::new("foo"));
         let arg = it.fetch_path();
-        assert!(arg == PosixPath::new("bar"));
+        assert_eq!(arg, Path::new("bar"));
     }
 
     #[test]
@@ -106,7 +108,7 @@ mod test {
         assert_eq!(arg.p2, 0x6f);
         assert_eq!(arg.p3, 0x006f);
         let arg = it.fetch_str();
-        assert_eq!(arg, b"bar");
+        assert_eq!(arg, "bar");
         let arg = it.fetch_data();
         assert_eq!(arg, [0x62, 0x61, 0x7a, 0x00]);
     }

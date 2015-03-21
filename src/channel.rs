@@ -179,7 +179,7 @@ mod test {
     #[test]
     fn fuse_args () {
         with_fuse_args(&[OsStr::from_str("foo"), OsStr::from_str("bar")], |args| {
-            assert!(args.argc == 3);
+            assert_eq!(args.argc, 3);
             assert_eq!(unsafe { CStr::from_ptr(*args.argv.offset(0)).to_bytes() }, b"rust-fuse");
             assert_eq!(unsafe { CStr::from_ptr(*args.argv.offset(1)).to_bytes() }, b"foo");
             assert_eq!(unsafe { CStr::from_ptr(*args.argv.offset(2)).to_bytes() }, b"bar");

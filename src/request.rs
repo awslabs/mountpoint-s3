@@ -289,7 +289,7 @@ impl<'a> Request<'a> {
                 let name = data.fetch_str();
                 let value = data.fetch_data();
                 assert!(value.len() == arg.size as usize);
-                debug!("SETXATTR({}) ino {:#018x}, name {}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name), arg.size, arg.flags);
+                debug!("SETXATTR({}) ino {:#018x}, name {:?}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.size, arg.flags);
                 #[cfg(target_os = "macos")] #[inline]
                 fn get_position (arg: &fuse_setxattr_in) -> u32 { arg.position }
                 #[cfg(not(target_os = "macos"))] #[inline]
@@ -299,7 +299,7 @@ impl<'a> Request<'a> {
             FUSE_GETXATTR => {
                 let arg: &fuse_getxattr_in = data.fetch();
                 let name = data.fetch_str();
-                debug!("GETXATTR({}) ino {:#018x}, name {}, size {}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name), arg.size);
+                debug!("GETXATTR({}) ino {:#018x}, name {:?}, size {}", self.header.unique, self.header.nodeid, name, arg.size);
                 se.filesystem.getxattr(self, self.header.nodeid, name, self.reply());
             },
             FUSE_LISTXATTR => {
@@ -309,7 +309,7 @@ impl<'a> Request<'a> {
             },
             FUSE_REMOVEXATTR => {
                 let name = data.fetch_str();
-                debug!("REMOVEXATTR({}) ino {:#018x}, name {}", self.header.unique, self.header.nodeid, String::from_utf8_lossy(name));
+                debug!("REMOVEXATTR({}) ino {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.removexattr(self, self.header.nodeid, name, self.reply());
             },
             FUSE_ACCESS => {
@@ -342,7 +342,7 @@ impl<'a> Request<'a> {
             #[cfg(target_os = "macos")]
             FUSE_SETVOLNAME => {                        // OS X only
                 let name = data.fetch_str();
-                debug!("SETVOLNAME({}) name {}", self.header.unique, String::from_utf8_lossy(name));
+                debug!("SETVOLNAME({}) name {:?}", self.header.unique, name);
                 se.filesystem.setvolname(self, name, self.reply());
             },
             #[cfg(target_os = "macos")]

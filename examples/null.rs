@@ -9,6 +9,6 @@ impl Filesystem for NullFS {
 }
 
 fn main () {
-    let mountpoint = env::args_os().skip(1).next().unwrap();
+    let mountpoint = env::args_os().nth(1).unwrap();
     fuse::mount(NullFS, &mountpoint, &[]);
 }

@@ -1,17 +1,14 @@
 #![feature(libc)]
-#![feature(old_io)]
-#![feature(old_path)]
 
 extern crate fuse;
 extern crate libc;
 extern crate time;
 
 use std::env;
-use std::old_io::{FileType, USER_FILE, USER_DIR};
-use std::old_path::PosixPath;
+use std::path::Path;
 use libc::ENOENT;
 use time::Timespec;
-use fuse::{FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
+use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 };                 // 1 second
 
@@ -26,7 +23,7 @@ const HELLO_DIR_ATTR: FileAttr = FileAttr {
     ctime: CREATE_TIME,
     crtime: CREATE_TIME,
     kind: FileType::Directory,
-    perm: USER_DIR,
+    perm: 0o755,
     nlink: 2,
     uid: 501,
     gid: 20,
@@ -45,7 +42,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
     ctime: CREATE_TIME,
     crtime: CREATE_TIME,
     kind: FileType::RegularFile,
-    perm: USER_FILE,
+    perm: 0o644,
     nlink: 1,
     uid: 501,
     gid: 20,
@@ -56,8 +53,8 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 struct HelloFS;
 
 impl Filesystem for HelloFS {
-    fn lookup (&mut self, _req: &Request, parent: u64, name: &PosixPath, reply: ReplyEntry) {
-        if parent == 1 && name.as_str() == Some("hello.txt") {
+    fn lookup (&mut self, _req: &Request, parent: u64, name: &Path, reply: ReplyEntry) {
+        if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
         } else {
             reply.error(ENOENT);
@@ -83,9 +80,9 @@ impl Filesystem for HelloFS {
     fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, mut reply: ReplyDirectory) {
         if ino == 1 {
             if offset == 0 {
-                reply.add(1, 0, FileType::Directory, &PosixPath::new("."));
-                reply.add(1, 1, FileType::Directory, &PosixPath::new(".."));
-                reply.add(2, 2, FileType::RegularFile, &PosixPath::new("hello.txt"));
+                reply.add(1, 0, FileType::Directory, ".");
+                reply.add(1, 1, FileType::Directory, "..");
+                reply.add(2, 2, FileType::RegularFile, "hello.txt");
             }
             reply.ok();
         } else {
@@ -95,6 +92,6 @@ impl Filesystem for HelloFS {
 }
 
 fn main () {
-    let mountpoint = env::args_os().skip(1).next().unwrap();
+    let mountpoint = env::args_os().nth(1).unwrap();
     fuse::mount(HelloFS, &mountpoint, &[]);
 }
