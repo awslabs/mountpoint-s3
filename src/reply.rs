@@ -10,10 +10,9 @@
 
 use std::{mem, ptr, slice};
 use std::marker::PhantomData;
-use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
 use std::thunk::Invoke;
-use libc::{c_int, S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFLNK};
+use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK};
 use libc::consts::os::posix88::EIO;
 use time::Timespec;
 use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
@@ -21,7 +20,7 @@ use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bma
 #[cfg(target_os = "macos")]
 use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
-use FileAttr;
+use {FileType, FileAttr};
 
 /// Generic reply trait
 pub trait Reply {
@@ -46,15 +45,15 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
 // But others like MacOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(unused_typecasts)]
 /// Returns the mode for a given file kind and permission
-fn mode_from_kind_and_perm (kind: FileType, perm: FilePermission) -> u32 {
+fn mode_from_kind_and_perm (kind: FileType, perm: u16) -> u32 {
     (match kind {
-        FileType::RegularFile => S_IFREG,
+        FileType::NamedPipe => S_IFIFO,
+        FileType::CharDevice => S_IFCHR,
+        FileType::BlockDevice => S_IFBLK,
         FileType::Directory => S_IFDIR,
-        FileType::NamedPipe => S_IFCHR,
-        FileType::BlockSpecial => S_IFBLK,
+        FileType::RegularFile => S_IFREG,
         FileType::Symlink => S_IFLNK,
-        FileType::Unknown => 0,
-    }) as u32 | perm.bits()
+    }) as u32 | perm as u32
 }
 
 /// Returns a fuse_attr from FileAttr
@@ -539,7 +538,7 @@ impl ReplyDirectory {
             (*pdirent).ino = ino;
             (*pdirent).off = offset;
             (*pdirent).namelen = name.len() as u32;
-            (*pdirent).typ = mode_from_kind_and_perm(kind, FilePermission::empty()) >> 12;
+            (*pdirent).typ = mode_from_kind_and_perm(kind, 0) >> 12;
             let p = p.offset(mem::size_of_val(&*pdirent) as isize);
             ptr::copy_nonoverlapping(p, name.as_ptr(), name.len());
             let p = p.offset(name.len() as isize);
@@ -565,7 +564,6 @@ impl ReplyDirectory {
 #[cfg(test)]
 mod test {
     use std::thread;
-    use std::old_io::{FileType, USER_FILE};
     use std::old_path::PosixPath;
     use std::sync::mpsc::channel;
     use time::Timespec;
@@ -574,7 +572,7 @@ mod test {
     use super::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
     #[cfg(target_os = "macos")]
     use super::ReplyXTimes;
-    use FileAttr;
+    use {FileType, FileAttr};
 
     #[allow(dead_code)]
     struct Data { a: u8, b: u8, c: u16 }
@@ -686,7 +684,7 @@ mod test {
         });
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-            kind: FileType::RegularFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+            kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.entry(&time, &attr, 0xaa);
     }
 
@@ -718,7 +716,7 @@ mod test {
         });
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-            kind: FileType::RegularFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+            kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.attr(&time, &attr);
     }
 
@@ -807,7 +805,7 @@ mod test {
         });
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
-            kind: FileType::RegularFile, perm: USER_FILE, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
+            kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);
     }
 

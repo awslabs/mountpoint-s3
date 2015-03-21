@@ -25,7 +25,6 @@ extern crate time;
 
 use std::io;
 use std::ffi::OsStr;
-use std::old_io::{FileType, FilePermission};
 use std::old_path::PosixPath;
 use std::path::AsPath;
 use libc::{c_int, ENOSYS};
@@ -47,8 +46,25 @@ mod reply;
 mod request;
 mod session;
 
+/// File types
+#[derive(Copy, Debug, Hash, PartialEq)]
+pub enum FileType {
+    /// Named pipe (S_IFIFO)
+    NamedPipe,
+    /// Character device (S_IFCHR)
+    CharDevice,
+    /// Block device (S_IFBLK)
+    BlockDevice,
+    /// Directory (S_IFDIR)
+    Directory,
+    /// Regular file (S_IFREG)
+    RegularFile,
+    /// Symbolic link (S_IFLNK)
+    Symlink,
+}
+
 /// File attributes
-#[derive(Copy)]
+#[derive(Copy, Debug)]
 pub struct FileAttr {
     /// Inode number
     pub ino: u64,
@@ -67,7 +83,7 @@ pub struct FileAttr {
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
-    pub perm: FilePermission,
+    pub perm: u16,
     /// Number of hard links
     pub nlink: u32,
     /// User id
