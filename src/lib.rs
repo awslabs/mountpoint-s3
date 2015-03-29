@@ -15,7 +15,7 @@
 #![feature(std_misc)]
 #![feature(unsafe_destructor)]
 
-#![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications, unused_typecasts)]
+#![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 
 extern crate libc;
 #[macro_use]
