@@ -26,7 +26,7 @@ pub const MAX_WRITE_SIZE: usize = 16*1024*1024;
 const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 /// The session data structure
-pub struct Session<FS> {
+pub struct Session<FS: Filesystem> {
     /// Filesystem operation implementations
     pub filesystem: FS,
     /// Communication channel to the kernel driver
