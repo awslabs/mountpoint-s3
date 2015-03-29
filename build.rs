@@ -1,4 +1,4 @@
-extern crate "pkg-config" as pkg_config;
+extern crate pkg_config;
 
 use std::env;
 
