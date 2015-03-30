@@ -82,7 +82,7 @@ impl Channel {
                 if fd < 0 {
                     Err(io::Error::last_os_error())
                 } else {
-                    let mountpoint = PathBuf::new(<OsStr as OsStrExt>::from_bytes(mnt.as_bytes()));
+                    let mountpoint = PathBuf::from(<OsStr as OsStrExt>::from_bytes(mnt.as_bytes()));
                     Ok(Channel { mountpoint: mountpoint, fd: fd })
                 }
             })

@@ -42,9 +42,9 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
     }
 }
 
-// Some platforms like Linux x86_64 have mode_t = u32, and lint warns of an unused_typecast.
+// Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
 // But others like MacOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
-#[allow(unused_typecasts)]
+#[allow(trivial_numeric_casts)]
 /// Returns the mode for a given file kind and permission
 fn mode_from_kind_and_perm (kind: FileType, perm: u16) -> u32 {
     (match kind {
