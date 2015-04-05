@@ -11,7 +11,7 @@
 use std::{mem, ptr, slice};
 use std::ffi::AsOsStr;
 use std::marker::PhantomData;
-use std::thunk::Invoke;
+use std::boxed::FnBox;
 use std::os::unix::ffi::OsStrExt;
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK};
 use libc::consts::os::posix88::EIO;
@@ -109,15 +109,15 @@ pub struct ReplyRaw<T> {
     /// Unique id of the request to reply to
     unique: u64,
     /// Closure to call for sending the reply
-    sender: Option<Box<for<'a> Invoke<&'a [&'a [u8]]> + Send>>,
+    sender: Option<Box<for<'a> FnBox(&'a [&'a [u8]]) + Send>>,
     /// Marker for being able to have T on this struct (which enforces
     /// reply types to send the correct type of data)
     marker: PhantomData<T>,
 }
 
 impl<T> Reply for ReplyRaw<T> {
-    fn new<F: FnOnce(&[&[u8]])+Send+'static> (unique: u64, sender: F) -> ReplyRaw<T> {
-        let sender: Box<for<'a> Invoke<&'a [&'a [u8]]> + Send> = Box::new(sender);
+    fn new<F: FnBox(&[&[u8]])+Send+'static> (unique: u64, sender: F) -> ReplyRaw<T> {
+        let sender: Box<for<'a> FnBox(&'a [&'a [u8]]) + Send> = Box::new(sender);
         ReplyRaw { unique: unique, sender: Some(sender), marker: PhantomData }
     }
 }
@@ -137,7 +137,7 @@ impl<T> ReplyRaw<T> {
             let sender = self.sender.take().unwrap();
             let mut sendbytes = headerbytes.to_vec();
             sendbytes.push_all(bytes);
-            sender.invoke(&sendbytes);
+            sender.call_box((&sendbytes,));
         });
     }
 
