@@ -75,7 +75,8 @@ impl Channel {
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
     pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
-        let mnt = try!(mountpoint.as_os_str().to_cstring());
+        let mnt = try!(mountpoint.as_os_str().to_cstring().ok_or(
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid path")));
         real_path(&mnt).and_then(|mnt| {
             with_fuse_args(options, |args| {
                 let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
@@ -161,7 +162,8 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     #[cfg(not(target_os = "macos"))] #[inline]
     fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::umount(mnt.as_ptr()) } }
 
-    let mnt = try!(mountpoint.as_os_str().to_cstring());
+    let mnt = try!(mountpoint.as_os_str().to_cstring().ok_or(
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid path")));
     let rc = libc_umount(&mnt);
     if rc < 0 {
         Err(io::Error::last_os_error())
