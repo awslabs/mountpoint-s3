@@ -46,7 +46,7 @@ mod request;
 mod session;
 
 /// File types
-#[derive(Copy, Debug, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq)]
 pub enum FileType {
     /// Named pipe (S_IFIFO)
     NamedPipe,
@@ -63,7 +63,7 @@ pub enum FileType {
 }
 
 /// File attributes
-#[derive(Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct FileAttr {
     /// Inode number
     pub ino: u64,
