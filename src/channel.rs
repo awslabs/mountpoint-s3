@@ -157,10 +157,25 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     // no indication of the error available to the caller. So we call unmount
     // directly, which is what osxfuse does anyway, since we already converted
     // to the real path when we first mounted.
+
     #[cfg(target_os = "macos")] #[inline]
     fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::unmount(mnt.as_ptr(), 0) } }
+
     #[cfg(not(target_os = "macos"))] #[inline]
-    fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::umount(mnt.as_ptr()) } }
+    fn libc_umount (mnt: &CStr) -> c_int {
+        use fuse::fuse_unmount_compat22;
+        use std::io::ErrorKind::PermissionDenied;
+
+        let rc = unsafe { libc::umount(mnt.as_ptr()) };
+        if rc < 0 && io::Error::last_os_error().kind() == PermissionDenied {
+            // Linux always returns EPERM for non-root users.  We have to let the
+            // library go through the setuid-root "fusermount -u" to unmount.
+            unsafe { fuse_unmount_compat22(mnt.as_ptr()); }
+            0
+        } else {
+            rc
+        }
+    }
 
     let mnt = try!(mountpoint.as_os_str().to_cstring().ok_or(
             io::Error::new(io::ErrorKind::InvalidInput, "invalid path")));
