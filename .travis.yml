@@ -2,6 +2,7 @@ os:
   - linux
   - osx
 language: rust
+rust: nightly
 env:
   global:
     - secure: atCJyliV0MQp8aNBrDc1iymeAxNJWFZPU0OmyhK94+/1FjU1pw7MU3cdSCN1dHY82/4bmKGsewRwCnpj5SPYPG2BbOSAuKobLvGO/mlagqFrdnJtmCmsGda0F2wZ3PNC30zfx0L+TsngB34URcgWGCfzPvyDS0JuHTIwl25YiX8=
