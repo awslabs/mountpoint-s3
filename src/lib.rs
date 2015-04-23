@@ -11,8 +11,7 @@
 #![feature(convert)]
 #![feature(core)]
 #![feature(libc)]
-#![feature(std_misc)]
-#![feature(unsafe_destructor)]
+#![feature(scoped)]
 
 #![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 

@@ -106,7 +106,6 @@ impl<FS: Filesystem+Send+'static> Session<FS> {
     }
 }
 
-#[unsafe_destructor]
 impl<FS: Filesystem> Drop for Session<FS> {
     fn drop (&mut self) {
         info!("Unmounted {}", self.mountpoint().display());
@@ -136,7 +135,6 @@ impl<'a> BackgroundSession<'a> {
     }
 }
 
-#[unsafe_destructor]
 impl<'a> Drop for BackgroundSession<'a> {
     fn drop (&mut self) {
         info!("Unmounting {}", self.mountpoint.display());

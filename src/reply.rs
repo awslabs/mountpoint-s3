@@ -155,7 +155,6 @@ impl<T> ReplyRaw<T> {
     }
 }
 
-#[unsafe_destructor]
 impl<T> Drop for ReplyRaw<T> {
     fn drop (&mut self) {
         if self.sender.is_some() {
