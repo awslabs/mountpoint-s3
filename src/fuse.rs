@@ -126,7 +126,6 @@ pub mod consts {
 }
 
 #[repr(C)]
-#[derive(FromPrimitive)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
     FUSE_FORGET = 2,            // no reply
@@ -170,6 +169,57 @@ pub enum fuse_opcode {
     FUSE_GETXTIMES = 62,        // OS X only
     #[cfg(target_os = "macos")]
     FUSE_EXCHANGE = 63,         // OS X only
+}
+
+// FIXME: Hopefully Rust will once have a more convenient way of converting primitive to enum
+impl fuse_opcode {
+    pub fn from_u32 (n: u32) -> Option<fuse_opcode> {
+        match n {
+            1 => Some(fuse_opcode::FUSE_LOOKUP),
+            2 => Some(fuse_opcode::FUSE_FORGET),
+            3 => Some(fuse_opcode::FUSE_GETATTR),
+            4 => Some(fuse_opcode::FUSE_SETATTR),
+            5 => Some(fuse_opcode::FUSE_READLINK),
+            6 => Some(fuse_opcode::FUSE_SYMLINK),
+            8 => Some(fuse_opcode::FUSE_MKNOD),
+            9 => Some(fuse_opcode::FUSE_MKDIR),
+            10 => Some(fuse_opcode::FUSE_UNLINK),
+            11 => Some(fuse_opcode::FUSE_RMDIR),
+            12 => Some(fuse_opcode::FUSE_RENAME),
+            13 => Some(fuse_opcode::FUSE_LINK),
+            14 => Some(fuse_opcode::FUSE_OPEN),
+            15 => Some(fuse_opcode::FUSE_READ),
+            16 => Some(fuse_opcode::FUSE_WRITE),
+            17 => Some(fuse_opcode::FUSE_STATFS),
+            18 => Some(fuse_opcode::FUSE_RELEASE),
+            20 => Some(fuse_opcode::FUSE_FSYNC),
+            21 => Some(fuse_opcode::FUSE_SETXATTR),
+            22 => Some(fuse_opcode::FUSE_GETXATTR),
+            23 => Some(fuse_opcode::FUSE_LISTXATTR),
+            24 => Some(fuse_opcode::FUSE_REMOVEXATTR),
+            25 => Some(fuse_opcode::FUSE_FLUSH),
+            26 => Some(fuse_opcode::FUSE_INIT),
+            27 => Some(fuse_opcode::FUSE_OPENDIR),
+            28 => Some(fuse_opcode::FUSE_READDIR),
+            29 => Some(fuse_opcode::FUSE_RELEASEDIR),
+            30 => Some(fuse_opcode::FUSE_FSYNCDIR),
+            31 => Some(fuse_opcode::FUSE_GETLK),
+            32 => Some(fuse_opcode::FUSE_SETLK),
+            33 => Some(fuse_opcode::FUSE_SETLKW),
+            34 => Some(fuse_opcode::FUSE_ACCESS),
+            35 => Some(fuse_opcode::FUSE_CREATE),
+            36 => Some(fuse_opcode::FUSE_INTERRUPT),
+            37 => Some(fuse_opcode::FUSE_BMAP),
+            38 => Some(fuse_opcode::FUSE_DESTROY),
+            #[cfg(target_os = "macos")]
+            61 => Some(fuse_opcode::FUSE_SETVOLNAME),
+            #[cfg(target_os = "macos")]
+            62 => Some(fuse_opcode::FUSE_GETXTIMES),
+            #[cfg(target_os = "macos")]
+            63 => Some(fuse_opcode::FUSE_EXCHANGE),
+            _ => None,
+        }
+    }
 }
 
 #[repr(C)]

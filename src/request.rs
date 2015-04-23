@@ -4,7 +4,6 @@
 //!
 
 use std::mem;
-use std::num::FromPrimitive;
 use libc::consts::os::posix88::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
 use argument::ArgumentIterator;
@@ -71,7 +70,7 @@ impl<'a> Request<'a> {
     /// This calls the appropriate filesystem operation method for the
     /// request and sends back the returned reply to the kernel
     fn dispatch<FS: Filesystem> (&self, se: &mut Session<FS>) {
-        let opcode: fuse_opcode = match FromPrimitive::from_u32(self.header.opcode) {
+        let opcode = match fuse_opcode::from_u32(self.header.opcode) {
             Some(op) => op,
             None => {
                 warn!("Ignoring unknown FUSE operation {}", self.header.opcode);
