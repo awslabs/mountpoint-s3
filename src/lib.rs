@@ -376,7 +376,7 @@ pub trait Filesystem {
 
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
-pub fn mount<FS: Filesystem+Send, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) {
+pub fn mount<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) {
     Session::new(filesystem, mountpoint.as_ref(), options).run();
 }
 
