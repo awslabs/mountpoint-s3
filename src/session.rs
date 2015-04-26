@@ -117,7 +117,7 @@ pub struct BackgroundSession<'a> {
     /// Path of the mounted filesystem
     pub mountpoint: PathBuf,
     /// Thread guard of the background session
-    pub guard: JoinGuard<'a ()>,
+    pub guard: JoinGuard<'a, ()>,
 }
 
 impl<'a> BackgroundSession<'a> {
