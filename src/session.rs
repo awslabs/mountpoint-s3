@@ -99,9 +99,9 @@ impl<FS: Filesystem> Session<FS> {
     }
 }
 
-impl<FS: Filesystem+Send+'static> Session<FS> {
+impl<'a, FS: Filesystem+Send+'a> Session<FS> {
     /// Run the session loop in a background thread
-    pub fn spawn<'a> (self) -> io::Result<BackgroundSession<'a>> {
+    pub fn spawn (self) -> io::Result<BackgroundSession<'a>> {
         BackgroundSession::new(self)
     }
 }
@@ -124,7 +124,7 @@ impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub fn new<FS: Filesystem+Send+'static> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
+    pub fn new<FS: Filesystem+Send+'a> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
         let mountpoint = se.mountpoint().to_path_buf();
         let builder = Builder::new().name(format!("FUSE {}", mountpoint.display()));
         let guard = try!(builder.scoped(move || {
