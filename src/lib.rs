@@ -7,11 +7,11 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#![feature(collections)]
 #![feature(convert)]
-#![feature(core)]
+#![feature(fnbox)]
 #![feature(libc)]
 #![feature(scoped)]
+#![feature(vec_push_all)]
 
 #![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 
