@@ -10,7 +10,6 @@
 #![feature(convert)]
 #![feature(fnbox)]
 #![feature(libc)]
-#![feature(scoped)]
 #![feature(vec_push_all)]
 
 #![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
@@ -19,6 +18,7 @@ extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate time;
+extern crate thread_scoped;
 
 use std::convert::AsRef;
 use std::io;
@@ -385,6 +385,6 @@ pub fn mount<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, op
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
-pub fn spawn_mount<'a, FS: Filesystem+Send+'a, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<BackgroundSession<'a>> {
+pub unsafe fn spawn_mount<'a, FS: Filesystem+Send+'a, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<BackgroundSession<'a>> {
     Session::new(filesystem, mountpoint.as_ref(), options).spawn()
 }

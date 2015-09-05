@@ -16,6 +16,7 @@ pkg-config = "*"
 [dependencies]
 log = "*"
 time = "*"
+thread-scoped = "*"
 
 [lib]
 name = "fuse"
