@@ -1,5 +1,3 @@
-#![feature(libc)]
-
 extern crate fuse;
 extern crate libc;
 extern crate time;
