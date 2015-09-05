@@ -7,7 +7,6 @@
 //! needed to establish a fd to talk to the kernel driver.
 //!
 
-#![feature(convert)]
 #![feature(fnbox)]
 
 #![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
