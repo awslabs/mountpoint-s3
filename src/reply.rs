@@ -137,7 +137,7 @@ impl<T> ReplyRaw<T> {
         as_bytes(&header, |headerbytes| {
             let sender = self.sender.take().unwrap();
             let mut sendbytes = headerbytes.to_vec();
-            sendbytes.push_all(bytes);
+            sendbytes.extend(bytes);
             sender.call_box((&sendbytes,));
         });
     }
