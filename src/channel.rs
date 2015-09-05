@@ -40,7 +40,7 @@ mod libc {
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
-/// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
+/// FIXME: Use std::fs::canonicalize() once stable (rust-lang/rust#27706)
 fn real_path (path: &CStr) -> io::Result<CString> {
     let mut resolved: Vec<c_char> = Vec::with_capacity(libc::PATH_MAX);
     unsafe {
