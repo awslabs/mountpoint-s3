@@ -8,6 +8,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
 use libc::{c_char, c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
+use reply::ReplySender;
 
 // Libc provides iovec based I/O using readv and writev functions
 #[allow(dead_code, non_camel_case_types)]
@@ -144,6 +145,14 @@ impl ChannelSender {
             Err(io::Error::last_os_error())
         } else {
             Ok(())
+        }
+    }
+}
+
+impl ReplySender for ChannelSender {
+    fn send(&self, data: &[&[u8]]) {
+        if let Err(err) = ChannelSender::send(self, data) {
+            error!("Failed to send FUSE reply: {}", err);
         }
     }
 }

@@ -12,7 +12,6 @@ use std::{mem, ptr, slice};
 use std::convert::AsRef;
 use std::ffi::OsStr;
 use std::marker::PhantomData;
-use std::boxed::FnBox;
 use std::os::unix::ffi::OsStrExt;
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK};
 use libc::consts::os::posix88::EIO;
@@ -24,10 +23,16 @@ use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
 use {FileType, FileAttr};
 
+/// Generic reply callback to send data
+pub trait ReplySender: Send + 'static {
+    /// Send data.
+    fn send(&self, data: &[&[u8]]);
+}
+
 /// Generic reply trait
 pub trait Reply {
     /// Create a new reply for the given request
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> Self;
+    fn new<S: ReplySender> (unique: u64, sender: S) -> Self;
 }
 
 /// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
@@ -110,15 +115,15 @@ pub struct ReplyRaw<T> {
     /// Unique id of the request to reply to
     unique: u64,
     /// Closure to call for sending the reply
-    sender: Option<Box<for<'a> FnBox(&'a [&'a [u8]]) + Send>>,
+    sender: Option<Box<ReplySender>>,
     /// Marker for being able to have T on this struct (which enforces
     /// reply types to send the correct type of data)
     marker: PhantomData<T>,
 }
 
 impl<T> Reply for ReplyRaw<T> {
-    fn new<F: FnBox(&[&[u8]])+Send+'static> (unique: u64, sender: F) -> ReplyRaw<T> {
-        let sender: Box<for<'a> FnBox(&'a [&'a [u8]]) + Send> = Box::new(sender);
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyRaw<T> {
+        let sender = Box::new(sender);
         ReplyRaw { unique: unique, sender: Some(sender), marker: PhantomData }
     }
 }
@@ -138,7 +143,7 @@ impl<T> ReplyRaw<T> {
             let sender = self.sender.take().unwrap();
             let mut sendbytes = headerbytes.to_vec();
             sendbytes.extend(bytes);
-            sender.call_box((&sendbytes,));
+            sender.send(&sendbytes);
         });
     }
 
@@ -172,7 +177,7 @@ pub struct ReplyEmpty {
 }
 
 impl Reply for ReplyEmpty {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyEmpty {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyEmpty {
         ReplyEmpty { reply: Reply::new(unique, sender) }
     }
 }
@@ -197,7 +202,7 @@ pub struct ReplyData {
 }
 
 impl Reply for ReplyData {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyData {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyData {
         ReplyData { reply: Reply::new(unique, sender) }
     }
 }
@@ -222,7 +227,7 @@ pub struct ReplyEntry {
 }
 
 impl Reply for ReplyEntry {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyEntry {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyEntry {
         ReplyEntry { reply: Reply::new(unique, sender) }
     }
 }
@@ -255,7 +260,7 @@ pub struct ReplyAttr {
 }
 
 impl Reply for ReplyAttr {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyAttr {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyAttr {
         ReplyAttr { reply: Reply::new(unique, sender) }
     }
 }
@@ -287,7 +292,7 @@ pub struct ReplyXTimes {
 
 #[cfg(target_os = "macos")]
 impl Reply for ReplyXTimes {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyXTimes {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyXTimes {
         ReplyXTimes { reply: Reply::new(unique, sender) }
     }
 }
@@ -318,7 +323,7 @@ pub struct ReplyOpen {
 }
 
 impl Reply for ReplyOpen {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyOpen {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyOpen {
         ReplyOpen { reply: Reply::new(unique, sender) }
     }
 }
@@ -347,7 +352,7 @@ pub struct ReplyWrite {
 }
 
 impl Reply for ReplyWrite {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyWrite {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyWrite {
         ReplyWrite { reply: Reply::new(unique, sender) }
     }
 }
@@ -375,7 +380,7 @@ pub struct ReplyStatfs {
 }
 
 impl Reply for ReplyStatfs {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyStatfs {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyStatfs {
         ReplyStatfs { reply: Reply::new(unique, sender) }
     }
 }
@@ -413,7 +418,7 @@ pub struct ReplyCreate {
 }
 
 impl Reply for ReplyCreate {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyCreate {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyCreate {
         ReplyCreate { reply: Reply::new(unique, sender) }
     }
 }
@@ -450,7 +455,7 @@ pub struct ReplyLock {
 }
 
 impl Reply for ReplyLock {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyLock {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyLock {
         ReplyLock { reply: Reply::new(unique, sender) }
     }
 }
@@ -482,7 +487,7 @@ pub struct ReplyBmap {
 }
 
 impl Reply for ReplyBmap {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyBmap {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyBmap {
         ReplyBmap { reply: Reply::new(unique, sender) }
     }
 }
@@ -511,7 +516,7 @@ pub struct ReplyDirectory {
 }
 
 impl Reply for ReplyDirectory {
-    fn new<F: FnOnce(&[&[u8]])+Send> (unique: u64, sender: F) -> ReplyDirectory {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyDirectory {
         ReplyDirectory { reply: Reply::new(unique, sender), size: 0, data: Vec::with_capacity(4096) }
     }
 }
@@ -565,7 +570,7 @@ impl ReplyDirectory {
 #[cfg(test)]
 mod test {
     use std::thread;
-    use std::sync::mpsc::channel;
+    use std::sync::mpsc::{channel, Sender};
     use time::Timespec;
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
@@ -609,54 +614,69 @@ mod test {
         });
     }
 
+
+    struct AssertSender {
+        expected: Vec<Vec<u8>>,
+    }
+
+    impl super::ReplySender for AssertSender {
+        fn send(&self, data: &[&[u8]]) {
+            assert_eq!(self.expected, data);
+        }
+    }
+
     #[test]
     fn reply_raw () {
         let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
-        let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x12, 0x34, 0x78, 0x56],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, sender);
         reply.ok(&data);
     }
 
     #[test]
     fn reply_error () {
-        let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x10, 0x00, 0x00, 0x00, 0xbe, 0xff, 0xff, 0xff,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, sender);
         reply.error(66);
     }
 
     #[test]
     fn reply_empty () {
-        let reply: ReplyEmpty = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyEmpty = Reply::new(0xdeadbeef, sender);
         reply.ok();
     }
 
     #[test]
     fn reply_data () {
-        let reply: ReplyData = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0xde, 0xad, 0xbe, 0xef],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyData = Reply::new(0xdeadbeef, sender);
         reply.data(&[0xde, 0xad, 0xbe, 0xef]);
     }
 
     #[test]
     fn reply_entry () {
-        let reply: ReplyEntry = Reply::new(0xdeadbeef, |bytes| {
-            if cfg!(target_os = "macos") {
-                assert_eq!([
+        let sender = AssertSender {
+            expected: if cfg!(target_os = "macos") {
+                vec![
                     vec![0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                     vec![0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -667,9 +687,9 @@ mod test {
                          0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,  0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
                          0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00,  0x66, 0x00, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00,
                          0x88, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00, 0x00],
-                ], bytes);
+                ]
             } else {
-                assert_eq!([
+                vec![
                     vec![0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                     vec![0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -679,9 +699,10 @@ mod test {
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
                          0x78, 0x56, 0x00, 0x00, 0xa4, 0x81, 0x00, 0x00,  0x55, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00,
                          0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00],
-                ], bytes);
+                ]
             }
-        });
+        };
+        let reply: ReplyEntry = Reply::new(0xdeadbeef, sender);
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
@@ -690,9 +711,9 @@ mod test {
 
     #[test]
     fn reply_attr () {
-        let reply: ReplyAttr = Reply::new(0xdeadbeef, |bytes| {
-            if cfg!(target_os = "macos") {
-                assert_eq!([
+        let sender = AssertSender {
+            expected: if cfg!(target_os = "macos") {
+                vec![
                     vec![0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                     vec![0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x78, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -701,9 +722,9 @@ mod test {
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
                          0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,  0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00,
                          0x66, 0x00, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00,  0x88, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00, 0x00],
-                ], bytes);
+                ]
             } else {
-                assert_eq!([
+                vec![
                     vec![0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                     vec![0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x78, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -711,9 +732,10 @@ mod test {
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,  0x78, 0x56, 0x00, 0x00, 0xa4, 0x81, 0x00, 0x00,
                          0x55, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00,  0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00],
-                ], bytes);
+                ]
             }
-        });
+        };
+        let reply: ReplyAttr = Reply::new(0xdeadbeef, sender);
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
@@ -723,59 +745,63 @@ mod test {
     #[test]
     #[cfg(target_os = "macos")]
     fn reply_xtimes () {
-        let reply: ReplyXTimes = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                      0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyXTimes = Reply::new(0xdeadbeef, sender);
         let time = Timespec::new(0x1234, 0x5678);
         reply.xtimes(time, time);
     }
 
     #[test]
     fn reply_open () {
-        let reply: ReplyOpen = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyOpen = Reply::new(0xdeadbeef, sender);
         reply.opened(0x1122, 0x33);
     }
 
     #[test]
     fn reply_write () {
-        let reply: ReplyWrite = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyWrite = Reply::new(0xdeadbeef, sender);
         reply.written(0x1122);
     }
 
     #[test]
     fn reply_statfs () {
-        let reply: ReplyStatfs = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                      0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                      0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x66, 0x00, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00,
                      0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyStatfs = Reply::new(0xdeadbeef, sender);
         reply.statfs(0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88);
     }
 
     #[test]
     fn reply_create () {
-        let reply: ReplyCreate = Reply::new(0xdeadbeef, |bytes| {
-            if cfg!(target_os = "macos") {
-                assert_eq!([
+        let sender = AssertSender {
+            expected: if cfg!(target_os = "macos") {
+                vec![
                     vec![0xa8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                     vec![0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -787,9 +813,9 @@ mod test {
                          0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00,  0x66, 0x00, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00,
                          0x88, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00, 0x00,  0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-                ], bytes);
+                ]
             } else {
-                assert_eq!([
+                vec![
                     vec![0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                     vec![0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -800,9 +826,10 @@ mod test {
                          0x78, 0x56, 0x00, 0x00, 0xa4, 0x81, 0x00, 0x00,  0x55, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00,
                          0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00,  0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                          0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-                ], bytes);
+                ]
             }
-        });
+        };
+        let reply: ReplyCreate = Reply::new(0xdeadbeef, sender);
         let time = Timespec::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
@@ -811,49 +838,56 @@ mod test {
 
     #[test]
     fn reply_lock () {
-        let reply: ReplyLock = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x33, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+                  0x33, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00],
+            ]
+        };
+        let reply: ReplyLock = Reply::new(0xdeadbeef, sender);
         reply.locked(0x11, 0x22, 0x33, 0x44);
     }
 
     #[test]
     fn reply_bmap () {
-        let reply: ReplyBmap = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            ], bytes);
-        });
+            ]
+        };
+        let reply: ReplyBmap = Reply::new(0xdeadbeef, sender);
         reply.bmap(0x1234);
     }
 
     #[test]
     fn reply_directory () {
-        let mut reply: ReplyDirectory = Reply::new(0xdeadbeef, |bytes| {
-            assert_eq!([
+        let sender = AssertSender {
+            expected: vec![
                 vec![0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
                 vec![0xbb, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                      0x05, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,  0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00 ,0x00, 0x00,
                      0xdd, 0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                      0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,  0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73],
-            ], bytes);
-        });
+            ]
+        };
+        let mut reply: ReplyDirectory = Reply::new(0xdeadbeef, sender);
         reply.add(0xaabb, 1, FileType::Directory, "hello");
         reply.add(0xccdd, 2, FileType::RegularFile, "world.rs");
         reply.ok();
     }
 
+    impl super::ReplySender for Sender<()> {
+        fn send(&self, _: &[&[u8]]) {
+            Sender::send(self, ()).unwrap()
+        }
+    }
+
     #[test]
     fn async_reply () {
         let (tx, rx) = channel::<()>();
-        let reply: ReplyEmpty = Reply::new(0xdeadbeef, move |_| {
-            tx.send(()).unwrap();
-        });
+        let reply: ReplyEmpty = Reply::new(0xdeadbeef, tx);
         thread::spawn(move || {
             reply.ok();
         });
