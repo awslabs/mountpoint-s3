@@ -11,13 +11,13 @@ keywords = ["fuse", "filesystem", "system", "bindings"]
 license = "MIT"
 
 [build-dependencies]
-pkg-config = "*"
+pkg-config = "0.3"
 
 [dependencies]
-libc = "*"
-log = "*"
-time = "*"
-thread-scoped = "*"
+libc = "0.1"
+log = "0.3"
+time = "0.1"
+thread-scoped = "1.0"
 
 [lib]
 name = "fuse"

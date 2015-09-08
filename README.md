@@ -26,7 +26,7 @@ Put this in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fuse = "*"
+fuse = "0.2"
 ```
 
 and in your crate root:
