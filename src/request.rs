@@ -363,13 +363,8 @@ impl<'a> Request<'a> {
     /// Create a reply object for this request that can be passed to the filesystem
     /// implementation and makes sure that a request is replied exactly once
     fn reply<T: Reply> (&self) -> T {
-        let ch = self.ch;
-        Reply::new(self.header.unique, move |buffer| {
-            match ch.send(buffer) {
-                Ok(()) => (),
-                Err(err) => error!("Failed to send FUSE reply: {}", err),
-            }
-        })
+        let reply: T = Reply::new(self.header.unique, self.ch);
+        reply
     }
 
     /// Returns the unique identifier of this request

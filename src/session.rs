@@ -9,7 +9,7 @@
 use std::io;
 use std::ffi::OsStr;
 use std::path::{PathBuf, Path};
-use std::thread::{Builder, JoinGuard};
+use thread_scoped::{scoped, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel;
 use channel::Channel;
@@ -101,7 +101,7 @@ impl<FS: Filesystem> Session<FS> {
 
 impl<'a, FS: Filesystem+Send+'a> Session<FS> {
     /// Run the session loop in a background thread
-    pub fn spawn (self) -> io::Result<BackgroundSession<'a>> {
+    pub unsafe fn spawn (self) -> io::Result<BackgroundSession<'a>> {
         BackgroundSession::new(self)
     }
 }
@@ -124,13 +124,12 @@ impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub fn new<FS: Filesystem+Send+'a> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
+    pub unsafe fn new<FS: Filesystem+Send+'a> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
         let mountpoint = se.mountpoint().to_path_buf();
-        let builder = Builder::new().name(format!("FUSE {}", mountpoint.display()));
-        let guard = try!(builder.scoped(move || {
+        let guard = scoped(move || {
             let mut se = se;
             se.run();
-        }));
+        });
         Ok(BackgroundSession { mountpoint: mountpoint, guard: guard })
     }
 }

@@ -14,8 +14,10 @@ license = "MIT"
 pkg-config = "*"
 
 [dependencies]
+libc = "*"
 log = "*"
 time = "*"
+thread-scoped = "*"
 
 [lib]
 name = "fuse"

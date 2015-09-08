@@ -8,6 +8,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
 use libc::{c_char, c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
+use reply::ReplySender;
 
 // Libc provides iovec based I/O using readv and writev functions
 #[allow(dead_code, non_camel_case_types)]
@@ -40,7 +41,7 @@ mod libc {
 }
 
 /// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
-/// FIXME: Use Rust's realpath method once available in std (see also https://github.com/mozilla/rust/issues/11857)
+/// FIXME: Use std::fs::canonicalize() once stable (rust-lang/rust#27706)
 fn real_path (path: &CStr) -> io::Result<CString> {
     let mut resolved: Vec<c_char> = Vec::with_capacity(libc::PATH_MAX);
     unsafe {
@@ -58,7 +59,7 @@ fn real_path (path: &CStr) -> io::Result<CString> {
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&OsStr], f: F) -> T {
     let mut args: Vec<CString> = vec![CString::new("rust-fuse").unwrap()];
-    args.extend(options.iter().map(|s| s.to_cstring().unwrap() ));
+    args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap() ));
     let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
@@ -75,8 +76,7 @@ impl Channel {
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
     pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
-        let mnt = try!(mountpoint.as_os_str().to_cstring().ok_or(
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid path")));
+        let mnt = try!(CString::new(mountpoint.as_os_str().as_bytes()));
         real_path(&mnt).and_then(|mnt| {
             with_fuse_args(options, |args| {
                 let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
@@ -149,6 +149,14 @@ impl ChannelSender {
     }
 }
 
+impl ReplySender for ChannelSender {
+    fn send(&self, data: &[&[u8]]) {
+        if let Err(err) = ChannelSender::send(self, data) {
+            error!("Failed to send FUSE reply: {}", err);
+        }
+    }
+}
+
 /// Unmount an arbitrary mount point
 pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     // fuse_unmount_compat22 unfortunately doesn't return a status. Additionally,
@@ -177,8 +185,7 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
         }
     }
 
-    let mnt = try!(mountpoint.as_os_str().to_cstring().ok_or(
-            io::Error::new(io::ErrorKind::InvalidInput, "invalid path")));
+    let mnt = try!(CString::new(mountpoint.as_os_str().as_bytes()));
     let rc = libc_umount(&mnt);
     if rc < 0 {
         Err(io::Error::last_os_error())
