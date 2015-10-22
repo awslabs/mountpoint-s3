@@ -8,6 +8,10 @@
 
 This library does not just provide bindings, it is actually an improved rewrite of the original FUSE C library to fully take advantage of Rust's architecture.
 
+## Documentation
+
+[Rust-FUSE reference](https://zargony.github.io/rust-fuse)
+
 ## Details
 
 A working FUSE filesystem consists of three parts:
