@@ -6,10 +6,28 @@ rust:
   - nightly
   - beta
   - stable
+env:
+  global:
+    secure: U7FXERZWkglMjV70oY+4xTXEk5DA4PdvddjiR65rDbdX5Had2M1aj+W78GhbkttzTUHvjjd6FaZFMPWn9PDL3w6Vr1//Ou+x+wE6lHoiYTHBF2g3kbkKPSDNPzC13AFThp8MJ5NsphXHJlWVeWJI0YJgYFI+GPUdfDOqTEvUPJc=
 install:
   - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get update && sudo apt-get install libfuse-dev; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update && brew install osxfuse; fi
 script:
   - cargo build --verbose
   - cargo test --verbose
-  - cargo doc --verbose
+  - cargo doc --verbose --no-deps
+after_success: |
+  if [ "$TRAVIS_OS_NAME" == "osx" -a "$TRAVIS_RUST_VERSION" == "stable" ]; then
+    echo "Publishing documentation..."
+    cd target/doc
+    echo "<meta http-equiv=\"refresh\" content=\"0; url=fuse\">" >index.html
+    git init
+    git config user.name "Travis CI"
+    git config user.email "noreply@travis-ci.org"
+    git remote add upstream https://$GH_TOKEN@github.com/zargony/rust-fuse.git
+    git fetch upstream
+    git reset upstream/gh-pages
+    git add -A .
+    git commit -m "Documentation generated for $TRAVIS_TAG ($TRAVIS_COMMIT)"
+    git push -q upstream HEAD:gh-pages
+  fi
