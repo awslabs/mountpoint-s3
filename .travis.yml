@@ -20,7 +20,7 @@ script:
   - cargo test --verbose
   - cargo doc --verbose --no-deps
 after_success: |
-  if [ "$TRAVIS_OS_NAME" == "osx" -a "$TRAVIS_RUST_VERSION" == "stable" ]; then
+  if [ -n "$TRAVIS_TAG" -a "$TRAVIS_OS_NAME" == "osx" -a "$TRAVIS_RUST_VERSION" == "stable" ]; then
     echo "Publishing documentation..."
     cd target/doc
     echo "<meta http-equiv=\"refresh\" content=\"0; url=fuse\">" >index.html
