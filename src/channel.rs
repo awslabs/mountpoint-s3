@@ -30,9 +30,11 @@ mod libc {
 
         pub fn realpath (file_name: *const c_char, resolved_name: *mut c_char) -> *const c_char;
 
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
+                  target_os = "openbsd", target_os = "bitrig", target_os = "netbsd"))]
         pub fn unmount(dir: *const c_char, flags: c_int) -> c_int;
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
+                      target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))]
         pub fn umount(dir: *const c_char) -> c_int;
     }
 
@@ -166,10 +168,12 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     // directly, which is what osxfuse does anyway, since we already converted
     // to the real path when we first mounted.
 
-    #[cfg(target_os = "macos")] #[inline]
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
+              target_os = "openbsd", target_os = "bitrig", target_os = "netbsd"))] #[inline]
     fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::unmount(mnt.as_ptr(), 0) } }
 
-    #[cfg(not(target_os = "macos"))] #[inline]
+    #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
+                  target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))] #[inline]
     fn libc_umount (mnt: &CStr) -> c_int {
         use fuse::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
