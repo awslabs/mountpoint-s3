@@ -35,6 +35,7 @@ pub fn dispatch<FS: Filesystem> (req: &Request, se: &mut Session<FS>) {
 }
 
 /// Request data structure
+#[derive(Debug)]
 pub struct Request<'a> {
     /// Channel sender for sending the reply
     ch: ChannelSender,

@@ -462,6 +462,7 @@ pub struct fuse_bmap_out {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct fuse_in_header {
     pub len: u32,
     pub opcode: u32,
