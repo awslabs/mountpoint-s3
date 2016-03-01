@@ -11,6 +11,7 @@
 use std::{mem, ptr, slice};
 use std::convert::AsRef;
 use std::ffi::OsStr;
+use std::fmt;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK};
@@ -27,6 +28,12 @@ use {FileType, FileAttr};
 pub trait ReplySender: Send + 'static {
     /// Send data.
     fn send(&self, data: &[&[u8]]);
+}
+
+impl fmt::Debug for Box<ReplySender> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Box<ReplySender>")
+    }
 }
 
 /// Generic reply trait
@@ -111,6 +118,7 @@ fn fuse_attr_from_attr (attr: &FileAttr) -> fuse_attr {
 ///
 /// Raw reply
 ///
+#[derive(Debug)]
 pub struct ReplyRaw<T> {
     /// Unique id of the request to reply to
     unique: u64,
@@ -172,6 +180,7 @@ impl<T> Drop for ReplyRaw<T> {
 ///
 /// Empty reply
 ///
+#[derive(Debug)]
 pub struct ReplyEmpty {
     reply: ReplyRaw<()>,
 }
@@ -197,6 +206,7 @@ impl ReplyEmpty {
 ///
 /// Data reply
 ///
+#[derive(Debug)]
 pub struct ReplyData {
     reply: ReplyRaw<()>,
 }
@@ -222,6 +232,7 @@ impl ReplyData {
 ///
 /// Entry reply
 ///
+#[derive(Debug)]
 pub struct ReplyEntry {
     reply: ReplyRaw<fuse_entry_out>,
 }
@@ -255,6 +266,7 @@ impl ReplyEntry {
 ///
 /// Attribute Reply
 ///
+#[derive(Debug)]
 pub struct ReplyAttr {
     reply: ReplyRaw<fuse_attr_out>,
 }
@@ -286,6 +298,7 @@ impl ReplyAttr {
 /// XTimes Reply
 ///
 #[cfg(target_os = "macos")]
+#[derive(Debug)]
 pub struct ReplyXTimes {
     reply: ReplyRaw<fuse_getxtimes_out>,
 }
@@ -318,6 +331,7 @@ impl ReplyXTimes {
 ///
 /// Open Reply
 ///
+#[derive(Debug)]
 pub struct ReplyOpen {
     reply: ReplyRaw<fuse_open_out>,
 }
@@ -347,6 +361,7 @@ impl ReplyOpen {
 ///
 /// Write Reply
 ///
+#[derive(Debug)]
 pub struct ReplyWrite {
     reply: ReplyRaw<fuse_write_out>,
 }
@@ -375,6 +390,7 @@ impl ReplyWrite {
 ///
 /// Statfs Reply
 ///
+#[derive(Debug)]
 pub struct ReplyStatfs {
     reply: ReplyRaw<fuse_statfs_out>,
 }
@@ -413,6 +429,7 @@ impl ReplyStatfs {
 ///
 /// Create reply
 ///
+#[derive(Debug)]
 pub struct ReplyCreate {
     reply: ReplyRaw<(fuse_entry_out, fuse_open_out)>,
 }
@@ -450,6 +467,7 @@ impl ReplyCreate {
 ///
 /// Lock Reply
 ///
+#[derive(Debug)]
 pub struct ReplyLock {
     reply: ReplyRaw<fuse_lk_out>,
 }
@@ -482,6 +500,7 @@ impl ReplyLock {
 ///
 /// Bmap Reply
 ///
+#[derive(Debug)]
 pub struct ReplyBmap {
     reply: ReplyRaw<fuse_bmap_out>,
 }
@@ -509,6 +528,7 @@ impl ReplyBmap {
 ///
 /// Directory reply
 ///
+#[derive(Debug)]
 pub struct ReplyDirectory {
     reply: ReplyRaw<()>,
     size: usize,
