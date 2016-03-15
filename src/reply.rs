@@ -866,7 +866,7 @@ mod test {
                      0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,  0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73],
             ]
         };
-        let mut reply: ReplyDirectory = Reply::new(0xdeadbeef, sender);
+        let mut reply = ReplyDirectory::new(0xdeadbeef, sender, 4096);
         reply.add(0xaabb, 1, FileType::Directory, "hello");
         reply.add(0xccdd, 2, FileType::RegularFile, "world.rs");
         reply.ok();
