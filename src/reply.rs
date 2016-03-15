@@ -511,22 +511,16 @@ impl ReplyBmap {
 ///
 pub struct ReplyDirectory {
     reply: ReplyRaw<()>,
-    size: usize,
     data: Vec<u8>,
 }
 
-impl Reply for ReplyDirectory {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyDirectory {
-        ReplyDirectory { reply: Reply::new(unique, sender), size: 0, data: Vec::with_capacity(4096) }
-    }
-}
-
 impl ReplyDirectory {
-    /// Changes the max size of the directory buffer
-    pub fn sized (mut self, size: usize) -> ReplyDirectory {
-        self.size = size;
-        self.data.reserve(size);
-        self
+    /// Creates a new ReplyDirectory with a specified buffer size.
+    pub fn new<S: ReplySender> (unique: u64, sender: S, size: usize) -> ReplyDirectory {
+        ReplyDirectory {
+            reply: Reply::new(unique, sender),
+            data: Vec::with_capacity(size),
+        }
     }
 
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
