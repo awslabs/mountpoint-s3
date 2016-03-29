@@ -9,7 +9,7 @@
 
 #![doc(html_root_url = "https://zargony.github.io/rust-fuse")]
 
-#![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
+#![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications, missing_debug_implementations)]
 
 extern crate libc;
 #[macro_use]

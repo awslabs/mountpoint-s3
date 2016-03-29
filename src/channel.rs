@@ -67,6 +67,7 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&OsStr], f: F) -> T
 }
 
 /// A raw communication channel to the FUSE kernel driver
+#[derive(Debug)]
 pub struct Channel {
     mountpoint: PathBuf,
     fd: c_int,
@@ -131,7 +132,7 @@ impl Drop for Channel {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ChannelSender {
     fd: c_int,
 }

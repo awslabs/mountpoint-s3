@@ -8,6 +8,7 @@
 
 use std::io;
 use std::ffi::OsStr;
+use std::fmt;
 use std::path::{PathBuf, Path};
 use thread_scoped::{scoped, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
@@ -26,6 +27,7 @@ pub const MAX_WRITE_SIZE: usize = 16*1024*1024;
 const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 /// The session data structure
+#[derive(Debug)]
 pub struct Session<FS: Filesystem> {
     /// Filesystem operation implementations
     pub filesystem: FS,
@@ -143,5 +145,13 @@ impl<'a> Drop for BackgroundSession<'a> {
             Ok(()) => (),
             Err(err) => error!("Failed to unmount {}: {}", self.mountpoint.display(), err),
         }
+    }
+}
+
+// replace with #[derive(Debug)] if Debug ever gets implemented for
+// thread_scoped::JoinGuard
+impl<'a> fmt::Debug for BackgroundSession<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "BackgroundSession {{ mountpoint: {:?}, guard: JoinGuard<()> }}", self.mountpoint)
     }
 }
