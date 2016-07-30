@@ -531,22 +531,16 @@ impl ReplyBmap {
 #[derive(Debug)]
 pub struct ReplyDirectory {
     reply: ReplyRaw<()>,
-    size: usize,
     data: Vec<u8>,
 }
 
-impl Reply for ReplyDirectory {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyDirectory {
-        ReplyDirectory { reply: Reply::new(unique, sender), size: 0, data: Vec::with_capacity(4096) }
-    }
-}
-
 impl ReplyDirectory {
-    /// Changes the max size of the directory buffer
-    pub fn sized (mut self, size: usize) -> ReplyDirectory {
-        self.size = size;
-        self.data.reserve(size);
-        self
+    /// Creates a new ReplyDirectory with a specified buffer size.
+    pub fn new<S: ReplySender> (unique: u64, sender: S, size: usize) -> ReplyDirectory {
+        ReplyDirectory {
+            reply: Reply::new(unique, sender),
+            data: Vec::with_capacity(size),
+        }
     }
 
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
@@ -892,7 +886,7 @@ mod test {
                      0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,  0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73],
             ]
         };
-        let mut reply: ReplyDirectory = Reply::new(0xdeadbeef, sender);
+        let mut reply = ReplyDirectory::new(0xdeadbeef, sender, 4096);
         reply.add(0xaabb, 1, FileType::Directory, "hello");
         reply.add(0xccdd, 2, FileType::RegularFile, "world.rs");
         reply.ok();
