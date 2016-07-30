@@ -11,7 +11,7 @@ keywords = ["fuse", "filesystem", "system", "bindings"]
 license = "MIT"
 
 [build-dependencies]
-pkg-config = "0.3"
+pkg-config = "^0.3.7"
 
 [dependencies]
 libc = "0.1"
