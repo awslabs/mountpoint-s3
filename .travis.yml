@@ -3,9 +3,9 @@ os:
   - osx
 language: rust
 rust:
-  - nightly
-  - beta
   - stable
+  - beta
+  - nightly
 matrix:
   allow_failures:
     - rust: nightly
