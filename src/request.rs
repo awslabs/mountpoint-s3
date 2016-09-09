@@ -300,12 +300,12 @@ impl<'a> Request<'a> {
                 let arg: &fuse_getxattr_in = data.fetch();
                 let name = data.fetch_str();
                 debug!("GETXATTR({}) ino {:#018x}, name {:?}, size {}", self.header.unique, self.header.nodeid, name, arg.size);
-                se.filesystem.getxattr(self, self.header.nodeid, name, self.reply());
+                se.filesystem.getxattr(self, self.header.nodeid, name, arg.size, self.reply());
             },
             FUSE_LISTXATTR => {
                 let arg: &fuse_getxattr_in = data.fetch();
                 debug!("LISTXATTR({}) ino {:#018x}, size {}", self.header.unique, self.header.nodeid, arg.size);
-                se.filesystem.listxattr(self, self.header.nodeid, self.reply());
+                se.filesystem.listxattr(self, self.header.nodeid, arg.size, self.reply());
             },
             FUSE_REMOVEXATTR => {
                 let name = data.fetch_str();

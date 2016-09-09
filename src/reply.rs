@@ -19,6 +19,7 @@ use libc::consts::os::posix88::EIO;
 use time::Timespec;
 use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
+use fuse::fuse_getxattr_out;
 #[cfg(target_os = "macos")]
 use fuse::fuse_getxtimes_out;
 use fuse::{fuse_out_header, fuse_dirent};
@@ -580,6 +581,39 @@ impl ReplyDirectory {
     }
 }
 
+///
+/// xattr reply
+///
+#[derive(Debug)]
+pub struct ReplyXattr {
+    reply: ReplyRaw<fuse_getxattr_out>,
+}
+
+impl Reply for ReplyXattr {
+    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyXattr {
+        ReplyXattr { reply: Reply::new(unique, sender) }
+    }
+}
+
+impl ReplyXattr {
+    /// Reply to a request with the size of the xattr.
+    pub fn size(self, size: u32) {
+        self.reply.ok(&fuse_getxattr_out {
+            size: size,
+            padding: 0,
+        });
+    }
+
+    /// Reply to a request with the data in the xattr.
+    pub fn data(mut self, data: &[u8]) {
+        self.reply.send(0, &[data]);
+    }
+
+    /// Reply to a request with the given error code.
+    pub fn error(self, err: c_int) {
+        self.reply.error(err);
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -589,6 +623,7 @@ mod test {
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
     use super::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
+    use super::ReplyXattr;
     #[cfg(target_os = "macos")]
     use super::ReplyXTimes;
     use {FileType, FileAttr};
@@ -896,6 +931,30 @@ mod test {
         fn send(&self, _: &[&[u8]]) {
             Sender::send(self, ()).unwrap()
         }
+    }
+
+    #[test]
+    fn reply_xattr_size () {
+        let sender = AssertSender {
+            expected: vec![
+                vec![0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,  0x00, 0x00],
+                vec![0x78, 0x56, 0x34, 0x12, 0x00,0x00, 0x00, 0x00],
+            ]
+        };
+        let reply = ReplyXattr::new(0xdeadbeef, sender);
+        reply.size(0x12345678);
+    }
+
+    #[test]
+    fn reply_xattr_data () {
+        let sender = AssertSender {
+            expected: vec![
+                vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,  0x00, 0x00],
+                vec![0x11, 0x22, 0x33, 0x44],
+            ]
+        };
+        let reply = ReplyXattr::new(0xdeadbeef, sender);
+        reply.data(&vec![0x11, 0x22, 0x33, 0x44]);
     }
 
     #[test]
