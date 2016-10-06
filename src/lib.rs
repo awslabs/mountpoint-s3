@@ -28,6 +28,7 @@ pub use fuse::FUSE_ROOT_ID;
 pub use fuse::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
 pub use reply::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
+pub use reply::ReplyXattr;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use request::Request;
@@ -287,16 +288,18 @@ pub trait Filesystem {
     }
 
     /// Get an extended attribute.
-    fn getxattr (&mut self, _req: &Request, _ino: u64, _name: &OsStr, reply: ReplyData) {
-        // FIXME: If arg.size is zero, the size of the value should be sent with fuse_getxattr_out
-        // FIXME: If arg.size is non-zero, send the value if it fits, or ERANGE otherwise
+    /// If `size` is 0, the size of the value should be sent with `reply.size()`.
+    /// If `size` is not 0, and the value fits, send it with `reply.data()`, or
+    /// `reply.error(ERANGE)` if it doesn't.
+    fn getxattr (&mut self, _req: &Request, _ino: u64, _name: &OsStr, _size: u32, reply: ReplyXattr) {
         reply.error(ENOSYS);
     }
 
     /// List extended attribute names.
-    fn listxattr (&mut self, _req: &Request, _ino: u64, reply: ReplyEmpty) {
-        // FIXME: If arg.size is zero, the size of the attribute list should be sent with fuse_getxattr_out
-        // FIXME: If arg.size is non-zero, send the attribute list if it fits, or ERANGE otherwise
+    /// If `size` is 0, the size of the value should be sent with `reply.size()`.
+    /// If `size` is not 0, and the value fits, send it with `reply.data()`, or
+    /// `reply.error(ERANGE)` if it doesn't.
+    fn listxattr (&mut self, _req: &Request, _ino: u64, _size: u32, reply: ReplyXattr) {
         reply.error(ENOSYS);
     }
 
