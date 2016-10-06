@@ -91,5 +91,5 @@ impl Filesystem for HelloFS {
 
 fn main () {
     let mountpoint = env::args_os().nth(1).unwrap();
-    fuse::mount(HelloFS, &mountpoint, &[]);
+    fuse::mount(HelloFS, &mountpoint, &[]).unwrap();
 }
