@@ -376,8 +376,8 @@ pub trait Filesystem {
 
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
-pub fn mount<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) {
-    Session::new(filesystem, mountpoint.as_ref(), options).run();
+pub fn mount<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<()>{
+    Session::new(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
 }
 
 /// Mount the given filesystem to the given mountpoint. This function spawns
@@ -386,5 +386,5 @@ pub fn mount<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, op
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
 pub unsafe fn spawn_mount<'a, FS: Filesystem+Send+'a, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<BackgroundSession<'a>> {
-    Session::new(filesystem, mountpoint.as_ref(), options).spawn()
+    Session::new(filesystem, mountpoint.as_ref(), options).and_then(|se| se.spawn())
 }
