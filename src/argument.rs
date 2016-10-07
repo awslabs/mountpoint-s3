@@ -4,38 +4,36 @@
 //!
 
 use std::mem;
-use std::ffi::{CStr, OsStr};
+use std::ffi::OsStr;
 use std::path::Path;
 use std::os::unix::ffi::OsStrExt;
-use libc::c_char;
 
 /// An iterator that can be used to fetch typed arguments from a byte slice
 pub struct ArgumentIterator<'a> {
     data: &'a [u8],
-    pos: usize,
 }
 
 impl<'a> ArgumentIterator<'a> {
     /// Create a new argument iterator for the given byte slice
     pub fn new (data: &'a [u8]) -> ArgumentIterator<'a> {
-        ArgumentIterator { data: data, pos: 0 }
+        ArgumentIterator { data: data }
     }
 
     /// Fetch a typed argument
     pub fn fetch<T> (&mut self) -> &'a T {
-        let ptr = unsafe { self.data.as_ptr().offset(self.pos as isize) };
-        let value = unsafe { mem::transmute(ptr) };
-        self.pos += mem::size_of::<T>();
-        assert!(self.pos <= self.data.len(), "trying to fetch argument behind data");
-        value
+        let len = mem::size_of::<T>();
+        assert!(len <= self.data.len(), "out of data while fetching typed argument");
+        let bytes = &self.data[..len];
+        self.data = &self.data[len..];
+        unsafe { mem::transmute(bytes.as_ptr()) }
     }
 
     /// Fetch a (zero-terminated) string (can be non-utf8)
     pub fn fetch_str (&mut self) -> &'a OsStr {
-        let ptr = unsafe { self.data.as_ptr().offset(self.pos as isize) };
-        let s = unsafe { CStr::from_ptr(ptr as *const c_char) };
-        self.pos += s.to_bytes_with_nul().len();
-        OsStr::from_bytes(s.to_bytes())
+        let len = self.data.iter().position(|&c| c == 0).expect("out of data while fetching string argument");
+        let bytes = &self.data[..len];
+        self.data = &self.data[len+1..];
+        OsStr::from_bytes(&bytes)
     }
 
     /// Fetch a (zero-terminated) path (can be non-utf8)
@@ -43,10 +41,10 @@ impl<'a> ArgumentIterator<'a> {
         Path::new(self.fetch_str())
     }
 
-    /// Fetch a slice of the remaining data
+    /// Fetch a slice of all remaining data
     pub fn fetch_data (&mut self) -> &'a [u8] {
-        let bytes = &self.data[self.pos..];
-        self.pos = self.data.len();
+        let bytes = self.data;
+        self.data = &[];
         bytes
     }
 }
@@ -92,7 +90,7 @@ mod test {
     }
 
     #[test]
-    fn remaining_data_argument () {
+    fn data_argument () {
         let mut it = ArgumentIterator::new(&TEST_DATA);
         it.fetch_str();
         it.fetch_str();
