@@ -6,7 +6,7 @@ use std::io;
 use std::ffi::{CString, CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
-use libc::{c_char, c_int, c_void, size_t};
+use libc::{c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
 use reply::ReplySender;
 
@@ -28,32 +28,12 @@ mod libc {
         /// Write data from multiple buffers to fd
         pub fn writev (fd: c_int, iov: *const iovec, iovcnt: c_int) -> ssize_t;
 
-        pub fn realpath (file_name: *const c_char, resolved_name: *mut c_char) -> *const c_char;
-
         #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
                   target_os = "openbsd", target_os = "bitrig", target_os = "netbsd"))]
         pub fn unmount(dir: *const c_char, flags: c_int) -> c_int;
         #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
                       target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))]
         pub fn umount(dir: *const c_char) -> c_int;
-    }
-
-    /// Max length for path names. 4096 should be reasonable safe (OS X uses 1024, Linux uses 4096)
-    pub const PATH_MAX: usize = 4096;
-}
-
-/// Wrapper around libc's realpath.  Returns the errno value if the real path cannot be obtained.
-/// FIXME: Use std::fs::canonicalize() once stable (rust-lang/rust#27706)
-fn real_path (path: &CStr) -> io::Result<CString> {
-    let mut resolved: Vec<c_char> = Vec::with_capacity(libc::PATH_MAX);
-    unsafe {
-        if libc::realpath(path.as_ptr(), resolved.as_mut_ptr()).is_null() {
-            Err(io::Error::last_os_error())
-        } else {
-            // Using CStr::from_ptr gets the correct string length via strlen()
-            let cresolved = CStr::from_ptr(resolved.as_ptr());
-            Ok(CString::new(cresolved.to_bytes()).unwrap())
-        }
     }
 }
 
@@ -79,17 +59,15 @@ impl Channel {
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
     pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
-        let mnt = try!(CString::new(mountpoint.as_os_str().as_bytes()));
-        real_path(&mnt).and_then(|mnt| {
-            with_fuse_args(options, |args| {
-                let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
-                if fd < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    let mountpoint = PathBuf::from(<OsStr as OsStrExt>::from_bytes(mnt.as_bytes()));
-                    Ok(Channel { mountpoint: mountpoint, fd: fd })
-                }
-            })
+        let mountpoint = try!(mountpoint.canonicalize());
+        with_fuse_args(options, |args| {
+            let mnt = try!(CString::new(mountpoint.as_os_str().as_bytes()));
+            let fd = unsafe { fuse_mount_compat25(mnt.as_ptr(), args) };
+            if fd < 0 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(Channel { mountpoint: mountpoint, fd: fd })
+            }
         })
     }
 
