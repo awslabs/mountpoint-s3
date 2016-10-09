@@ -6,36 +6,9 @@ use std::io;
 use std::ffi::{CString, CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
-use libc::{c_int, c_void, size_t};
+use libc::{self, c_int, c_void, size_t};
 use fuse::{fuse_args, fuse_mount_compat25};
 use reply::ReplySender;
-
-// Libc provides iovec based I/O using readv and writev functions
-#[allow(dead_code, non_camel_case_types)]
-mod libc {
-    use libc::{c_char, c_int, c_void, size_t, ssize_t};
-
-    /// Iovec data structure for readv and writev calls.
-    #[repr(C)]
-    pub struct iovec {
-        pub iov_base: *const c_void,
-        pub iov_len: size_t,
-    }
-
-    extern "system" {
-        /// Read data from fd into multiple buffers
-        pub fn readv (fd: c_int, iov: *mut iovec, iovcnt: c_int) -> ssize_t;
-        /// Write data from multiple buffers to fd
-        pub fn writev (fd: c_int, iov: *const iovec, iovcnt: c_int) -> ssize_t;
-
-        #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
-                  target_os = "openbsd", target_os = "bitrig", target_os = "netbsd"))]
-        pub fn unmount(dir: *const c_char, flags: c_int) -> c_int;
-        #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
-                      target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))]
-        pub fn umount(dir: *const c_char) -> c_int;
-    }
-}
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
@@ -78,7 +51,7 @@ impl Channel {
 
     /// Receives data up to the capacity of the given buffer (can block).
     pub fn receive (&self, buffer: &mut Vec<u8>) -> io::Result<()> {
-        let rc = unsafe { ::libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
+        let rc = unsafe { libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
         if rc < 0 {
             Err(io::Error::last_os_error())
         } else {
@@ -104,7 +77,7 @@ impl Drop for Channel {
         // TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
         // Close the communication channel to the kernel driver
         // (closing it before unnmount prevents sync unmount deadlock)
-        unsafe { ::libc::close(self.fd); }
+        unsafe { libc::close(self.fd); }
         // Unmount this channel's mount point
         let _ = unmount(&self.mountpoint);
     }
@@ -119,7 +92,7 @@ impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
     pub fn send (&self, buffer: &[&[u8]]) -> io::Result<()> {
         let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
-            libc::iovec { iov_base: d.as_ptr() as *const c_void, iov_len: d.len() as size_t }
+            libc::iovec { iov_base: d.as_ptr() as *mut c_void, iov_len: d.len() as size_t }
         }).collect();
         let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
         if rc < 0 {
