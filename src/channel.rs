@@ -13,9 +13,9 @@ use reply::ReplySender;
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&OsStr], f: F) -> T {
-    let mut args: Vec<CString> = vec![CString::new("rust-fuse").unwrap()];
-    args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap() ));
-    let argptrs: Vec<*const i8> = args.iter().map(|s| s.as_ptr()).collect();
+    let mut args = vec![CString::new("rust-fuse").unwrap()];
+    args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap()));
+    let argptrs: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args { argc: argptrs.len() as i32, argv: argptrs.as_ptr(), allocated: 0 })
 }
 
@@ -91,7 +91,7 @@ pub struct ChannelSender {
 impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
     pub fn send (&self, buffer: &[&[u8]]) -> io::Result<()> {
-        let iovecs: Vec<libc::iovec> = buffer.iter().map(|d| {
+        let iovecs: Vec<_> = buffer.iter().map(|d| {
             libc::iovec { iov_base: d.as_ptr() as *mut c_void, iov_len: d.len() as size_t }
         }).collect();
         let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };

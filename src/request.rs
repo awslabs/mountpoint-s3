@@ -364,8 +364,7 @@ impl<'a> Request<'a> {
     /// Create a reply object for this request that can be passed to the filesystem
     /// implementation and makes sure that a request is replied exactly once
     fn reply<T: Reply> (&self) -> T {
-        let reply: T = Reply::new(self.header.unique, self.ch);
-        reply
+        Reply::new(self.header.unique, self.ch)
     }
 
     /// Returns the unique identifier of this request
