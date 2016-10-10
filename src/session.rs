@@ -12,10 +12,9 @@ use std::fmt;
 use std::path::{PathBuf, Path};
 use thread_scoped::{scoped, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use channel;
-use channel::Channel;
+use channel::{self, Channel};
 use Filesystem;
-use request::{request, dispatch};
+use request;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on OS X
@@ -75,9 +74,9 @@ impl<FS: Filesystem> Session<FS> {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
             match self.ch.receive(&mut buffer) {
-                Ok(()) => match request(self.ch.sender(), &buffer) {
+                Ok(()) => match request::request(self.ch.sender(), &buffer) {
                     // Dispatch request
-                    Some(req) => dispatch(&req, self),
+                    Some(req) => request::dispatch(&req, self),
                     // Quit loop on illegal request
                     None => break,
                 },
