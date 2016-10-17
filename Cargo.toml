@@ -19,6 +19,9 @@ log = "0.3"
 time = "0.1"
 thread-scoped = "1.0"
 
+[dev-dependencies]
+env_logger = "0.3"
+
 [lib]
 name = "fuse"
 path = "src/lib.rs"
