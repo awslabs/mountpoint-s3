@@ -4,7 +4,7 @@ extern crate libc;
 extern crate time;
 
 use std::env;
-use std::path::Path;
+use std::ffi::OsStr;
 use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
@@ -52,7 +52,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 struct HelloFS;
 
 impl Filesystem for HelloFS {
-    fn lookup (&mut self, _req: &Request, parent: u64, name: &Path, reply: ReplyEntry) {
+    fn lookup (&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
         } else {
