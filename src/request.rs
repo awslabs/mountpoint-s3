@@ -143,7 +143,7 @@ impl<'a> Request<'a> {
 
             FUSE_LOOKUP => {
                 let name = data.fetch_path();
-                debug!("LOOKUP({}) parent {:#018x}, name {}", self.header.unique, self.header.nodeid, name.display());
+                debug!("LOOKUP({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.lookup(self, self.header.nodeid, &name, self.reply());
             },
             FUSE_FORGET => {
@@ -187,42 +187,42 @@ impl<'a> Request<'a> {
             FUSE_MKNOD => {
                 let arg: &fuse_mknod_in = data.fetch();
                 let name = data.fetch_path();
-                debug!("MKNOD({}) parent {:#018x}, name {}, mode {:#05o}, rdev {}", self.header.unique, self.header.nodeid, name.display(), arg.mode, arg.rdev);
+                debug!("MKNOD({}) parent {:#018x}, name {:?}, mode {:#05o}, rdev {}", self.header.unique, self.header.nodeid, name, arg.mode, arg.rdev);
                 se.filesystem.mknod(self, self.header.nodeid, &name, arg.mode, arg.rdev, self.reply());
             },
             FUSE_MKDIR => {
                 let arg: &fuse_mkdir_in = data.fetch();
                 let name = data.fetch_path();
-                debug!("MKDIR({}) parent {:#018x}, name {}, mode {:#05o}", self.header.unique, self.header.nodeid, name.display(), arg.mode);
+                debug!("MKDIR({}) parent {:#018x}, name {:?}, mode {:#05o}", self.header.unique, self.header.nodeid, name, arg.mode);
                 se.filesystem.mkdir(self, self.header.nodeid, &name, arg.mode, self.reply());
             },
             FUSE_UNLINK => {
                 let name = data.fetch_path();
-                debug!("UNLINK({}) parent {:#018x}, name {}", self.header.unique, self.header.nodeid, name.display());
+                debug!("UNLINK({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.unlink(self, self.header.nodeid, &name, self.reply());
             },
             FUSE_RMDIR => {
                 let name = data.fetch_path();
-                debug!("RMDIR({}) parent {:#018x}, name {}", self.header.unique, self.header.nodeid, name.display());
+                debug!("RMDIR({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.rmdir(self, self.header.nodeid, &name, self.reply());
             },
             FUSE_SYMLINK => {
                 let name = data.fetch_path();
                 let link = data.fetch_path();
-                debug!("SYMLINK({}) parent {:#018x}, name {}, link {}", self.header.unique, self.header.nodeid, name.display(), link.display());
+                debug!("SYMLINK({}) parent {:#018x}, name {:?}, link {:?}", self.header.unique, self.header.nodeid, name, link);
                 se.filesystem.symlink(self, self.header.nodeid, &name, &link, self.reply());
             },
             FUSE_RENAME => {
                 let arg: &fuse_rename_in = data.fetch();
                 let name = data.fetch_path();
                 let newname = data.fetch_path();
-                debug!("RENAME({}) parent {:#018x}, name {}, newparent {:#018x}, newname {}", self.header.unique, self.header.nodeid, name.display(), arg.newdir, newname.display());
+                debug!("RENAME({}) parent {:#018x}, name {:?}, newparent {:#018x}, newname {:?}", self.header.unique, self.header.nodeid, name, arg.newdir, newname);
                 se.filesystem.rename(self, self.header.nodeid, &name, arg.newdir, &newname, self.reply());
             },
             FUSE_LINK => {
                 let arg: &fuse_link_in = data.fetch();
                 let newname = data.fetch_path();
-                debug!("LINK({}) ino {:#018x}, newparent {:#018x}, newname {}", self.header.unique, arg.oldnodeid, self.header.nodeid, newname.display());
+                debug!("LINK({}) ino {:#018x}, newparent {:#018x}, newname {:?}", self.header.unique, arg.oldnodeid, self.header.nodeid, newname);
                 se.filesystem.link(self, arg.oldnodeid, self.header.nodeid, &newname, self.reply());
             },
             FUSE_OPEN => {
@@ -320,7 +320,7 @@ impl<'a> Request<'a> {
             FUSE_CREATE => {
                 let arg: &fuse_open_in = data.fetch();
                 let name = data.fetch_path();
-                debug!("CREATE({}) parent {:#018x}, name {}, mode {:#05o}, flags {:#x}", self.header.unique, self.header.nodeid, name.display(), arg.mode, arg.flags);
+                debug!("CREATE({}) parent {:#018x}, name {:?}, mode {:#05o}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.mode, arg.flags);
                 se.filesystem.create(self, self.header.nodeid, &name, arg.mode, arg.flags, self.reply());
             },
             FUSE_GETLK => {
@@ -350,7 +350,7 @@ impl<'a> Request<'a> {
                 let arg: &fuse_exchange_in = data.fetch();
                 let oldname = data.fetch_path();
                 let newname = data.fetch_path();
-                debug!("EXCHANGE({}) parent {:#018x}, name {}, newparent {:#018x}, newname {}, options {:#x}", self.header.unique, arg.olddir, oldname.display(), arg.newdir, newname.display(), arg.options);
+                debug!("EXCHANGE({}) parent {:#018x}, name {:?}, newparent {:#018x}, newname {:?}, options {:#x}", self.header.unique, arg.olddir, oldname, arg.newdir, newname, arg.options);
                 se.filesystem.exchange(self, arg.olddir, &oldname, arg.newdir, &newname, arg.options, self.reply());
             },
             #[cfg(target_os = "macos")]
