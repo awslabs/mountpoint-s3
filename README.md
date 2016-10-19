@@ -1,7 +1,8 @@
 # Rust FUSE - Filesystem in Userspace
 
 [![Build Status](https://travis-ci.org/zargony/rust-fuse.svg?branch=master)](https://travis-ci.org/zargony/rust-fuse)
-[![Crates.io](http://meritbadge.herokuapp.com/fuse)](https://crates.io/crates/fuse)
+[![Crates.io](https://img.shields.io/crates/v/fuse.svg)](https://crates.io/crates/fuse)
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## About
 [Rust](http://rust-lang.org/) library for easy implementation of [FUSE](http://osxfuse.github.io) filesystems in userspace.
