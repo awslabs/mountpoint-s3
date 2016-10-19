@@ -4,6 +4,7 @@ version = "0.2.8"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 build = "build.rs"
 description = "Rust library for filesystems in userspace (FUSE)"
+documentation = "https://docs.rs/fuse"
 homepage = "https://github.com/zargony/rust-fuse"
 repository = "https://github.com/zargony/rust-fuse"
 readme = "README.md"
