@@ -14,7 +14,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
-use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, EIO};
+use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
 use time::Timespec;
 use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
@@ -67,6 +67,7 @@ fn mode_from_kind_and_perm (kind: FileType, perm: u16) -> u32 {
         FileType::Directory => S_IFDIR,
         FileType::RegularFile => S_IFREG,
         FileType::Symlink => S_IFLNK,
+        FileType::Socket => S_IFSOCK,
     }) as u32 | perm as u32
 }
 
