@@ -54,6 +54,8 @@ pub enum FileType {
     RegularFile,
     /// Symbolic link (S_IFLNK)
     Symlink,
+    /// Unix domain socket (S_IFSOCK)
+    Socket,
 }
 
 /// File attributes
