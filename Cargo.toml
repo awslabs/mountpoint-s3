@@ -9,6 +9,7 @@ homepage = "https://github.com/zargony/rust-fuse"
 repository = "https://github.com/zargony/rust-fuse"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
+categories = ["api-bindings", "filesystem"]
 license = "MIT"
 
 [build-dependencies]
