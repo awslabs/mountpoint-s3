@@ -371,7 +371,7 @@ pub struct fuse_flush_in {
 #[derive(Debug)]
 pub struct fuse_read_in {
     pub fh: u64,
-    pub offset: u64,
+    pub offset: i64,
     pub size: u32,
     pub padding: u32,
 }
@@ -380,7 +380,7 @@ pub struct fuse_read_in {
 #[derive(Debug)]
 pub struct fuse_write_in {
     pub fh: u64,
-    pub offset: u64,
+    pub offset: i64,
     pub size: u32,
     pub write_flags: u32,
 }
@@ -521,7 +521,7 @@ pub struct fuse_out_header {
 #[derive(Debug)]
 pub struct fuse_dirent {
     pub ino: u64,
-    pub off: u64,
+    pub off: i64,
     pub namelen: u32,
     pub typ: u32,
     // followed by name of namelen bytes

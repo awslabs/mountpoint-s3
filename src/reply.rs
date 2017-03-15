@@ -547,7 +547,7 @@ impl ReplyDirectory {
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
-    pub fn add<T: AsRef<OsStr>> (&mut self, ino: u64, offset: u64, kind: FileType, name: T) -> bool {
+    pub fn add<T: AsRef<OsStr>> (&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
         let name = name.as_ref().as_bytes();
         let entlen = mem::size_of::<fuse_dirent>() + name.len();
         let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);  // 64bit align
