@@ -68,7 +68,7 @@ impl Filesystem for HelloFS {
         }
     }
 
-    fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, _size: u32, reply: ReplyData) {
+    fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, _size: u32, reply: ReplyData) {
         if ino == 2 {
             reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
@@ -76,7 +76,7 @@ impl Filesystem for HelloFS {
         }
     }
 
-    fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, mut reply: ReplyDirectory) {
+    fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino == 1 {
             if offset == 0 {
                 reply.add(1, 0, FileType::Directory, ".");

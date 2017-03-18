@@ -194,7 +194,7 @@ pub trait Filesystem {
     /// return value of the read system call will reflect the return value of this
     /// operation. fh will contain the value set by the open method, or will be undefined
     /// if the open method didn't set any value.
-    fn read (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _size: u32, reply: ReplyData) {
+    fn read (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: i64, _size: u32, reply: ReplyData) {
         reply.error(ENOSYS);
     }
 
@@ -204,7 +204,7 @@ pub trait Filesystem {
     /// which case the return value of the write system call will reflect the return
     /// value of this operation. fh will contain the value set by the open method, or
     /// will be undefined if the open method didn't set any value.
-    fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, _data: &[u8], _flags: u32, reply: ReplyWrite) {
+    fn write (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: i64, _data: &[u8], _flags: u32, reply: ReplyWrite) {
         reply.error(ENOSYS);
     }
 
@@ -257,7 +257,7 @@ pub trait Filesystem {
     /// requested size. Send an empty buffer on end of stream. fh will contain the
     /// value set by the opendir method, or will be undefined if the opendir method
     /// didn't set any value.
-    fn readdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: u64, reply: ReplyDirectory) {
+    fn readdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _offset: i64, reply: ReplyDirectory) {
         reply.error(ENOSYS);
     }
 
