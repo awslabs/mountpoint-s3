@@ -94,7 +94,7 @@ pub struct FileAttr {
 /// Filesystem trait.
 ///
 /// This trait must be implemented to provide a userspace filesystem via FUSE.
-/// These methods corrospond to fuse_lowlevel_ops in libfuse. Reasonable default
+/// These methods correspond to fuse_lowlevel_ops in libfuse. Reasonable default
 /// implementations are provided here to get a mountable filesystem that does
 /// nothing.
 pub trait Filesystem {
