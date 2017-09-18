@@ -45,19 +45,19 @@ pub struct fuse_attr {
     pub mtime: i64,
     pub ctime: i64,
     #[cfg(target_os = "macos")]
-    pub crtime: i64,            // OS X only
+    pub crtime: i64,
     pub atimensec: i32,
     pub mtimensec: i32,
     pub ctimensec: i32,
     #[cfg(target_os = "macos")]
-    pub crtimensec: i32,        // OS X only
+    pub crtimensec: i32,
     pub mode: u32,
     pub nlink: u32,
     pub uid: u32,
     pub gid: u32,
     pub rdev: u32,
     #[cfg(target_os = "macos")]
-    pub flags: u32,             // OS X only, see chflags(2)
+    pub flags: u32,             // see chflags(2)
 }
 
 #[repr(C)]
@@ -94,21 +94,21 @@ pub mod consts {
     pub const FATTR_MTIME: u32              = 1 << 5;
     pub const FATTR_FH: u32                 = 1 << 6;
     #[cfg(target_os = "macos")]
-    pub const FATTR_CRTIME: u32             = 1 << 28;  // OS X only
+    pub const FATTR_CRTIME: u32             = 1 << 28;
     #[cfg(target_os = "macos")]
-    pub const FATTR_CHGTIME: u32            = 1 << 29;  // OS X only
+    pub const FATTR_CHGTIME: u32            = 1 << 29;
     #[cfg(target_os = "macos")]
-    pub const FATTR_BKUPTIME: u32           = 1 << 30;  // OS X only
+    pub const FATTR_BKUPTIME: u32           = 1 << 30;
     #[cfg(target_os = "macos")]
-    pub const FATTR_FLAGS: u32              = 1 << 31;  // OS X only
+    pub const FATTR_FLAGS: u32              = 1 << 31;
 
     // Flags returned by the open request
     pub const FOPEN_DIRECT_IO: u32          = 1 << 0;   // bypass page cache for this open file
     pub const FOPEN_KEEP_CACHE: u32         = 1 << 1;   // don't invalidate the data cache on open
     #[cfg(target_os = "macos")]
-    pub const FOPEN_PURGE_ATTR: u32         = 1 << 30;  // OS X only
+    pub const FOPEN_PURGE_ATTR: u32         = 1 << 30;
     #[cfg(target_os = "macos")]
-    pub const FOPEN_PURGE_UBC: u32          = 1 << 31;  // OS X only
+    pub const FOPEN_PURGE_UBC: u32          = 1 << 31;
 
     // Init request/reply flags
     pub const FUSE_ASYNC_READ: u32          = 1 << 0;
@@ -119,11 +119,11 @@ pub mod consts {
     pub const FUSE_BIG_WRITES: u32          = 1 << 5;
     pub const FUSE_DONT_MASK: u32           = 1 << 6;
     #[cfg(target_os = "macos")]
-    pub const FUSE_CASE_INSENSITIVE: u32    = 1 << 29;  // OS X only
+    pub const FUSE_CASE_INSENSITIVE: u32    = 1 << 29;
     #[cfg(target_os = "macos")]
-    pub const FUSE_VOL_RENAME: u32          = 1 << 30;  // OS X only
+    pub const FUSE_VOL_RENAME: u32          = 1 << 30;
     #[cfg(target_os = "macos")]
-    pub const FUSE_XTIMES: u32              = 1 << 31;  // OS X only
+    pub const FUSE_XTIMES: u32              = 1 << 31;
 
     // Release flags
     pub const FUSE_RELEASE_FLUSH: u32       = 1 << 0;
@@ -169,11 +169,11 @@ pub enum fuse_opcode {
     FUSE_BMAP = 37,
     FUSE_DESTROY = 38,
     #[cfg(target_os = "macos")]
-    FUSE_SETVOLNAME = 61,       // OS X only
+    FUSE_SETVOLNAME = 61,
     #[cfg(target_os = "macos")]
-    FUSE_GETXTIMES = 62,        // OS X only
+    FUSE_GETXTIMES = 62,
     #[cfg(target_os = "macos")]
-    FUSE_EXCHANGE = 63,         // OS X only
+    FUSE_EXCHANGE = 63,
 }
 
 // FIXME: Hopefully Rust will once have a more convenient way of converting primitive to enum
@@ -257,7 +257,7 @@ pub struct fuse_attr_out {
 #[cfg(target_os = "macos")]
 #[repr(C)]
 #[derive(Debug)]
-pub struct fuse_getxtimes_out { // OS X only
+pub struct fuse_getxtimes_out {
     pub bkuptime: i64,
     pub crtime: i64,
     pub bkuptimensec: i32,
@@ -287,7 +287,7 @@ pub struct fuse_rename_in {
 #[cfg(target_os = "macos")]
 #[repr(C)]
 #[derive(Debug)]
-pub struct fuse_exchange_in {   // OS X only
+pub struct fuse_exchange_in {
     pub olddir: u64,
     pub newdir: u64,
     pub options: u64,
@@ -319,19 +319,19 @@ pub struct fuse_setattr_in {
     pub gid: u32,
     pub unused5: u32,
     #[cfg(target_os = "macos")]
-    pub bkuptime: i64,          // OS X only
+    pub bkuptime: i64,
     #[cfg(target_os = "macos")]
-    pub chgtime: i64,           // OS X only
+    pub chgtime: i64,
     #[cfg(target_os = "macos")]
-    pub crtime: i64,            // OS X only
+    pub crtime: i64,
     #[cfg(target_os = "macos")]
-    pub bkuptimensec: i32,      // OS X only
+    pub bkuptimensec: i32,
     #[cfg(target_os = "macos")]
-    pub chgtimensec: i32,       // OS X only
+    pub chgtimensec: i32,
     #[cfg(target_os = "macos")]
-    pub crtimensec: i32,        // OS X only
+    pub crtimensec: i32,
     #[cfg(target_os = "macos")]
-    pub flags: u32,             // OS X only
+    pub flags: u32,
 }
 
 #[repr(C)]
@@ -412,9 +412,9 @@ pub struct fuse_setxattr_in {
     pub size: u32,
     pub flags: u32,
     #[cfg(target_os = "macos")]
-    pub position: u32,          // OS X only
+    pub position: u32,
     #[cfg(target_os = "macos")]
-    pub padding: u32,           // OS X only
+    pub padding: u32,
 }
 
 #[repr(C)]
@@ -423,9 +423,9 @@ pub struct fuse_getxattr_in {
     pub size: u32,
     pub padding: u32,
     #[cfg(target_os = "macos")]
-    pub position: u32,          // OS X only
+    pub position: u32,
     #[cfg(target_os = "macos")]
-    pub padding2: u32,          // OS X only
+    pub padding2: u32,
 }
 
 #[repr(C)]

@@ -340,13 +340,13 @@ impl<'a> Request<'a> {
                 se.filesystem.bmap(self, self.header.nodeid, arg.blocksize, arg.block, self.reply());
             },
             #[cfg(target_os = "macos")]
-            FUSE_SETVOLNAME => {                        // OS X only
+            FUSE_SETVOLNAME => {
                 let name = data.fetch_str();
                 debug!("SETVOLNAME({}) name {:?}", self.header.unique, name);
                 se.filesystem.setvolname(self, name, self.reply());
             },
             #[cfg(target_os = "macos")]
-            FUSE_EXCHANGE => {                          // OS X only
+            FUSE_EXCHANGE => {
                 let arg: &fuse_exchange_in = data.fetch();
                 let oldname = data.fetch_str();
                 let newname = data.fetch_str();
@@ -354,7 +354,7 @@ impl<'a> Request<'a> {
                 se.filesystem.exchange(self, arg.olddir, &oldname, arg.newdir, &newname, arg.options, self.reply());
             },
             #[cfg(target_os = "macos")]
-            FUSE_GETXTIMES => {                         // OS X only
+            FUSE_GETXTIMES => {
                 debug!("GETXTIMES({}) ino {:#018x}", self.header.unique, self.header.nodeid);
                 se.filesystem.getxtimes(self, self.header.nodeid, self.reply());
             },
