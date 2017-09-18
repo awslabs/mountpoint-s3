@@ -1,38 +1,29 @@
+//! FUSE kernel interface
 //!
-//! FUSE native interface declarations (as of libosxfuse-2.5.5).
+//! Types and definitions used for communication between the kernel driver and the userspace
+//! part (this crate) of a FUSE filesystem. Since the kernel driver may be installed
+//! independently, the ABI interface is versioned and capabilities are exchanged during the
+//! initialization (mounting) of a filesystem.
 //!
-
+//! OSXFUSE (macOS): https://github.com/osxfuse/fuse/blob/master/include/fuse_kernel.h
+//! - supports ABI 7.8 in OSXFUSE 2.x
+//! - supports ABI 7.19 since OSXFUSE 3.0.0
+//!
+//! libfuse (Linux/BSD): https://github.com/libfuse/libfuse/blob/master/include/fuse_kernel.h
+//! - supports ABI 7.8 since FUSE 2.6.0
+//! - supports ABI 7.12 since FUSE 2.8.0
+//! - supports ABI 7.18 since FUSE 2.9.0
+//! - supports ABI 7.19 since FUSE 2.9.1
+//! - supports ABI 7.26 since FUSE 3.0.0
+//!
+//! Types/fields without a version annotation are valid with ABI 7.8 and later
 #![allow(non_camel_case_types, missing_docs, dead_code)]
 
-use libc::{c_int, c_char};
-
-//
-// FUSE arguments (see fuse_opt.h for details)
-//
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct fuse_args {
-    pub argc: c_int,
-    pub argv: *const *const c_char,
-    pub allocated: c_int,
-}
-
-//
-// FUSE common (see fuse_common_compat.h for details)
-//
-
-extern "system" {
-    pub fn fuse_mount_compat25 (mountpoint: *const c_char, args: *const fuse_args) -> c_int;
-    pub fn fuse_unmount_compat22 (mountpoint: *const c_char);
-}
-
-//
-// FUSE kernel (see fuse_kernel.h for details)
-//
-
+// TODO: We currently target ABI 7.8, which is very conservative and missing many newer
+// features. We still need to figure out a way to support different ABI version without hazzle.
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 8;
+
 pub const FUSE_ROOT_ID: u64 = 1;
 
 #[repr(C)]
@@ -57,20 +48,20 @@ pub struct fuse_attr {
     pub gid: u32,
     pub rdev: u32,
     #[cfg(target_os = "macos")]
-    pub flags: u32,             // see chflags(2)
+    pub flags: u32,                                     // see chflags(2)
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_kstatfs {
-    pub blocks: u64,            // Total blocks (in units of frsize)
-    pub bfree: u64,             // Free blocks
-    pub bavail: u64,            // Free blocks for unprivileged users
-    pub files: u64,             // Total inodes
-    pub ffree: u64,             // Free inodes
-    pub bsize: u32,             // Filesystem block size
-    pub namelen: u32,           // Maximum filename length
-    pub frsize: u32,            // Fundamental file system block size
+    pub blocks: u64,                                    // Total blocks (in units of frsize)
+    pub bfree: u64,                                     // Free blocks
+    pub bavail: u64,                                    // Free blocks for unprivileged users
+    pub files: u64,                                     // Total inodes
+    pub ffree: u64,                                     // Free inodes
+    pub bsize: u32,                                     // Filesystem block size
+    pub namelen: u32,                                   // Maximum filename length
+    pub frsize: u32,                                    // Fundamental file system block size
     pub padding: u32,
     pub spare: [u32; 6],
 }
@@ -113,11 +104,6 @@ pub mod consts {
     // Init request/reply flags
     pub const FUSE_ASYNC_READ: u32          = 1 << 0;
     pub const FUSE_POSIX_LOCKS: u32         = 1 << 1;
-    pub const FUSE_FILE_OPS: u32            = 1 << 2;
-    pub const FUSE_ATOMIC_O_TRUNC: u32      = 1 << 3;
-    pub const FUSE_EXPORT_SUPPORT: u32      = 1 << 4;
-    pub const FUSE_BIG_WRITES: u32          = 1 << 5;
-    pub const FUSE_DONT_MASK: u32           = 1 << 6;
     #[cfg(target_os = "macos")]
     pub const FUSE_CASE_INSENSITIVE: u32    = 1 << 29;
     #[cfg(target_os = "macos")]
@@ -127,13 +113,16 @@ pub mod consts {
 
     // Release flags
     pub const FUSE_RELEASE_FLUSH: u32       = 1 << 0;
+
+    // The read buffer is required to be at least 8k, but may be much larger
+    pub const FUSE_MIN_READ_BUFFER: usize   = 8192;
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
-    FUSE_FORGET = 2,            // no reply
+    FUSE_FORGET = 2,                                    // no reply
     FUSE_GETATTR = 3,
     FUSE_SETATTR = 4,
     FUSE_READLINK = 5,
@@ -178,7 +167,7 @@ pub enum fuse_opcode {
 
 // FIXME: Hopefully Rust will once have a more convenient way of converting primitive to enum
 impl fuse_opcode {
-    pub fn from_u32 (n: u32) -> Option<fuse_opcode> {
+    pub fn from_u32 (n: u32) -> Option<Self> {
         match n {
             1 => Some(fuse_opcode::FUSE_LOOKUP),
             2 => Some(fuse_opcode::FUSE_FORGET),
@@ -331,7 +320,7 @@ pub struct fuse_setattr_in {
     #[cfg(target_os = "macos")]
     pub crtimensec: i32,
     #[cfg(target_os = "macos")]
-    pub flags: u32,
+    pub flags: u32,                                     // see chflags(2)
 }
 
 #[repr(C)]

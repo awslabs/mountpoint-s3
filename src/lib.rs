@@ -22,8 +22,8 @@ use std::path::Path;
 use libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse::FUSE_ROOT_ID;
-pub use fuse::consts;
+pub use kernel::FUSE_ROOT_ID;
+pub use kernel::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
 pub use reply::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
 pub use reply::ReplyXattr;
@@ -34,7 +34,8 @@ pub use session::{Session, BackgroundSession};
 
 mod argument;
 mod channel;
-mod fuse;
+mod kernel;
+mod libfuse;
 mod reply;
 mod request;
 mod session;

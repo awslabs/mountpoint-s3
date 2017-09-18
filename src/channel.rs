@@ -7,7 +7,7 @@ use std::ffi::{CString, CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
 use libc::{self, c_int, c_void, size_t};
-use fuse::{fuse_args, fuse_mount_compat25};
+use libfuse::{fuse_args, fuse_mount_compat25};
 use reply::ReplySender;
 
 /// Helper function to provide options as a fuse_args struct
@@ -127,7 +127,7 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
                   target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))] #[inline]
     fn libc_umount (mnt: &CStr) -> c_int {
-        use fuse::fuse_unmount_compat22;
+        use libfuse::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
         let rc = unsafe { libc::umount(mnt.as_ptr()) };
