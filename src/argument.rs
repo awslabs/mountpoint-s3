@@ -56,6 +56,8 @@ mod test {
     use super::ArgumentIterator;
 
     static TEST_DATA: [u8; 12] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61, 0x7a, 0x00];
+
+    #[repr(C)]
     struct TestArgument { p1: u8, p2: u8, p3: u16 }
 
     #[test]

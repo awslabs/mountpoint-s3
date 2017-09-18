@@ -629,6 +629,7 @@ mod test {
     use {FileType, FileAttr};
 
     #[allow(dead_code)]
+    #[repr(C)]
     struct Data { a: u8, b: u8, c: u16 }
 
     #[test]
