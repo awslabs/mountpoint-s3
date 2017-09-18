@@ -12,6 +12,9 @@ keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["api-bindings", "filesystem"]
 license = "MIT"
 
+[badges]
+travis-ci = { repository = "zargony/rust-fuse" }
+
 [build-dependencies]
 pkg-config = "0.3"
 
