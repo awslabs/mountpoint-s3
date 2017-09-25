@@ -1,12 +1,10 @@
+//! Filesystem operation reply
 //!
-//! A reply is passed to filesystem operation implementations and must
-//! be used to send back the result of an operation.
-//! The reply can optionally be sent to another thread to asynchronously
-//! work on an operation and provide the result later. Also it allows
-//! replying with a block of data without cloning the data.
-//! A reply *must always* be used (by calling either ok() or error()
-//! exactly once).
-//!
+//! A reply is passed to filesystem operation implementations and must be used to send back the
+//! result of an operation. The reply can optionally be sent to another thread to asynchronously
+//! work on an operation and provide the result later. Also it allows replying with a block of
+//! data without cloning the data. A reply *must always* be used (by calling either ok() or
+//! error() exactly once).
 
 use std::{mem, ptr, slice};
 use std::convert::AsRef;
@@ -39,11 +37,11 @@ impl fmt::Debug for Box<ReplySender> {
 /// Generic reply trait
 pub trait Reply {
     /// Create a new reply for the given request
-    fn new<S: ReplySender> (unique: u64, sender: S) -> Self;
+    fn new<S: ReplySender>(unique: u64, sender: S) -> Self;
 }
 
 /// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
-fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
+fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U>(data: &T, f: F) -> U {
     let len = mem::size_of::<T>();
     match len {
         0 => f(&[]),
@@ -51,7 +49,7 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
             let p = data as *const T as *const u8;
             let bytes = unsafe { slice::from_raw_parts(p, len) };
             f(&[bytes])
-        },
+        }
     }
 }
 
@@ -59,7 +57,7 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U> (data: &T, f: F) -> U {
 // But others like MacOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(trivial_numeric_casts)]
 /// Returns the mode for a given file kind and permission
-fn mode_from_kind_and_perm (kind: FileType, perm: u16) -> u32 {
+fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
     (match kind {
         FileType::NamedPipe => S_IFIFO,
         FileType::CharDevice => S_IFCHR,
@@ -73,7 +71,7 @@ fn mode_from_kind_and_perm (kind: FileType, perm: u16) -> u32 {
 
 /// Returns a fuse_attr from FileAttr
 #[cfg(target_os = "macos")]
-fn fuse_attr_from_attr (attr: &FileAttr) -> fuse_attr {
+fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
     fuse_attr {
         ino: attr.ino,
         size: attr.size,
@@ -97,7 +95,7 @@ fn fuse_attr_from_attr (attr: &FileAttr) -> fuse_attr {
 
 /// Returns a fuse_attr from FileAttr
 #[cfg(not(target_os = "macos"))]
-fn fuse_attr_from_attr (attr: &FileAttr) -> fuse_attr {
+fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
     fuse_attr {
         ino: attr.ino,
         size: attr.size,
@@ -131,7 +129,7 @@ pub struct ReplyRaw<T> {
 }
 
 impl<T> Reply for ReplyRaw<T> {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyRaw<T> {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyRaw<T> {
         let sender = Box::new(sender);
         ReplyRaw { unique: unique, sender: Some(sender), marker: PhantomData }
     }
@@ -140,9 +138,9 @@ impl<T> Reply for ReplyRaw<T> {
 impl<T> ReplyRaw<T> {
     /// Reply to a request with the given error code and data. Must be called
     /// only once (the `ok` and `error` methods ensure this by consuming `self`)
-    fn send (&mut self, err: c_int, bytes: &[&[u8]]) {
+    fn send(&mut self, err: c_int, bytes: &[&[u8]]) {
         assert!(self.sender.is_some());
-        let len = bytes.iter().fold(0, |l, b| { l +  b.len()});
+        let len = bytes.iter().fold(0, |l, b| l + b.len());
         let header = fuse_out_header {
             len: (mem::size_of::<fuse_out_header>() + len) as u32,
             error: -err,
@@ -157,20 +155,20 @@ impl<T> ReplyRaw<T> {
     }
 
     /// Reply to a request with the given type
-    pub fn ok (mut self, data: &T) {
+    pub fn ok(mut self, data: &T) {
         as_bytes(data, |bytes| {
             self.send(0, bytes);
         })
     }
 
     /// Reply to a request with the given error code
-    pub fn error (mut self, err: c_int) {
+    pub fn error(mut self, err: c_int) {
         self.send(err, &[]);
     }
 }
 
 impl<T> Drop for ReplyRaw<T> {
-    fn drop (&mut self) {
+    fn drop(&mut self) {
         if self.sender.is_some() {
             warn!("Reply not sent for operation {}, replying with I/O error", self.unique);
             self.send(EIO, &[]);
@@ -187,19 +185,19 @@ pub struct ReplyEmpty {
 }
 
 impl Reply for ReplyEmpty {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyEmpty {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyEmpty {
         ReplyEmpty { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyEmpty {
     /// Reply to a request with nothing
-    pub fn ok (mut self) {
+    pub fn ok(mut self) {
         self.reply.send(0, &[]);
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -213,19 +211,19 @@ pub struct ReplyData {
 }
 
 impl Reply for ReplyData {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyData {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyData {
         ReplyData { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyData {
     /// Reply to a request with the given data
-    pub fn data (mut self, data: &[u8]) {
+    pub fn data(mut self, data: &[u8]) {
         self.reply.send(0, &[data]);
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -239,14 +237,14 @@ pub struct ReplyEntry {
 }
 
 impl Reply for ReplyEntry {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyEntry {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyEntry {
         ReplyEntry { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyEntry {
     /// Reply to a request with the given entry
-    pub fn entry (self, ttl: &Timespec, attr: &FileAttr, generation: u64) {
+    pub fn entry(self, ttl: &Timespec, attr: &FileAttr, generation: u64) {
         self.reply.ok(&fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
@@ -259,7 +257,7 @@ impl ReplyEntry {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -273,14 +271,14 @@ pub struct ReplyAttr {
 }
 
 impl Reply for ReplyAttr {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyAttr {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyAttr {
         ReplyAttr { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyAttr {
     /// Reply to a request with the given attribute
-    pub fn attr (self, ttl: &Timespec, attr: &FileAttr) {
+    pub fn attr(self, ttl: &Timespec, attr: &FileAttr) {
         self.reply.ok(&fuse_attr_out {
             attr_valid: ttl.sec,
             attr_valid_nsec: ttl.nsec,
@@ -290,7 +288,7 @@ impl ReplyAttr {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -306,7 +304,7 @@ pub struct ReplyXTimes {
 
 #[cfg(target_os = "macos")]
 impl Reply for ReplyXTimes {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyXTimes {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyXTimes {
         ReplyXTimes { reply: Reply::new(unique, sender) }
     }
 }
@@ -314,7 +312,7 @@ impl Reply for ReplyXTimes {
 #[cfg(target_os = "macos")]
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
-    pub fn xtimes (self, bkuptime: Timespec, crtime: Timespec) {
+    pub fn xtimes(self, bkuptime: Timespec, crtime: Timespec) {
         self.reply.ok(&fuse_getxtimes_out {
             bkuptime: bkuptime.sec,
             crtime: crtime.sec,
@@ -324,7 +322,7 @@ impl ReplyXTimes {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -338,14 +336,14 @@ pub struct ReplyOpen {
 }
 
 impl Reply for ReplyOpen {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyOpen {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyOpen {
         ReplyOpen { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyOpen {
     /// Reply to a request with the given open result
-    pub fn opened (self, fh: u64, flags: u32) {
+    pub fn opened(self, fh: u64, flags: u32) {
         self.reply.ok(&fuse_open_out {
             fh: fh,
             open_flags: flags,
@@ -354,7 +352,7 @@ impl ReplyOpen {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -368,14 +366,14 @@ pub struct ReplyWrite {
 }
 
 impl Reply for ReplyWrite {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyWrite {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyWrite {
         ReplyWrite { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyWrite {
     /// Reply to a request with the given open result
-    pub fn written (self, size: u32) {
+    pub fn written(self, size: u32) {
         self.reply.ok(&fuse_write_out {
             size: size,
             padding: 0,
@@ -383,7 +381,7 @@ impl ReplyWrite {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -397,14 +395,14 @@ pub struct ReplyStatfs {
 }
 
 impl Reply for ReplyStatfs {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyStatfs {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyStatfs {
         ReplyStatfs { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyStatfs {
     /// Reply to a request with the given open result
-    pub fn statfs (self, blocks: u64, bfree: u64, bavail: u64, files: u64, ffree: u64, bsize: u32, namelen: u32, frsize: u32) {
+    pub fn statfs(self, blocks: u64, bfree: u64, bavail: u64, files: u64, ffree: u64, bsize: u32, namelen: u32, frsize: u32) {
         self.reply.ok(&fuse_statfs_out {
             st: fuse_kstatfs {
                 blocks: blocks,
@@ -422,7 +420,7 @@ impl ReplyStatfs {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -436,14 +434,14 @@ pub struct ReplyCreate {
 }
 
 impl Reply for ReplyCreate {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyCreate {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyCreate {
         ReplyCreate { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyCreate {
     /// Reply to a request with the given entry
-    pub fn created (self, ttl: &Timespec, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+    pub fn created(self, ttl: &Timespec, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
         self.reply.ok(&(fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
@@ -460,7 +458,7 @@ impl ReplyCreate {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -474,14 +472,14 @@ pub struct ReplyLock {
 }
 
 impl Reply for ReplyLock {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyLock {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyLock {
         ReplyLock { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyLock {
     /// Reply to a request with the given open result
-    pub fn locked (self, start: u64, end: u64, typ: u32, pid: u32) {
+    pub fn locked(self, start: u64, end: u64, typ: u32, pid: u32) {
         self.reply.ok(&fuse_lk_out {
             lk: fuse_file_lock {
                 start: start,
@@ -493,7 +491,7 @@ impl ReplyLock {
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -507,21 +505,21 @@ pub struct ReplyBmap {
 }
 
 impl Reply for ReplyBmap {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyBmap {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyBmap {
         ReplyBmap { reply: Reply::new(unique, sender) }
     }
 }
 
 impl ReplyBmap {
     /// Reply to a request with the given open result
-    pub fn bmap (self, block: u64) {
+    pub fn bmap(self, block: u64) {
         self.reply.ok(&fuse_bmap_out {
             block: block,
         });
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -537,7 +535,7 @@ pub struct ReplyDirectory {
 
 impl ReplyDirectory {
     /// Creates a new ReplyDirectory with a specified buffer size.
-    pub fn new<S: ReplySender> (unique: u64, sender: S, size: usize) -> ReplyDirectory {
+    pub fn new<S: ReplySender>(unique: u64, sender: S, size: usize) -> ReplyDirectory {
         ReplyDirectory {
             reply: Reply::new(unique, sender),
             data: Vec::with_capacity(size),
@@ -547,10 +545,10 @@ impl ReplyDirectory {
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
-    pub fn add<T: AsRef<OsStr>> (&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
+    pub fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
         let name = name.as_ref().as_bytes();
         let entlen = mem::size_of::<fuse_dirent>() + name.len();
-        let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);  // 64bit align
+        let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
         let padlen = entsize - entlen;
         if self.data.len() + entsize > self.data.capacity() { return true; }
         unsafe {
@@ -571,12 +569,12 @@ impl ReplyDirectory {
     }
 
     /// Reply to a request with the filled directory buffer
-    pub fn ok (mut self) {
+    pub fn ok(mut self) {
         self.reply.send(0, &[&self.data]);
     }
 
     /// Reply to a request with the given error code
-    pub fn error (self, err: c_int) {
+    pub fn error(self, err: c_int) {
         self.reply.error(err);
     }
 }
@@ -590,7 +588,7 @@ pub struct ReplyXattr {
 }
 
 impl Reply for ReplyXattr {
-    fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyXattr {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyXattr {
         ReplyXattr { reply: Reply::new(unique, sender) }
     }
 }
@@ -633,7 +631,7 @@ mod test {
     struct Data { a: u8, b: u8, c: u16 }
 
     #[test]
-    fn serialize_empty () {
+    fn serialize_empty() {
         let data = ();
         as_bytes(&data, |bytes| {
             assert!(bytes.is_empty());
@@ -641,7 +639,7 @@ mod test {
     }
 
     #[test]
-    fn serialize_slice () {
+    fn serialize_slice() {
         let data: [u8; 4] = [0x12, 0x34, 0x56, 0x78];
         as_bytes(&data, |bytes| {
             assert_eq!(bytes, [[0x12, 0x34, 0x56, 0x78]]);
@@ -649,7 +647,7 @@ mod test {
     }
 
     #[test]
-    fn serialize_struct () {
+    fn serialize_struct() {
         let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
         as_bytes(&data, |bytes| {
             assert_eq!(bytes, [[0x12, 0x34, 0x78, 0x56]]);
@@ -657,7 +655,7 @@ mod test {
     }
 
     #[test]
-    fn serialize_tuple () {
+    fn serialize_tuple() {
         let data = (Data { a: 0x12, b: 0x34, c: 0x5678 }, Data { a: 0x9a, b: 0xbc, c: 0xdef0 });
         as_bytes(&data, |bytes| {
             assert_eq!(bytes, [[0x12, 0x34, 0x78, 0x56, 0x9a, 0xbc, 0xf0, 0xde]]);
@@ -676,7 +674,7 @@ mod test {
     }
 
     #[test]
-    fn reply_raw () {
+    fn reply_raw() {
         let data = Data { a: 0x12, b: 0x34, c: 0x5678 };
         let sender = AssertSender {
             expected: vec![
@@ -689,7 +687,7 @@ mod test {
     }
 
     #[test]
-    fn reply_error () {
+    fn reply_error() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x10, 0x00, 0x00, 0x00, 0xbe, 0xff, 0xff, 0xff,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -700,7 +698,7 @@ mod test {
     }
 
     #[test]
-    fn reply_empty () {
+    fn reply_empty() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -711,7 +709,7 @@ mod test {
     }
 
     #[test]
-    fn reply_data () {
+    fn reply_data() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -723,7 +721,7 @@ mod test {
     }
 
     #[test]
-    fn reply_entry () {
+    fn reply_entry() {
         let sender = AssertSender {
             expected: if cfg!(target_os = "macos") {
                 vec![
@@ -760,7 +758,7 @@ mod test {
     }
 
     #[test]
-    fn reply_attr () {
+    fn reply_attr() {
         let sender = AssertSender {
             expected: if cfg!(target_os = "macos") {
                 vec![
@@ -794,7 +792,7 @@ mod test {
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn reply_xtimes () {
+    fn reply_xtimes() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -808,7 +806,7 @@ mod test {
     }
 
     #[test]
-    fn reply_open () {
+    fn reply_open() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -820,7 +818,7 @@ mod test {
     }
 
     #[test]
-    fn reply_write () {
+    fn reply_write() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -832,7 +830,7 @@ mod test {
     }
 
     #[test]
-    fn reply_statfs () {
+    fn reply_statfs() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -848,7 +846,7 @@ mod test {
     }
 
     #[test]
-    fn reply_create () {
+    fn reply_create() {
         let sender = AssertSender {
             expected: if cfg!(target_os = "macos") {
                 vec![
@@ -887,7 +885,7 @@ mod test {
     }
 
     #[test]
-    fn reply_lock () {
+    fn reply_lock() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -900,7 +898,7 @@ mod test {
     }
 
     #[test]
-    fn reply_bmap () {
+    fn reply_bmap() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -912,7 +910,7 @@ mod test {
     }
 
     #[test]
-    fn reply_directory () {
+    fn reply_directory() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00],
@@ -935,7 +933,7 @@ mod test {
     }
 
     #[test]
-    fn reply_xattr_size () {
+    fn reply_xattr_size() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,  0x00, 0x00],
@@ -947,7 +945,7 @@ mod test {
     }
 
     #[test]
-    fn reply_xattr_data () {
+    fn reply_xattr_data() {
         let sender = AssertSender {
             expected: vec![
                 vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,  0x00, 0x00],
@@ -959,7 +957,7 @@ mod test {
     }
 
     #[test]
-    fn async_reply () {
+    fn async_reply() {
         let (tx, rx) = channel::<()>();
         let reply: ReplyEmpty = Reply::new(0xdeadbeef, tx);
         thread::spawn(move || {

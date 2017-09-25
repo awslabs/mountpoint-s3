@@ -1,6 +1,6 @@
+//! FUSE kernel driver communication
 //!
 //! Raw communication channel to the FUSE kernel driver.
-//!
 
 use std::io;
 use std::ffi::{CString, CStr, OsStr};
@@ -12,7 +12,7 @@ use reply::ReplySender;
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
-fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T> (options: &[&OsStr], f: F) -> T {
+fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T {
     let mut args = vec![CString::new("rust-fuse").unwrap()];
     args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap()));
     let argptrs: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
@@ -31,7 +31,7 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
+    pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         let mountpoint = try!(mountpoint.canonicalize());
         with_fuse_args(options, |args| {
             let mnt = try!(CString::new(mountpoint.as_os_str().as_bytes()));
@@ -45,12 +45,12 @@ impl Channel {
     }
 
     /// Return path of the mounted filesystem
-    pub fn mountpoint (&self) -> &Path {
+    pub fn mountpoint(&self) -> &Path {
         &self.mountpoint
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
-    pub fn receive (&self, buffer: &mut Vec<u8>) -> io::Result<()> {
+    pub fn receive(&self, buffer: &mut Vec<u8>) -> io::Result<()> {
         let rc = unsafe { libc::read(self.fd, buffer.as_ptr() as *mut c_void, buffer.capacity() as size_t) };
         if rc < 0 {
             Err(io::Error::last_os_error())
@@ -63,7 +63,7 @@ impl Channel {
     /// Returns a sender object for this channel. The sender object can be
     /// used to send to the channel. Multiple sender objects can be used
     /// and they can safely be sent to other threads.
-    pub fn sender (&self) -> ChannelSender {
+    pub fn sender(&self) -> ChannelSender {
         // Since write/writev syscalls are threadsafe, we can simply create
         // a sender by using the same fd and use it in other threads. Only
         // the channel closes the fd when dropped. If any sender is used after
@@ -73,7 +73,7 @@ impl Channel {
 }
 
 impl Drop for Channel {
-    fn drop (&mut self) {
+    fn drop(&mut self) {
         // TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
         // Close the communication channel to the kernel driver
         // (closing it before unnmount prevents sync unmount deadlock)
@@ -90,7 +90,7 @@ pub struct ChannelSender {
 
 impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
-    pub fn send (&self, buffer: &[&[u8]]) -> io::Result<()> {
+    pub fn send(&self, buffer: &[&[u8]]) -> io::Result<()> {
         let iovecs: Vec<_> = buffer.iter().map(|d| {
             libc::iovec { iov_base: d.as_ptr() as *mut c_void, iov_len: d.len() as size_t }
         }).collect();
@@ -112,7 +112,7 @@ impl ReplySender for ChannelSender {
 }
 
 /// Unmount an arbitrary mount point
-pub fn unmount (mountpoint: &Path) -> io::Result<()> {
+pub fn unmount(mountpoint: &Path) -> io::Result<()> {
     // fuse_unmount_compat22 unfortunately doesn't return a status. Additionally,
     // it attempts to call realpath, which in turn calls into the filesystem. So
     // if the filesystem returns an error, the unmount does not take place, with
@@ -121,12 +121,16 @@ pub fn unmount (mountpoint: &Path) -> io::Result<()> {
     // to the real path when we first mounted.
 
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
-              target_os = "openbsd", target_os = "bitrig", target_os = "netbsd"))] #[inline]
-    fn libc_umount (mnt: &CStr) -> c_int { unsafe { libc::unmount(mnt.as_ptr(), 0) } }
+              target_os = "openbsd", target_os = "bitrig", target_os = "netbsd"))]
+    #[inline]
+    fn libc_umount(mnt: &CStr) -> c_int {
+        unsafe { libc::unmount(mnt.as_ptr(), 0) }
+    }
 
     #[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "dragonfly",
-                  target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))] #[inline]
-    fn libc_umount (mnt: &CStr) -> c_int {
+                  target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))]
+    #[inline]
+    fn libc_umount(mnt: &CStr) -> c_int {
         use libfuse::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
@@ -157,7 +161,7 @@ mod test {
     use std::ffi::{CStr, OsStr};
 
     #[test]
-    fn fuse_args () {
+    fn fuse_args() {
         with_fuse_args(&[OsStr::new("foo"), OsStr::new("bar")], |args| {
             assert_eq!(args.argc, 3);
             assert_eq!(unsafe { CStr::from_ptr(*args.argv.offset(0)).to_bytes() }, b"rust-fuse");

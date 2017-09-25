@@ -9,7 +9,7 @@ use libc::ENOENT;
 use time::Timespec;
 use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
-const TTL: Timespec = Timespec { sec: 1, nsec: 0 };                 // 1 second
+const TTL: Timespec = Timespec { sec: 1, nsec: 0 };                     // 1 second
 
 const CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };    // 2013-10-08 08:56
 
@@ -52,7 +52,7 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 struct HelloFS;
 
 impl Filesystem for HelloFS {
-    fn lookup (&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
         } else {
@@ -60,7 +60,7 @@ impl Filesystem for HelloFS {
         }
     }
 
-    fn getattr (&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         match ino {
             1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
             2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
@@ -68,7 +68,7 @@ impl Filesystem for HelloFS {
         }
     }
 
-    fn read (&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, _size: u32, reply: ReplyData) {
+    fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, _size: u32, reply: ReplyData) {
         if ino == 2 {
             reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
         } else {
@@ -76,7 +76,7 @@ impl Filesystem for HelloFS {
         }
     }
 
-    fn readdir (&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
+    fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino == 1 {
             if offset == 0 {
                 reply.add(1, 0, FileType::Directory, ".");
@@ -90,7 +90,7 @@ impl Filesystem for HelloFS {
     }
 }
 
-fn main () {
+fn main() {
     env_logger::init().unwrap();
     let mountpoint = env::args_os().nth(1).unwrap();
     fuse::mount(HelloFS, &mountpoint, &[]).unwrap();

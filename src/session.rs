@@ -1,10 +1,9 @@
+//! Filesystem session
 //!
-//! A session runs a filesystem implementation while it is being mounted
-//! to a specific mount point. A session begins by mounting the filesystem
-//! and ends by unmounting it. While the filesystem is mounted, the session
-//! loop receives, dispatches and replies to kernel requests for filesystem
-//! operations under its mount point.
-//!
+//! A session runs a filesystem implementation while it is being mounted to a specific mount
+//! point. A session begins by mounting the filesystem and ends by unmounting it. While the
+//! filesystem is mounted, the session loop receives, dispatches and replies to kernel requests
+//! for filesystem operations under its mount point.
 
 use std::io;
 use std::ffi::OsStr;
@@ -19,7 +18,7 @@ use request;
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on OS X
 /// and 128k on other systems.
-pub const MAX_WRITE_SIZE: usize = 16*1024*1024;
+pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
@@ -44,21 +43,22 @@ pub struct Session<FS: Filesystem> {
 
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
-    pub fn new (filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
+    pub fn new(filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        Channel::new(mountpoint, options).map(
-            |ch| Session {
+        Channel::new(mountpoint, options).map(|ch| {
+            Session {
                 filesystem: filesystem,
                 ch: ch,
                 proto_major: 0,
                 proto_minor: 0,
                 initialized: false,
                 destroyed: false,
-            })
+            }
+        })
     }
 
     /// Return path of the mounted filesystem
-    pub fn mountpoint (&self) -> &Path {
+    pub fn mountpoint(&self) -> &Path {
         &self.ch.mountpoint()
     }
 
@@ -66,7 +66,7 @@ impl<FS: Filesystem> Session<FS> {
     /// calls into the filesystem. This read-dispatch-loop is non-concurrent to prevent
     /// having multiple buffers (which take up much memory), but the filesystem methods
     /// may run concurrent by spawning threads.
-    pub fn run (&mut self) -> io::Result<()> {
+    pub fn run(&mut self) -> io::Result<()> {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
         let mut buffer: Vec<u8> = Vec::with_capacity(BUFFER_SIZE);
@@ -91,22 +91,22 @@ impl<FS: Filesystem> Session<FS> {
                     Some(ENODEV) => break,
                     // Unhandled error
                     _ => return Err(err),
-                },
+                }
             }
         }
         Ok(())
     }
 }
 
-impl<'a, FS: Filesystem+Send+'a> Session<FS> {
+impl<'a, FS: Filesystem + Send + 'a> Session<FS> {
     /// Run the session loop in a background thread
-    pub unsafe fn spawn (self) -> io::Result<BackgroundSession<'a>> {
+    pub unsafe fn spawn(self) -> io::Result<BackgroundSession<'a>> {
         BackgroundSession::new(self)
     }
 }
 
 impl<FS: Filesystem> Drop for Session<FS> {
-    fn drop (&mut self) {
+    fn drop(&mut self) {
         info!("Unmounted {}", self.mountpoint().display());
     }
 }
@@ -123,7 +123,7 @@ impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub unsafe fn new<FS: Filesystem+Send+'a> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
+    pub unsafe fn new<FS: Filesystem + Send + 'a>(se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
         let mountpoint = se.mountpoint().to_path_buf();
         let guard = scoped(move || {
             let mut se = se;
@@ -134,7 +134,7 @@ impl<'a> BackgroundSession<'a> {
 }
 
 impl<'a> Drop for BackgroundSession<'a> {
-    fn drop (&mut self) {
+    fn drop(&mut self) {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,
         // drop the session and hence end the background thread.

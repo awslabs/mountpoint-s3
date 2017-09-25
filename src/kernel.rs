@@ -17,6 +17,7 @@
 //! - supports ABI 7.26 since FUSE 3.0.0
 //!
 //! Types/fields without a version annotation are valid with ABI 7.8 and later
+
 #![allow(non_camel_case_types, missing_docs, dead_code)]
 
 // TODO: We currently target ABI 7.8, which is very conservative and missing many newer
@@ -167,7 +168,7 @@ pub enum fuse_opcode {
 
 // FIXME: Hopefully Rust will once have a more convenient way of converting primitive to enum
 impl fuse_opcode {
-    pub fn from_u32 (n: u32) -> Option<Self> {
+    pub fn from_u32(n: u32) -> Option<Self> {
         match n {
             1 => Some(fuse_opcode::FUSE_LOOKUP),
             2 => Some(fuse_opcode::FUSE_FORGET),
