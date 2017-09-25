@@ -19,7 +19,7 @@ use session::{MAX_WRITE_SIZE, Session};
 #[cfg(not(target_os = "macos"))]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
 
-/// On OS X, we additionally support case insensitiveness, volume renames and xtimes
+/// On macOS, we additionally support case insensitiveness, volume renames and xtimes
 /// TODO: we should eventually let the filesystem implementation decide which flags to set
 #[cfg(target_os = "macos")]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;

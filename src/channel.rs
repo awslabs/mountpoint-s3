@@ -74,7 +74,7 @@ impl Channel {
 
 impl Drop for Channel {
     fn drop(&mut self) {
-        // TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on OS X before closing the fd
+        // TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on macOS before closing the fd
         // Close the communication channel to the kernel driver
         // (closing it before unnmount prevents sync unmount deadlock)
         unsafe { libc::close(self.fd); }

@@ -71,7 +71,7 @@ pub struct FileAttr {
     pub mtime: Timespec,
     /// Time of last change
     pub ctime: Timespec,
-    /// Time of creation (OS X only)
+    /// Time of creation (macOS only)
     pub crtime: Timespec,
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
@@ -85,7 +85,7 @@ pub struct FileAttr {
     pub gid: u32,
     /// Rdev
     pub rdev: u32,
-    /// Flags (OS X only, see chflags(2))
+    /// Flags (macOS only, see chflags(2))
     pub flags: u32,
 }
 
@@ -349,20 +349,20 @@ pub trait Filesystem {
         reply.error(ENOSYS);
     }
 
-    /// OS X only: Rename the volume. Set fuse_init_out.flags during init to
+    /// macOS only: Rename the volume. Set fuse_init_out.flags during init to
     /// FUSE_VOL_RENAME to enable
     #[cfg(target_os = "macos")]
     fn setvolname(&mut self, _req: &Request, _name: &OsStr, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
-    /// OS X only (undocumented)
+    /// macOS only (undocumented)
     #[cfg(target_os = "macos")]
     fn exchange(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr, _options: u64, reply: ReplyEmpty) {
         reply.error(ENOSYS);
     }
 
-    /// OS X only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
+    /// macOS only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
     /// during init to FUSE_XTIMES to enable
     #[cfg(target_os = "macos")]
     fn getxtimes(&mut self, _req: &Request, _ino: u64, reply: ReplyXTimes) {
