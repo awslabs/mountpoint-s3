@@ -15,7 +15,7 @@ use kernel::fuse_opcode::*;
 use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
 use session::{MAX_WRITE_SIZE, Session};
 
-/// We generally support async reads, lookups of . and .. and writes larger than 4k
+/// We generally support async reads
 #[cfg(not(target_os = "macos"))]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
 
