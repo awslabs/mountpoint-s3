@@ -26,6 +26,12 @@ The kernel driver is provided by the FUSE project, the userspace implementation 
 
 Except for a single setup (mount) function call and a final teardown (umount) function call to libfuse, everything runs in Rust.
 
+## Dependencies
+
+To run a program that mounts a FUSE filesystem, the target system needs FUSE (OSXFUSE on macOS) to be properly installed (i.e. kernel driver and libraries. Some platforms may also require userland utils like `fusermount`). A default installation of package `fuse` on Linux or installing `OSXFUSE` on macOS is usually sufficient.
+
+To build, the host system needs FUSE libraries and headers installed. On Linux, the package is usually called `libfuse-dev`. On macOS, `OSXFUSE` installs everything that's needed. The build process also requires `pkg-config` to locate headers and libraries.
+
 ## Usage
 
 Put this in your `Cargo.toml`:
