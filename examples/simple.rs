@@ -15,6 +15,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::raw::c_int;
 use std::os::unix::fs::FileExt;
+use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
@@ -1386,6 +1387,42 @@ impl Filesystem for SimpleFS {
             self.allocate_next_file_handle(read, write),
             0,
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    fn fallocate(
+        &mut self,
+        _req: &Request<'_>,
+        inode: u64,
+        _fh: u64,
+        offset: u64,
+        length: u64,
+        mode: u32,
+        reply: ReplyEmpty,
+    ) {
+        let path = self.content_path(inode);
+        if let Ok(file) = OpenOptions::new().write(true).open(&path) {
+            unsafe {
+                libc::fallocate64(
+                    file.into_raw_fd(),
+                    mode as i32,
+                    offset as i64,
+                    length as i64,
+                );
+            }
+            if mode & libc::FALLOC_FL_KEEP_SIZE as u32 == 0 {
+                let mut attrs = self.get_inode(inode).unwrap();
+                attrs.last_metadata_changed = SystemTime::now();
+                attrs.last_modified = SystemTime::now();
+                if offset + length > attrs.size {
+                    attrs.size = offset + length;
+                }
+                self.write_inode(&attrs);
+            }
+            reply.ok();
+        } else {
+            reply.error(libc::ENOENT);
+        }
     }
 }
 

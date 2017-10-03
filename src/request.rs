@@ -466,9 +466,22 @@ impl<'a> Request<'a> {
             }
 
             #[cfg(feature = "abi-7-11")]
-            ll::Operation::IoCtl { arg: _, data: _ } => {
-                // TODO: handle FUSE_IOCTL
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+            ll::Operation::IoCtl { arg, data } => {
+                let in_data = &data[..arg.in_size as usize];
+                if (arg.flags & FUSE_IOCTL_UNRESTRICTED) > 0 {
+                    self.reply::<ReplyEmpty>().error(ENOSYS);
+                } else {
+                    se.filesystem.ioctl(
+                        self,
+                        self.request.nodeid(),
+                        arg.fh,
+                        arg.flags,
+                        arg.cmd,
+                        in_data,
+                        arg.out_size,
+                        self.reply(),
+                    );
+                }
             }
             #[cfg(feature = "abi-7-11")]
             ll::Operation::Poll { arg: _ } => {
@@ -486,9 +499,16 @@ impl<'a> Request<'a> {
                 self.reply::<ReplyEmpty>().error(ENOSYS);
             }
             #[cfg(feature = "abi-7-19")]
-            ll::Operation::FAllocate { arg: _ } => {
-                // TODO: handle FUSE_FALLOCATE
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+            ll::Operation::FAllocate { arg } => {
+                se.filesystem.fallocate(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh,
+                    arg.offset,
+                    arg.length,
+                    arg.mode,
+                    self.reply(),
+                );
             }
             #[cfg(feature = "abi-7-21")]
             ll::Operation::ReadDirPlus { arg: _ } => {

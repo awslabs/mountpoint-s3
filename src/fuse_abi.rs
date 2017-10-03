@@ -850,7 +850,6 @@ pub struct fuse_ioctl_iovec {
     pub len: u64,
 }
 
-#[cfg(feature = "abi-7-11")]
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_ioctl_out {
@@ -892,11 +891,11 @@ pub struct fuse_notify_poll_wakeup_out {
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_fallocate_in {
-    fh: u64,
-    offset: u64,
-    length: u64,
-    mode: u32,
-    padding: u32,
+    pub fh: u64,
+    pub offset: u64,
+    pub length: u64,
+    pub mode: u32,
+    pub padding: u32,
 }
 
 #[repr(C)]

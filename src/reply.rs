@@ -10,7 +10,9 @@ use crate::fuse_abi::fuse_getxattr_out;
 #[cfg(target_os = "macos")]
 use crate::fuse_abi::fuse_getxtimes_out;
 use crate::fuse_abi::{fuse_attr, fuse_attr_out, fuse_entry_out, fuse_file_lock, fuse_kstatfs};
-use crate::fuse_abi::{fuse_bmap_out, fuse_lk_out, fuse_open_out, fuse_statfs_out, fuse_write_out};
+use crate::fuse_abi::{
+    fuse_bmap_out, fuse_ioctl_out, fuse_lk_out, fuse_open_out, fuse_statfs_out, fuse_write_out,
+};
 use crate::fuse_abi::{fuse_dirent, fuse_out_header};
 use libc::{c_int, EIO, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
 use log::warn;
@@ -584,6 +586,50 @@ impl ReplyBmap {
     /// Reply to a request with the given open result
     pub fn bmap(self, block: u64) {
         self.reply.ok(&fuse_bmap_out { block });
+    }
+
+    /// Reply to a request with the given error code
+    pub fn error(self, err: c_int) {
+        self.reply.error(err);
+    }
+}
+
+///
+/// Ioctl Reply
+///
+#[derive(Debug)]
+pub struct ReplyIoctl {
+    reply: ReplyRaw<fuse_ioctl_out>,
+}
+
+impl Reply for ReplyIoctl {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyIoctl {
+        ReplyIoctl {
+            reply: Reply::new(unique, sender),
+        }
+    }
+}
+
+impl ReplyIoctl {
+    /// Reply to a request with the given open result
+    pub fn ioctl(mut self, result: i32, data: &[u8]) {
+        let header = fuse_ioctl_out {
+            result,
+            // these fields are only needed for unrestricted ioctls
+            flags: 0,
+            in_iovs: 1,
+            out_iovs: if !data.is_empty() { 1 } else { 0 },
+        };
+
+        let header_len = mem::size_of::<fuse_ioctl_out>();
+        let header_p = &header as *const fuse_ioctl_out as *const u8;
+        let header_bytes = unsafe { slice::from_raw_parts(header_p, header_len) };
+
+        if !data.is_empty() {
+            self.reply.send(0, &[header_bytes, data]);
+        } else {
+            self.reply.send(0, &[header_bytes]);
+        }
     }
 
     /// Reply to a request with the given error code

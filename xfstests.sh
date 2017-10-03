@@ -44,7 +44,7 @@ echo "generic/069" >> xfs_excludes.txt
 # TODO: seems like ctime failure
 echo "generic/221" >> xfs_excludes.txt
 
-# TODO: needs fallocate
+# TODO: needs fallocate which is missing from Linux FUSE driver (https://github.com/libfuse/libfuse/issues/395)
 echo "generic/263" >> xfs_excludes.txt
 
 # TODO: Passes, but takes ~30min
@@ -117,6 +117,10 @@ echo "generic/434" >> xfs_excludes.txt
 
 # TODO: seems to crash host
 echo "generic/476" >> xfs_excludes.txt
+
+# TODO: writing to /proc/sys/vm/drop_caches is not allowed inside Docker
+echo "generic/086" >> xfs_excludes.txt
+echo "generic/391" >> xfs_excludes.txt
 
 FUSER_EXTRA_MOUNT_OPTIONS="" TEST_DEV="$TEST_DATA_DIR" TEST_DIR="$TEST_DIR" SCRATCH_DEV="$SCRATCH_DATA_DIR" SCRATCH_MNT="$SCRATCH_DIR" \
 ./check-fuser -E xfs_excludes.txt \

@@ -25,7 +25,9 @@ pub use mount_options::MountOption;
 pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
 pub use reply::{Reply, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen};
-pub use reply::{ReplyBmap, ReplyCreate, ReplyDirectory, ReplyLock, ReplyStatfs, ReplyWrite};
+pub use reply::{
+    ReplyBmap, ReplyCreate, ReplyDirectory, ReplyIoctl, ReplyLock, ReplyStatfs, ReplyWrite,
+};
 pub use request::Request;
 pub use session::{BackgroundSession, Session};
 
@@ -523,6 +525,35 @@ pub trait Filesystem {
         _blocksize: u32,
         _idx: u64,
         reply: ReplyBmap,
+    ) {
+        reply.error(ENOSYS);
+    }
+
+    /// control device
+    fn ioctl(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _flags: u32,
+        _cmd: u32,
+        _in_data: &[u8],
+        _out_size: u32,
+        reply: ReplyIoctl,
+    ) {
+        reply.error(ENOSYS);
+    }
+
+    /// Preallocate or deallocate space to a file
+    fn fallocate(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _offset: u64,
+        _length: u64,
+        _mode: u32,
+        reply: ReplyEmpty,
     ) {
         reply.error(ENOSYS);
     }
