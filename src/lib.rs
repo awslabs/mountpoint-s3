@@ -130,6 +130,15 @@ pub trait Filesystem {
     /// inodes will receive a forget message.
     fn forget(&mut self, _req: &Request<'_>, _ino: u64, _nlookup: u64) {}
 
+    /// Like forget, but take multiple forget requests at once for performance. The default
+    /// implementation will fallback to forget.
+    #[cfg(feature = "abi-7-16")]
+    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_abi::fuse_forget_one]) {
+        for node in nodes {
+            self.forget(req, node.nodeid, node.nlookup);
+        }
+    }
+
     /// Get file attributes.
     fn getattr(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyAttr) {
         reply.error(ENOSYS);

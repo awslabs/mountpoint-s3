@@ -494,9 +494,8 @@ impl<'a> Request<'a> {
                 self.reply::<ReplyEmpty>().error(ENOSYS);
             }
             #[cfg(feature = "abi-7-16")]
-            ll::Operation::BatchForget { arg: _, nodes: _ } => {
-                // TODO: handle FUSE_BATCH_FORGET
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+            ll::Operation::BatchForget { arg: _, nodes } => {
+                se.filesystem.batch_forget(self, nodes); // no reply
             }
             #[cfg(feature = "abi-7-19")]
             ll::Operation::FAllocate { arg } => {
