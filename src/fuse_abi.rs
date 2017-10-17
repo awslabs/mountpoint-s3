@@ -317,6 +317,8 @@ pub enum fuse_opcode {
     FUSE_FALLOCATE = 43,
     #[cfg(feature = "abi-7-21")]
     FUSE_READDIRPLUS = 44,
+    #[cfg(feature = "abi-7-23")]
+    FUSE_RENAME2 = 45,
 
     #[cfg(target_os = "macos")]
     FUSE_SETVOLNAME = 61,
@@ -382,6 +384,8 @@ impl TryFrom<u32> for fuse_opcode {
             43 => Ok(fuse_opcode::FUSE_FALLOCATE),
             #[cfg(feature = "abi-7-21")]
             44 => Ok(fuse_opcode::FUSE_READDIRPLUS),
+            #[cfg(feature = "abi-7-23")]
+            45 => Ok(fuse_opcode::FUSE_RENAME2),
 
             #[cfg(target_os = "macos")]
             61 => Ok(fuse_opcode::FUSE_SETVOLNAME),
@@ -533,6 +537,14 @@ pub struct fuse_mkdir_in {
 #[derive(Debug)]
 pub struct fuse_rename_in {
     pub newdir: u64,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct fuse_rename2_in {
+    pub newdir: u64,
+    pub flags: u32,
+    pub padding: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -927,6 +939,13 @@ pub struct fuse_dirent {
     pub namelen: u32,
     pub typ: u32,
     // followed by name of namelen bytes
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct fuse_direntplus {
+    pub entry_out: fuse_entry_out,
+    pub dirent: fuse_dirent,
 }
 
 #[cfg(feature = "abi-7-12")]

@@ -184,6 +184,12 @@ pub enum Operation<'a> {
     ReadDirPlus {
         arg: &'a fuse_read_in,
     },
+    #[cfg(feature = "abi-7-23")]
+    Rename2 {
+        arg: &'a fuse_rename2_in,
+        name: &'a OsStr,
+        newname: &'a OsStr,
+    },
 
     #[cfg(target_os = "macos")]
     SetVolName {
@@ -255,6 +261,8 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::FAllocate { arg: _ } => write!(f, "FALLOCATE"),
             #[cfg(feature = "abi-7-21")]
             Operation::ReadDirPlus { arg } => write!(f, "READDIRPLUS fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
+            #[cfg(feature = "abi-7-23")]
+            Operation::Rename2 { arg, name, newname } => write!(f, "RENAME2 name {:?}, newdir {:#018x}, newname {:?}", name, arg.newdir, newname),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
@@ -367,6 +375,12 @@ impl<'a> Operation<'a> {
                 fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate { arg: data.fetch()? },
                 #[cfg(feature = "abi-7-21")]
                 fuse_opcode::FUSE_READDIRPLUS => Operation::ReadDirPlus { arg: data.fetch()? },
+                #[cfg(feature = "abi-7-23")]
+                fuse_opcode::FUSE_RENAME2 => Operation::Rename2 {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                    newname: data.fetch_str()?,
+                },
 
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {

@@ -15,6 +15,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::channel::ChannelSender;
 use crate::ll;
+#[cfg(feature = "abi-7-21")]
+use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplyEmpty, ReplyRaw};
 use crate::session::{Session, MAX_WRITE_SIZE};
 use crate::Filesystem;
@@ -510,9 +512,26 @@ impl<'a> Request<'a> {
                 );
             }
             #[cfg(feature = "abi-7-21")]
-            ll::Operation::ReadDirPlus { arg: _ } => {
-                // TODO: handle FUSE_READDIRPLUS
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+            ll::Operation::ReadDirPlus { arg } => {
+                se.filesystem.readdirplus(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh,
+                    arg.offset,
+                    ReplyDirectoryPlus::new(self.request.unique(), self.ch, arg.size as usize),
+                );
+            }
+            #[cfg(feature = "abi-7-23")]
+            ll::Operation::Rename2 { arg, name, newname } => {
+                se.filesystem.rename2(
+                    self,
+                    self.request.nodeid(),
+                    name,
+                    arg.newdir,
+                    newname,
+                    arg.flags,
+                    self.reply(),
+                );
             }
 
             #[cfg(target_os = "macos")]

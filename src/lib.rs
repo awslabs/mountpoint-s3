@@ -26,7 +26,8 @@ pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
 pub use reply::{Reply, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen};
 pub use reply::{
-    ReplyBmap, ReplyCreate, ReplyDirectory, ReplyIoctl, ReplyLock, ReplyStatfs, ReplyWrite,
+    ReplyBmap, ReplyCreate, ReplyDirectory, ReplyDirectoryPlus, ReplyIoctl, ReplyLock, ReplyStatfs,
+    ReplyWrite,
 };
 pub use request::Request;
 pub use session::{BackgroundSession, Session};
@@ -233,6 +234,20 @@ pub trait Filesystem {
         reply.error(ENOSYS);
     }
 
+    /// Rename a file.
+    fn rename2(
+        &mut self,
+        _req: &Request<'_>,
+        _parent: u64,
+        _name: &OsStr,
+        _newparent: u64,
+        _newname: &OsStr,
+        _flags: u32,
+        reply: ReplyEmpty,
+    ) {
+        reply.error(ENOSYS);
+    }
+
     /// Create a hard link.
     fn link(
         &mut self,
@@ -374,6 +389,22 @@ pub trait Filesystem {
         _fh: u64,
         _offset: i64,
         reply: ReplyDirectory,
+    ) {
+        reply.error(ENOSYS);
+    }
+
+    /// Read directory.
+    /// Send a buffer filled using buffer.fill(), with size not exceeding the
+    /// requested size. Send an empty buffer on end of stream. fh will contain the
+    /// value set by the opendir method, or will be undefined if the opendir method
+    /// didn't set any value.
+    fn readdirplus(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _offset: u64,
+        reply: ReplyDirectoryPlus,
     ) {
         reply.error(ENOSYS);
     }
