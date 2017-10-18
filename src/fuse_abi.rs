@@ -319,6 +319,8 @@ pub enum fuse_opcode {
     FUSE_READDIRPLUS = 44,
     #[cfg(feature = "abi-7-23")]
     FUSE_RENAME2 = 45,
+    #[cfg(feature = "abi-7-24")]
+    FUSE_LSEEK = 46,
 
     #[cfg(target_os = "macos")]
     FUSE_SETVOLNAME = 61,
@@ -386,6 +388,8 @@ impl TryFrom<u32> for fuse_opcode {
             44 => Ok(fuse_opcode::FUSE_READDIRPLUS),
             #[cfg(feature = "abi-7-23")]
             45 => Ok(fuse_opcode::FUSE_RENAME2),
+            #[cfg(feature = "abi-7-24")]
+            46 => Ok(fuse_opcode::FUSE_LSEEK),
 
             #[cfg(target_os = "macos")]
             61 => Ok(fuse_opcode::FUSE_SETVOLNAME),
@@ -1008,4 +1012,19 @@ pub struct fuse_notify_retrieve_in {
     pub dummy2: u32,
     pub dummy3: u64,
     pub dummy4: u64,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct fuse_lseek_in {
+    pub fh: u64,
+    pub offset: i64,
+    pub whence: u32,
+    pub padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct fuse_lseek_out {
+    pub offset: i64,
 }

@@ -533,7 +533,17 @@ impl<'a> Request<'a> {
                     self.reply(),
                 );
             }
-
+            #[cfg(feature = "abi-7-24")]
+            ll::Operation::Lseek { arg } => {
+                se.filesystem.lseek(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh,
+                    arg.offset,
+                    arg.whence,
+                    self.reply(),
+                );
+            }
             #[cfg(target_os = "macos")]
             ll::Operation::SetVolName { name } => {
                 se.filesystem.setvolname(self, name, self.reply());

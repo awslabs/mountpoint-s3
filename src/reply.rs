@@ -11,7 +11,8 @@ use crate::fuse_abi::fuse_getxattr_out;
 use crate::fuse_abi::fuse_getxtimes_out;
 use crate::fuse_abi::{fuse_attr, fuse_attr_out, fuse_entry_out, fuse_file_lock, fuse_kstatfs};
 use crate::fuse_abi::{
-    fuse_bmap_out, fuse_ioctl_out, fuse_lk_out, fuse_open_out, fuse_statfs_out, fuse_write_out,
+    fuse_bmap_out, fuse_ioctl_out, fuse_lk_out, fuse_lseek_out, fuse_open_out, fuse_statfs_out,
+    fuse_write_out,
 };
 use crate::fuse_abi::{fuse_dirent, fuse_direntplus, fuse_out_header};
 use libc::{c_int, EIO, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
@@ -801,6 +802,34 @@ impl ReplyXattr {
     }
 
     /// Reply to a request with the given error code.
+    pub fn error(self, err: c_int) {
+        self.reply.error(err);
+    }
+}
+
+///
+/// Lseek Reply
+///
+#[derive(Debug)]
+pub struct ReplyLseek {
+    reply: ReplyRaw<fuse_lseek_out>,
+}
+
+impl Reply for ReplyLseek {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyLseek {
+        ReplyLseek {
+            reply: Reply::new(unique, sender),
+        }
+    }
+}
+
+impl ReplyLseek {
+    /// Reply to a request with seeked offset
+    pub fn offset(self, offset: i64) {
+        self.reply.ok(&fuse_lseek_out { offset });
+    }
+
+    /// Reply to a request with the given error code
     pub fn error(self, err: c_int) {
         self.reply.error(err);
     }

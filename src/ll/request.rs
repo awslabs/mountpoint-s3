@@ -190,6 +190,10 @@ pub enum Operation<'a> {
         name: &'a OsStr,
         newname: &'a OsStr,
     },
+    #[cfg(feature = "abi-7-24")]
+    Lseek {
+        arg: &'a fuse_lseek_in,
+    },
 
     #[cfg(target_os = "macos")]
     SetVolName {
@@ -263,6 +267,8 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::ReadDirPlus { arg } => write!(f, "READDIRPLUS fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
             #[cfg(feature = "abi-7-23")]
             Operation::Rename2 { arg, name, newname } => write!(f, "RENAME2 name {:?}, newdir {:#018x}, newname {:?}", name, arg.newdir, newname),
+            #[cfg(feature = "abi-7-24")]
+            Operation::Lseek { arg } => write!(f, "LSEEK fh {}, offset {}, whence {}", arg.fh, arg.offset, arg.whence),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
@@ -381,6 +387,8 @@ impl<'a> Operation<'a> {
                     name: data.fetch_str()?,
                     newname: data.fetch_str()?,
                 },
+                #[cfg(feature = "abi-7-24")]
+                fuse_opcode::FUSE_LSEEK => Operation::Lseek { arg: data.fetch()? },
 
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {

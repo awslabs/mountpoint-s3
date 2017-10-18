@@ -26,8 +26,8 @@ pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
 pub use reply::{Reply, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen};
 pub use reply::{
-    ReplyBmap, ReplyCreate, ReplyDirectory, ReplyDirectoryPlus, ReplyIoctl, ReplyLock, ReplyStatfs,
-    ReplyWrite,
+    ReplyBmap, ReplyCreate, ReplyDirectory, ReplyDirectoryPlus, ReplyIoctl, ReplyLock, ReplyLseek,
+    ReplyStatfs, ReplyWrite,
 };
 pub use request::Request;
 pub use session::{BackgroundSession, Session};
@@ -594,6 +594,19 @@ pub trait Filesystem {
         _length: u64,
         _mode: u32,
         reply: ReplyEmpty,
+    ) {
+        reply.error(ENOSYS);
+    }
+
+    /// Reposition read/write file offset
+    fn lseek(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _whence: u32,
+        reply: ReplyLseek,
     ) {
         reply.error(ENOSYS);
     }
