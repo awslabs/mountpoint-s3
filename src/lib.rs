@@ -372,6 +372,9 @@ pub trait Filesystem {
 
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
+///
+/// Note that you need to lead each option with a separate `"-o"` string. See
+/// `examples/hello.rs`.
 pub fn mount<FS: Filesystem, P: AsRef<Path>>(filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<()>{
     Session::new(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
 }
