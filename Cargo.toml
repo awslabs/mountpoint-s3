@@ -25,7 +25,7 @@ time = "0.1"
 thread-scoped = "1"
 
 [dev-dependencies]
-env_logger = "0.3"
+env_logger = "0.5"
 
 [lib]
 name = "fuse"
