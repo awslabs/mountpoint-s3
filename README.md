@@ -28,9 +28,9 @@ Except for a single setup (mount) function call and a final teardown (umount) fu
 
 ## Dependencies
 
-To run a program that mounts a FUSE filesystem, the target system needs FUSE (OSXFUSE on macOS) to be properly installed (i.e. kernel driver and libraries. Some platforms may also require userland utils like `fusermount`). A default installation of package `fuse` on Linux or installing `OSXFUSE` on macOS is usually sufficient.
+To run a program that mounts a FUSE filesystem, the target system needs FUSE (OSXFUSE on macOS) to be properly installed (i.e. kernel driver and libraries. Some platforms may also require userland utils like `fusermount`). A default installation of package `fuse` on Linux, `fusefs-libs` on FreeBSD, or `OSXFUSE` on macOS is usually sufficient.
 
-To build, the host system needs FUSE libraries and headers installed. On Linux, the package is usually called `libfuse-dev`. On macOS, `OSXFUSE` installs everything that's needed. The build process also requires `pkg-config` to locate headers and libraries.
+To build, the host system needs FUSE libraries and headers installed. On Linux, the header package is usually called `libfuse-dev`. On FreeBSD and macOS, `fusefs-libs`/`OSXFUSE` installs everything that's needed. The build process also requires `pkg-config` to locate headers and libraries.
 
 ## Usage
 
@@ -70,4 +70,4 @@ In general, see the [list of issues](https://github.com/zargony/rust-fuse/issues
 
 Developed and tested on macOS with [OSXFUSE](http://osxfuse.github.io) and on Linux with [FUSE](http://fuse.sourceforge.net), using stable, beta and nightly [Rust versions](http://www.rust-lang.org/install.html) (see [Travis CI](https://travis-ci.org/zargony/rust-fuse) for details).
 
-Support for [FUSE on FreeBSD](https://wiki.freebsd.org/FuseFilesystem) is currently untested (but probably works with minor adjustments).
+[FreeBSD](https://wiki.freebsd.org/FuseFilesystem) also works, but is not tested in CI.
