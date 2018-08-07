@@ -106,5 +106,5 @@ fn main() {
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    fuse::mount(HelloFS, &mountpoint, &options).unwrap();
+    fuse::mount(HelloFS, mountpoint, &options).unwrap();
 }
