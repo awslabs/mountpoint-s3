@@ -11,6 +11,7 @@ use std::fmt;
 use std::path::{PathBuf, Path};
 use thread_scoped::{scoped, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
+
 use channel::{self, Channel};
 use Filesystem;
 use request;

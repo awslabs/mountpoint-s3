@@ -1,11 +1,7 @@
 //! Native FFI bindings to libfuse
 //!
 //! This is a small set of bindings that are required to mount/unmount FUSE filesystems and
-//! open/close a fd to the kernel driver with it. Since these bindings by far don't cover
-//! everything in libfuse, we don't use a fuse-sys crate. It would actually be nice to get rid
-//! of these bindings to become independent from libfuse, but FUSE mounting isn't trivial
-//! unfortunately.
-#![allow(non_camel_case_types, missing_docs, dead_code)]
+//! open/close a fd to the kernel driver with it.
 
 use std::os::raw::{c_char, c_int};
 

@@ -6,14 +6,15 @@
 use std::mem;
 use libc::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
+use fuse_sys::abi::*;
+use fuse_sys::abi::consts::*;
+use fuse_sys::abi::fuse_opcode::*;
+use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
+
 use argument::ArgumentIterator;
 use channel::ChannelSender;
-use Filesystem;
-use kernel::*;
-use kernel::consts::*;
-use kernel::fuse_opcode::*;
-use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
 use session::{MAX_WRITE_SIZE, Session};
+use Filesystem;
 
 /// We generally support async reads
 #[cfg(not(target_os = "macos"))]

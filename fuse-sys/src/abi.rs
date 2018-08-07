@@ -16,9 +16,7 @@
 //! - supports ABI 7.19 since FUSE 2.9.1
 //! - supports ABI 7.26 since FUSE 3.0.0
 //!
-//! Types/fields without a version annotation are valid with ABI 7.8 and later
-
-#![allow(non_camel_case_types, missing_docs, dead_code)]
+//! Items without a version annotation are valid with ABI 7.8 and later
 
 // TODO: We currently target ABI 7.8, which is very conservative and missing many newer
 // features. We still need to figure out a way to support different ABI version without hazzle.
@@ -121,6 +119,7 @@ pub mod consts {
 
 #[repr(C)]
 #[derive(Debug)]
+#[allow(non_camel_case_types)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
     FUSE_FORGET = 2,                                    // no reply

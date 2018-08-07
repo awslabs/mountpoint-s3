@@ -1,0 +1,25 @@
+[package]
+name = "fuse"
+version = "0.4.0-alpha"
+authors = ["Andreas Neuhaus <zargony@zargony.com>"]
+description = "Rust library for filesystems in userspace (FUSE)"
+documentation = "https://docs.rs/fuse"
+homepage = "https://github.com/zargony/rust-fuse"
+repository = "https://github.com/zargony/rust-fuse"
+readme = "README.md"
+keywords = ["fuse", "filesystem", "system", "bindings"]
+categories = ["api-bindings", "filesystem"]
+license = "MIT"
+
+[badges]
+travis-ci = { repository = "zargony/rust-fuse" }
+
+[dependencies]
+fuse-sys = { path = "../fuse-sys", version = "0.4.0-alpha" }
+libc = "0.2"
+log = "0.3"
+time = "0.1"
+thread-scoped = "1"
+
+[dev-dependencies]
+env_logger = "0.5"
