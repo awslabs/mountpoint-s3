@@ -16,3 +16,16 @@ links = "fuse"
 pkg-config = "0.3"
 
 [dependencies]
+
+[features]
+abi-7-9 = []
+abi-7-10 = ["abi-7-9"]
+abi-7-11 = ["abi-7-10"]
+abi-7-12 = ["abi-7-11"]
+abi-7-13 = ["abi-7-12"]
+abi-7-14 = ["abi-7-13"]
+abi-7-15 = ["abi-7-14"]
+abi-7-16 = ["abi-7-15"]
+abi-7-17 = ["abi-7-16"]
+abi-7-18 = ["abi-7-17"]
+abi-7-19 = ["abi-7-18"]
