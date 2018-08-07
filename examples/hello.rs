@@ -77,16 +77,25 @@ impl Filesystem for HelloFS {
     }
 
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        if ino == 1 {
-            if offset == 0 {
-                reply.add(1, 0, FileType::Directory, ".");
-                reply.add(1, 1, FileType::Directory, "..");
-                reply.add(2, 2, FileType::RegularFile, "hello.txt");
-            }
-            reply.ok();
-        } else {
+        if ino != 1 {
             reply.error(ENOENT);
+            return;
         }
+
+        let entries = vec![
+            (1, FileType::Directory, "."),
+            (1, FileType::Directory, ".."),
+            (2, FileType::RegularFile, "hello.txt"),
+        ];
+
+        // Offset of 0 means no offset.
+        // Non-zero offset means the passed offset has already been seen, and we should start after
+        // it.
+        let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
+        for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
+            reply.add(entry.0, i as i64, entry.1, entry.2);
+        }
+        reply.ok();
     }
 }
 
