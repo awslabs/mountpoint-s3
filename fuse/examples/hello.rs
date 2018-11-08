@@ -1,53 +1,58 @@
 extern crate env_logger;
+#[macro_use]
+extern crate lazy_static;
 extern crate fuse;
 extern crate libc;
-extern crate time;
 
 use std::env;
 use std::ffi::OsStr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libc::ENOENT;
-use time::Timespec;
 use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
-const TTL: Timespec = Timespec { sec: 1, nsec: 0 };                     // 1 second
+lazy_static! {
+    // 1 second
+    static ref TTL: Duration = Duration::new(1, 0);
 
-const CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };    // 2013-10-08 08:56
+    // 2013-10-08 08:56
+    static ref CREATE_TIME: SystemTime = UNIX_EPOCH + Duration::new(1381237736, 0);
 
-const HELLO_DIR_ATTR: FileAttr = FileAttr {
-    ino: 1,
-    size: 0,
-    blocks: 0,
-    atime: CREATE_TIME,
-    mtime: CREATE_TIME,
-    ctime: CREATE_TIME,
-    crtime: CREATE_TIME,
-    kind: FileType::Directory,
-    perm: 0o755,
-    nlink: 2,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-};
+    static ref HELLO_DIR_ATTR: FileAttr = FileAttr {
+        ino: 1,
+        size: 0,
+        blocks: 0,
+        atime: *CREATE_TIME,
+        mtime: *CREATE_TIME,
+        ctime: *CREATE_TIME,
+        crtime: *CREATE_TIME,
+        kind: FileType::Directory,
+        perm: 0o755,
+        nlink: 2,
+        uid: 501,
+        gid: 20,
+        rdev: 0,
+        flags: 0,
+    };
 
-const HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
+    static ref HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
 
-const HELLO_TXT_ATTR: FileAttr = FileAttr {
-    ino: 2,
-    size: 13,
-    blocks: 1,
-    atime: CREATE_TIME,
-    mtime: CREATE_TIME,
-    ctime: CREATE_TIME,
-    crtime: CREATE_TIME,
-    kind: FileType::RegularFile,
-    perm: 0o644,
-    nlink: 1,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-};
+    static ref HELLO_TXT_ATTR: FileAttr = FileAttr {
+        ino: 2,
+        size: 13,
+        blocks: 1,
+        atime: *CREATE_TIME,
+        mtime: *CREATE_TIME,
+        ctime: *CREATE_TIME,
+        crtime: *CREATE_TIME,
+        kind: FileType::RegularFile,
+        perm: 0o644,
+        nlink: 1,
+        uid: 501,
+        gid: 20,
+        rdev: 0,
+        flags: 0,
+    };
+}
 
 struct HelloFS;
 

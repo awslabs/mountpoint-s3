@@ -10,7 +10,6 @@ extern crate fuse_sys;
 extern crate libc;
 #[macro_use]
 extern crate log;
-extern crate time;
 extern crate thread_scoped;
 
 use std::convert::AsRef;
@@ -18,7 +17,7 @@ use std::io;
 use std::ffi::OsStr;
 use std::path::Path;
 use libc::{c_int, ENOSYS};
-use time::Timespec;
+use std::time::SystemTime;
 
 pub use fuse_sys::abi::FUSE_ROOT_ID;
 pub use fuse_sys::abi::consts;
@@ -65,13 +64,13 @@ pub struct FileAttr {
     /// Size in blocks
     pub blocks: u64,
     /// Time of last access
-    pub atime: Timespec,
+    pub atime: SystemTime,
     /// Time of last modification
-    pub mtime: Timespec,
+    pub mtime: SystemTime,
     /// Time of last change
-    pub ctime: Timespec,
+    pub ctime: SystemTime,
     /// Time of creation (macOS only)
-    pub crtime: Timespec,
+    pub crtime: SystemTime,
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
@@ -125,7 +124,7 @@ pub trait Filesystem {
     }
 
     /// Set file attributes.
-    fn setattr(&mut self, _req: &Request, _ino: u64, _mode: Option<u32>, _uid: Option<u32>, _gid: Option<u32>, _size: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>, _fh: Option<u64>, _crtime: Option<Timespec>, _chgtime: Option<Timespec>, _bkuptime: Option<Timespec>, _flags: Option<u32>, reply: ReplyAttr) {
+    fn setattr(&mut self, _req: &Request, _ino: u64, _mode: Option<u32>, _uid: Option<u32>, _gid: Option<u32>, _size: Option<u64>, _atime: Option<SystemTime>, _mtime: Option<SystemTime>, _fh: Option<u64>, _crtime: Option<SystemTime>, _chgtime: Option<SystemTime>, _bkuptime: Option<SystemTime>, _flags: Option<u32>, reply: ReplyAttr) {
         reply.error(ENOSYS);
     }
 

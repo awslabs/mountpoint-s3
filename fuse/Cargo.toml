@@ -18,8 +18,8 @@ travis-ci = { repository = "zargony/rust-fuse" }
 fuse-sys = { path = "../fuse-sys", version = "0.4.0-alpha" }
 libc = "0.2"
 log = "0.3"
-time = "0.1"
 thread-scoped = "1"
 
 [dev-dependencies]
 env_logger = "0.5"
+lazy_static = "1.2.0"
