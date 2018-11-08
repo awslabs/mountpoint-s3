@@ -31,36 +31,36 @@ pub struct fuse_attr {
     pub ino: u64,
     pub size: u64,
     pub blocks: u64,
-    pub atime: i64,
-    pub mtime: i64,
-    pub ctime: i64,
+    pub atime: u64,
+    pub mtime: u64,
+    pub ctime: u64,
     #[cfg(target_os = "macos")]
-    pub crtime: i64,
-    pub atimensec: i32,
-    pub mtimensec: i32,
-    pub ctimensec: i32,
+    pub crtime: u64,
+    pub atimensec: u32,
+    pub mtimensec: u32,
+    pub ctimensec: u32,
     #[cfg(target_os = "macos")]
-    pub crtimensec: i32,
+    pub crtimensec: u32,
     pub mode: u32,
     pub nlink: u32,
     pub uid: u32,
     pub gid: u32,
     pub rdev: u32,
     #[cfg(target_os = "macos")]
-    pub flags: u32,                                     // see chflags(2)
+    pub flags: u32, // see chflags(2)
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_kstatfs {
-    pub blocks: u64,                                    // Total blocks (in units of frsize)
-    pub bfree: u64,                                     // Free blocks
-    pub bavail: u64,                                    // Free blocks for unprivileged users
-    pub files: u64,                                     // Total inodes
-    pub ffree: u64,                                     // Free inodes
-    pub bsize: u32,                                     // Filesystem block size
-    pub namelen: u32,                                   // Maximum filename length
-    pub frsize: u32,                                    // Fundamental file system block size
+    pub blocks: u64,  // Total blocks (in units of frsize)
+    pub bfree: u64,   // Free blocks
+    pub bavail: u64,  // Free blocks for unprivileged users
+    pub files: u64,   // Total inodes
+    pub ffree: u64,   // Free inodes
+    pub bsize: u32,   // Filesystem block size
+    pub namelen: u32, // Maximum filename length
+    pub frsize: u32,  // Fundamental file system block size
     pub padding: u32,
     pub spare: [u32; 6],
 }
@@ -76,45 +76,45 @@ pub struct fuse_file_lock {
 
 pub mod consts {
     // Bitmasks for fuse_setattr_in.valid
-    pub const FATTR_MODE: u32               = 1 << 0;
-    pub const FATTR_UID: u32                = 1 << 1;
-    pub const FATTR_GID: u32                = 1 << 2;
-    pub const FATTR_SIZE: u32               = 1 << 3;
-    pub const FATTR_ATIME: u32              = 1 << 4;
-    pub const FATTR_MTIME: u32              = 1 << 5;
-    pub const FATTR_FH: u32                 = 1 << 6;
+    pub const FATTR_MODE: u32 = 1 << 0;
+    pub const FATTR_UID: u32 = 1 << 1;
+    pub const FATTR_GID: u32 = 1 << 2;
+    pub const FATTR_SIZE: u32 = 1 << 3;
+    pub const FATTR_ATIME: u32 = 1 << 4;
+    pub const FATTR_MTIME: u32 = 1 << 5;
+    pub const FATTR_FH: u32 = 1 << 6;
     #[cfg(target_os = "macos")]
-    pub const FATTR_CRTIME: u32             = 1 << 28;
+    pub const FATTR_CRTIME: u32 = 1 << 28;
     #[cfg(target_os = "macos")]
-    pub const FATTR_CHGTIME: u32            = 1 << 29;
+    pub const FATTR_CHGTIME: u32 = 1 << 29;
     #[cfg(target_os = "macos")]
-    pub const FATTR_BKUPTIME: u32           = 1 << 30;
+    pub const FATTR_BKUPTIME: u32 = 1 << 30;
     #[cfg(target_os = "macos")]
-    pub const FATTR_FLAGS: u32              = 1 << 31;
+    pub const FATTR_FLAGS: u32 = 1 << 31;
 
     // Flags returned by the open request
-    pub const FOPEN_DIRECT_IO: u32          = 1 << 0;   // bypass page cache for this open file
-    pub const FOPEN_KEEP_CACHE: u32         = 1 << 1;   // don't invalidate the data cache on open
+    pub const FOPEN_DIRECT_IO: u32 = 1 << 0; // bypass page cache for this open file
+    pub const FOPEN_KEEP_CACHE: u32 = 1 << 1; // don't invalidate the data cache on open
     #[cfg(target_os = "macos")]
-    pub const FOPEN_PURGE_ATTR: u32         = 1 << 30;
+    pub const FOPEN_PURGE_ATTR: u32 = 1 << 30;
     #[cfg(target_os = "macos")]
-    pub const FOPEN_PURGE_UBC: u32          = 1 << 31;
+    pub const FOPEN_PURGE_UBC: u32 = 1 << 31;
 
     // Init request/reply flags
-    pub const FUSE_ASYNC_READ: u32          = 1 << 0;
-    pub const FUSE_POSIX_LOCKS: u32         = 1 << 1;
+    pub const FUSE_ASYNC_READ: u32 = 1 << 0;
+    pub const FUSE_POSIX_LOCKS: u32 = 1 << 1;
     #[cfg(target_os = "macos")]
-    pub const FUSE_CASE_INSENSITIVE: u32    = 1 << 29;
+    pub const FUSE_CASE_INSENSITIVE: u32 = 1 << 29;
     #[cfg(target_os = "macos")]
-    pub const FUSE_VOL_RENAME: u32          = 1 << 30;
+    pub const FUSE_VOL_RENAME: u32 = 1 << 30;
     #[cfg(target_os = "macos")]
-    pub const FUSE_XTIMES: u32              = 1 << 31;
+    pub const FUSE_XTIMES: u32 = 1 << 31;
 
     // Release flags
-    pub const FUSE_RELEASE_FLUSH: u32       = 1 << 0;
+    pub const FUSE_RELEASE_FLUSH: u32 = 1 << 0;
 
     // The read buffer is required to be at least 8k, but may be much larger
-    pub const FUSE_MIN_READ_BUFFER: usize   = 8192;
+    pub const FUSE_MIN_READ_BUFFER: usize = 8192;
 }
 
 #[repr(C)]
@@ -122,7 +122,7 @@ pub mod consts {
 #[allow(non_camel_case_types)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
-    FUSE_FORGET = 2,                                    // no reply
+    FUSE_FORGET = 2, // no reply
     FUSE_GETATTR = 3,
     FUSE_SETATTR = 4,
     FUSE_READLINK = 5,
@@ -221,10 +221,10 @@ impl fuse_opcode {
 pub struct fuse_entry_out {
     pub nodeid: u64,
     pub generation: u64,
-    pub entry_valid: i64,
-    pub attr_valid: i64,
-    pub entry_valid_nsec: i32,
-    pub attr_valid_nsec: i32,
+    pub entry_valid: u64,
+    pub attr_valid: u64,
+    pub entry_valid_nsec: u32,
+    pub attr_valid_nsec: u32,
     pub attr: fuse_attr,
 }
 
@@ -237,8 +237,8 @@ pub struct fuse_forget_in {
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_attr_out {
-    pub attr_valid: i64,
-    pub attr_valid_nsec: i32,
+    pub attr_valid: u64,
+    pub attr_valid_nsec: u32,
     pub dummy: u32,
     pub attr: fuse_attr,
 }
@@ -247,10 +247,10 @@ pub struct fuse_attr_out {
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_getxtimes_out {
-    pub bkuptime: i64,
-    pub crtime: i64,
-    pub bkuptimensec: i32,
-    pub crtimensec: i32,
+    pub bkuptime: u64,
+    pub crtime: u64,
+    pub bkuptimensec: u32,
+    pub crtimensec: u32,
 }
 
 #[repr(C)]
@@ -296,11 +296,11 @@ pub struct fuse_setattr_in {
     pub fh: u64,
     pub size: u64,
     pub unused1: u64,
-    pub atime: i64,
-    pub mtime: i64,
+    pub atime: u64,
+    pub mtime: u64,
     pub unused2: u64,
-    pub atimensec: i32,
-    pub mtimensec: i32,
+    pub atimensec: u32,
+    pub mtimensec: u32,
     pub unused3: u32,
     pub mode: u32,
     pub unused4: u32,
@@ -308,19 +308,19 @@ pub struct fuse_setattr_in {
     pub gid: u32,
     pub unused5: u32,
     #[cfg(target_os = "macos")]
-    pub bkuptime: i64,
+    pub bkuptime: u64,
     #[cfg(target_os = "macos")]
-    pub chgtime: i64,
+    pub chgtime: u64,
     #[cfg(target_os = "macos")]
-    pub crtime: i64,
+    pub crtime: u64,
     #[cfg(target_os = "macos")]
-    pub bkuptimensec: i32,
+    pub bkuptimensec: u32,
     #[cfg(target_os = "macos")]
-    pub chgtimensec: i32,
+    pub chgtimensec: u32,
     #[cfg(target_os = "macos")]
-    pub crtimensec: i32,
+    pub crtimensec: u32,
     #[cfg(target_os = "macos")]
-    pub flags: u32,                                     // see chflags(2)
+    pub flags: u32, // see chflags(2)
 }
 
 #[repr(C)]

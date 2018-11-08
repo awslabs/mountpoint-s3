@@ -177,11 +177,11 @@ impl<'a> Request<'a> {
                 };
                 let atime = match arg.valid & FATTR_ATIME {
                     0 => None,
-                    _ => Some(Timespec::new(arg.atime, arg.atimensec)),
+                    _ => Some(Timespec::new(arg.atime as i64, arg.atimensec as i32)),
                 };
                 let mtime = match arg.valid & FATTR_MTIME {
                     0 => None,
-                    _ => Some(Timespec::new(arg.mtime, arg.mtimensec)),
+                    _ => Some(Timespec::new(arg.mtime as i64, arg.mtimensec as i32)),
                 };
                 let fh = match arg.valid & FATTR_FH {
                     0 => None,
