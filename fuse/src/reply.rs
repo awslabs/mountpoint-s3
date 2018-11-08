@@ -55,8 +55,8 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U>(data: &T, f: F) -> U {
 }
 
 fn time_from_system_time(system_time: &SystemTime) -> Result<(u64, u32), SystemTimeError> {
-    let duration_since = system_time.duration_since(UNIX_EPOCH)?;
-    Ok((duration_since.as_secs(), duration_since.subsec_nanos()))
+    let duration = system_time.duration_since(UNIX_EPOCH)?;
+    Ok((duration.as_secs(), duration.subsec_nanos()))
 }
 
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
