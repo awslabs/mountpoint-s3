@@ -78,18 +78,23 @@ fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 /// Returns a fuse_attr from FileAttr
 #[cfg(target_os = "macos")]
 fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime).unwrap();
+    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime).unwrap();
+    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime).unwrap();
+    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime).unwrap();
+
     fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec,
-        mtime: attr.mtime.sec,
-        ctime: attr.ctime.sec,
-        crtime: attr.crtime.sec,
-        atimensec: attr.atime.nsec,
-        mtimensec: attr.mtime.nsec,
-        ctimensec: attr.ctime.nsec,
-        crtimensec: attr.crtime.nsec,
+        atime: atime_secs,
+        mtime: mtime_secs,
+        ctime: ctime_secs,
+        crtime: crtime_secs,
+        atimensec: atime_nanos,
+        mtimensec: mtime_nanos,
+        ctimensec: ctime_nanos,
+        crtimensec: crtime_nanos,
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -324,12 +329,14 @@ impl Reply for ReplyXTimes {
 #[cfg(target_os = "macos")]
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
-    pub fn xtimes(self, bkuptime: Timespec, crtime: Timespec) {
+    pub fn xtimes(self, bkuptime: SystemTime, crtime: SystemTime) {
+        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime).unwrap();
+        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime).unwrap();
         self.reply.ok(&fuse_getxtimes_out {
-            bkuptime: bkuptime.sec,
-            crtime: crtime.sec,
-            bkuptimensec: bkuptime.nsec,
-            crtimensec: crtime.nsec,
+            bkuptime: bkuptime_secs,
+            crtime: crtime_secs,
+            bkuptimensec: bkuptime_nanos,
+            crtimensec: crtime_nanos,
         });
     }
 
@@ -814,7 +821,7 @@ mod test {
             ]
         };
         let reply: ReplyXTimes = Reply::new(0xdeadbeef, sender);
-        let time = SystemTime::now();
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         reply.xtimes(time, time);
     }
 
