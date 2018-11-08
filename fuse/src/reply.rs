@@ -19,7 +19,7 @@ use fuse_sys::abi::fuse_getxattr_out;
 use fuse_sys::abi::fuse_getxtimes_out;
 use fuse_sys::abi::{fuse_out_header, fuse_dirent};
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
-use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
 use {FileType, FileAttr};
 
@@ -254,14 +254,15 @@ impl Reply for ReplyEntry {
 
 impl ReplyEntry {
     /// Reply to a request with the given entry
-    pub fn entry(self, ttl: &Duration, attr: &FileAttr, generation: u64) {
+    pub fn entry(self, ttl: &SystemTime, attr: &FileAttr, generation: u64) {
+        let (ttl_secs, ttl_nanos) = time_from_system_time(ttl).unwrap();
         self.reply.ok(&fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.as_secs(),
-            attr_valid: ttl.as_secs(),
-            entry_valid_nsec: ttl.subsec_nanos(),
-            attr_valid_nsec: ttl.subsec_nanos(),
+            entry_valid: ttl_secs,
+            attr_valid: ttl_secs,
+            entry_valid_nsec: ttl_nanos,
+            attr_valid_nsec: ttl_nanos,
             attr: fuse_attr_from_attr(attr),
         });
     }
@@ -288,10 +289,11 @@ impl Reply for ReplyAttr {
 
 impl ReplyAttr {
     /// Reply to a request with the given attribute
-    pub fn attr(self, ttl: &Duration, attr: &FileAttr) {
+    pub fn attr(self, ttl: &SystemTime, attr: &FileAttr) {
+        let (ttl_secs, ttl_nanos) = time_from_system_time(ttl).unwrap();
         self.reply.ok(&fuse_attr_out {
-            attr_valid: ttl.as_secs(),
-            attr_valid_nsec: ttl.subsec_nanos(),
+            attr_valid: ttl_secs,
+            attr_valid_nsec: ttl_nanos,
             dummy: 0,
             attr: fuse_attr_from_attr(attr),
         });
@@ -451,14 +453,15 @@ impl Reply for ReplyCreate {
 
 impl ReplyCreate {
     /// Reply to a request with the given entry
-    pub fn created(self, ttl: &Duration, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+    pub fn created(self, ttl: &SystemTime, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+        let (ttl_secs, ttl_nanos) = time_from_system_time(ttl).unwrap();
         self.reply.ok(&(fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.as_secs(),
-            attr_valid: ttl.as_secs(),
-            entry_valid_nsec: ttl.subsec_nanos(),
-            attr_valid_nsec: ttl.subsec_nanos(),
+            entry_valid: ttl_secs,
+            attr_valid: ttl_secs,
+            entry_valid_nsec: ttl_nanos,
+            attr_valid_nsec: ttl_nanos,
             attr: fuse_attr_from_attr(attr),
         }, fuse_open_out {
             fh: fh,
@@ -627,7 +630,7 @@ impl ReplyXattr {
 mod test {
     use std::thread;
     use std::sync::mpsc::{channel, Sender};
-    use std::time::{Duration, SystemTime};
+    use std::time::{Duration, UNIX_EPOCH};
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
     use super::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
@@ -761,11 +764,10 @@ mod test {
             }
         };
         let reply: ReplyEntry = Reply::new(0xdeadbeef, sender);
-        let time = SystemTime::now();
-        let ttl = Duration::new(1, 0);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
-        reply.entry(&ttl, &attr, 0xaa);
+        reply.entry(&time, &attr, 0xaa);
     }
 
     #[test]
@@ -795,11 +797,10 @@ mod test {
             }
         };
         let reply: ReplyAttr = Reply::new(0xdeadbeef, sender);
-        let time = SystemTime::now();
-        let ttl = Duration::new(1, 0);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
-        reply.attr(&ttl, &attr);
+        reply.attr(&time, &attr);
     }
 
     #[test]
@@ -890,11 +891,10 @@ mod test {
             }
         };
         let reply: ReplyCreate = Reply::new(0xdeadbeef, sender);
-        let time = SystemTime::now();
-        let ttl = Duration::new(1, 0);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
-        reply.created(&ttl, &attr, 0xaa, 0xbb, 0xcc);
+        reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);
     }
 
     #[test]
