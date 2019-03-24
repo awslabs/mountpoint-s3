@@ -71,3 +71,7 @@ In general, see the [list of issues](https://github.com/zargony/rust-fuse/issues
 Developed and tested on macOS with [OSXFUSE](http://osxfuse.github.io) and on Linux with [FUSE](http://fuse.sourceforge.net), using stable, beta and nightly [Rust versions](http://www.rust-lang.org/install.html) (see [Travis CI](https://travis-ci.org/zargony/rust-fuse) for details).
 
 [FreeBSD](https://wiki.freebsd.org/FuseFilesystem) also works, but is not tested in CI.
+
+## Contribution
+
+Fork, hack, submit pull request. Make sure to make it useful for the target audience, keep the project's philosophy and Rust coding standards in mind. For larger or essential changes, you may want to open an issue for discussion first. Also remember to update the [Changelog](https://keepachangelog.com/en/1.0.0/) if your changes are relevant to the users.
