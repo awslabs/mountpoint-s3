@@ -38,7 +38,7 @@ Put this in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fuse = "0.3"
+fuse = "0.4"
 ```
 
 and in your crate root:

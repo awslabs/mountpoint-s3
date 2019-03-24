@@ -1,18 +1,26 @@
 [package]
-name = "fuse-sys"
+name = "fuse-abi"
 version = "0.4.0-dev"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
-description = "FFI bindings to the FUSE kernel interface and libfuse"
+description = "ABI types for communicating with the FUSE kernel interface"
 documentation = "https://docs.rs/fuse"
 homepage = "https://github.com/zargony/rust-fuse"
 repository = "https://github.com/zargony/rust-fuse"
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "filesystem", "os::unix-apis"]
 license = "MIT"
-build = "build.rs"
-links = "fuse"
-
-[build-dependencies]
-pkg-config = "0.3"
 
 [dependencies]
+
+[features]
+abi-7-9 = []
+abi-7-10 = ["abi-7-9"]
+abi-7-11 = ["abi-7-10"]
+abi-7-12 = ["abi-7-11"]
+abi-7-13 = ["abi-7-12"]
+abi-7-14 = ["abi-7-13"]
+abi-7-15 = ["abi-7-14"]
+abi-7-16 = ["abi-7-15"]
+abi-7-17 = ["abi-7-16"]
+abi-7-18 = ["abi-7-17"]
+abi-7-19 = ["abi-7-18"]

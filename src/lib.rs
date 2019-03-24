@@ -6,6 +6,7 @@
 
 #![warn(missing_docs, bad_style, unused, unused_extern_crates, unused_import_braces, unused_qualifications, missing_debug_implementations)]
 
+extern crate fuse_abi;
 extern crate fuse_sys;
 extern crate libc;
 #[macro_use]
@@ -20,8 +21,8 @@ use std::path::Path;
 use libc::{c_int, ENOSYS};
 use time::Timespec;
 
-pub use fuse_sys::abi::FUSE_ROOT_ID;
-pub use fuse_sys::abi::consts;
+pub use fuse_abi::FUSE_ROOT_ID;
+pub use fuse_abi::consts;
 pub use reply::{Reply, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
 pub use reply::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
 pub use reply::ReplyXattr;

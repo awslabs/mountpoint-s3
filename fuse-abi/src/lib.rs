@@ -1,9 +1,9 @@
-//! FUSE kernel interface
+//! FUSE kernel interface.
 //!
 //! Types and definitions used for communication between the kernel driver and the userspace
-//! part (this crate) of a FUSE filesystem. Since the kernel driver may be installed
-//! independently, the ABI interface is versioned and capabilities are exchanged during the
-//! initialization (mounting) of a filesystem.
+//! part of a FUSE filesystem. Since the kernel driver may be installed independently, the ABI
+//! interface is versioned and capabilities are exchanged during the initialization (mounting)
+//! of a filesystem.
 //!
 //! OSXFUSE (macOS): https://github.com/osxfuse/fuse/blob/master/include/fuse_kernel.h
 //! - supports ABI 7.8 in OSXFUSE 2.x
@@ -17,6 +17,8 @@
 //! - supports ABI 7.26 since FUSE 3.0.0
 //!
 //! Items without a version annotation are valid with ABI 7.8 and later
+
+#![allow(missing_docs)]
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 

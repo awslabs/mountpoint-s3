@@ -6,9 +6,9 @@
 use std::mem;
 use libc::{EIO, ENOSYS, EPROTO};
 use time::Timespec;
-use fuse_sys::abi::*;
-use fuse_sys::abi::consts::*;
-use fuse_sys::abi::fuse_opcode::*;
+use fuse_abi::*;
+use fuse_abi::consts::*;
+use fuse_abi::fuse_opcode::*;
 use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
 
 use argument::ArgumentIterator;

@@ -12,12 +12,13 @@ categories = ["api-bindings", "filesystem"]
 license = "MIT"
 
 [workspace]
-members = [".", "fuse-sys"]
+members = [".", "fuse-abi", "fuse-sys"]
 
 [badges]
 travis-ci = { repository = "zargony/rust-fuse" }
 
 [dependencies]
+fuse-abi = { path = "./fuse-abi" }
 fuse-sys = { path = "./fuse-sys" }
 libc = "0.2"
 log = "0.3"
