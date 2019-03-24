@@ -11,10 +11,11 @@ use std::fmt;
 use std::path::{PathBuf, Path};
 use thread_scoped::{scoped, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
+use log::{error, info, log};
 
-use channel::{self, Channel};
-use Filesystem;
-use request;
+use crate::channel::{self, Channel};
+use crate::request;
+use crate::Filesystem;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
@@ -149,7 +150,7 @@ impl<'a> Drop for BackgroundSession<'a> {
 // replace with #[derive(Debug)] if Debug ever gets implemented for
 // thread_scoped::JoinGuard
 impl<'a> fmt::Debug for BackgroundSession<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "BackgroundSession {{ mountpoint: {:?}, guard: JoinGuard<()> }}", self.mountpoint)
     }
 }

@@ -1,5 +1,6 @@
 [package]
 name = "fuse"
+edition = "2018"
 version = "0.4.0-dev"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 description = "Rust library for filesystems in userspace (FUSE)"
@@ -21,7 +22,7 @@ travis-ci = { repository = "zargony/rust-fuse" }
 fuse-abi = { path = "./fuse-abi" }
 fuse-sys = { path = "./fuse-sys" }
 libc = "0.2"
-log = "0.3"
+log = "0.4"
 time = "0.1"
 thread-scoped = "1"
 

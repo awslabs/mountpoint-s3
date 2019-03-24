@@ -18,6 +18,7 @@
 //!
 //! Items without a version annotation are valid with ABI 7.8 and later
 
+#![warn(missing_debug_implementations, rust_2018_idioms)]
 #![allow(missing_docs)]
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;

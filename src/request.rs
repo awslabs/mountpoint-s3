@@ -9,12 +9,13 @@ use time::Timespec;
 use fuse_abi::*;
 use fuse_abi::consts::*;
 use fuse_abi::fuse_opcode::*;
-use reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
+use log::{debug, error, log, warn};
 
-use argument::ArgumentIterator;
-use channel::ChannelSender;
-use session::{MAX_WRITE_SIZE, Session};
-use Filesystem;
+use crate::argument::ArgumentIterator;
+use crate::channel::ChannelSender;
+use crate::reply::{Reply, ReplyRaw, ReplyEmpty, ReplyDirectory};
+use crate::session::{MAX_WRITE_SIZE, Session};
+use crate::Filesystem;
 
 /// We generally support async reads
 #[cfg(not(target_os = "macos"))]
@@ -33,7 +34,7 @@ pub fn request<'a>(ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
 }
 
 /// Dispatch request to the given filesystem
-pub fn dispatch<FS: Filesystem>(req: &Request, se: &mut Session<FS>) {
+pub fn dispatch<FS: Filesystem>(req: &Request<'_>, se: &mut Session<FS>) {
     req.dispatch(se);
 }
 

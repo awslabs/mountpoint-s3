@@ -1,5 +1,6 @@
 [package]
 name = "fuse-abi"
+edition = "2018"
 version = "0.4.0-dev"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 description = "ABI types for communicating with the FUSE kernel interface"

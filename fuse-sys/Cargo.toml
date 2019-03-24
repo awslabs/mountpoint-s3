@@ -1,5 +1,6 @@
 [package]
 name = "fuse-sys"
+edition = "2018"
 version = "0.4.0-dev"
 authors = ["Andreas Neuhaus <zargony@zargony.com>"]
 description = "FFI bindings to the FUSE kernel interface and libfuse"

@@ -19,9 +19,10 @@ use fuse_abi::fuse_getxattr_out;
 use fuse_abi::fuse_getxtimes_out;
 use fuse_abi::{fuse_out_header, fuse_dirent};
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
+use log::{log, warn};
 use time::Timespec;
 
-use {FileType, FileAttr};
+use crate::{FileType, FileAttr};
 
 /// Generic reply callback to send data
 pub trait ReplySender: Send + 'static {
@@ -29,8 +30,8 @@ pub trait ReplySender: Send + 'static {
     fn send(&self, data: &[&[u8]]);
 }
 
-impl fmt::Debug for Box<ReplySender> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+impl fmt::Debug for Box<dyn ReplySender> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "Box<ReplySender>")
     }
 }
@@ -123,7 +124,7 @@ pub struct ReplyRaw<T> {
     /// Unique id of the request to reply to
     unique: u64,
     /// Closure to call for sending the reply
-    sender: Option<Box<ReplySender>>,
+    sender: Option<Box<dyn ReplySender>>,
     /// Marker for being able to have T on this struct (which enforces
     /// reply types to send the correct type of data)
     marker: PhantomData<T>,
@@ -625,7 +626,7 @@ mod test {
     use super::ReplyXattr;
     #[cfg(target_os = "macos")]
     use super::ReplyXTimes;
-    use {FileType, FileAttr};
+    use crate::{FileType, FileAttr};
 
     #[allow(dead_code)]
     #[repr(C)]
