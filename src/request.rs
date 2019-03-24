@@ -19,11 +19,13 @@ use Filesystem;
 /// We generally support async reads
 #[cfg(not(target_os = "macos"))]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
+// TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
 
 /// On macOS, we additionally support case insensitiveness, volume renames and xtimes
 /// TODO: we should eventually let the filesystem implementation decide which flags to set
 #[cfg(target_os = "macos")]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
+// TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
 
 /// Create a new request from the given buffer
 pub fn request<'a>(ch: ChannelSender, buffer: &'a [u8]) -> Option<Request<'a>> {
@@ -360,7 +362,7 @@ impl<'a> Request<'a> {
                 se.filesystem.access(self, self.header.nodeid, arg.mask, self.reply());
             }
             FUSE_CREATE => {
-                let arg: &fuse_open_in = data.fetch();
+                let arg: &fuse_create_in = data.fetch();
                 let name = data.fetch_str();
                 debug!("CREATE({}) parent {:#018x}, name {:?}, mode {:#05o}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.mode, arg.flags);
                 se.filesystem.create(self, self.header.nodeid, &name, arg.mode, arg.flags, self.reply());
