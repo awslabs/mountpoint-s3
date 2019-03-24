@@ -41,12 +41,6 @@ Put this in your `Cargo.toml`:
 fuse = "0.4"
 ```
 
-and in your crate root:
-
-```rust
-extern crate fuse;
-```
-
 To create a new filesystem, implement the trait `Filesystem`. Filesystem operations from the kernel are dispatched to the methods of the `Filesystem` trait. Most methods get a `reply` parameter that must be used to eventually answer the request. All methods have default implementations that reply with neutral answers, so if you implement no method at all, you still get a mountable filesystem that does nothing.
 
 To actually mount the filesystem, pass an object that implements `Filesystem` and the path of an (existing) mountpoint to the `mount` function. `mount` will not return until the filesystem is unmounted.

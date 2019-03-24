@@ -1,5 +1,9 @@
 # Rust FUSE - Changelog
 
+## 0.4.0 - UNRELEASED
+
+* Split into `fuse`, `fuse-abi` and `fuse-sys` crate
+
 ## 0.3.1 - 2017-11-08
 
 * Offsets to `read`, `write` and `readdir` methods are signed integers now (breaking change, sorry)

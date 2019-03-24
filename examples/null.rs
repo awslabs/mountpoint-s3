@@ -1,6 +1,3 @@
-extern crate env_logger;
-extern crate fuse;
-
 use std::env;
 use fuse::Filesystem;
 

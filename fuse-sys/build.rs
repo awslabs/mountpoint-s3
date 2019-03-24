@@ -1,5 +1,3 @@
-extern crate pkg_config;
-
 #[cfg(not(target_os = "macos"))]
 static LIBFUSE_NAME: &str = "fuse";
 

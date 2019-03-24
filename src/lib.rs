@@ -6,8 +6,6 @@
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
-// #[macro_use] extern crate log;
-
 use std::convert::AsRef;
 use std::io;
 use std::ffi::OsStr;
