@@ -1,53 +1,46 @@
 use std::env;
 use std::ffi::OsStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use lazy_static::lazy_static;
+use std::time::{Duration, UNIX_EPOCH};
 use libc::ENOENT;
 use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
-lazy_static! {
-    // 1 second
-    static ref TTL: Duration = Duration::from_secs(1);
+const TTL: Duration = Duration::from_secs(1);           // 1 second
 
-    // 2013-10-08 08:56
-    static ref CREATE_TIME: SystemTime = UNIX_EPOCH + Duration::new(1381237736, 0);
+const HELLO_DIR_ATTR: FileAttr = FileAttr {
+    ino: 1,
+    size: 0,
+    blocks: 0,
+    atime: UNIX_EPOCH,                                  // 1970-01-01 00:00:00
+    mtime: UNIX_EPOCH,
+    ctime: UNIX_EPOCH,
+    crtime: UNIX_EPOCH,
+    kind: FileType::Directory,
+    perm: 0o755,
+    nlink: 2,
+    uid: 501,
+    gid: 20,
+    rdev: 0,
+    flags: 0,
+};
 
-    static ref HELLO_DIR_ATTR: FileAttr = FileAttr {
-        ino: 1,
-        size: 0,
-        blocks: 0,
-        atime: *CREATE_TIME,
-        mtime: *CREATE_TIME,
-        ctime: *CREATE_TIME,
-        crtime: *CREATE_TIME,
-        kind: FileType::Directory,
-        perm: 0o755,
-        nlink: 2,
-        uid: 501,
-        gid: 20,
-        rdev: 0,
-        flags: 0,
-    };
+const HELLO_TXT_CONTENT: &str = "Hello World!\n";
 
-    static ref HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
-
-    static ref HELLO_TXT_ATTR: FileAttr = FileAttr {
-        ino: 2,
-        size: 13,
-        blocks: 1,
-        atime: *CREATE_TIME,
-        mtime: *CREATE_TIME,
-        ctime: *CREATE_TIME,
-        crtime: *CREATE_TIME,
-        kind: FileType::RegularFile,
-        perm: 0o644,
-        nlink: 1,
-        uid: 501,
-        gid: 20,
-        rdev: 0,
-        flags: 0,
-    };
-}
+const HELLO_TXT_ATTR: FileAttr = FileAttr {
+    ino: 2,
+    size: 13,
+    blocks: 1,
+    atime: UNIX_EPOCH,                                  // 1970-01-01 00:00:00
+    mtime: UNIX_EPOCH,
+    ctime: UNIX_EPOCH,
+    crtime: UNIX_EPOCH,
+    kind: FileType::RegularFile,
+    perm: 0o644,
+    nlink: 1,
+    uid: 501,
+    gid: 20,
+    rdev: 0,
+    flags: 0,
+};
 
 struct HelloFS;
 
