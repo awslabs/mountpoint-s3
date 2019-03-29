@@ -78,14 +78,14 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec,
-        mtime: attr.mtime.sec,
-        ctime: attr.ctime.sec,
-        crtime: attr.crtime.sec,
-        atimensec: attr.atime.nsec,
-        mtimensec: attr.mtime.nsec,
-        ctimensec: attr.ctime.nsec,
-        crtimensec: attr.crtime.nsec,
+        atime: attr.atime.sec as u64,
+        mtime: attr.mtime.sec as u64,
+        ctime: attr.ctime.sec as u64,
+        crtime: attr.crtime.sec as u64,
+        atimensec: attr.atime.nsec as u32,
+        mtimensec: attr.mtime.nsec as u32,
+        ctimensec: attr.ctime.nsec as u32,
+        crtimensec: attr.crtime.nsec as u32,
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -102,12 +102,12 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec,
-        mtime: attr.mtime.sec,
-        ctime: attr.ctime.sec,
-        atimensec: attr.atime.nsec,
-        mtimensec: attr.mtime.nsec,
-        ctimensec: attr.ctime.nsec,
+        atime: attr.atime.sec as u64,
+        mtime: attr.mtime.sec as u64,
+        ctime: attr.ctime.sec as u64,
+        atimensec: attr.atime.nsec as u32,
+        mtimensec: attr.mtime.nsec as u32,
+        ctimensec: attr.ctime.nsec as u32,
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -250,10 +250,10 @@ impl ReplyEntry {
         self.reply.ok(&fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.sec,
-            attr_valid: ttl.sec,
-            entry_valid_nsec: ttl.nsec,
-            attr_valid_nsec: ttl.nsec,
+            entry_valid: ttl.sec as u64,
+            attr_valid: ttl.sec as u64,
+            entry_valid_nsec: ttl.nsec as u32,
+            attr_valid_nsec: ttl.nsec as u32,
             attr: fuse_attr_from_attr(attr),
         });
     }
@@ -282,8 +282,8 @@ impl ReplyAttr {
     /// Reply to a request with the given attribute
     pub fn attr(self, ttl: &Timespec, attr: &FileAttr) {
         self.reply.ok(&fuse_attr_out {
-            attr_valid: ttl.sec,
-            attr_valid_nsec: ttl.nsec,
+            attr_valid: ttl.sec as u64,
+            attr_valid_nsec: ttl.nsec as u32,
             dummy: 0,
             attr: fuse_attr_from_attr(attr),
         });
@@ -316,10 +316,10 @@ impl ReplyXTimes {
     /// Reply to a request with the given xtimes
     pub fn xtimes(self, bkuptime: Timespec, crtime: Timespec) {
         self.reply.ok(&fuse_getxtimes_out {
-            bkuptime: bkuptime.sec,
-            crtime: crtime.sec,
-            bkuptimensec: bkuptime.nsec,
-            crtimensec: crtime.nsec,
+            bkuptime: bkuptime.sec as u64,
+            crtime: crtime.sec as u64,
+            bkuptimensec: bkuptime.nsec as u32,
+            crtimensec: crtime.nsec as u32,
         });
     }
 
@@ -447,10 +447,10 @@ impl ReplyCreate {
         self.reply.ok(&(fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.sec,
-            attr_valid: ttl.sec,
-            entry_valid_nsec: ttl.nsec,
-            attr_valid_nsec: ttl.nsec,
+            entry_valid: ttl.sec as u64,
+            attr_valid: ttl.sec as u64,
+            entry_valid_nsec: ttl.nsec as u32,
+            attr_valid_nsec: ttl.nsec as u32,
             attr: fuse_attr_from_attr(attr),
         }, fuse_open_out {
             fh: fh,
@@ -557,7 +557,7 @@ impl ReplyDirectory {
             let p = self.data.as_mut_ptr().offset(self.data.len() as isize);
             let pdirent: *mut fuse_dirent = mem::transmute(p);
             (*pdirent).ino = ino;
-            (*pdirent).off = offset;
+            (*pdirent).off = offset as u64;
             (*pdirent).namelen = name.len() as u32;
             (*pdirent).typ = mode_from_kind_and_perm(kind, 0) >> 12;
             let p = p.offset(mem::size_of_val(&*pdirent) as isize);

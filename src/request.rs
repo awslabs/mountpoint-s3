@@ -180,11 +180,11 @@ impl<'a> Request<'a> {
                 };
                 let atime = match arg.valid & FATTR_ATIME {
                     0 => None,
-                    _ => Some(Timespec::new(arg.atime, arg.atimensec)),
+                    _ => Some(Timespec::new(arg.atime as i64, arg.atimensec as i32)),
                 };
                 let mtime = match arg.valid & FATTR_MTIME {
                     0 => None,
-                    _ => Some(Timespec::new(arg.mtime, arg.mtimensec)),
+                    _ => Some(Timespec::new(arg.mtime as i64, arg.mtimensec as i32)),
                 };
                 let fh = match arg.valid & FATTR_FH {
                     0 => None,
@@ -195,15 +195,15 @@ impl<'a> Request<'a> {
                 fn get_macos_setattr(arg: &fuse_setattr_in) -> (Option<Timespec>, Option<Timespec>, Option<Timespec>, Option<u32>) {
                     let crtime = match arg.valid & FATTR_CRTIME {
                         0 => None,
-                        _ => Some(Timespec::new(arg.crtime, arg.crtimensec)),
+                        _ => Some(Timespec::new(arg.crtime as i64, arg.crtimensec as i32)),
                     };
                     let chgtime = match arg.valid & FATTR_CHGTIME {
                         0 => None,
-                        _ => Some(Timespec::new(arg.chgtime, arg.chgtimensec)),
+                        _ => Some(Timespec::new(arg.chgtime as i64, arg.chgtimensec as i32)),
                     };
                     let bkuptime = match arg.valid & FATTR_BKUPTIME {
                         0 => None,
-                        _ => Some(Timespec::new(arg.bkuptime, arg.bkuptimensec)),
+                        _ => Some(Timespec::new(arg.bkuptime as i64, arg.bkuptimensec as i32)),
                     };
                     let flags = match arg.valid & FATTR_FLAGS {
                         0 => None,
@@ -272,14 +272,14 @@ impl<'a> Request<'a> {
             FUSE_READ => {
                 let arg: &fuse_read_in = data.fetch();
                 debug!("READ({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size);
-                se.filesystem.read(self, self.header.nodeid, arg.fh, arg.offset, arg.size, self.reply());
+                se.filesystem.read(self, self.header.nodeid, arg.fh, arg.offset as i64, arg.size, self.reply());
             }
             FUSE_WRITE => {
                 let arg: &fuse_write_in = data.fetch();
                 let data = data.fetch_data();
                 assert!(data.len() == arg.size as usize);
                 debug!("WRITE({}) ino {:#018x}, fh {}, offset {}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size, arg.write_flags);
-                se.filesystem.write(self, self.header.nodeid, arg.fh, arg.offset, data, arg.write_flags, self.reply());
+                se.filesystem.write(self, self.header.nodeid, arg.fh, arg.offset as i64, data, arg.write_flags, self.reply());
             }
             FUSE_FLUSH => {
                 let arg: &fuse_flush_in = data.fetch();
@@ -312,7 +312,7 @@ impl<'a> Request<'a> {
             FUSE_READDIR => {
                 let arg: &fuse_read_in = data.fetch();
                 debug!("READDIR({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size);
-                se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset, ReplyDirectory::new(self.header.unique, self.ch, arg.size as usize));
+                se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset as i64, ReplyDirectory::new(self.header.unique, self.ch, arg.size as usize));
             }
             FUSE_RELEASEDIR => {
                 let arg: &fuse_release_in = data.fetch();
