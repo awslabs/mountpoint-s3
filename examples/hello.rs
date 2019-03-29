@@ -7,7 +7,7 @@ use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, Reply
 
 lazy_static! {
     // 1 second
-    static ref TTL: SystemTime = UNIX_EPOCH + Duration::new(1, 0);
+    static ref TTL: Duration = Duration::from_secs(1);
 
     // 2013-10-08 08:56
     static ref CREATE_TIME: SystemTime = UNIX_EPOCH + Duration::new(1381237736, 0);
