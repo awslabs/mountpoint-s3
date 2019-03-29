@@ -11,7 +11,7 @@ use std::fmt;
 use std::path::{PathBuf, Path};
 use thread_scoped::{scoped, JoinGuard};
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use log::{error, info, log};
+use log::{error, info};
 
 use crate::channel::{self, Channel};
 use crate::request;

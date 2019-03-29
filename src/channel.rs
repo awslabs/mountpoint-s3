@@ -8,7 +8,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
 use fuse_sys::{fuse_args, fuse_mount_compat25};
 use libc::{self, c_int, c_void, size_t};
-use log::{error, log};
+use log::error;
 
 use crate::reply::ReplySender;
 

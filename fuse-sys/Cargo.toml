@@ -14,6 +14,6 @@ build = "build.rs"
 links = "fuse"
 
 [build-dependencies]
-pkg-config = "0.3"
+pkg-config = "0.3.14"
 
 [dependencies]

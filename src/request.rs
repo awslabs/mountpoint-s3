@@ -9,7 +9,7 @@ use time::Timespec;
 use fuse_abi::*;
 use fuse_abi::consts::*;
 use fuse_abi::fuse_opcode::*;
-use log::{debug, error, log, warn};
+use log::{debug, error, warn};
 
 use crate::argument::ArgumentIterator;
 use crate::channel::ChannelSender;

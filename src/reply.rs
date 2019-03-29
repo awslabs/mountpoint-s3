@@ -19,7 +19,7 @@ use fuse_abi::fuse_getxattr_out;
 use fuse_abi::fuse_getxtimes_out;
 use fuse_abi::{fuse_out_header, fuse_dirent};
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
-use log::{log, warn};
+use log::warn;
 use time::Timespec;
 
 use crate::{FileType, FileAttr};
