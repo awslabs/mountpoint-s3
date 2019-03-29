@@ -12,6 +12,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 use fuse_abi::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 use fuse_abi::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
 use fuse_abi::fuse_getxattr_out;
@@ -20,7 +21,6 @@ use fuse_abi::fuse_getxtimes_out;
 use fuse_abi::{fuse_out_header, fuse_dirent};
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
 use log::warn;
-use time::Timespec;
 
 use crate::{FileType, FileAttr};
 
@@ -55,6 +55,11 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U>(data: &T, f: F) -> U {
     }
 }
 
+fn time_from_system_time(system_time: &SystemTime) -> Result<(u64, u32), SystemTimeError> {
+    let duration = system_time.duration_since(UNIX_EPOCH)?;
+    Ok((duration.as_secs(), duration.subsec_nanos()))
+}
+
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
 // But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(trivial_numeric_casts)]
@@ -74,18 +79,24 @@ fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 /// Returns a fuse_attr from FileAttr
 #[cfg(target_os = "macos")]
 fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+    // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
+    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime).unwrap();
+    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime).unwrap();
+    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime).unwrap();
+    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime).unwrap();
+
     fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec as u64,
-        mtime: attr.mtime.sec as u64,
-        ctime: attr.ctime.sec as u64,
-        crtime: attr.crtime.sec as u64,
-        atimensec: attr.atime.nsec as u32,
-        mtimensec: attr.mtime.nsec as u32,
-        ctimensec: attr.ctime.nsec as u32,
-        crtimensec: attr.crtime.nsec as u32,
+        atime: atime_secs,
+        mtime: mtime_secs,
+        ctime: ctime_secs,
+        crtime: crtime_secs,
+        atimensec: atime_nanos,
+        mtimensec: mtime_nanos,
+        ctimensec: ctime_nanos,
+        crtimensec: crtime_nanos,
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -98,16 +109,21 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
 /// Returns a fuse_attr from FileAttr
 #[cfg(not(target_os = "macos"))]
 fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+    // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
+    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime).unwrap();
+    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime).unwrap();
+    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime).unwrap();
+
     fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec as u64,
-        mtime: attr.mtime.sec as u64,
-        ctime: attr.ctime.sec as u64,
-        atimensec: attr.atime.nsec as u32,
-        mtimensec: attr.mtime.nsec as u32,
-        ctimensec: attr.ctime.nsec as u32,
+        atime: atime_secs,
+        mtime: mtime_secs,
+        ctime: ctime_secs,
+        atimensec: atime_nanos,
+        mtimensec: mtime_nanos,
+        ctimensec: ctime_nanos,
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -246,14 +262,16 @@ impl Reply for ReplyEntry {
 
 impl ReplyEntry {
     /// Reply to a request with the given entry
-    pub fn entry(self, ttl: &Timespec, attr: &FileAttr, generation: u64) {
+    pub fn entry(self, ttl: &SystemTime, attr: &FileAttr, generation: u64) {
+        // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
+        let (ttl_secs, ttl_nanos) = time_from_system_time(ttl).unwrap();
         self.reply.ok(&fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.sec as u64,
-            attr_valid: ttl.sec as u64,
-            entry_valid_nsec: ttl.nsec as u32,
-            attr_valid_nsec: ttl.nsec as u32,
+            entry_valid: ttl_secs,
+            attr_valid: ttl_secs,
+            entry_valid_nsec: ttl_nanos,
+            attr_valid_nsec: ttl_nanos,
             attr: fuse_attr_from_attr(attr),
         });
     }
@@ -280,10 +298,12 @@ impl Reply for ReplyAttr {
 
 impl ReplyAttr {
     /// Reply to a request with the given attribute
-    pub fn attr(self, ttl: &Timespec, attr: &FileAttr) {
+    pub fn attr(self, ttl: &SystemTime, attr: &FileAttr) {
+        // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
+        let (ttl_secs, ttl_nanos) = time_from_system_time(ttl).unwrap();
         self.reply.ok(&fuse_attr_out {
-            attr_valid: ttl.sec as u64,
-            attr_valid_nsec: ttl.nsec as u32,
+            attr_valid: ttl_secs,
+            attr_valid_nsec: ttl_nanos,
             dummy: 0,
             attr: fuse_attr_from_attr(attr),
         });
@@ -314,12 +334,15 @@ impl Reply for ReplyXTimes {
 #[cfg(target_os = "macos")]
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
-    pub fn xtimes(self, bkuptime: Timespec, crtime: Timespec) {
+    pub fn xtimes(self, bkuptime: SystemTime, crtime: SystemTime) {
+        // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
+        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime).unwrap();
+        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime).unwrap();
         self.reply.ok(&fuse_getxtimes_out {
-            bkuptime: bkuptime.sec as u64,
-            crtime: crtime.sec as u64,
-            bkuptimensec: bkuptime.nsec as u32,
-            crtimensec: crtime.nsec as u32,
+            bkuptime: bkuptime_secs,
+            crtime: crtime_secs,
+            bkuptimensec: bkuptime_nanos,
+            crtimensec: crtime_nanos,
         });
     }
 
@@ -443,14 +466,16 @@ impl Reply for ReplyCreate {
 
 impl ReplyCreate {
     /// Reply to a request with the given entry
-    pub fn created(self, ttl: &Timespec, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+    pub fn created(self, ttl: &SystemTime, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+        // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
+        let (ttl_secs, ttl_nanos) = time_from_system_time(ttl).unwrap();
         self.reply.ok(&(fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.sec as u64,
-            attr_valid: ttl.sec as u64,
-            entry_valid_nsec: ttl.nsec as u32,
-            attr_valid_nsec: ttl.nsec as u32,
+            entry_valid: ttl_secs,
+            attr_valid: ttl_secs,
+            entry_valid_nsec: ttl_nanos,
+            attr_valid_nsec: ttl_nanos,
             attr: fuse_attr_from_attr(attr),
         }, fuse_open_out {
             fh: fh,
@@ -619,7 +644,7 @@ impl ReplyXattr {
 mod test {
     use std::thread;
     use std::sync::mpsc::{channel, Sender};
-    use time::Timespec;
+    use std::time::{Duration, UNIX_EPOCH};
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
     use super::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
@@ -753,7 +778,7 @@ mod test {
             }
         };
         let reply: ReplyEntry = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.entry(&time, &attr, 0xaa);
@@ -786,7 +811,7 @@ mod test {
             }
         };
         let reply: ReplyAttr = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.attr(&time, &attr);
@@ -803,7 +828,7 @@ mod test {
             ]
         };
         let reply: ReplyXTimes = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         reply.xtimes(time, time);
     }
 
@@ -880,7 +905,7 @@ mod test {
             }
         };
         let reply: ReplyCreate = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);

@@ -23,8 +23,8 @@ fuse-abi = { path = "./fuse-abi" }
 fuse-sys = { path = "./fuse-sys" }
 libc = "0.2.51"
 log = "0.4.6"
-time = "0.1.42"
 thread-scoped = "1.0.2"
 
 [dev-dependencies]
 env_logger = "0.6.0"
+lazy_static = "1.3.0"

@@ -4,8 +4,8 @@
 //! perform.
 
 use std::mem;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libc::{EIO, ENOSYS, EPROTO};
-use time::Timespec;
 use fuse_abi::*;
 use fuse_abi::consts::*;
 use fuse_abi::fuse_opcode::*;
@@ -180,11 +180,11 @@ impl<'a> Request<'a> {
                 };
                 let atime = match arg.valid & FATTR_ATIME {
                     0 => None,
-                    _ => Some(Timespec::new(arg.atime as i64, arg.atimensec as i32)),
+                    _ => Some(UNIX_EPOCH + Duration::new(arg.atime, arg.atimensec)),
                 };
                 let mtime = match arg.valid & FATTR_MTIME {
                     0 => None,
-                    _ => Some(Timespec::new(arg.mtime as i64, arg.mtimensec as i32)),
+                    _ => Some(UNIX_EPOCH + Duration::new(arg.mtime, arg.mtimensec)),
                 };
                 let fh = match arg.valid & FATTR_FH {
                     0 => None,
@@ -192,18 +192,18 @@ impl<'a> Request<'a> {
                 };
                 #[cfg(target_os = "macos")]
                 #[inline]
-                fn get_macos_setattr(arg: &fuse_setattr_in) -> (Option<Timespec>, Option<Timespec>, Option<Timespec>, Option<u32>) {
+                fn get_macos_setattr(arg: &fuse_setattr_in) -> (Option<SystemTime>, Option<SystemTime>, Option<SystemTime>, Option<u32>) {
                     let crtime = match arg.valid & FATTR_CRTIME {
                         0 => None,
-                        _ => Some(Timespec::new(arg.crtime as i64, arg.crtimensec as i32)),
+                        _ => Some(UNIX_EPOCH + Duration::new(arg.crtime, arg.crtimensec)),
                     };
                     let chgtime = match arg.valid & FATTR_CHGTIME {
                         0 => None,
-                        _ => Some(Timespec::new(arg.chgtime as i64, arg.chgtimensec as i32)),
+                        _ => Some(UNIX_EPOCH + Duration::new(arg.chgtime, arg.chgtimensec)),
                     };
                     let bkuptime = match arg.valid & FATTR_BKUPTIME {
                         0 => None,
-                        _ => Some(Timespec::new(arg.bkuptime as i64, arg.bkuptimensec as i32)),
+                        _ => Some(UNIX_EPOCH + Duration::new(arg.bkuptime, arg.bkuptimensec)),
                     };
                     let flags = match arg.valid & FATTR_FLAGS {
                         0 => None,
@@ -213,7 +213,7 @@ impl<'a> Request<'a> {
                 }
                 #[cfg(not(target_os = "macos"))]
                 #[inline]
-                fn get_macos_setattr(_arg: &fuse_setattr_in) -> (Option<Timespec>, Option<Timespec>, Option<Timespec>, Option<u32>) {
+                fn get_macos_setattr(_arg: &fuse_setattr_in) -> (Option<SystemTime>, Option<SystemTime>, Option<SystemTime>, Option<u32>) {
                     (None, None, None, None)
                 }
                 let (crtime, chgtime, bkuptime, flags) = get_macos_setattr(arg);
