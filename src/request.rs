@@ -61,7 +61,7 @@ impl<'a> Request<'a> {
         let mut data = ArgumentIterator::new(buffer);
         let req = Request {
             ch: ch,
-            header: data.fetch(),
+            header: data.fetch_unwrap(),
             data: data.fetch_data(),
         };
         if buffer.len() < req.header.len as usize {
@@ -88,7 +88,7 @@ impl<'a> Request<'a> {
             // Filesystem initialization
             FUSE_INIT => {
                 let reply: ReplyRaw<fuse_init_out> = self.reply();
-                let arg: &fuse_init_in = data.fetch();
+                let arg: &fuse_init_in = data.fetch_unwrap();
                 debug!("INIT({})   kernel: ABI {}.{}, flags {:#x}, max readahead {}", self.header.unique, arg.major, arg.minor, arg.flags, arg.max_readahead);
                 // We don't support ABI versions before 7.6
                 if arg.major < 7 || (arg.major == 7 && arg.minor < 6) {
@@ -139,19 +139,19 @@ impl<'a> Request<'a> {
             }
 
             FUSE_INTERRUPT => {
-                let arg: &fuse_interrupt_in = data.fetch();
+                let arg: &fuse_interrupt_in = data.fetch_unwrap();
                 debug!("INTERRUPT({}) unique {}", self.header.unique, arg.unique);
                 // TODO: handle FUSE_INTERRUPT
                 self.reply::<ReplyEmpty>().error(ENOSYS);
             }
 
             FUSE_LOOKUP => {
-                let name = data.fetch_str();
+                let name = data.fetch_str_unwrap();
                 debug!("LOOKUP({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.lookup(self, self.header.nodeid, &name, self.reply());
             }
             FUSE_FORGET => {
-                let arg: &fuse_forget_in = data.fetch();
+                let arg: &fuse_forget_in = data.fetch_unwrap();
                 debug!("FORGET({}) ino {:#018x}, nlookup {}", self.header.unique, self.header.nodeid, arg.nlookup);
                 se.filesystem.forget(self, self.header.nodeid, arg.nlookup); // no reply
             }
@@ -160,7 +160,7 @@ impl<'a> Request<'a> {
                 se.filesystem.getattr(self, self.header.nodeid, self.reply());
             }
             FUSE_SETATTR => {
-                let arg: &fuse_setattr_in = data.fetch();
+                let arg: &fuse_setattr_in = data.fetch_unwrap();
                 debug!("SETATTR({}) ino {:#018x}, valid {:#x}", self.header.unique, self.header.nodeid, arg.valid);
                 let mode = match arg.valid & FATTR_MODE {
                     0 => None,
@@ -224,70 +224,70 @@ impl<'a> Request<'a> {
                 se.filesystem.readlink(self, self.header.nodeid, self.reply());
             }
             FUSE_MKNOD => {
-                let arg: &fuse_mknod_in = data.fetch();
-                let name = data.fetch_str();
+                let arg: &fuse_mknod_in = data.fetch_unwrap();
+                let name = data.fetch_str_unwrap();
                 debug!("MKNOD({}) parent {:#018x}, name {:?}, mode {:#05o}, rdev {}", self.header.unique, self.header.nodeid, name, arg.mode, arg.rdev);
                 se.filesystem.mknod(self, self.header.nodeid, &name, arg.mode, arg.rdev, self.reply());
             }
             FUSE_MKDIR => {
-                let arg: &fuse_mkdir_in = data.fetch();
-                let name = data.fetch_str();
+                let arg: &fuse_mkdir_in = data.fetch_unwrap();
+                let name = data.fetch_str_unwrap();
                 debug!("MKDIR({}) parent {:#018x}, name {:?}, mode {:#05o}", self.header.unique, self.header.nodeid, name, arg.mode);
                 se.filesystem.mkdir(self, self.header.nodeid, &name, arg.mode, self.reply());
             }
             FUSE_UNLINK => {
-                let name = data.fetch_str();
+                let name = data.fetch_str_unwrap();
                 debug!("UNLINK({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.unlink(self, self.header.nodeid, &name, self.reply());
             }
             FUSE_RMDIR => {
-                let name = data.fetch_str();
+                let name = data.fetch_str_unwrap();
                 debug!("RMDIR({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.rmdir(self, self.header.nodeid, &name, self.reply());
             }
             FUSE_SYMLINK => {
-                let name = data.fetch_str();
-                let link = data.fetch_path();
+                let name = data.fetch_str_unwrap();
+                let link = data.fetch_path_unwrap();
                 debug!("SYMLINK({}) parent {:#018x}, name {:?}, link {:?}", self.header.unique, self.header.nodeid, name, link);
                 se.filesystem.symlink(self, self.header.nodeid, &name, &link, self.reply());
             }
             FUSE_RENAME => {
-                let arg: &fuse_rename_in = data.fetch();
-                let name = data.fetch_str();
-                let newname = data.fetch_str();
+                let arg: &fuse_rename_in = data.fetch_unwrap();
+                let name = data.fetch_str_unwrap();
+                let newname = data.fetch_str_unwrap();
                 debug!("RENAME({}) parent {:#018x}, name {:?}, newparent {:#018x}, newname {:?}", self.header.unique, self.header.nodeid, name, arg.newdir, newname);
                 se.filesystem.rename(self, self.header.nodeid, &name, arg.newdir, &newname, self.reply());
             }
             FUSE_LINK => {
-                let arg: &fuse_link_in = data.fetch();
-                let newname = data.fetch_str();
+                let arg: &fuse_link_in = data.fetch_unwrap();
+                let newname = data.fetch_str_unwrap();
                 debug!("LINK({}) ino {:#018x}, newparent {:#018x}, newname {:?}", self.header.unique, arg.oldnodeid, self.header.nodeid, newname);
                 se.filesystem.link(self, arg.oldnodeid, self.header.nodeid, &newname, self.reply());
             }
             FUSE_OPEN => {
-                let arg: &fuse_open_in = data.fetch();
+                let arg: &fuse_open_in = data.fetch_unwrap();
                 debug!("OPEN({}) ino {:#018x}, flags {:#x}", self.header.unique, self.header.nodeid, arg.flags);
                 se.filesystem.open(self, self.header.nodeid, arg.flags, self.reply());
             }
             FUSE_READ => {
-                let arg: &fuse_read_in = data.fetch();
+                let arg: &fuse_read_in = data.fetch_unwrap();
                 debug!("READ({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size);
                 se.filesystem.read(self, self.header.nodeid, arg.fh, arg.offset as i64, arg.size, self.reply());
             }
             FUSE_WRITE => {
-                let arg: &fuse_write_in = data.fetch();
+                let arg: &fuse_write_in = data.fetch_unwrap();
                 let data = data.fetch_data();
                 assert!(data.len() == arg.size as usize);
                 debug!("WRITE({}) ino {:#018x}, fh {}, offset {}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size, arg.write_flags);
                 se.filesystem.write(self, self.header.nodeid, arg.fh, arg.offset as i64, data, arg.write_flags, self.reply());
             }
             FUSE_FLUSH => {
-                let arg: &fuse_flush_in = data.fetch();
+                let arg: &fuse_flush_in = data.fetch_unwrap();
                 debug!("FLUSH({}) ino {:#018x}, fh {}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.lock_owner);
                 se.filesystem.flush(self, self.header.nodeid, arg.fh, arg.lock_owner, self.reply());
             }
             FUSE_RELEASE => {
-                let arg: &fuse_release_in = data.fetch();
+                let arg: &fuse_release_in = data.fetch_unwrap();
                 let flush = match arg.release_flags & FUSE_RELEASE_FLUSH {
                     0 => false,
                     _ => true,
@@ -296,7 +296,7 @@ impl<'a> Request<'a> {
                 se.filesystem.release(self, self.header.nodeid, arg.fh, arg.flags, arg.lock_owner, flush, self.reply());
             }
             FUSE_FSYNC => {
-                let arg: &fuse_fsync_in = data.fetch();
+                let arg: &fuse_fsync_in = data.fetch_unwrap();
                 let datasync = match arg.fsync_flags & 1 {
                     0 => false,
                     _ => true,
@@ -305,22 +305,22 @@ impl<'a> Request<'a> {
                 se.filesystem.fsync(self, self.header.nodeid, arg.fh, datasync, self.reply());
             }
             FUSE_OPENDIR => {
-                let arg: &fuse_open_in = data.fetch();
+                let arg: &fuse_open_in = data.fetch_unwrap();
                 debug!("OPENDIR({}) ino {:#018x}, flags {:#x}", self.header.unique, self.header.nodeid, arg.flags);
                 se.filesystem.opendir(self, self.header.nodeid, arg.flags, self.reply());
             }
             FUSE_READDIR => {
-                let arg: &fuse_read_in = data.fetch();
+                let arg: &fuse_read_in = data.fetch_unwrap();
                 debug!("READDIR({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size);
                 se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset as i64, ReplyDirectory::new(self.header.unique, self.ch, arg.size as usize));
             }
             FUSE_RELEASEDIR => {
-                let arg: &fuse_release_in = data.fetch();
+                let arg: &fuse_release_in = data.fetch_unwrap();
                 debug!("RELEASEDIR({}) ino {:#018x}, fh {}, flags {:#x}, release flags {:#x}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.flags, arg.release_flags, arg.lock_owner);
                 se.filesystem.releasedir(self, self.header.nodeid, arg.fh, arg.flags, self.reply());
             }
             FUSE_FSYNCDIR => {
-                let arg: &fuse_fsync_in = data.fetch();
+                let arg: &fuse_fsync_in = data.fetch_unwrap();
                 let datasync = match arg.fsync_flags & 1 { 0 => false, _ => true };
                 debug!("FSYNCDIR({}) ino {:#018x}, fh {}, flags {:#x}", self.header.unique, self.header.nodeid, arg.fh, arg.fsync_flags);
                 se.filesystem.fsyncdir(self, self.header.nodeid, arg.fh, datasync, self.reply());
@@ -330,8 +330,8 @@ impl<'a> Request<'a> {
                 se.filesystem.statfs(self, self.header.nodeid, self.reply());
             }
             FUSE_SETXATTR => {
-                let arg: &fuse_setxattr_in = data.fetch();
-                let name = data.fetch_str();
+                let arg: &fuse_setxattr_in = data.fetch_unwrap();
+                let name = data.fetch_str_unwrap();
                 let value = data.fetch_data();
                 assert!(value.len() == arg.size as usize);
                 debug!("SETXATTR({}) ino {:#018x}, name {:?}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.size, arg.flags);
@@ -342,39 +342,39 @@ impl<'a> Request<'a> {
                 se.filesystem.setxattr(self, self.header.nodeid, name, value, arg.flags, get_position(arg), self.reply());
             }
             FUSE_GETXATTR => {
-                let arg: &fuse_getxattr_in = data.fetch();
-                let name = data.fetch_str();
+                let arg: &fuse_getxattr_in = data.fetch_unwrap();
+                let name = data.fetch_str_unwrap();
                 debug!("GETXATTR({}) ino {:#018x}, name {:?}, size {}", self.header.unique, self.header.nodeid, name, arg.size);
                 se.filesystem.getxattr(self, self.header.nodeid, name, arg.size, self.reply());
             }
             FUSE_LISTXATTR => {
-                let arg: &fuse_getxattr_in = data.fetch();
+                let arg: &fuse_getxattr_in = data.fetch_unwrap();
                 debug!("LISTXATTR({}) ino {:#018x}, size {}", self.header.unique, self.header.nodeid, arg.size);
                 se.filesystem.listxattr(self, self.header.nodeid, arg.size, self.reply());
             }
             FUSE_REMOVEXATTR => {
-                let name = data.fetch_str();
+                let name = data.fetch_str_unwrap();
                 debug!("REMOVEXATTR({}) ino {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name);
                 se.filesystem.removexattr(self, self.header.nodeid, name, self.reply());
             }
             FUSE_ACCESS => {
-                let arg: &fuse_access_in = data.fetch();
+                let arg: &fuse_access_in = data.fetch_unwrap();
                 debug!("ACCESS({}) ino {:#018x}, mask {:#05o}", self.header.unique, self.header.nodeid, arg.mask);
                 se.filesystem.access(self, self.header.nodeid, arg.mask, self.reply());
             }
             FUSE_CREATE => {
-                let arg: &fuse_create_in = data.fetch();
-                let name = data.fetch_str();
+                let arg: &fuse_create_in = data.fetch_unwrap();
+                let name = data.fetch_str_unwrap();
                 debug!("CREATE({}) parent {:#018x}, name {:?}, mode {:#05o}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.mode, arg.flags);
                 se.filesystem.create(self, self.header.nodeid, &name, arg.mode, arg.flags, self.reply());
             }
             FUSE_GETLK => {
-                let arg: &fuse_lk_in = data.fetch();
+                let arg: &fuse_lk_in = data.fetch_unwrap();
                 debug!("GETLK({}) ino {:#018x}, fh {}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.owner);
                 se.filesystem.getlk(self, self.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, self.reply());
             }
             FUSE_SETLK | FUSE_SETLKW => {
-                let arg: &fuse_lk_in = data.fetch();
+                let arg: &fuse_lk_in = data.fetch_unwrap();
                 let sleep = match opcode {
                     FUSE_SETLKW => true,
                     _ => false,
@@ -383,21 +383,21 @@ impl<'a> Request<'a> {
                 se.filesystem.setlk(self, self.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, sleep, self.reply());
             }
             FUSE_BMAP => {
-                let arg: &fuse_bmap_in = data.fetch();
+                let arg: &fuse_bmap_in = data.fetch_unwrap();
                 debug!("BMAP({}) ino {:#018x}, blocksize {}, ids {}", self.header.unique, self.header.nodeid, arg.blocksize, arg.block);
                 se.filesystem.bmap(self, self.header.nodeid, arg.blocksize, arg.block, self.reply());
             }
             #[cfg(target_os = "macos")]
             FUSE_SETVOLNAME => {
-                let name = data.fetch_str();
+                let name = data.fetch_str_unwrap();
                 debug!("SETVOLNAME({}) name {:?}", self.header.unique, name);
                 se.filesystem.setvolname(self, name, self.reply());
             }
             #[cfg(target_os = "macos")]
             FUSE_EXCHANGE => {
-                let arg: &fuse_exchange_in = data.fetch();
-                let oldname = data.fetch_str();
-                let newname = data.fetch_str();
+                let arg: &fuse_exchange_in = data.fetch_unwrap();
+                let oldname = data.fetch_str_unwrap();
+                let newname = data.fetch_str_unwrap();
                 debug!("EXCHANGE({}) parent {:#018x}, name {:?}, newparent {:#018x}, newname {:?}, options {:#x}", self.header.unique, arg.olddir, oldname, arg.newdir, newname, arg.options);
                 se.filesystem.exchange(self, arg.olddir, &oldname, arg.newdir, &newname, arg.options, self.reply());
             }
