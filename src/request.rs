@@ -4,6 +4,7 @@
 //! perform.
 
 use std::mem;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libc::{EIO, ENOSYS, EPROTO};
 use fuse_abi::*;
@@ -247,7 +248,8 @@ impl<'a> Request<'a> {
             }
             FUSE_SYMLINK => {
                 let name = data.fetch_str_unwrap();
-                let link = data.fetch_path_unwrap();
+                let link = data.fetch_str_unwrap();
+                let link = Path::new(link);
                 debug!("SYMLINK({}) parent {:#018x}, name {:?}, link {:?}", self.header.unique, self.header.nodeid, name, link);
                 se.filesystem.symlink(self, self.header.nodeid, &name, &link, self.reply());
             }

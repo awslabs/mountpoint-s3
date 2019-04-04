@@ -6,7 +6,6 @@
 use std::ffi::OsStr;
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 
 
 /// An iterator that can be used to fetch typed arguments from a byte slice.
@@ -55,18 +54,6 @@ impl<'a> ArgumentIterator<'a> {
         self.fetch_str().expect("out of data while fetching string argument")
     }
 
-    /// Fetch a (zero-terminated) path (can be non-utf8). Returns `None` if there's not enough
-    /// data left or no zero-termination could be found.
-    pub fn fetch_path(&mut self) -> Option<&'a Path> {
-        self.fetch_str().map(Path::new)
-    }
-
-    /// Fetch a (zero-terminated) path (can be non-utf8). Panics if there's not enough data
-    /// left or no zero-termination could be found.
-    pub fn fetch_path_unwrap(&mut self) -> &'a Path {
-        self.fetch_path().expect("out of data while fetching path argument")
-    }
-
     /// Fetch a slice of all remaining data.
     pub fn fetch_data(&mut self) -> &'a [u8] {
         let bytes = self.data;
@@ -78,8 +65,7 @@ impl<'a> ArgumentIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use super::ArgumentIterator;
+    use super::*;
 
     const TEST_DATA: [u8; 10] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61];
 
@@ -107,16 +93,6 @@ mod tests {
         assert_eq!(arg, "foo");
         let arg = it.fetch_str_unwrap();
         assert_eq!(arg, "bar");
-        assert_eq!(it.len(), 2);
-    }
-
-    #[test]
-    fn path_argument() {
-        let mut it = ArgumentIterator::new(&TEST_DATA);
-        let arg = it.fetch_path_unwrap();
-        assert_eq!(arg, Path::new("foo"));
-        let arg = it.fetch_path_unwrap();
-        assert_eq!(arg, Path::new("bar"));
         assert_eq!(it.len(), 2);
     }
 
@@ -152,9 +128,6 @@ mod tests {
         assert!(arg.is_none());
         assert_eq!(it.len(), 2);
         let arg = it.fetch_str();
-        assert!(arg.is_none());
-        assert_eq!(it.len(), 2);
-        let arg = it.fetch_path();
         assert!(arg.is_none());
         assert_eq!(it.len(), 2);
     }
