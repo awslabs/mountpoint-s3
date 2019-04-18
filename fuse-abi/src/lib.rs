@@ -21,6 +21,8 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 #![allow(missing_docs)]
 
+use std::convert::TryFrom;
+
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
 #[cfg(not(feature = "abi-7-9"))]
@@ -226,6 +228,10 @@ pub mod consts {
     pub const FUSE_MIN_READ_BUFFER: usize   = 8192;
 }
 
+/// Invalid opcode error.
+#[derive(Debug)]
+pub struct InvalidOpcodeError;
+
 #[repr(C)]
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
@@ -288,71 +294,77 @@ pub enum fuse_opcode {
     CUSE_INIT = 4096,
 }
 
-// FIXME: Replace with `impl From<u32> for fuse_opcode` or `impl TryFrom<u32> for fuse_opcode`
-impl fuse_opcode {
-    pub fn from_u32(n: u32) -> Option<Self> {
+impl TryFrom<u32> for fuse_opcode {
+    type Error = InvalidOpcodeError;
+
+    fn try_from(n: u32) -> Result<Self, Self::Error> {
         match n {
-            1 => Some(fuse_opcode::FUSE_LOOKUP),
-            2 => Some(fuse_opcode::FUSE_FORGET),
-            3 => Some(fuse_opcode::FUSE_GETATTR),
-            4 => Some(fuse_opcode::FUSE_SETATTR),
-            5 => Some(fuse_opcode::FUSE_READLINK),
-            6 => Some(fuse_opcode::FUSE_SYMLINK),
-            8 => Some(fuse_opcode::FUSE_MKNOD),
-            9 => Some(fuse_opcode::FUSE_MKDIR),
-            10 => Some(fuse_opcode::FUSE_UNLINK),
-            11 => Some(fuse_opcode::FUSE_RMDIR),
-            12 => Some(fuse_opcode::FUSE_RENAME),
-            13 => Some(fuse_opcode::FUSE_LINK),
-            14 => Some(fuse_opcode::FUSE_OPEN),
-            15 => Some(fuse_opcode::FUSE_READ),
-            16 => Some(fuse_opcode::FUSE_WRITE),
-            17 => Some(fuse_opcode::FUSE_STATFS),
-            18 => Some(fuse_opcode::FUSE_RELEASE),
-            20 => Some(fuse_opcode::FUSE_FSYNC),
-            21 => Some(fuse_opcode::FUSE_SETXATTR),
-            22 => Some(fuse_opcode::FUSE_GETXATTR),
-            23 => Some(fuse_opcode::FUSE_LISTXATTR),
-            24 => Some(fuse_opcode::FUSE_REMOVEXATTR),
-            25 => Some(fuse_opcode::FUSE_FLUSH),
-            26 => Some(fuse_opcode::FUSE_INIT),
-            27 => Some(fuse_opcode::FUSE_OPENDIR),
-            28 => Some(fuse_opcode::FUSE_READDIR),
-            29 => Some(fuse_opcode::FUSE_RELEASEDIR),
-            30 => Some(fuse_opcode::FUSE_FSYNCDIR),
-            31 => Some(fuse_opcode::FUSE_GETLK),
-            32 => Some(fuse_opcode::FUSE_SETLK),
-            33 => Some(fuse_opcode::FUSE_SETLKW),
-            34 => Some(fuse_opcode::FUSE_ACCESS),
-            35 => Some(fuse_opcode::FUSE_CREATE),
-            36 => Some(fuse_opcode::FUSE_INTERRUPT),
-            37 => Some(fuse_opcode::FUSE_BMAP),
-            38 => Some(fuse_opcode::FUSE_DESTROY),
+            1 => Ok(fuse_opcode::FUSE_LOOKUP),
+            2 => Ok(fuse_opcode::FUSE_FORGET),
+            3 => Ok(fuse_opcode::FUSE_GETATTR),
+            4 => Ok(fuse_opcode::FUSE_SETATTR),
+            5 => Ok(fuse_opcode::FUSE_READLINK),
+            6 => Ok(fuse_opcode::FUSE_SYMLINK),
+            8 => Ok(fuse_opcode::FUSE_MKNOD),
+            9 => Ok(fuse_opcode::FUSE_MKDIR),
+            10 => Ok(fuse_opcode::FUSE_UNLINK),
+            11 => Ok(fuse_opcode::FUSE_RMDIR),
+            12 => Ok(fuse_opcode::FUSE_RENAME),
+            13 => Ok(fuse_opcode::FUSE_LINK),
+            14 => Ok(fuse_opcode::FUSE_OPEN),
+            15 => Ok(fuse_opcode::FUSE_READ),
+            16 => Ok(fuse_opcode::FUSE_WRITE),
+            17 => Ok(fuse_opcode::FUSE_STATFS),
+            18 => Ok(fuse_opcode::FUSE_RELEASE),
+            20 => Ok(fuse_opcode::FUSE_FSYNC),
+            21 => Ok(fuse_opcode::FUSE_SETXATTR),
+            22 => Ok(fuse_opcode::FUSE_GETXATTR),
+            23 => Ok(fuse_opcode::FUSE_LISTXATTR),
+            24 => Ok(fuse_opcode::FUSE_REMOVEXATTR),
+            25 => Ok(fuse_opcode::FUSE_FLUSH),
+            26 => Ok(fuse_opcode::FUSE_INIT),
+            27 => Ok(fuse_opcode::FUSE_OPENDIR),
+            28 => Ok(fuse_opcode::FUSE_READDIR),
+            29 => Ok(fuse_opcode::FUSE_RELEASEDIR),
+            30 => Ok(fuse_opcode::FUSE_FSYNCDIR),
+            31 => Ok(fuse_opcode::FUSE_GETLK),
+            32 => Ok(fuse_opcode::FUSE_SETLK),
+            33 => Ok(fuse_opcode::FUSE_SETLKW),
+            34 => Ok(fuse_opcode::FUSE_ACCESS),
+            35 => Ok(fuse_opcode::FUSE_CREATE),
+            36 => Ok(fuse_opcode::FUSE_INTERRUPT),
+            37 => Ok(fuse_opcode::FUSE_BMAP),
+            38 => Ok(fuse_opcode::FUSE_DESTROY),
             #[cfg(feature = "abi-7-11")]
-            39 => Some(fuse_opcode::FUSE_IOCTL),
+            39 => Ok(fuse_opcode::FUSE_IOCTL),
             #[cfg(feature = "abi-7-11")]
-            40 => Some(fuse_opcode::FUSE_POLL),
+            40 => Ok(fuse_opcode::FUSE_POLL),
             #[cfg(feature = "abi-7-15")]
-            41 => Some(fuse_opcode::FUSE_NOTIFY_REPLY),
+            41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
             #[cfg(feature = "abi-7-16")]
-            42 => Some(fuse_opcode::FUSE_BATCH_FORGET),
+            42 => Ok(fuse_opcode::FUSE_BATCH_FORGET),
             #[cfg(feature = "abi-7-19")]
-            43 => Some(fuse_opcode::FUSE_FALLOCATE),
+            43 => Ok(fuse_opcode::FUSE_FALLOCATE),
 
             #[cfg(target_os = "macos")]
-            61 => Some(fuse_opcode::FUSE_SETVOLNAME),
+            61 => Ok(fuse_opcode::FUSE_SETVOLNAME),
             #[cfg(target_os = "macos")]
-            62 => Some(fuse_opcode::FUSE_GETXTIMES),
+            62 => Ok(fuse_opcode::FUSE_GETXTIMES),
             #[cfg(target_os = "macos")]
-            63 => Some(fuse_opcode::FUSE_EXCHANGE),
+            63 => Ok(fuse_opcode::FUSE_EXCHANGE),
 
             #[cfg(feature = "abi-7-12")]
-            4096 => Some(fuse_opcode::CUSE_INIT),
+            4096 => Ok(fuse_opcode::CUSE_INIT),
 
-            _ => None,
+            _ => Err(InvalidOpcodeError),
         }
     }
 }
+
+/// Invalid notify code error.
+#[cfg(feature = "abi-7-11")]
+#[derive(Debug)]
+pub struct InvalidNotifyCodeError;
 
 #[cfg(feature = "abi-7-11")]
 #[repr(C)]
@@ -373,25 +385,26 @@ pub enum fuse_notify_code {
     FUSE_NOTIFY_DELETE = 6,
 }
 
-// FIXME: Replace with `impl From<u32> for fuse_notify_code` or `impl TryFrom<u32> for fuse_notify_code`
 #[cfg(feature = "abi-7-11")]
-impl fuse_notify_code {
-    pub fn from_u32 (n: u32) -> Option<Self> {
+impl TryFrom<u32> for fuse_notify_code {
+    type Error = InvalidNotifyCodeError;
+
+    fn from_u32 (n: u32) -> Result<Self, Self::Error> {
         match n {
             #[cfg(feature = "abi-7-11")]
-            1 => Some(fuse_notify_code::FUSE_POLL),
+            1 => Ok(fuse_notify_code::FUSE_POLL),
             #[cfg(feature = "abi-7-12")]
-            2 => Some(fuse_notify_code::FUSE_NOTIFY_INVAL_INODE),
+            2 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_INODE),
             #[cfg(feature = "abi-7-12")]
-            3 => Some(fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY),
+            3 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY),
             #[cfg(feature = "abi-7-15")]
-            4 => Some(fuse_notify_code::FUSE_NOTIFY_STORE),
+            4 => Ok(fuse_notify_code::FUSE_NOTIFY_STORE),
             #[cfg(feature = "abi-7-15")]
-            5 => Some(fuse_notify_code::FUSE_NOTIFY_RETRIEVE),
+            5 => Ok(fuse_notify_code::FUSE_NOTIFY_RETRIEVE),
             #[cfg(feature = "abi-7-18")]
-            6 => Some(fuse_notify_code::FUSE_NOTIFY_DELETE),
+            6 => Ok(fuse_notify_code::FUSE_NOTIFY_DELETE),
 
-            _ => None,
+            _ => Err(InvalidNotifyCodeError),
         }
     }
 }

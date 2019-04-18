@@ -4,6 +4,7 @@
 //! perform.
 
 use std::mem;
+use std::convert::TryFrom;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libc::{EIO, ENOSYS, EPROTO};
@@ -76,9 +77,9 @@ impl<'a> Request<'a> {
     /// This calls the appropriate filesystem operation method for the
     /// request and sends back the returned reply to the kernel
     fn dispatch<FS: Filesystem>(&self, se: &mut Session<FS>) {
-        let opcode = match fuse_opcode::from_u32(self.header.opcode) {
-            Some(op) => op,
-            None => {
+        let opcode = match fuse_opcode::try_from(self.header.opcode) {
+            Ok(op) => op,
+            Err(_err) => {
                 warn!("Ignoring unknown FUSE operation {}", self.header.opcode);
                 self.reply::<ReplyEmpty>().error(ENOSYS);
                 return;
