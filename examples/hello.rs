@@ -81,12 +81,9 @@ impl Filesystem for HelloFS {
             (2, FileType::RegularFile, "hello.txt"),
         ];
 
-        // Offset of 0 means no offset.
-        // Non-zero offset means the passed offset has already been seen, and we should start after
-        // it.
-        let to_skip = if offset == 0 { offset } else { offset + 1 } as usize;
-        for (i, entry) in entries.into_iter().enumerate().skip(to_skip) {
-            reply.add(entry.0, i as i64, entry.1, entry.2);
+        for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
+            // i + 1 means the index of the next entry
+            reply.add(entry.0, (i + 1) as i64, entry.1, entry.2);
         }
         reply.ok();
     }
