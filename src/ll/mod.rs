@@ -2,5 +2,5 @@
 
 mod argument;
 
-// FIXME: `ArgumentIterator` shouldn't be public, but is still used by the `request` module
-pub use argument::ArgumentIterator;
+mod request;
+pub use request::{Operation, Request, RequestError};
