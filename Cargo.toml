@@ -19,8 +19,8 @@ members = [".", "fuse-abi", "fuse-sys"]
 travis-ci = { repository = "zargony/rust-fuse" }
 
 [dependencies]
-fuse-abi = { path = "./fuse-abi" }
-fuse-sys = { path = "./fuse-sys" }
+fuse-abi = { path = "./fuse-abi", version = "=0.4.0-dev" }
+fuse-sys = { path = "./fuse-sys", version = "=0.4.0-dev" }
 libc = "0.2.51"
 log = "0.4.6"
 thread-scoped = "1.0.2"
