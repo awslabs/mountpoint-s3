@@ -150,8 +150,8 @@ impl<'a> Operation<'a> {
 /// Low-level request of a filesystem operation the kernel driver wants to perform.
 #[derive(Debug)]
 pub struct Request<'a> {
-    pub header: &'a fuse_in_header,
-    pub operation: Operation<'a>,
+    header: &'a fuse_in_header,
+    operation: Operation<'a>,
 }
 
 impl<'a> fmt::Display for Request<'a> {
@@ -229,6 +229,48 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
     }
 }
 
+impl<'a> Request<'a> {
+    /// Returns the unique identifier of this request.
+    ///
+    /// The FUSE kernel driver assigns a unique id to every concurrent request. This allows to
+    /// distinguish between multiple concurrent requests. The unique id of a request may be
+    /// reused in later requests after it has completed.
+    #[inline]
+    pub fn unique(&self) -> u64 {
+        self.header.unique
+    }
+
+    /// Returns the node id of the inode this request is targeted to.
+    #[inline]
+    pub fn nodeid(&self) -> u64 {
+        self.header.nodeid
+    }
+
+    /// Returns the UID that the process that triggered this request runs under.
+    #[inline]
+    pub fn uid(&self) -> u32 {
+        self.header.uid
+    }
+
+    /// Returns the GID that the process that triggered this request runs under.
+    #[inline]
+    pub fn gid(&self) -> u32 {
+        self.header.gid
+    }
+
+    /// Returns the PID of the process that triggered this request.
+    #[inline]
+    pub fn pid(&self) -> u32 {
+        self.header.pid
+    }
+
+    /// Returns the filesystem operation (and its arguments) of this request.
+    #[inline]
+    pub fn operation(&self) -> &Operation<'_> {
+        &self.operation
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -239,8 +281,8 @@ mod tests {
         0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x1a, // len, opcode
         0xde, 0xad, 0xbe, 0xef, 0xba, 0xad, 0xd0, 0x0d, // unique
         0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, // nodeid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // uid, gid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pid, padding
+        0xc0, 0x01, 0xd0, 0x0d, 0xc0, 0x01, 0xca, 0xfe, // uid, gid
+        0xc0, 0xde, 0xba, 0x5e, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x08, // major, minor
         0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, // max_readahead, flags
     ];
@@ -250,8 +292,8 @@ mod tests {
         0x38, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
         0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // uid, gid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pid, padding
+        0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
+        0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // major, minor
         0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // max_readahead, flags
     ];
@@ -261,8 +303,8 @@ mod tests {
         0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x08, // len, opcode
         0xde, 0xad, 0xbe, 0xef, 0xba, 0xad, 0xd0, 0x0d, // unique
         0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, // nodeid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // uid, gid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pid, padding
+        0xc0, 0x01, 0xd0, 0x0d, 0xc0, 0x01, 0xca, 0xfe, // uid, gid
+        0xc0, 0xde, 0xba, 0x5e, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0x00, 0x00, 0x01, 0xa4, 0x00, 0x00, 0x00, 0x00, // mode, rdev
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
     ];
@@ -272,8 +314,8 @@ mod tests {
         0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
         0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // uid, gid
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pid, padding
+        0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
+        0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
     ];
@@ -299,9 +341,12 @@ mod tests {
         let req = Request::try_from(&INIT_REQUEST[..]).unwrap();
         assert_eq!(req.header.len, 56);
         assert_eq!(req.header.opcode, 26);
-        assert_eq!(req.header.unique, 0xdead_beef_baad_f00d);
-        assert_eq!(req.header.nodeid, 0x1122_3344_5566_7788);
-        match req.operation {
+        assert_eq!(req.unique(), 0xdead_beef_baad_f00d);
+        assert_eq!(req.nodeid(), 0x1122_3344_5566_7788);
+        assert_eq!(req.uid(), 0xc001_d00d);
+        assert_eq!(req.gid(), 0xc001_cafe);
+        assert_eq!(req.pid(), 0xc0de_ba5e);
+        match req.operation() {
             Operation::Init(arg) => {
                 assert_eq!(arg.major, 7);
                 assert_eq!(arg.minor, 8);
@@ -316,12 +361,15 @@ mod tests {
         let req = Request::try_from(&MKNOD_REQUEST[..]).unwrap();
         assert_eq!(req.header.len, 56);
         assert_eq!(req.header.opcode, 8);
-        assert_eq!(req.header.unique, 0xdead_beef_baad_f00d);
-        assert_eq!(req.header.nodeid, 0x1122_3344_5566_7788);
-        match req.operation {
+        assert_eq!(req.unique(), 0xdead_beef_baad_f00d);
+        assert_eq!(req.nodeid(), 0x1122_3344_5566_7788);
+        assert_eq!(req.uid(), 0xc001_d00d);
+        assert_eq!(req.gid(), 0xc001_cafe);
+        assert_eq!(req.pid(), 0xc0de_ba5e);
+        match req.operation() {
             Operation::MkNod(arg, name) => {
                 assert_eq!(arg.mode, 0o644);
-                assert_eq!(name, "foo.txt");
+                assert_eq!(*name, "foo.txt");
             }
             _ => panic!("Unexpected request operation"),
         }

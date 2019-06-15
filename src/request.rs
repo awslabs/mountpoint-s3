@@ -63,7 +63,7 @@ impl<'a> Request<'a> {
         debug!("{}", self.request);
 
         use ll::Operation::*;
-        match self.request.operation {
+        match self.request.operation() {
             // Filesystem initialization
             Init(arg) => {
                 let reply: ReplyRaw<fuse_init_out> = self.reply();
@@ -93,13 +93,13 @@ impl<'a> Request<'a> {
                     unused: 0,
                     max_write: MAX_WRITE_SIZE as u32,       // use a max write size that fits into the session's buffer
                 };
-                debug!("INIT({}) response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}", self.request.header.unique, init.major, init.minor, init.flags, init.max_readahead, init.max_write);
+                debug!("INIT({}) response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}", self.request.unique(), init.major, init.minor, init.flags, init.max_readahead, init.max_write);
                 se.initialized = true;
                 reply.ok(&init);
             }
             // Any operation is invalid before initialization
             _ if !se.initialized => {
-                warn!("Ignoring FUSE operation {} before init", self.request.header.opcode as usize);
+                warn!("Ignoring FUSE operation before init: {}", self.request);
                 self.reply::<ReplyEmpty>().error(EIO);
             }
             // Filesystem destroyed
@@ -110,7 +110,7 @@ impl<'a> Request<'a> {
             }
             // Any operation is invalid after destroy
             _ if se.destroyed => {
-                warn!("Ignoring FUSE operation {} after destroy", self.request.header.opcode as usize);
+                warn!("Ignoring FUSE operation after destroy: {}", self.request);
                 self.reply::<ReplyEmpty>().error(EIO);
             }
 
@@ -120,13 +120,13 @@ impl<'a> Request<'a> {
             }
 
             Lookup(name) => {
-                se.filesystem.lookup(self, self.request.header.nodeid, &name, self.reply());
+                se.filesystem.lookup(self, self.request.nodeid(), &name, self.reply());
             }
             Forget(arg) => {
-                se.filesystem.forget(self, self.request.header.nodeid, arg.nlookup); // no reply
+                se.filesystem.forget(self, self.request.nodeid(), arg.nlookup); // no reply
             }
             GetAttr => {
-                se.filesystem.getattr(self, self.request.header.nodeid, self.reply());
+                se.filesystem.getattr(self, self.request.nodeid(), self.reply());
             }
             SetAttr(arg) => {
                 let mode = match arg.valid & FATTR_MODE {
@@ -184,77 +184,77 @@ impl<'a> Request<'a> {
                     (None, None, None, None)
                 }
                 let (crtime, chgtime, bkuptime, flags) = get_macos_setattr(arg);
-                se.filesystem.setattr(self, self.request.header.nodeid, mode, uid, gid, size, atime, mtime, fh, crtime, chgtime, bkuptime, flags, self.reply());
+                se.filesystem.setattr(self, self.request.nodeid(), mode, uid, gid, size, atime, mtime, fh, crtime, chgtime, bkuptime, flags, self.reply());
             }
             ReadLink => {
-                se.filesystem.readlink(self, self.request.header.nodeid, self.reply());
+                se.filesystem.readlink(self, self.request.nodeid(), self.reply());
             }
             MkNod(arg, name) => {
-                se.filesystem.mknod(self, self.request.header.nodeid, &name, arg.mode, arg.rdev, self.reply());
+                se.filesystem.mknod(self, self.request.nodeid(), &name, arg.mode, arg.rdev, self.reply());
             }
             MkDir(arg, name) => {
-                se.filesystem.mkdir(self, self.request.header.nodeid, &name, arg.mode, self.reply());
+                se.filesystem.mkdir(self, self.request.nodeid(), &name, arg.mode, self.reply());
             }
             Unlink(name) => {
-                se.filesystem.unlink(self, self.request.header.nodeid, &name, self.reply());
+                se.filesystem.unlink(self, self.request.nodeid(), &name, self.reply());
             }
             RmDir(name) => {
-                se.filesystem.rmdir(self, self.request.header.nodeid, &name, self.reply());
+                se.filesystem.rmdir(self, self.request.nodeid(), &name, self.reply());
             }
             SymLink(name, link) => {
-                se.filesystem.symlink(self, self.request.header.nodeid, &name, &Path::new(link), self.reply());
+                se.filesystem.symlink(self, self.request.nodeid(), &name, &Path::new(link), self.reply());
             }
             Rename(arg, name, newname) => {
-                se.filesystem.rename(self, self.request.header.nodeid, &name, arg.newdir, &newname, self.reply());
+                se.filesystem.rename(self, self.request.nodeid(), &name, arg.newdir, &newname, self.reply());
             }
             Link(arg, newname) => {
-                se.filesystem.link(self, arg.oldnodeid, self.request.header.nodeid, &newname, self.reply());
+                se.filesystem.link(self, arg.oldnodeid, self.request.nodeid(), &newname, self.reply());
             }
             Open(arg) => {
-                se.filesystem.open(self, self.request.header.nodeid, arg.flags, self.reply());
+                se.filesystem.open(self, self.request.nodeid(), arg.flags, self.reply());
             }
             Read(arg) => {
-                se.filesystem.read(self, self.request.header.nodeid, arg.fh, arg.offset as i64, arg.size, self.reply());
+                se.filesystem.read(self, self.request.nodeid(), arg.fh, arg.offset as i64, arg.size, self.reply());
             }
             Write(arg, data) => {
                 assert!(data.len() == arg.size as usize);
-                se.filesystem.write(self, self.request.header.nodeid, arg.fh, arg.offset as i64, data, arg.write_flags, self.reply());
+                se.filesystem.write(self, self.request.nodeid(), arg.fh, arg.offset as i64, data, arg.write_flags, self.reply());
             }
             Flush(arg) => {
-                se.filesystem.flush(self, self.request.header.nodeid, arg.fh, arg.lock_owner, self.reply());
+                se.filesystem.flush(self, self.request.nodeid(), arg.fh, arg.lock_owner, self.reply());
             }
             Release(arg) => {
                 let flush = match arg.release_flags & FUSE_RELEASE_FLUSH {
                     0 => false,
                     _ => true,
                 };
-                se.filesystem.release(self, self.request.header.nodeid, arg.fh, arg.flags, arg.lock_owner, flush, self.reply());
+                se.filesystem.release(self, self.request.nodeid(), arg.fh, arg.flags, arg.lock_owner, flush, self.reply());
             }
             FSync(arg) => {
                 let datasync = match arg.fsync_flags & 1 {
                     0 => false,
                     _ => true,
                 };
-                se.filesystem.fsync(self, self.request.header.nodeid, arg.fh, datasync, self.reply());
+                se.filesystem.fsync(self, self.request.nodeid(), arg.fh, datasync, self.reply());
             }
             OpenDir(arg) => {
-                se.filesystem.opendir(self, self.request.header.nodeid, arg.flags, self.reply());
+                se.filesystem.opendir(self, self.request.nodeid(), arg.flags, self.reply());
             }
             ReadDir(arg) => {
-                se.filesystem.readdir(self, self.request.header.nodeid, arg.fh, arg.offset as i64, ReplyDirectory::new(self.request.header.unique, self.ch, arg.size as usize));
+                se.filesystem.readdir(self, self.request.nodeid(), arg.fh, arg.offset as i64, ReplyDirectory::new(self.request.unique(), self.ch, arg.size as usize));
             }
             ReleaseDir(arg) => {
-                se.filesystem.releasedir(self, self.request.header.nodeid, arg.fh, arg.flags, self.reply());
+                se.filesystem.releasedir(self, self.request.nodeid(), arg.fh, arg.flags, self.reply());
             }
             FSyncDir(arg) => {
                 let datasync = match arg.fsync_flags & 1 {
                     0 => false,
                     _ => true,
                 };
-                se.filesystem.fsyncdir(self, self.request.header.nodeid, arg.fh, datasync, self.reply());
+                se.filesystem.fsyncdir(self, self.request.nodeid(), arg.fh, datasync, self.reply());
             }
             StatFs => {
-                se.filesystem.statfs(self, self.request.header.nodeid, self.reply());
+                se.filesystem.statfs(self, self.request.nodeid(), self.reply());
             }
             SetXAttr(arg, name, value) => {
                 assert!(value.len() == arg.size as usize);
@@ -264,34 +264,34 @@ impl<'a> Request<'a> {
                 #[cfg(not(target_os = "macos"))]
                 #[inline]
                 fn get_position (_arg: &fuse_setxattr_in) -> u32 { 0 }
-                se.filesystem.setxattr(self, self.request.header.nodeid, name, value, arg.flags, get_position(arg), self.reply());
+                se.filesystem.setxattr(self, self.request.nodeid(), name, value, arg.flags, get_position(arg), self.reply());
             }
             GetXAttr(arg, name) => {
-                se.filesystem.getxattr(self, self.request.header.nodeid, name, arg.size, self.reply());
+                se.filesystem.getxattr(self, self.request.nodeid(), name, arg.size, self.reply());
             }
             ListXAttr(arg) => {
-                se.filesystem.listxattr(self, self.request.header.nodeid, arg.size, self.reply());
+                se.filesystem.listxattr(self, self.request.nodeid(), arg.size, self.reply());
             }
             RemoveXAttr(name) => {
-                se.filesystem.removexattr(self, self.request.header.nodeid, name, self.reply());
+                se.filesystem.removexattr(self, self.request.nodeid(), name, self.reply());
             }
             Access(arg) => {
-                se.filesystem.access(self, self.request.header.nodeid, arg.mask, self.reply());
+                se.filesystem.access(self, self.request.nodeid(), arg.mask, self.reply());
             }
             Create(arg, name) => {
-                se.filesystem.create(self, self.request.header.nodeid, &name, arg.mode, arg.flags, self.reply());
+                se.filesystem.create(self, self.request.nodeid(), &name, arg.mode, arg.flags, self.reply());
             }
             GetLk(arg) => {
-                se.filesystem.getlk(self, self.request.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, self.reply());
+                se.filesystem.getlk(self, self.request.nodeid(), arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, self.reply());
             }
             SetLk(arg) => {
-                se.filesystem.setlk(self, self.request.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, false, self.reply());
+                se.filesystem.setlk(self, self.request.nodeid(), arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, false, self.reply());
             }
             SetLkW(arg) => {
-                se.filesystem.setlk(self, self.request.header.nodeid, arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, true, self.reply());
+                se.filesystem.setlk(self, self.request.nodeid(), arg.fh, arg.owner, arg.lk.start, arg.lk.end, arg.lk.typ, arg.lk.pid, true, self.reply());
             }
             BMap(arg) => {
-                se.filesystem.bmap(self, self.request.header.nodeid, arg.blocksize, arg.block, self.reply());
+                se.filesystem.bmap(self, self.request.nodeid(), arg.blocksize, arg.block, self.reply());
             }
 
             #[cfg(target_os = "macos")]
@@ -300,7 +300,7 @@ impl<'a> Request<'a> {
             }
             #[cfg(target_os = "macos")]
             GetXTimes => {
-                se.filesystem.getxtimes(self, self.request.header.nodeid, self.reply());
+                se.filesystem.getxtimes(self, self.request.nodeid(), self.reply());
             }
             #[cfg(target_os = "macos")]
             Exchange(arg, oldname, newname) => {
@@ -312,34 +312,34 @@ impl<'a> Request<'a> {
     /// Create a reply object for this request that can be passed to the filesystem
     /// implementation and makes sure that a request is replied exactly once
     fn reply<T: Reply>(&self) -> T {
-        Reply::new(self.request.header.unique, self.ch)
+        Reply::new(self.request.unique(), self.ch)
     }
 
     /// Returns the unique identifier of this request
     #[inline]
     #[allow(dead_code)]
     pub fn unique(&self) -> u64 {
-        self.request.header.unique
+        self.request.unique()
     }
 
     /// Returns the uid of this request
     #[inline]
     #[allow(dead_code)]
     pub fn uid(&self) -> u32 {
-        self.request.header.uid
+        self.request.uid()
     }
 
     /// Returns the gid of this request
     #[inline]
     #[allow(dead_code)]
     pub fn gid(&self) -> u32 {
-        self.request.header.gid
+        self.request.gid()
     }
 
     /// Returns the pid of this request
     #[inline]
     #[allow(dead_code)]
     pub fn pid(&self) -> u32 {
-        self.request.header.pid
+        self.request.pid()
     }
 }
