@@ -42,104 +42,205 @@ impl error::Error for RequestError {}
 /// variant needs to match the actual arguments the kernel driver sends for the specific operation.
 #[derive(Debug)]
 pub enum Operation<'a> {
-    Lookup(&'a OsStr),
-    Forget(&'a fuse_forget_in), // no reply
+    Lookup {
+        name: &'a OsStr,
+    },
+    Forget {
+        arg: &'a fuse_forget_in,
+    },
     GetAttr,
-    SetAttr(&'a fuse_setattr_in),
+    SetAttr {
+        arg: &'a fuse_setattr_in,
+    },
     ReadLink,
-    SymLink(&'a OsStr, &'a OsStr),
-    MkNod(&'a fuse_mknod_in, &'a OsStr),
-    MkDir(&'a fuse_mkdir_in, &'a OsStr),
-    Unlink(&'a OsStr),
-    RmDir(&'a OsStr),
-    Rename(&'a fuse_rename_in, &'a OsStr, &'a OsStr),
-    Link(&'a fuse_link_in, &'a OsStr),
-    Open(&'a fuse_open_in),
-    Read(&'a fuse_read_in),
-    Write(&'a fuse_write_in, &'a [u8]),
+    SymLink {
+        name: &'a OsStr,
+        link: &'a OsStr,
+    },
+    MkNod {
+        arg: &'a fuse_mknod_in,
+        name: &'a OsStr,
+    },
+    MkDir {
+        arg: &'a fuse_mkdir_in,
+        name: &'a OsStr,
+    },
+    Unlink {
+        name: &'a OsStr,
+    },
+    RmDir {
+        name: &'a OsStr,
+    },
+    Rename {
+        arg: &'a fuse_rename_in,
+        name: &'a OsStr,
+        newname: &'a OsStr,
+    },
+    Link {
+        arg: &'a fuse_link_in,
+        name: &'a OsStr,
+    },
+    Open {
+        arg: &'a fuse_open_in,
+    },
+    Read {
+        arg: &'a fuse_read_in,
+    },
+    Write {
+        arg: &'a fuse_write_in,
+        data: &'a [u8],
+    },
     StatFs,
-    Release(&'a fuse_release_in),
-    FSync(&'a fuse_fsync_in),
-    SetXAttr(&'a fuse_setxattr_in, &'a OsStr, &'a [u8]),
-    GetXAttr(&'a fuse_getxattr_in, &'a OsStr),
-    ListXAttr(&'a fuse_getxattr_in),
-    RemoveXAttr(&'a OsStr),
-    Flush(&'a fuse_flush_in),
-    Init(&'a fuse_init_in),
-    OpenDir(&'a fuse_open_in),
-    ReadDir(&'a fuse_read_in),
-    ReleaseDir(&'a fuse_release_in),
-    FSyncDir(&'a fuse_fsync_in),
-    GetLk(&'a fuse_lk_in),
-    SetLk(&'a fuse_lk_in),
-    SetLkW(&'a fuse_lk_in),
-    Access(&'a fuse_access_in),
-    Create(&'a fuse_create_in, &'a OsStr),
-    Interrupt(&'a fuse_interrupt_in),
-    BMap(&'a fuse_bmap_in),
+    Release {
+        arg: &'a fuse_release_in,
+    },
+    FSync {
+        arg: &'a fuse_fsync_in,
+    },
+    SetXAttr {
+        arg: &'a fuse_setxattr_in,
+        name: &'a OsStr,
+        value: &'a [u8],
+    },
+    GetXAttr {
+        arg: &'a fuse_getxattr_in,
+        name: &'a OsStr,
+    },
+    ListXAttr {
+        arg: &'a fuse_getxattr_in,
+    },
+    RemoveXAttr {
+        name: &'a OsStr,
+    },
+    Flush {
+        arg: &'a fuse_flush_in,
+    },
+    Init {
+        arg: &'a fuse_init_in,
+    },
+    OpenDir {
+        arg: &'a fuse_open_in,
+    },
+    ReadDir {
+        arg: &'a fuse_read_in,
+    },
+    ReleaseDir {
+        arg: &'a fuse_release_in,
+    },
+    FSyncDir {
+        arg: &'a fuse_fsync_in,
+    },
+    GetLk {
+        arg: &'a fuse_lk_in,
+    },
+    SetLk {
+        arg: &'a fuse_lk_in,
+    },
+    SetLkW {
+        arg: &'a fuse_lk_in,
+    },
+    Access {
+        arg: &'a fuse_access_in,
+    },
+    Create {
+        arg: &'a fuse_create_in,
+        name: &'a OsStr,
+    },
+    Interrupt {
+        arg: &'a fuse_interrupt_in,
+    },
+    BMap {
+        arg: &'a fuse_bmap_in,
+    },
     Destroy,
-    // IoCtl(...),                  // TODO: FUSE_IOCTL since ABI 7.11
-    // Poll(...),                   // TODO: FUSE_POLL since ABI 7.11
-    // NotifyReply(...),            // TODO: FUSE_NOTIFY_REPLY since ABI 7.15
-    // BatchForget(...),            // TODO: FUSE_BATCH_FORGET since ABI 7.16
-    // FAllocate(...),              // TODO: FUSE_FALLOCATE since ABI 7.19
+    // TODO: FUSE_IOCTL since ABI 7.11
+    // IoCtl {
+    //     arg: &'a fuse_ioctl_in,
+    //     data: &'a [u8],
+    // },
+    // TODO: FUSE_POLL since ABI 7.11
+    // Poll {
+    //     arg: &'a fuse_poll_in,
+    // },
+    // TODO: FUSE_NOTIFY_REPLY since ABI 7.15
+    // NotifyReply {
+    //     data: &'a [u8],
+    // },
+    // TODO: FUSE_BATCH_FORGET since ABI 7.16
+    // BatchForget {
+    //     arg: &'a fuse_forget_in,
+    //     nodes: &'a [fuse_forget_one],
+    // },
+    // TODO: FUSE_FALLOCATE since ABI 7.19
+    // FAllocate {
+    //     arg: &'a fuse_fallocate_in,
+    // },
 
     #[cfg(target_os = "macos")]
-    SetVolName(&'a OsStr),
+    SetVolName {
+        name: &'a OsStr,
+    },
     #[cfg(target_os = "macos")]
     GetXTimes,
     #[cfg(target_os = "macos")]
-    Exchange(&'a fuse_exchange_in, &'a OsStr, &'a OsStr),
+    Exchange {
+        arg: &'a fuse_exchange_in,
+        oldname: &'a OsStr,
+        newname: &'a OsStr,
+    },
 
-    // CuseInit(...),               // TODO: CUSE_INIT since ABI 7.12
+    // TODO: CUSE_INIT since ABI 7.12
+    // CuseInit {
+    //     arg: &'a fuse_init_in,
+    // },
 }
 
 impl<'a> fmt::Display for Operation<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Operation::Lookup(name) => write!(f, "LOOKUP name {:?}", name),
-            Operation::Forget(arg) => write!(f, "FORGET nlookup {}", arg.nlookup),
+            Operation::Lookup { name } => write!(f, "LOOKUP name {:?}", name),
+            Operation::Forget { arg } => write!(f, "FORGET nlookup {}", arg.nlookup),
             Operation::GetAttr => write!(f, "GETATTR"),
-            Operation::SetAttr(arg) => write!(f, "SETATTR valid {:#x}", arg.valid),
+            Operation::SetAttr { arg } => write!(f, "SETATTR valid {:#x}", arg.valid),
             Operation::ReadLink => write!(f, "READLINK"),
-            Operation::SymLink(name, link) => write!(f, "SYMLINK name {:?}, link {:?}", name, link),
-            Operation::MkNod(arg, name) => write!(f, "MKNOD name {:?}, mode {:#05o}, rdev {}", name, arg.mode, arg.rdev),
-            Operation::MkDir(arg, name) => write!(f, "MKDIR name {:?}, mode {:#05o}", name, arg.mode),
-            Operation::Unlink(name) => write!(f, "UNLINK name {:?}", name),
-            Operation::RmDir(name) => write!(f, "RMDIR name {:?}", name),
-            Operation::Rename(arg, name, newname) => write!(f, "RENAME name {:?}, newdir {:#018x}, newname {:?}", name, arg.newdir, newname),
-            Operation::Link(arg, name) => write!(f, "LINK name {:?}, oldnodeid {:#018x}", name, arg.oldnodeid),
-            Operation::Open(arg) => write!(f, "OPEN flags {:#x}", arg.flags),
-            Operation::Read(arg) => write!(f, "READ fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
-            Operation::Write(arg, _data) => write!(f, "WRITE fh {}, offset {}, size {}, write flags {:#x}", arg.fh, arg.offset, arg.size, arg.write_flags),
+            Operation::SymLink { name, link } => write!(f, "SYMLINK name {:?}, link {:?}", name, link),
+            Operation::MkNod { arg, name } => write!(f, "MKNOD name {:?}, mode {:#05o}, rdev {}", name, arg.mode, arg.rdev),
+            Operation::MkDir { arg, name } => write!(f, "MKDIR name {:?}, mode {:#05o}", name, arg.mode),
+            Operation::Unlink { name } => write!(f, "UNLINK name {:?}", name),
+            Operation::RmDir { name } => write!(f, "RMDIR name {:?}", name),
+            Operation::Rename { arg, name, newname } => write!(f, "RENAME name {:?}, newdir {:#018x}, newname {:?}", name, arg.newdir, newname),
+            Operation::Link { arg, name } => write!(f, "LINK name {:?}, oldnodeid {:#018x}", name, arg.oldnodeid),
+            Operation::Open { arg } => write!(f, "OPEN flags {:#x}", arg.flags),
+            Operation::Read { arg } => write!(f, "READ fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
+            Operation::Write { arg, .. } => write!(f, "WRITE fh {}, offset {}, size {}, write flags {:#x}", arg.fh, arg.offset, arg.size, arg.write_flags),
             Operation::StatFs => write!(f, "STATFS"),
-            Operation::Release(arg) => write!(f, "RELEASE fh {}, flags {:#x}, release flags {:#x}, lock owner {}", arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
-            Operation::FSync(arg) => write!(f, "FSYNC fh {}, fsync flags {:#x}", arg.fh, arg.fsync_flags),
-            Operation::SetXAttr(arg, name, _value) => write!(f, "SETXATTR name {:?}, size {}, flags {:#x}", name, arg.size, arg.flags),
-            Operation::GetXAttr(arg, name) => write!(f, "GETXATTR name {:?}, size {}", name, arg.size),
-            Operation::ListXAttr(arg) => write!(f, "LISTXATTR size {}", arg.size),
-            Operation::RemoveXAttr(name) => write!(f, "REMOVEXATTR name {:?}", name),
-            Operation::Flush(arg) => write!(f, "FLUSH fh {}, lock owner {}", arg.fh, arg.lock_owner),
-            Operation::Init(arg) => write!(f, "INIT kernel ABI {}.{}, flags {:#x}, max readahead {}", arg.major, arg.minor, arg.flags, arg.max_readahead),
-            Operation::OpenDir(arg) => write!(f, "OPENDIR flags {:#x}", arg.flags),
-            Operation::ReadDir(arg) => write!(f, "READDIR fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
-            Operation::ReleaseDir(arg) => write!(f, "RELEASEDIR fh {}, flags {:#x}, release flags {:#x}, lock owner {}", arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
-            Operation::FSyncDir(arg) => write!(f, "FSYNCDIR fh {}, fsync flags {:#x}", arg.fh, arg.fsync_flags),
-            Operation::GetLk(arg) => write!(f, "GETLK fh {}, lock owner {}", arg.fh, arg.owner),
-            Operation::SetLk(arg) => write!(f, "SETLK fh {}, lock owner {}", arg.fh, arg.owner),
-            Operation::SetLkW(arg) => write!(f, "SETLKW fh {}, lock owner {}", arg.fh, arg.owner),
-            Operation::Access(arg) => write!(f, "ACCESS mask {:#05o}", arg.mask),
-            Operation::Create(arg, name) => write!(f, "CREATE name {:?}, mode {:#05o}, flags {:#x}", name, arg.mode, arg.flags),
-            Operation::Interrupt(arg) => write!(f, "INTERRUPT unique {}", arg.unique),
-            Operation::BMap(arg) => write!(f, "BMAP blocksize {}, ids {}", arg.blocksize, arg.block),
+            Operation::Release { arg } => write!(f, "RELEASE fh {}, flags {:#x}, release flags {:#x}, lock owner {}", arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
+            Operation::FSync { arg } => write!(f, "FSYNC fh {}, fsync flags {:#x}", arg.fh, arg.fsync_flags),
+            Operation::SetXAttr { arg, name, .. } => write!(f, "SETXATTR name {:?}, size {}, flags {:#x}", name, arg.size, arg.flags),
+            Operation::GetXAttr { arg, name } => write!(f, "GETXATTR name {:?}, size {}", name, arg.size),
+            Operation::ListXAttr { arg } => write!(f, "LISTXATTR size {}", arg.size),
+            Operation::RemoveXAttr { name } => write!(f, "REMOVEXATTR name {:?}", name),
+            Operation::Flush { arg } => write!(f, "FLUSH fh {}, lock owner {}", arg.fh, arg.lock_owner),
+            Operation::Init { arg } => write!(f, "INIT kernel ABI {}.{}, flags {:#x}, max readahead {}", arg.major, arg.minor, arg.flags, arg.max_readahead),
+            Operation::OpenDir { arg } => write!(f, "OPENDIR flags {:#x}", arg.flags),
+            Operation::ReadDir { arg } => write!(f, "READDIR fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
+            Operation::ReleaseDir { arg } => write!(f, "RELEASEDIR fh {}, flags {:#x}, release flags {:#x}, lock owner {}", arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
+            Operation::FSyncDir { arg } => write!(f, "FSYNCDIR fh {}, fsync flags {:#x}", arg.fh, arg.fsync_flags),
+            Operation::GetLk { arg } => write!(f, "GETLK fh {}, lock owner {}", arg.fh, arg.owner),
+            Operation::SetLk { arg } => write!(f, "SETLK fh {}, lock owner {}", arg.fh, arg.owner),
+            Operation::SetLkW { arg } => write!(f, "SETLKW fh {}, lock owner {}", arg.fh, arg.owner),
+            Operation::Access { arg } => write!(f, "ACCESS mask {:#05o}", arg.mask),
+            Operation::Create { arg, name } => write!(f, "CREATE name {:?}, mode {:#05o}, flags {:#x}", name, arg.mode, arg.flags),
+            Operation::Interrupt { arg } => write!(f, "INTERRUPT unique {}", arg.unique),
+            Operation::BMap { arg } => write!(f, "BMAP blocksize {}, ids {}", arg.blocksize, arg.block),
             Operation::Destroy => write!(f, "DESTROY"),
 
             #[cfg(target_os = "macos")]
-            Operation::SetVolName(name) => write!(f, "SETVOLNAME name {:?}", name),
+            Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
             #[cfg(target_os = "macos")]
             Operation::GetXTimes => write!(f, "GETXTIMES"),
             #[cfg(target_os = "macos")]
-            Operation::Exchange(arg, oldname, newname) => write!(f, "EXCHANGE olddir {:#018x}, oldname {:?}, newdir {:#018x}, newname {:?}, options {:#x}", arg.olddir, oldname, arg.newdir, newname, arg.options),
+            Operation::Exchange { arg, oldname, newname } => write!(f, "EXCHANGE olddir {:#018x}, oldname {:?}, newdir {:#018x}, newname {:?}, options {:#x}", arg.olddir, oldname, arg.newdir, newname, arg.options),
         }
     }
 }
@@ -148,49 +249,92 @@ impl<'a> Operation<'a> {
     fn parse(opcode: &fuse_opcode, data: &mut ArgumentIterator<'a>) -> Option<Self> {
         unsafe {
             Some(match opcode {
-                fuse_opcode::FUSE_LOOKUP => Operation::Lookup(data.fetch_str()?),
-                fuse_opcode::FUSE_FORGET => Operation::Forget(data.fetch()?),
+                fuse_opcode::FUSE_LOOKUP => Operation::Lookup {
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_FORGET => Operation::Forget { arg: data.fetch()? },
                 fuse_opcode::FUSE_GETATTR => Operation::GetAttr,
-                fuse_opcode::FUSE_SETATTR => Operation::SetAttr(data.fetch()?),
+                fuse_opcode::FUSE_SETATTR => Operation::SetAttr { arg: data.fetch()? },
                 fuse_opcode::FUSE_READLINK => Operation::ReadLink,
-                fuse_opcode::FUSE_SYMLINK => Operation::SymLink(data.fetch_str()?, data.fetch_str()?),
-                fuse_opcode::FUSE_MKNOD => Operation::MkNod(data.fetch()?, data.fetch_str()?),
-                fuse_opcode::FUSE_MKDIR => Operation::MkDir(data.fetch()?, data.fetch_str()?),
-                fuse_opcode::FUSE_UNLINK => Operation::Unlink(data.fetch_str()?),
-                fuse_opcode::FUSE_RMDIR => Operation::RmDir(data.fetch_str()?),
-                fuse_opcode::FUSE_RENAME => Operation::Rename(data.fetch()?, data.fetch_str()?, data.fetch_str()?),
-                fuse_opcode::FUSE_LINK => Operation::Link(data.fetch()?, data.fetch_str()?),
-                fuse_opcode::FUSE_OPEN => Operation::Open(data.fetch()?),
-                fuse_opcode::FUSE_READ => Operation::Read(data.fetch()?),
-                fuse_opcode::FUSE_WRITE => Operation::Write(data.fetch()?, data.fetch_all()),
+                fuse_opcode::FUSE_SYMLINK => Operation::SymLink {
+                    name: data.fetch_str()?,
+                    link: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_MKNOD => Operation::MkNod {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_MKDIR => Operation::MkDir {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_UNLINK => Operation::Unlink {
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_RMDIR => Operation::RmDir {
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_RENAME => Operation::Rename {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                    newname: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_LINK => Operation::Link {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_OPEN => Operation::Open { arg: data.fetch()? },
+                fuse_opcode::FUSE_READ => Operation::Read { arg: data.fetch()? },
+                fuse_opcode::FUSE_WRITE => Operation::Write {
+                    arg: data.fetch()?,
+                    data: data.fetch_all(),
+                },
                 fuse_opcode::FUSE_STATFS => Operation::StatFs,
-                fuse_opcode::FUSE_RELEASE => Operation::Release(data.fetch()?),
-                fuse_opcode::FUSE_FSYNC => Operation::FSync(data.fetch()?),
-                fuse_opcode::FUSE_SETXATTR => Operation::SetXAttr(data.fetch()?, data.fetch_str()?, data.fetch_all()),
-                fuse_opcode::FUSE_GETXATTR => Operation::GetXAttr(data.fetch()?, data.fetch_str()?),
-                fuse_opcode::FUSE_LISTXATTR => Operation::ListXAttr(data.fetch()?),
-                fuse_opcode::FUSE_REMOVEXATTR => Operation::RemoveXAttr(data.fetch_str()?),
-                fuse_opcode::FUSE_FLUSH => Operation::Flush(data.fetch()?),
-                fuse_opcode::FUSE_INIT => Operation::Init(data.fetch()?),
-                fuse_opcode::FUSE_OPENDIR => Operation::OpenDir(data.fetch()?),
-                fuse_opcode::FUSE_READDIR => Operation::ReadDir(data.fetch()?),
-                fuse_opcode::FUSE_RELEASEDIR => Operation::ReleaseDir(data.fetch()?),
-                fuse_opcode::FUSE_FSYNCDIR => Operation::FSyncDir(data.fetch()?),
-                fuse_opcode::FUSE_GETLK => Operation::GetLk(data.fetch()?),
-                fuse_opcode::FUSE_SETLK => Operation::SetLk(data.fetch()?),
-                fuse_opcode::FUSE_SETLKW => Operation::SetLkW(data.fetch()?),
-                fuse_opcode::FUSE_ACCESS => Operation::Access(data.fetch()?),
-                fuse_opcode::FUSE_CREATE => Operation::Create(data.fetch()?, data.fetch_str()?),
-                fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt(data.fetch()?),
-                fuse_opcode::FUSE_BMAP => Operation::BMap(data.fetch()?),
+                fuse_opcode::FUSE_RELEASE => Operation::Release { arg: data.fetch()? },
+                fuse_opcode::FUSE_FSYNC => Operation::FSync { arg: data.fetch()? },
+                fuse_opcode::FUSE_SETXATTR => Operation::SetXAttr {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                    value: data.fetch_all(),
+                },
+                fuse_opcode::FUSE_GETXATTR => Operation::GetXAttr {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_LISTXATTR => Operation::ListXAttr { arg: data.fetch()? },
+                fuse_opcode::FUSE_REMOVEXATTR => Operation::RemoveXAttr {
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_FLUSH => Operation::Flush { arg: data.fetch()? },
+                fuse_opcode::FUSE_INIT => Operation::Init { arg: data.fetch()? },
+                fuse_opcode::FUSE_OPENDIR => Operation::OpenDir { arg: data.fetch()? },
+                fuse_opcode::FUSE_READDIR => Operation::ReadDir { arg: data.fetch()? },
+                fuse_opcode::FUSE_RELEASEDIR => Operation::ReleaseDir { arg: data.fetch()? },
+                fuse_opcode::FUSE_FSYNCDIR => Operation::FSyncDir { arg: data.fetch()? },
+                fuse_opcode::FUSE_GETLK => Operation::GetLk { arg: data.fetch()? },
+                fuse_opcode::FUSE_SETLK => Operation::SetLk { arg: data.fetch()? },
+                fuse_opcode::FUSE_SETLKW => Operation::SetLkW { arg: data.fetch()? },
+                fuse_opcode::FUSE_ACCESS => Operation::Access { arg: data.fetch()? },
+                fuse_opcode::FUSE_CREATE => Operation::Create {
+                    arg: data.fetch()?,
+                    name: data.fetch_str()?,
+                },
+                fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt { arg: data.fetch()? },
+                fuse_opcode::FUSE_BMAP => Operation::BMap { arg: data.fetch()? },
                 fuse_opcode::FUSE_DESTROY => Operation::Destroy,
 
                 #[cfg(target_os = "macos")]
-                fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName(data.fetch_str()?),
+                fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {
+                    name: data.fetch_str()?,
+                },
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_GETXTIMES => Operation::GetXTimes,
                 #[cfg(target_os = "macos")]
-                fuse_opcode::FUSE_EXCHANGE => Operation::Exchange(data.fetch()?, data.fetch_str()?, data.fetch_str()?),
+                fuse_opcode::FUSE_EXCHANGE => Operation::Exchange {
+                    arg: data.fetch()?,
+                    oldname: data.fetch_str()?,
+                    newname: data.fetch_str()?,
+                },
             })
         }
     }
@@ -219,8 +363,8 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
         let data_len = data.len();
         let mut data = ArgumentIterator::new(data);
         // Parse header
-        let header: &fuse_in_header = unsafe { data.fetch() }
-            .ok_or_else(|| RequestError::ShortReadHeader(data.len()))?;
+        let header: &fuse_in_header =
+            unsafe { data.fetch() }.ok_or_else(|| RequestError::ShortReadHeader(data.len()))?;
         // Parse/check opcode
         let opcode = fuse_opcode::try_from(header.opcode)
             .map_err(|_: InvalidOpcodeError| RequestError::UnknownOperation(header.opcode))?;
@@ -229,8 +373,8 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
             return Err(RequestError::ShortRead(data_len, header.len as usize));
         }
         // Parse/check operation arguments
-        let operation = Operation::parse(&opcode, &mut data)
-            .ok_or_else(|| RequestError::InsufficientData)?;
+        let operation =
+            Operation::parse(&opcode, &mut data).ok_or_else(|| RequestError::InsufficientData)?;
         Ok(Self { header, operation })
     }
 }
@@ -353,7 +497,7 @@ mod tests {
         assert_eq!(req.gid(), 0xc001_cafe);
         assert_eq!(req.pid(), 0xc0de_ba5e);
         match req.operation() {
-            Operation::Init(arg) => {
+            Operation::Init { arg } => {
                 assert_eq!(arg.major, 7);
                 assert_eq!(arg.minor, 8);
                 assert_eq!(arg.max_readahead, 4096);
@@ -373,7 +517,7 @@ mod tests {
         assert_eq!(req.gid(), 0xc001_cafe);
         assert_eq!(req.pid(), 0xc0de_ba5e);
         match req.operation() {
-            Operation::MkNod(arg, name) => {
+            Operation::MkNod { arg, name } => {
                 assert_eq!(arg.mode, 0o644);
                 assert_eq!(*name, "foo.txt");
             }
