@@ -93,7 +93,7 @@ impl<'a> Request<'a> {
                     unused: 0,
                     max_write: MAX_WRITE_SIZE as u32,       // use a max write size that fits into the session's buffer
                 };
-                debug!("INIT({}) response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}", self.request.unique(), init.major, init.minor, init.flags, init.max_readahead, init.max_write);
+                debug!("INIT response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}", init.major, init.minor, init.flags, init.max_readahead, init.max_write);
                 se.initialized = true;
                 reply.ok(&init);
             }

@@ -94,6 +94,56 @@ pub enum Operation<'a> {
     // CuseInit(...),               // TODO: CUSE_INIT since ABI 7.12
 }
 
+impl<'a> fmt::Display for Operation<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operation::Lookup(name) => write!(f, "LOOKUP name {:?}", name),
+            Operation::Forget(arg) => write!(f, "FORGET nlookup {}", arg.nlookup),
+            Operation::GetAttr => write!(f, "GETATTR"),
+            Operation::SetAttr(arg) => write!(f, "SETATTR valid {:#x}", arg.valid),
+            Operation::ReadLink => write!(f, "READLINK"),
+            Operation::SymLink(name, link) => write!(f, "SYMLINK name {:?}, link {:?}", name, link),
+            Operation::MkNod(arg, name) => write!(f, "MKNOD name {:?}, mode {:#05o}, rdev {}", name, arg.mode, arg.rdev),
+            Operation::MkDir(arg, name) => write!(f, "MKDIR name {:?}, mode {:#05o}", name, arg.mode),
+            Operation::Unlink(name) => write!(f, "UNLINK name {:?}", name),
+            Operation::RmDir(name) => write!(f, "RMDIR name {:?}", name),
+            Operation::Rename(arg, name, newname) => write!(f, "RENAME name {:?}, newdir {:#018x}, newname {:?}", name, arg.newdir, newname),
+            Operation::Link(arg, name) => write!(f, "LINK name {:?}, oldnodeid {:#018x}", name, arg.oldnodeid),
+            Operation::Open(arg) => write!(f, "OPEN flags {:#x}", arg.flags),
+            Operation::Read(arg) => write!(f, "READ fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
+            Operation::Write(arg, _data) => write!(f, "WRITE fh {}, offset {}, size {}, write flags {:#x}", arg.fh, arg.offset, arg.size, arg.write_flags),
+            Operation::StatFs => write!(f, "STATFS"),
+            Operation::Release(arg) => write!(f, "RELEASE fh {}, flags {:#x}, release flags {:#x}, lock owner {}", arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
+            Operation::FSync(arg) => write!(f, "FSYNC fh {}, fsync flags {:#x}", arg.fh, arg.fsync_flags),
+            Operation::SetXAttr(arg, name, _value) => write!(f, "SETXATTR name {:?}, size {}, flags {:#x}", name, arg.size, arg.flags),
+            Operation::GetXAttr(arg, name) => write!(f, "GETXATTR name {:?}, size {}", name, arg.size),
+            Operation::ListXAttr(arg) => write!(f, "LISTXATTR size {}", arg.size),
+            Operation::RemoveXAttr(name) => write!(f, "REMOVEXATTR name {:?}", name),
+            Operation::Flush(arg) => write!(f, "FLUSH fh {}, lock owner {}", arg.fh, arg.lock_owner),
+            Operation::Init(arg) => write!(f, "INIT kernel ABI {}.{}, flags {:#x}, max readahead {}", arg.major, arg.minor, arg.flags, arg.max_readahead),
+            Operation::OpenDir(arg) => write!(f, "OPENDIR flags {:#x}", arg.flags),
+            Operation::ReadDir(arg) => write!(f, "READDIR fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
+            Operation::ReleaseDir(arg) => write!(f, "RELEASEDIR fh {}, flags {:#x}, release flags {:#x}, lock owner {}", arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
+            Operation::FSyncDir(arg) => write!(f, "FSYNCDIR fh {}, fsync flags {:#x}", arg.fh, arg.fsync_flags),
+            Operation::GetLk(arg) => write!(f, "GETLK fh {}, lock owner {}", arg.fh, arg.owner),
+            Operation::SetLk(arg) => write!(f, "SETLK fh {}, lock owner {}", arg.fh, arg.owner),
+            Operation::SetLkW(arg) => write!(f, "SETLKW fh {}, lock owner {}", arg.fh, arg.owner),
+            Operation::Access(arg) => write!(f, "ACCESS mask {:#05o}", arg.mask),
+            Operation::Create(arg, name) => write!(f, "CREATE name {:?}, mode {:#05o}, flags {:#x}", name, arg.mode, arg.flags),
+            Operation::Interrupt(arg) => write!(f, "INTERRUPT unique {}", arg.unique),
+            Operation::BMap(arg) => write!(f, "BMAP blocksize {}, ids {}", arg.blocksize, arg.block),
+            Operation::Destroy => write!(f, "DESTROY"),
+
+            #[cfg(target_os = "macos")]
+            Operation::SetVolName(name) => write!(f, "SETVOLNAME name {:?}", name),
+            #[cfg(target_os = "macos")]
+            Operation::GetXTimes => write!(f, "GETXTIMES"),
+            #[cfg(target_os = "macos")]
+            Operation::Exchange(arg, oldname, newname) => write!(f, "EXCHANGE olddir {:#018x}, oldname {:?}, newdir {:#018x}, newname {:?}, options {:#x}", arg.olddir, oldname, arg.newdir, newname, arg.options),
+        }
+    }
+}
+
 impl<'a> Operation<'a> {
     fn parse(opcode: &fuse_opcode, data: &mut ArgumentIterator<'a>) -> Option<Self> {
         unsafe {
@@ -156,51 +206,7 @@ pub struct Request<'a> {
 
 impl<'a> fmt::Display for Request<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.operation {
-            Operation::Lookup(name) => write!(f, "LOOKUP({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name),
-            Operation::Forget(arg) => write!(f, "FORGET({}) ino {:#018x}, nlookup {}", self.header.unique, self.header.nodeid, arg.nlookup),
-            Operation::GetAttr => write!(f, "GETATTR({}) ino {:#018x}", self.header.unique, self.header.nodeid),
-            Operation::SetAttr(arg) => write!(f, "SETATTR({}) ino {:#018x}, valid {:#x}", self.header.unique, self.header.nodeid, arg.valid),
-            Operation::ReadLink => write!(f, "READLINK({}) ino {:#018x}", self.header.unique, self.header.nodeid),
-            Operation::SymLink(name, link) => write!(f, "SYMLINK({}) parent {:#018x}, name {:?}, link {:?}", self.header.unique, self.header.nodeid, name, link),
-            Operation::MkNod(arg, name) => write!(f, "MKNOD({}) parent {:#018x}, name {:?}, mode {:#05o}, rdev {}", self.header.unique, self.header.nodeid, name, arg.mode, arg.rdev),
-            Operation::MkDir(arg, name) => write!(f, "MKDIR({}) parent {:#018x}, name {:?}, mode {:#05o}", self.header.unique, self.header.nodeid, name, arg.mode),
-            Operation::Unlink(name) => write!(f, "UNLINK({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name),
-            Operation::RmDir(name) => write!(f, "RMDIR({}) parent {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name),
-            Operation::Rename(arg, name, newname) => write!(f, "RENAME({}) parent {:#018x}, name {:?}, newparent {:#018x}, newname {:?}", self.header.unique, self.header.nodeid, name, arg.newdir, newname),
-            Operation::Link(arg, newname) => write!(f, "LINK({}) ino {:#018x}, newparent {:#018x}, newname {:?}", self.header.unique, arg.oldnodeid, self.header.nodeid, newname),
-            Operation::Open(arg) => write!(f, "OPEN({}) ino {:#018x}, flags {:#x}", self.header.unique, self.header.nodeid, arg.flags),
-            Operation::Read(arg) => write!(f, "READ({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size),
-            Operation::Write(arg, _data) => write!(f, "WRITE({}) ino {:#018x}, fh {}, offset {}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size, arg.write_flags),
-            Operation::StatFs => write!(f, "STATFS({}) ino {:#018x}", self.header.unique, self.header.nodeid),
-            Operation::Release(arg) => write!(f, "RELEASE({}) ino {:#018x}, fh {}, flags {:#x}, release flags {:#x}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
-            Operation::FSync(arg) => write!(f, "FSYNC({}) ino {:#018x}, fh {}, flags {:#x}", self.header.unique, self.header.nodeid, arg.fh, arg.fsync_flags),
-            Operation::SetXAttr(arg, name, _value) => write!(f, "SETXATTR({}) ino {:#018x}, name {:?}, size {}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.size, arg.flags),
-            Operation::GetXAttr(arg, name) => write!(f, "GETXATTR({}) ino {:#018x}, name {:?}, size {}", self.header.unique, self.header.nodeid, name, arg.size),
-            Operation::ListXAttr(arg) => write!(f, "LISTXATTR({}) ino {:#018x}, size {}", self.header.unique, self.header.nodeid, arg.size),
-            Operation::RemoveXAttr(name) => write!(f, "REMOVEXATTR({}) ino {:#018x}, name {:?}", self.header.unique, self.header.nodeid, name),
-            Operation::Flush(arg) => write!(f, "FLUSH({}) ino {:#018x}, fh {}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.lock_owner),
-            Operation::Init(arg) => write!(f, "INIT({}) kernel ABI {}.{}, flags {:#x}, max readahead {}", self.header.unique, arg.major, arg.minor, arg.flags, arg.max_readahead),
-            Operation::OpenDir(arg) => write!(f, "OPENDIR({}) ino {:#018x}, flags {:#x}", self.header.unique, self.header.nodeid, arg.flags),
-            Operation::ReadDir(arg) => write!(f, "READDIR({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size),
-            Operation::ReleaseDir(arg) => write!(f, "RELEASEDIR({}) ino {:#018x}, fh {}, flags {:#x}, release flags {:#x}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.flags, arg.release_flags, arg.lock_owner),
-            Operation::FSyncDir(arg) => write!(f, "FSYNCDIR({}) ino {:#018x}, fh {}, flags {:#x}", self.header.unique, self.header.nodeid, arg.fh, arg.fsync_flags),
-            Operation::GetLk(arg) => write!(f, "GETLK({}) ino {:#018x}, fh {}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.owner),
-            Operation::SetLk(arg) => write!(f, "SETLK({}) ino {:#018x}, fh {}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.owner),
-            Operation::SetLkW(arg) => write!(f, "SETLKW({}) ino {:#018x}, fh {}, lock owner {}", self.header.unique, self.header.nodeid, arg.fh, arg.owner),
-            Operation::Access(arg) => write!(f, "ACCESS({}) ino {:#018x}, mask {:#05o}", self.header.unique, self.header.nodeid, arg.mask),
-            Operation::Create(arg, name) => write!(f, "CREATE({}) parent {:#018x}, name {:?}, mode {:#05o}, flags {:#x}", self.header.unique, self.header.nodeid, name, arg.mode, arg.flags),
-            Operation::Interrupt(arg) => write!(f, "INTERRUPT({}) unique {}", self.header.unique, arg.unique),
-            Operation::BMap(arg) => write!(f, "BMAP({}) ino {:#018x}, blocksize {}, ids {}", self.header.unique, self.header.nodeid, arg.blocksize, arg.block),
-            Operation::Destroy => write!(f, "DESTROY({})", self.header.unique),
-
-            #[cfg(target_os = "macos")]
-            Operation::SetVolName(name) => write!(f, "SETVOLNAME({}) name {:?}", self.header.unique, name),
-            #[cfg(target_os = "macos")]
-            Operation::GetXTimes => write!(f, "GETXTIMES({}) ino {:#018x}", self.header.unique, self.header.nodeid),
-            #[cfg(target_os = "macos")]
-            Operation::Exchange(arg, oldname, newname) => write!(f, "EXCHANGE({}) parent {:#018x}, name {:?}, newparent {:#018x}, newname {:?}, options {:#x}", self.header.unique, arg.olddir, oldname, arg.newdir, newname, arg.options),
-        }
+        write!(f, "FUSE({:3}) ino {:#018x}: {}", self.header.unique, self.header.nodeid, self.operation)
     }
 }
 
