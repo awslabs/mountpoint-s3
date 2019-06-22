@@ -14,7 +14,7 @@ use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{error, info};
 
 use crate::channel::{self, Channel};
-use crate::request;
+use crate::request::Request;
 use crate::Filesystem;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
@@ -76,9 +76,9 @@ impl<FS: Filesystem> Session<FS> {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
             match self.ch.receive(&mut buffer) {
-                Ok(()) => match request::request(self.ch.sender(), &buffer) {
+                Ok(()) => match Request::new(self.ch.sender(), &buffer) {
                     // Dispatch request
-                    Some(req) => request::dispatch(&req, self),
+                    Some(req) => req.dispatch(self),
                     // Quit loop on illegal request
                     None => break,
                 },

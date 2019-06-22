@@ -7,6 +7,7 @@ description = "FFI bindings to the FUSE kernel interface and libfuse"
 documentation = "https://docs.rs/fuse"
 homepage = "https://github.com/zargony/rust-fuse"
 repository = "https://github.com/zargony/rust-fuse"
+readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "filesystem", "os::unix-apis"]
 license = "MIT"
