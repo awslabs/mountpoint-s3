@@ -27,3 +27,6 @@ thread-scoped = "1.0.2"
 
 [dev-dependencies]
 env_logger = "0.6.0"
+
+[features]
+abi-7-9 = ["fuse-abi/abi-7-9"]
