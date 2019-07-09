@@ -22,6 +22,8 @@
 #![allow(missing_docs)]
 
 use std::convert::TryFrom;
+#[cfg(feature = "abi-7-9")]
+use crate::consts::{FATTR_ATIME_NOW, FATTR_MTIME_NOW};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
@@ -549,6 +551,28 @@ pub struct fuse_setattr_in {
     pub crtimensec: u32,
     #[cfg(target_os = "macos")]
     pub flags: u32,                                     // see chflags(2)
+}
+
+impl fuse_setattr_in {
+    #[cfg(feature = "abi-7-9")]
+    pub fn atime_now(&self) -> bool {
+        self.valid & FATTR_ATIME_NOW != 0
+    }
+
+    #[cfg(not(feature = "abi-7-9"))]
+    pub fn atime_now(&self) -> bool {
+        false
+    }
+
+    #[cfg(feature = "abi-7-9")]
+    pub fn mtime_now(&self) -> bool {
+        self.valid & FATTR_MTIME_NOW != 0
+    }
+
+    #[cfg(not(feature = "abi-7-9"))]
+    pub fn mtime_now(&self) -> bool {
+        false
+    }
 }
 
 #[repr(C)]

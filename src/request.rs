@@ -183,7 +183,7 @@ impl<'a> Request<'a> {
                     (None, None, None, None)
                 }
                 let (crtime, chgtime, bkuptime, flags) = get_macos_setattr(arg);
-                se.filesystem.setattr(self, self.request.nodeid(), mode, uid, gid, size, atime, mtime, fh, crtime, chgtime, bkuptime, flags, self.reply());
+                se.filesystem.setattr(self, self.request.nodeid(), mode, uid, gid, size, atime, arg.atime_now(), mtime, arg.mtime_now(), fh, crtime, chgtime, bkuptime, flags, self.reply());
             }
             ll::Operation::ReadLink => {
                 se.filesystem.readlink(self, self.request.nodeid(), self.reply());
