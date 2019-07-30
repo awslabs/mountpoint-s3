@@ -6,33 +6,69 @@
 
 ## About
 
-[Rust](http://rust-lang.org/) library for easy implementation of [FUSE](http://osxfuse.github.io) filesystems in userspace.
+**FUSE-Rust** is a [Rust] library crate for easy implementation of [FUSE filesystems][FUSE for Linux] in userspace.
 
-This library does not just provide bindings, it is actually an improved rewrite of the original FUSE C library to fully take advantage of Rust's architecture.
+FUSE-Rust does not just provide bindings, it is a rewrite of the original FUSE C library to fully take advantage of Rust's architecture.
 
 This library was originally forked from the [`fuse` crate](https://github.com/zargony/fuse-rs)
 
 ## Documentation
 
-[FUSE-Rust reference](https://docs.rs/fuser)
+[FUSE-Rust reference][Documentation]
+>>>>>>> abddaa3... Update README
 
 ## Details
 
 A working FUSE filesystem consists of three parts:
 
-1. The kernel driver that registers as a filesystem and forwards operations into a communication channel to a userspace process that handles them.
-1. The userspace library (libfuse) that helps the userspace process to establish and run communication with the kernel driver.
-1. The userspace implementation that actually processes the filesystem operations.
+1. The **kernel driver** that registers as a filesystem and forwards operations into a communication channel to a userspace process that handles them.
+1. The **userspace library** (libfuse) that helps the userspace process to establish and run communication with the kernel driver.
+1. The **userspace implementation** that actually processes the filesystem operations.
 
-The kernel driver is provided by the FUSE project, the userspace implementation needs to be provided by the developer. This Rust library provides a replacement for the libfuse userspace library between these two. This way, a developer can fully take advantage of the Rust type interface and runtime features when building a FUSE filesystem in Rust.
+The kernel driver is provided by the FUSE project, the userspace implementation needs to be provided by the developer. FUSE-Rust provides a replacement for the libfuse userspace library between these two. This way, a developer can fully take advantage of the Rust type interface and runtime features when building a FUSE filesystem in Rust.
 
 Except for a single setup (mount) function call and a final teardown (umount) function call to libfuse, everything runs in Rust.
 
 ## Dependencies
 
-To run a program that mounts a FUSE filesystem, the target system needs FUSE (OSXFUSE on macOS) to be properly installed (i.e. kernel driver and libraries. Some platforms may also require userland utils like `fusermount`). A default installation of package `fuse` on Linux, `fusefs-libs` on FreeBSD, or `OSXFUSE` on macOS is usually sufficient.
+FUSE must be installed to build or run programs that use FUSE-Rust (i.e. kernel driver and libraries. Some platforms may also require userland utils like `fusermount`). A default installation of FUSE is usually sufficient.
 
-To build, the host system needs FUSE libraries and headers installed. On Linux, the header package is usually called `libfuse-dev`. On FreeBSD and macOS, `fusefs-libs`/`OSXFUSE` installs everything that's needed. The build process also requires `pkg-config` to locate headers and libraries.
+To build FUSE-Rust or any program that depends on it, `pkg-config` needs to be installed as well.
+
+### Linux
+
+[FUSE for Linux] is available in most Linux distributions. To install on a Debian based system:
+
+```sh
+sudo apt-get install fuse
+```
+
+To build, FUSE libraries and headers are required. The header package is usually called `libfuse-dev`. Also `pkg-config` is required for locating libraries and headers.
+
+```sh
+sudo apt-get install libfuse-dev pkg-config
+```
+
+### macOS
+
+Installer packages can be downloaded from the [FUSE for macOS homepage][FUSE for macOS].
+
+To install using [Homebrew]:
+
+```sh
+brew cask install osxfuse
+```
+
+To install `pkg-config` (required for building only):
+
+```sh
+brew install pkg-config
+```
+
+### FreeBSD
+
+<!-- TODO: need more detailed FreeBSD instructions -->
+Install packages `fusefs-libs` and `pkg-config`.
 
 ## Usage
 
@@ -43,31 +79,29 @@ Put this in your `Cargo.toml`:
 fuser = "0.4"
 ```
 
-To create a new filesystem, implement the trait `Filesystem`. Filesystem operations from the kernel are dispatched to the methods of the `Filesystem` trait. Most methods get a `reply` parameter that must be used to eventually answer the request. All methods have default implementations that reply with neutral answers, so if you implement no method at all, you still get a mountable filesystem that does nothing.
-
-To actually mount the filesystem, pass an object that implements `Filesystem` and the path of an (existing) mountpoint to the `mount` function. `mount` will not return until the filesystem is unmounted.
-
-To mount a filesystem and keep running other code, use `spawn_mount` instead of `mount`. `spawn_mount` spawns a background thread to handle filesystem operations while the filesystem is mounted. It returns a handle that should be stored to reference the mounted filesystem. If the handle is dropped, the filesystem is unmounted.
-
-To unmount a filesystem, use any arbitrary unmount/eject method of your OS.
-
-See the examples directory for some basic examples.
+To create a new filesystem, implement the trait `fuser::Filesystem`. See the [documentation] for details or the `examples` directory for some basic examples.
 
 ## To Do
 
-There's still a lot of stuff to be done. Feel free to contribute.
-
-- Interrupting a filesystem operation isn't handled yet.
-- An additional more high level API would be nice. It should provide pathnames instead inode numbers and automatically handle concurrency and interruption (like the FUSE C library's high level API).
-
-In general, see the [list of issues](https://github.com/cberner/fuser/issues) on GitHub and search the source files for comments containing "TODO" or "FIXME" to see what's still missing.
+There's still a lot of stuff to be done. Feel free to contribute. See the [list of issues][issues] on GitHub and search the source files for comments containing "`TODO`" or "`FIXME`" to see what's still missing.
 
 ## Compatibility
 
-Developed and tested on macOS with [OSXFUSE](http://osxfuse.github.io) and on Linux with [FUSE](http://fuse.sourceforge.net), using stable, beta and nightly [Rust versions](http://www.rust-lang.org/install.html) (see [Travis CI](https://travis-ci.org/cberner/fuser) for details).
-
-[FreeBSD](https://wiki.freebsd.org/FuseFilesystem) also works, but is not tested in CI.
+Developed and tested on macOS. Tested under [Linux][FUSE for Linux], [macOS][FUSE for macOS] and [FreeBSD][FUSE for FreeBSD] using stable, beta and nightly [Rust] versions (see [Travis CI] for details).
 
 ## Contribution
 
-Fork, hack, submit pull request. Make sure to make it useful for the target audience, keep the project's philosophy and Rust coding standards in mind. For larger or essential changes, you may want to open an issue for discussion first. Also remember to update the [Changelog](https://keepachangelog.com/en/1.0.0/) if your changes are relevant to the users.
+Fork, hack, submit pull request. Make sure to make it useful for the target audience, keep the project's philosophy and Rust coding standards in mind. For larger or essential changes, you may want to open an issue for discussion first. Also remember to update the [Changelog] if your changes are relevant to the users.
+
+[Rust]: https://rust-lang.org
+[Homebrew]: https://brew.sh
+[Changelog]: https://keepachangelog.com/en/1.0.0/
+
+[FUSE-Rust]: https://github.com/cberner/fuser
+[issues]: https://github.com/cberner/fuser/issues
+[Documentation]: https://docs.rs/fuser
+[Travis CI]: https://travis-ci.com/cberner/fuser
+
+[FUSE for Linux]: https://github.com/libfuse/libfuse/
+[FUSE for macOS]: https://osxfuse.github.io
+[FUSE for FreeBSD]: https://wiki.freebsd.org/FuseFilesystem
