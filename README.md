@@ -37,16 +37,26 @@ To build FUSE-Rust or any program that depends on it, `pkg-config` needs to be i
 
 ### Linux
 
-[FUSE for Linux] is available in most Linux distributions. To install on a Debian based system:
+[FUSE for Linux] is available in most Linux distributions and usually called `fuse`. To install on a Debian based system:
 
 ```sh
 sudo apt-get install fuse
 ```
 
-To build, FUSE libraries and headers are required. The header package is usually called `libfuse-dev`. Also `pkg-config` is required for locating libraries and headers.
+Install on CentOS:
+
+```sh
+sudo yum install fuse
+```
+
+To build, FUSE libraries and headers are required. The package is usually called `libfuse-dev` or `fuse-devel`. Also `pkg-config` is required for locating libraries and headers.
 
 ```sh
 sudo apt-get install libfuse-dev pkg-config
+```
+
+```sh
+sudo yum install fuse-devel pkgconfig
 ```
 
 ### macOS
