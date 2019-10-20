@@ -153,15 +153,15 @@ pub enum Operation<'a> {
         arg: &'a fuse_bmap_in,
     },
     Destroy,
-    // TODO: FUSE_IOCTL since ABI 7.11
-    // IoCtl {
-    //     arg: &'a fuse_ioctl_in,
-    //     data: &'a [u8],
-    // },
-    // TODO: FUSE_POLL since ABI 7.11
-    // Poll {
-    //     arg: &'a fuse_poll_in,
-    // },
+    #[cfg(feature = "abi-7-11")]
+    IoCtl {
+        arg: &'a fuse_ioctl_in,
+        data: &'a [u8],
+    },
+    #[cfg(feature = "abi-7-11")]
+    Poll {
+        arg: &'a fuse_poll_in,
+    },
     // TODO: FUSE_NOTIFY_REPLY since ABI 7.15
     // NotifyReply {
     //     data: &'a [u8],
@@ -234,6 +234,10 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::Interrupt { arg } => write!(f, "INTERRUPT unique {}", arg.unique),
             Operation::BMap { arg } => write!(f, "BMAP blocksize {}, ids {}", arg.blocksize, arg.block),
             Operation::Destroy => write!(f, "DESTROY"),
+            #[cfg(feature = "abi-7-11")]
+            Operation::IoCtl { arg, data} => write!(f, "IOCTL fh {}, cmd {}, data size {}, flags {:#x}", arg.fh, arg.cmd, data.len(), arg.flags),
+            #[cfg(feature = "abi-7-11")]
+            Operation::Poll { arg } => write!(f, "POLL fh {}, flags {:#x}", arg.fh, arg.flags),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
@@ -322,6 +326,10 @@ impl<'a> Operation<'a> {
                 fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt { arg: data.fetch()? },
                 fuse_opcode::FUSE_BMAP => Operation::BMap { arg: data.fetch()? },
                 fuse_opcode::FUSE_DESTROY => Operation::Destroy,
+                #[cfg(feature = "abi-7-11")]
+                fuse_opcode::FUSE_IOCTL => Operation::IoCtl { arg: data.fetch()?, data: data.fetch_all()},
+                #[cfg(feature = "abi-7-11")]
+                fuse_opcode::FUSE_POLL => Operation::Poll { arg: data.fetch()?},
 
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {

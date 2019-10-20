@@ -293,6 +293,17 @@ impl<'a> Request<'a> {
                 se.filesystem.bmap(self, self.request.nodeid(), arg.blocksize, arg.block, self.reply());
             }
 
+            #[cfg(feature = "abi-7-11")]
+            ll::Operation::IoCtl { arg: _, data: _ } => {
+                // TODO: handle FUSE_IOCTL
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            },
+            #[cfg(feature = "abi-7-11")]
+            ll::Operation::Poll { arg: _ } => {
+                // TODO: handle FUSE_POLL
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            },
+
             #[cfg(target_os = "macos")]
             ll::Operation::SetVolName { name } => {
                 se.filesystem.setvolname(self, name, self.reply());

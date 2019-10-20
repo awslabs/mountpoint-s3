@@ -30,3 +30,5 @@ env_logger = "0.6.0"
 
 [features]
 abi-7-9 = ["fuse-abi/abi-7-9"]
+abi-7-10 = ["abi-7-9", "fuse-abi/abi-7-10"]
+abi-7-11 = ["abi-7-10", "fuse-abi/abi-7-11"]

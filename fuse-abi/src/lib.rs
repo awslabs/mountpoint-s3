@@ -391,7 +391,7 @@ pub enum fuse_notify_code {
 impl TryFrom<u32> for fuse_notify_code {
     type Error = InvalidNotifyCodeError;
 
-    fn from_u32 (n: u32) -> Result<Self, Self::Error> {
+    fn try_from (n: u32) -> Result<Self, Self::Error> {
         match n {
             #[cfg(feature = "abi-7-11")]
             1 => Ok(fuse_notify_code::FUSE_POLL),
