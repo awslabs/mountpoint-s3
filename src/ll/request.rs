@@ -162,19 +162,19 @@ pub enum Operation<'a> {
     Poll {
         arg: &'a fuse_poll_in,
     },
-    // TODO: FUSE_NOTIFY_REPLY since ABI 7.15
-    // NotifyReply {
-    //     data: &'a [u8],
-    // },
-    // TODO: FUSE_BATCH_FORGET since ABI 7.16
-    // BatchForget {
-    //     arg: &'a fuse_forget_in,
-    //     nodes: &'a [fuse_forget_one],
-    // },
-    // TODO: FUSE_FALLOCATE since ABI 7.19
-    // FAllocate {
-    //     arg: &'a fuse_fallocate_in,
-    // },
+    #[cfg(feature = "abi-7-15")]
+    NotifyReply {
+        data: &'a [u8],
+    },
+    #[cfg(feature = "abi-7-16")]
+    BatchForget {
+        arg: &'a fuse_forget_in,
+        nodes: &'a [fuse_forget_one],
+    },
+    #[cfg(feature = "abi-7-19")]
+    FAllocate {
+        arg: &'a fuse_fallocate_in,
+    },
 
     #[cfg(target_os = "macos")]
     SetVolName {
@@ -189,10 +189,10 @@ pub enum Operation<'a> {
         newname: &'a OsStr,
     },
 
-    // TODO: CUSE_INIT since ABI 7.12
-    // CuseInit {
-    //     arg: &'a fuse_init_in,
-    // },
+    #[cfg(feature = "abi-7-12")]
+    CuseInit {
+        arg: &'a fuse_init_in,
+    },
 }
 
 impl<'a> fmt::Display for Operation<'a> {
@@ -238,6 +238,12 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::IoCtl { arg, data} => write!(f, "IOCTL fh {}, cmd {}, data size {}, flags {:#x}", arg.fh, arg.cmd, data.len(), arg.flags),
             #[cfg(feature = "abi-7-11")]
             Operation::Poll { arg } => write!(f, "POLL fh {}, flags {:#x}", arg.fh, arg.flags),
+            #[cfg(feature = "abi-7-15")]
+            Operation::NotifyReply { data } => write!(f, "NOTIFYREPLY data len {}", data.len()),
+            #[cfg(feature = "abi-7-16")]
+            Operation::BatchForget { arg, nodes } => write!(f, "BATCHFORGET nodes {}, nlookup {}", nodes.len(), arg.nlookup),
+            #[cfg(feature = "abi-7-19")]
+            Operation::FAllocate { arg: _ } => write!(f, "FALLOCATE"),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
@@ -245,6 +251,9 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::GetXTimes => write!(f, "GETXTIMES"),
             #[cfg(target_os = "macos")]
             Operation::Exchange { arg, oldname, newname } => write!(f, "EXCHANGE olddir {:#018x}, oldname {:?}, newdir {:#018x}, newname {:?}, options {:#x}", arg.olddir, oldname, arg.newdir, newname, arg.options),
+
+            #[cfg(feature = "abi-7-12")]
+            Operation::CuseInit { arg } => write!(f, "CUSE_INIT kernel ABI {}.{}, flags {:#x}, max readahead {}", arg.major, arg.minor, arg.flags, arg.max_readahead),
         }
     }
 }
@@ -330,6 +339,13 @@ impl<'a> Operation<'a> {
                 fuse_opcode::FUSE_IOCTL => Operation::IoCtl { arg: data.fetch()?, data: data.fetch_all()},
                 #[cfg(feature = "abi-7-11")]
                 fuse_opcode::FUSE_POLL => Operation::Poll { arg: data.fetch()?},
+                #[cfg(feature = "abi-7-15")]
+                fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply { data: data.fetch_all()},
+                #[cfg(feature = "abi-7-16")]
+                // TODO: parse the nodes
+                fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget { arg: data.fetch()?, nodes: &[]},
+                #[cfg(feature = "abi-7-19")]
+                fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate { arg: data.fetch()? },
 
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {
@@ -343,6 +359,9 @@ impl<'a> Operation<'a> {
                     oldname: data.fetch_str()?,
                     newname: data.fetch_str()?,
                 },
+
+                #[cfg(feature = "abi-7-12")]
+                fuse_opcode::CUSE_INIT => Operation::CuseInit { arg: data.fetch()? },
             })
         }
     }
@@ -467,7 +486,7 @@ mod tests {
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
     ];
 
-    #[cfg(target_endian = "little")]
+    #[cfg(all(target_endian = "little", not(feature = "abi-7-12")))]
     const MKNOD_REQUEST: [u8; 56] = [
         0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
@@ -475,6 +494,18 @@ mod tests {
         0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
         0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
+        0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
+    ];
+
+    #[cfg(all(target_endian = "little", feature = "abi-7-12"))]
+    const MKNOD_REQUEST: [u8; 64] = [
+        0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
+        0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
+        0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
+        0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
+        0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
+        0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
+        0xed, 0x01, 0x00, 0x00, 0xe7, 0x03, 0x00, 0x00, // umask, padding
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
     ];
 
@@ -527,6 +558,10 @@ mod tests {
         match req.operation() {
             Operation::MkNod { arg, name } => {
                 assert_eq!(arg.mode, 0o644);
+                #[cfg(feature = "abi-7-12")]
+                assert_eq!(arg.umask, 0o755);
+                #[cfg(feature = "abi-7-12")]
+                assert_eq!(arg.padding, 999);
                 assert_eq!(*name, "foo.txt");
             }
             _ => panic!("Unexpected request operation"),

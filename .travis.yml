@@ -8,18 +8,18 @@ rust:
   - nightly
 env:
   - FEATURES=
-  - FEATURES=abi-7-9
+  - FEATURES=abi-7-19
 matrix:
   allow_failures:
     - rust: nightly
   # Avoid excessive number of tests
   exclude:
     - rust: beta
-      env: FEATURES=abi-7-9
+      env: FEATURES=abi-7-19
     - rust: nightly
-      env: FEATURES=abi-7-9
+      env: FEATURES=abi-7-19
     - os: osx
-      env: FEATURES=abi-7-9
+      env: FEATURES=abi-7-19
 install:
   - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get update && sudo apt-get install -y libfuse-dev; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update && brew cask install osxfuse; fi

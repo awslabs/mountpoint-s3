@@ -89,7 +89,12 @@ impl<'a> Request<'a> {
                     minor: FUSE_KERNEL_MINOR_VERSION,
                     max_readahead: arg.max_readahead,       // accept any readahead size
                     flags: arg.flags & INIT_FLAGS,          // use features given in INIT_FLAGS and reported as capable
+                    #[cfg(not(feature = "abi-7-13"))]
                     unused: 0,
+                    #[cfg(feature = "abi-7-13")]
+                    max_background: 16, // TODO: this is just a placeholder. Make it configurable
+                    #[cfg(feature = "abi-7-13")]
+                    congestion_threshold: 32, // TODO: this is just a placeholder. Make it configurable
                     max_write: MAX_WRITE_SIZE as u32,       // use a max write size that fits into the session's buffer
                 };
                 debug!("INIT response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}", init.major, init.minor, init.flags, init.max_readahead, init.max_write);
@@ -303,6 +308,21 @@ impl<'a> Request<'a> {
                 // TODO: handle FUSE_POLL
                 self.reply::<ReplyEmpty>().error(ENOSYS);
             },
+            #[cfg(feature = "abi-7-15")]
+            ll::Operation::NotifyReply { data: _ } => {
+                // TODO: handle FUSE_NOTIFY_REPLY
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            },
+            #[cfg(feature = "abi-7-16")]
+            ll::Operation::BatchForget { arg: _, nodes: _ } => {
+                // TODO: handle FUSE_BATCH_FORGET
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            },
+            #[cfg(feature = "abi-7-19")]
+            ll::Operation::FAllocate { arg: _ } => {
+                // TODO: handle FUSE_FALLOCATE
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            },
 
             #[cfg(target_os = "macos")]
             ll::Operation::SetVolName { name } => {
@@ -316,6 +336,12 @@ impl<'a> Request<'a> {
             ll::Operation::Exchange { arg, oldname, newname } => {
                 se.filesystem.exchange(self, arg.olddir, &oldname, arg.newdir, &newname, arg.options, self.reply());
             }
+
+            #[cfg(feature = "abi-7-12")]
+            ll::Operation::CuseInit { arg: _ } => {
+                // TODO: handle CUSE_INIT
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            },
         }
     }
 
