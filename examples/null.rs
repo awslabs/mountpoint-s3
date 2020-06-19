@@ -1,5 +1,5 @@
 use std::env;
-use fuse::Filesystem;
+use fuser::Filesystem;
 
 struct NullFS;
 
@@ -8,5 +8,5 @@ impl Filesystem for NullFS {}
 fn main() {
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
-    fuse::mount(NullFS, mountpoint, &[]).unwrap();
+    fuser::mount(NullFS, mountpoint, &[]).unwrap();
 }

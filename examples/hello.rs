@@ -2,7 +2,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 use libc::ENOENT;
-use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
+use fuser::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
 
 const TTL: Duration = Duration::from_secs(1);           // 1 second
 
@@ -100,5 +100,5 @@ fn main() {
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    fuse::mount(HelloFS, mountpoint, &options).unwrap();
+    fuser::mount(HelloFS, mountpoint, &options).unwrap();
 }

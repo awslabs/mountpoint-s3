@@ -1,7 +1,8 @@
-# Rust FUSE - Changelog
+# FUSE for Rust - Changelog
 
 ## 0.4.0 - UNRELEASED
 
+* Forked as `fuser` crate, at https://github.com/cberner/fuser
 * Split into `fuse`, `fuse-abi` and `fuse-sys` crate
 
 ## 0.3.1 - 2017-11-08

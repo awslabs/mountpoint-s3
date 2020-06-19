@@ -1,12 +1,12 @@
 [package]
-name = "fuse-abi"
+name = "fuser-abi"
 edition = "2018"
-version = "0.4.0-dev"
-authors = ["Andreas Neuhaus <zargony@zargony.com>"]
+version = "0.4.0"
+authors = ["Christopher Berner <christopherberner@gmail.com"]
 description = "ABI types for communicating with the FUSE kernel interface"
-documentation = "https://docs.rs/fuse"
-homepage = "https://github.com/zargony/rust-fuse"
-repository = "https://github.com/zargony/rust-fuse"
+documentation = "https://docs.rs/fuser"
+homepage = "https://github.com/cberner/fuser"
+repository = "https://github.com/cberner/fuser"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "filesystem", "os::unix-apis"]

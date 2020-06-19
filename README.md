@@ -1,8 +1,8 @@
 # Rust FUSE - Filesystem in Userspace
 
-[![Build Status](https://travis-ci.org/zargony/rust-fuse.svg?branch=master)](https://travis-ci.org/zargony/rust-fuse)
-[![Crates.io](https://img.shields.io/crates/v/fuse.svg)](https://crates.io/crates/fuse)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/zargony/rust-fuse/blob/master/LICENSE.md)
+[![Build Status](https://travis-ci.org/cberner/fuser.svg?branch=master)](https://travis-ci.org/cberner/fuser)
+[![Crates.io](https://img.shields.io/crates/v/fuser.svg)](https://crates.io/crates/fuser)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/cberner/fuser/blob/master/LICENSE.md)
 
 ## About
 
@@ -10,9 +10,11 @@
 
 This library does not just provide bindings, it is actually an improved rewrite of the original FUSE C library to fully take advantage of Rust's architecture.
 
+This library was originally forked from the [`fuse` crate](https://github.com/zargony/fuse-rs)
+
 ## Documentation
 
-[Rust-FUSE reference](https://docs.rs/fuse)
+[Rust-FUSE reference](https://docs.rs/fuser)
 
 ## Details
 
@@ -38,7 +40,7 @@ Put this in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fuse = "0.4"
+fuser = "0.4"
 ```
 
 To create a new filesystem, implement the trait `Filesystem`. Filesystem operations from the kernel are dispatched to the methods of the `Filesystem` trait. Most methods get a `reply` parameter that must be used to eventually answer the request. All methods have default implementations that reply with neutral answers, so if you implement no method at all, you still get a mountable filesystem that does nothing.
@@ -58,11 +60,11 @@ There's still a lot of stuff to be done. Feel free to contribute.
 - Interrupting a filesystem operation isn't handled yet.
 - An additional more high level API would be nice. It should provide pathnames instead inode numbers and automatically handle concurrency and interruption (like the FUSE C library's high level API).
 
-In general, see the [list of issues](https://github.com/zargony/rust-fuse/issues) on GitHub and search the source files for comments containing "TODO" or "FIXME" to see what's still missing.
+In general, see the [list of issues](https://github.com/cberner/fuser/issues) on GitHub and search the source files for comments containing "TODO" or "FIXME" to see what's still missing.
 
 ## Compatibility
 
-Developed and tested on macOS with [OSXFUSE](http://osxfuse.github.io) and on Linux with [FUSE](http://fuse.sourceforge.net), using stable, beta and nightly [Rust versions](http://www.rust-lang.org/install.html) (see [Travis CI](https://travis-ci.org/zargony/rust-fuse) for details).
+Developed and tested on macOS with [OSXFUSE](http://osxfuse.github.io) and on Linux with [FUSE](http://fuse.sourceforge.net), using stable, beta and nightly [Rust versions](http://www.rust-lang.org/install.html) (see [Travis CI](https://travis-ci.org/cberner/fuser) for details).
 
 [FreeBSD](https://wiki.freebsd.org/FuseFilesystem) also works, but is not tested in CI.
 
