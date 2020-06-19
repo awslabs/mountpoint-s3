@@ -9,18 +9,14 @@ homepage = "https://github.com/cberner/fuser"
 repository = "https://github.com/cberner/fuser"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
-categories = ["api-bindings", "filesystem"]
+categories = ["external-ffi-bindings", "api-bindings", "filesystem", "os::unix-apis"]
+build = "build.rs"
 license = "MIT"
-
-[workspace]
-members = [".", "fuse-abi", "fuse-sys"]
 
 [badges]
 travis-ci = { repository = "cberner/fuser" }
 
 [dependencies]
-fuser-abi = { path = "./fuse-abi", version = "=0.4.0" }
-fuser-sys = { path = "./fuse-sys", version = "=0.4.0" }
 libc = "0.2.51"
 log = "0.4.6"
 thread-scoped = "1.0.2"
@@ -28,15 +24,18 @@ thread-scoped = "1.0.2"
 [dev-dependencies]
 env_logger = "0.6.0"
 
+[build-dependencies]
+pkg-config = "0.3.14"
+
 [features]
-abi-7-9 = ["fuser-abi/abi-7-9"]
-abi-7-10 = ["abi-7-9", "fuser-abi/abi-7-10"]
-abi-7-11 = ["abi-7-10", "fuser-abi/abi-7-11"]
-abi-7-12 = ["abi-7-11", "fuser-abi/abi-7-12"]
-abi-7-13 = ["abi-7-12", "fuser-abi/abi-7-13"]
-abi-7-14 = ["abi-7-13", "fuser-abi/abi-7-14"]
-abi-7-15 = ["abi-7-14", "fuser-abi/abi-7-15"]
-abi-7-16 = ["abi-7-15", "fuser-abi/abi-7-16"]
-abi-7-17 = ["abi-7-16", "fuser-abi/abi-7-17"]
-abi-7-18 = ["abi-7-17", "fuser-abi/abi-7-18"]
-abi-7-19 = ["abi-7-18", "fuser-abi/abi-7-19"]
+abi-7-9 = []
+abi-7-10 = ["abi-7-9"]
+abi-7-11 = ["abi-7-10"]
+abi-7-12 = ["abi-7-11"]
+abi-7-13 = ["abi-7-12"]
+abi-7-14 = ["abi-7-13"]
+abi-7-15 = ["abi-7-14"]
+abi-7-16 = ["abi-7-15"]
+abi-7-17 = ["abi-7-16"]
+abi-7-18 = ["abi-7-17"]
+abi-7-19 = ["abi-7-18"]

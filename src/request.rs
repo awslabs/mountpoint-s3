@@ -9,8 +9,8 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libc::{EIO, ENOSYS, EPROTO};
-use fuse_abi::*;
-use fuse_abi::consts::*;
+use crate::fuse_abi::*;
+use crate::fuse_abi::consts::*;
 use log::{debug, error, warn};
 
 use crate::channel::ChannelSender;

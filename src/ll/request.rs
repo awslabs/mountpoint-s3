@@ -3,7 +3,7 @@
 //! A request represents information about a filesystem operation the kernel driver wants us to
 //! perform.
 
-use fuse_abi::*;
+use crate::fuse_abi::*;
 use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::{error, fmt, mem};

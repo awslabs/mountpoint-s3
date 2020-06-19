@@ -13,12 +13,12 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
-use fuse_abi::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
-use fuse_abi::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
-use fuse_abi::fuse_getxattr_out;
+use crate::fuse_abi::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
+use crate::fuse_abi::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
+use crate::fuse_abi::fuse_getxattr_out;
 #[cfg(target_os = "macos")]
-use fuse_abi::fuse_getxtimes_out;
-use fuse_abi::{fuse_out_header, fuse_dirent};
+use crate::fuse_abi::fuse_getxtimes_out;
+use crate::fuse_abi::{fuse_out_header, fuse_dirent};
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
 use log::warn;
 

@@ -6,7 +6,7 @@ use std::io;
 use std::ffi::{CString, CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
-use fuse_sys::{fuse_args, fuse_mount_compat25};
+use crate::fuse_sys::{fuse_args, fuse_mount_compat25};
 use libc::{self, c_int, c_void, size_t};
 use log::error;
 
@@ -133,7 +133,7 @@ pub fn unmount(mountpoint: &Path) -> io::Result<()> {
                   target_os = "openbsd", target_os = "bitrig", target_os = "netbsd")))]
     #[inline]
     fn libc_umount(mnt: &CStr) -> c_int {
-        use fuse_sys::fuse_unmount_compat22;
+        use crate::fuse_sys::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
         let rc = unsafe { libc::umount(mnt.as_ptr()) };
