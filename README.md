@@ -1,4 +1,4 @@
-# Rust FUSE - Filesystem in Userspace
+# FUSE (Filesystem in Userspace) for Rust
 
 [![Build Status](https://travis-ci.com/cberner/fuser.svg?branch=master)](https://travis-ci.com/cberner/fuser)
 [![Crates.io](https://img.shields.io/crates/v/fuser.svg)](https://crates.io/crates/fuser)
@@ -14,7 +14,7 @@ This library was originally forked from the [`fuse` crate](https://github.com/za
 
 ## Documentation
 
-[Rust-FUSE reference](https://docs.rs/fuser)
+[FUSE-Rust reference](https://docs.rs/fuser)
 
 ## Details
 
