@@ -1,6 +1,6 @@
 # Rust FUSE - Filesystem in Userspace
 
-[![Build Status](https://travis-ci.org/cberner/fuser.svg?branch=master)](https://travis-ci.org/cberner/fuser)
+[![Build Status](https://travis-ci.com/cberner/fuser.svg?branch=master)](https://travis-ci.com/cberner/fuser)
 [![Crates.io](https://img.shields.io/crates/v/fuser.svg)](https://crates.io/crates/fuser)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/cberner/fuser/blob/master/LICENSE.md)
 
