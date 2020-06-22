@@ -20,9 +20,11 @@ use crate::session::{MAX_WRITE_SIZE, Session};
 use crate::Filesystem;
 
 /// We generally support async reads
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(feature = "abi-7-10")))]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
-// TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
+#[cfg(all(not(target_os = "macos"), feature = "abi-7-10"))]
+const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
+// TODO: Add FUSE_EXPORT_SUPPORT
 
 /// On macOS, we additionally support case insensitiveness, volume renames and xtimes
 /// TODO: we should eventually let the filesystem implementation decide which flags to set
