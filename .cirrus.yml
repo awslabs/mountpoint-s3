@@ -1,12 +1,11 @@
 freebsd_instance:
-  image: freebsd-11-2-release-amd64
+  image_family: freebsd-12-1
 
 task:
-  name: FreeBSD 11.2
+  name: FreeBSD 12.1
   cargo_cache:
     folder: $CARGO_HOME/registry
     fingerprint_script: cat Cargo.lock || echo ""
-  # Install Rust
   setup_script:
     - pkg install -y pkgconf fusefs-libs
     - fetch https://sh.rustup.rs -o rustup.sh
@@ -14,10 +13,10 @@ task:
   build_script:
     - . $HOME/.cargo/env
     - cargo build --all --all-targets
-  test_script:
-    - . $HOME/.cargo/env
-    - cargo test --all
   doc_script:
     - . $HOME/.cargo/env
-    - cargo doc --all --no-deps
+    - cargo doc --all --no-deps --all-features
+  test_script:
+    - . $HOME/.cargo/env
+    - cargo test --all --all-targets
   before_cache_script: rm -rf $CARGO_HOME/registry/index
