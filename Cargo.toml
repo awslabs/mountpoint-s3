@@ -22,7 +22,10 @@ log = "0.4.6"
 thread-scoped = "1.0.2"
 
 [dev-dependencies]
-env_logger = "0.6.0"
+env_logger = "0.7"
+clap = "2.32"
+bincode = "1.3.1"
+serde = {version = "1.0.102", features=["std", "derive"]}
 
 [build-dependencies]
 pkg-config = "0.3.14"
