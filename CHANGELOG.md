@@ -1,9 +1,14 @@
 # FUSE for Rust - Changelog
 
-## 0.4.0 - UNRELEASED
+## 0.5.0 - UNRELEASED
+
+* Enable FUSE_BIG_WRITES for ABI >= 7.10
+
+## 0.4.0 - 2020-06-18
 
 * Forked as `fuser` crate, at https://github.com/cberner/fuser
-* Split into `fuse`, `fuse-abi` and `fuse-sys` crate
+* Add ATIME_NOW and MTIME_NOW support
+* Add stubs for ioctl, fallocate, and poll for ABI 7.11
 
 ## 0.3.1 - 2017-11-08
 
