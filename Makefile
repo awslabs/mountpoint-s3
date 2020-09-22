@@ -16,5 +16,5 @@ pjdfs_tests: build_integration_tests
 	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 -v "$(shell pwd)/logs:/code/logs" fuser:tests bash -c "cd /code/fuser && ./pjdfs.sh"
 
-test: pre pjdfs_tests xfstests
+test: pjdfs_tests xfstests
 	cargo test
