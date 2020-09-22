@@ -2,7 +2,7 @@
 name = "fuser"
 edition = "2018"
 version = "0.4.0"
-authors = ["Christopher Berner <christopherberner@gmail.com"]
+authors = ["Christopher Berner <christopherberner@gmail.com>"]
 description = "Filesystem in Userspace (FUSE) for Rust"
 documentation = "https://docs.rs/fuser"
 homepage = "https://github.com/cberner/fuser"
