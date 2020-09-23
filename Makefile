@@ -8,6 +8,7 @@ build: pre
 pre:
 	cargo fmt --all -- --check
 	cargo deny check licenses
+	cargo clippy --all
 
 build_integration_tests:
 	docker build -t fuser:tests -f integration_tests.Dockerfile .
