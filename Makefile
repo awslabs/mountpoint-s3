@@ -2,6 +2,12 @@ VERSION = $(shell git describe --tags --always --dirty)
 INTERACTIVE ?= i
 
 
+build: pre
+	cargo build
+
+pre:
+	cargo deny check licenses
+
 build_integration_tests:
 	docker build -t fuser:tests -f integration_tests.Dockerfile .
 
@@ -16,5 +22,5 @@ pjdfs_tests: build_integration_tests
 	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 -v "$(shell pwd)/logs:/code/logs" fuser:tests bash -c "cd /code/fuser && ./pjdfs.sh"
 
-test: pjdfs_tests xfstests
+test: pre pjdfs_tests xfstests
 	cargo test
