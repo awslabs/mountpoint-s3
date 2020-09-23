@@ -10,7 +10,6 @@ use std::{error, fmt, mem};
 
 use super::argument::ArgumentIterator;
 
-
 /// Error that may occur while reading and parsing a request from the kernel driver.
 #[derive(Debug)]
 pub enum RequestError {
@@ -27,16 +26,22 @@ pub enum RequestError {
 impl fmt::Display for RequestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RequestError::ShortReadHeader(len) => write!(f, "Short read of FUSE request header ({} < {})", len, mem::size_of::<fuse_in_header>()),
+            RequestError::ShortReadHeader(len) => write!(
+                f,
+                "Short read of FUSE request header ({} < {})",
+                len,
+                mem::size_of::<fuse_in_header>()
+            ),
             RequestError::UnknownOperation(opcode) => write!(f, "Unknown FUSE opcode ({})", opcode),
-            RequestError::ShortRead(len, total) => write!(f, "Short read of FUSE request ({} < {})", len, total),
+            RequestError::ShortRead(len, total) => {
+                write!(f, "Short read of FUSE request ({} < {})", len, total)
+            }
             RequestError::InsufficientData => write!(f, "Insufficient argument data"),
         }
     }
 }
 
 impl error::Error for RequestError {}
-
 
 /// Filesystem operation (and arguments) the kernel driver wants us to perform. The fields of each
 /// variant needs to match the actual arguments the kernel driver sends for the specific operation.
@@ -336,14 +341,22 @@ impl<'a> Operation<'a> {
                 fuse_opcode::FUSE_BMAP => Operation::BMap { arg: data.fetch()? },
                 fuse_opcode::FUSE_DESTROY => Operation::Destroy,
                 #[cfg(feature = "abi-7-11")]
-                fuse_opcode::FUSE_IOCTL => Operation::IoCtl { arg: data.fetch()?, data: data.fetch_all()},
+                fuse_opcode::FUSE_IOCTL => Operation::IoCtl {
+                    arg: data.fetch()?,
+                    data: data.fetch_all(),
+                },
                 #[cfg(feature = "abi-7-11")]
-                fuse_opcode::FUSE_POLL => Operation::Poll { arg: data.fetch()?},
+                fuse_opcode::FUSE_POLL => Operation::Poll { arg: data.fetch()? },
                 #[cfg(feature = "abi-7-15")]
-                fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply { data: data.fetch_all()},
+                fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply {
+                    data: data.fetch_all(),
+                },
                 #[cfg(feature = "abi-7-16")]
                 // TODO: parse the nodes
-                fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget { arg: data.fetch()?, nodes: &[]},
+                fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget {
+                    arg: data.fetch()?,
+                    nodes: &[],
+                },
                 #[cfg(feature = "abi-7-19")]
                 fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate { arg: data.fetch()? },
 
@@ -367,7 +380,6 @@ impl<'a> Operation<'a> {
     }
 }
 
-
 /// Low-level request of a filesystem operation the kernel driver wants to perform.
 #[derive(Debug)]
 pub struct Request<'a> {
@@ -377,7 +389,11 @@ pub struct Request<'a> {
 
 impl<'a> fmt::Display for Request<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "FUSE({:3}) ino {:#018x}: {}", self.header.unique, self.header.nodeid, self.operation)
+        write!(
+            f,
+            "FUSE({:3}) ino {:#018x}: {}",
+            self.header.unique, self.header.nodeid, self.operation
+        )
     }
 }
 
@@ -447,7 +463,6 @@ impl<'a> Request<'a> {
         &self.operation
     }
 }
-
 
 #[cfg(test)]
 mod tests {

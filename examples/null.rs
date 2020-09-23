@@ -1,5 +1,5 @@
-use std::env;
 use fuser::Filesystem;
+use std::env;
 
 struct NullFS;
 

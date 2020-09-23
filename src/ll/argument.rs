@@ -7,7 +7,6 @@ use std::ffi::OsStr;
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
 
-
 /// An iterator that can be used to fetch typed arguments from a byte slice.
 pub struct ArgumentIterator<'a> {
     data: &'a [u8],
@@ -33,7 +32,9 @@ impl<'a> ArgumentIterator<'a> {
 
     /// Fetch a slice of bytes of the given size. Returns `None` if there's not enough data left.
     pub fn fetch_bytes(&mut self, amt: usize) -> Option<&'a [u8]> {
-        if amt > self.data.len() { return None; }
+        if amt > self.data.len() {
+            return None;
+        }
         let bytes = &self.data[..amt];
         self.data = &self.data[amt..];
         Some(bytes)
@@ -58,7 +59,6 @@ impl<'a> ArgumentIterator<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,7 +66,11 @@ mod tests {
     const TEST_DATA: [u8; 10] = [0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61];
 
     #[repr(C)]
-    struct TestArgument { p1: u8, p2: u8, p3: u16 }
+    struct TestArgument {
+        p1: u8,
+        p2: u8,
+        p3: u16,
+    }
 
     #[test]
     fn all_data() {
