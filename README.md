@@ -15,7 +15,6 @@ This library was originally forked from the [`fuse` crate](https://github.com/za
 ## Documentation
 
 [FUSE-Rust reference][Documentation]
->>>>>>> abddaa3... Update README
 
 ## Details
 
