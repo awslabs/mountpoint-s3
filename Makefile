@@ -6,6 +6,7 @@ build: pre
 	cargo build
 
 pre:
+	cargo fmt --all -- --check
 	cargo deny check licenses
 
 build_integration_tests:
