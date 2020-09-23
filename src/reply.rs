@@ -622,15 +622,15 @@ impl ReplyDirectory {
             return true;
         }
         unsafe {
-            let p = self.data.as_mut_ptr().offset(self.data.len() as isize);
-            let pdirent: *mut fuse_dirent = mem::transmute(p);
+            let p = self.data.as_mut_ptr().add(self.data.len());
+            let pdirent: *mut fuse_dirent = p as *mut fuse_dirent;
             (*pdirent).ino = ino;
             (*pdirent).off = offset as u64;
             (*pdirent).namelen = name.len() as u32;
             (*pdirent).typ = mode_from_kind_and_perm(kind, 0) >> 12;
-            let p = p.offset(mem::size_of_val(&*pdirent) as isize);
+            let p = p.add(mem::size_of_val(&*pdirent));
             ptr::copy_nonoverlapping(name.as_ptr(), p, name.len());
-            let p = p.offset(name.len() as isize);
+            let p = p.add(name.len());
             ptr::write_bytes(p, 0u8, padlen);
             let newlen = self.data.len() + entsize;
             self.data.set_len(newlen);
