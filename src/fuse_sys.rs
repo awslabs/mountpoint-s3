@@ -3,7 +3,7 @@
 //! This is a small set of bindings that are required to mount/unmount FUSE filesystems and
 //! open/close a fd to the FUSE kernel driver.
 
-#![warn(missing_debug_implementations, rust_2018_idioms)]
+#![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 
 use std::os::raw::{c_char, c_int};

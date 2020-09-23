@@ -45,10 +45,7 @@ impl Channel {
             if fd < 0 {
                 Err(io::Error::last_os_error())
             } else {
-                Ok(Channel {
-                    mountpoint: mountpoint,
-                    fd: fd,
-                })
+                Ok(Channel { mountpoint, fd })
             }
         })
     }

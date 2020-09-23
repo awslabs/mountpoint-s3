@@ -93,6 +93,7 @@ pub struct FileAttr {
 /// These methods correspond to fuse_lowlevel_ops in libfuse. Reasonable default
 /// implementations are provided here to get a mountable filesystem that does
 /// nothing.
+#[allow(clippy::too_many_arguments)]
 pub trait Filesystem {
     /// Initialize filesystem.
     /// Called before any other filesystem method.

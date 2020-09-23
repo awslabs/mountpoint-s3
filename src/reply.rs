@@ -159,7 +159,7 @@ impl<T> Reply for ReplyRaw<T> {
     fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyRaw<T> {
         let sender = Box::new(sender);
         ReplyRaw {
-            unique: unique,
+            unique,
             sender: Some(sender),
             marker: PhantomData,
         }
@@ -287,7 +287,7 @@ impl ReplyEntry {
     pub fn entry(self, ttl: &Duration, attr: &FileAttr, generation: u64) {
         self.reply.ok(&fuse_entry_out {
             nodeid: attr.ino,
-            generation: generation,
+            generation,
             entry_valid: ttl.as_secs(),
             attr_valid: ttl.as_secs(),
             entry_valid_nsec: ttl.subsec_nanos(),
@@ -394,7 +394,7 @@ impl ReplyOpen {
     /// Reply to a request with the given open result
     pub fn opened(self, fh: u64, flags: u32) {
         self.reply.ok(&fuse_open_out {
-            fh: fh,
+            fh,
             open_flags: flags,
             padding: 0,
         });
@@ -425,10 +425,7 @@ impl Reply for ReplyWrite {
 impl ReplyWrite {
     /// Reply to a request with the given open result
     pub fn written(self, size: u32) {
-        self.reply.ok(&fuse_write_out {
-            size: size,
-            padding: 0,
-        });
+        self.reply.ok(&fuse_write_out { size, padding: 0 });
     }
 
     /// Reply to a request with the given error code
@@ -455,6 +452,7 @@ impl Reply for ReplyStatfs {
 
 impl ReplyStatfs {
     /// Reply to a request with the given open result
+    #[allow(clippy::too_many_arguments)]
     pub fn statfs(
         self,
         blocks: u64,
@@ -468,14 +466,14 @@ impl ReplyStatfs {
     ) {
         self.reply.ok(&fuse_statfs_out {
             st: fuse_kstatfs {
-                blocks: blocks,
-                bfree: bfree,
-                bavail: bavail,
-                files: files,
-                ffree: ffree,
-                bsize: bsize,
-                namelen: namelen,
-                frsize: frsize,
+                blocks,
+                bfree,
+                bavail,
+                files,
+                ffree,
+                bsize,
+                namelen,
+                frsize,
                 padding: 0,
                 spare: [0; 6],
             },
@@ -510,7 +508,7 @@ impl ReplyCreate {
         self.reply.ok(&(
             fuse_entry_out {
                 nodeid: attr.ino,
-                generation: generation,
+                generation,
                 entry_valid: ttl.as_secs(),
                 attr_valid: ttl.as_secs(),
                 entry_valid_nsec: ttl.subsec_nanos(),
@@ -518,7 +516,7 @@ impl ReplyCreate {
                 attr: fuse_attr_from_attr(attr),
             },
             fuse_open_out {
-                fh: fh,
+                fh,
                 open_flags: flags,
                 padding: 0,
             },
@@ -552,10 +550,10 @@ impl ReplyLock {
     pub fn locked(self, start: u64, end: u64, typ: u32, pid: u32) {
         self.reply.ok(&fuse_lk_out {
             lk: fuse_file_lock {
-                start: start,
-                end: end,
-                typ: typ,
-                pid: pid,
+                start,
+                end,
+                typ,
+                pid,
             },
         });
     }
@@ -585,7 +583,7 @@ impl Reply for ReplyBmap {
 impl ReplyBmap {
     /// Reply to a request with the given open result
     pub fn bmap(self, block: u64) {
-        self.reply.ok(&fuse_bmap_out { block: block });
+        self.reply.ok(&fuse_bmap_out { block });
     }
 
     /// Reply to a request with the given error code
@@ -670,10 +668,7 @@ impl Reply for ReplyXattr {
 impl ReplyXattr {
     /// Reply to a request with the size of the xattr.
     pub fn size(self, size: u32) {
-        self.reply.ok(&fuse_getxattr_out {
-            size: size,
-            padding: 0,
-        });
+        self.reply.ok(&fuse_getxattr_out { size, padding: 0 });
     }
 
     /// Reply to a request with the data in the xattr.

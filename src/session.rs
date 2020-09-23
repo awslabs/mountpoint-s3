@@ -48,8 +48,8 @@ impl<FS: Filesystem> Session<FS> {
     pub fn new(filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
         Channel::new(mountpoint, options).map(|ch| Session {
-            filesystem: filesystem,
-            ch: ch,
+            filesystem,
+            ch,
             proto_major: 0,
             proto_minor: 0,
             initialized: false,
@@ -131,10 +131,7 @@ impl<'a> BackgroundSession<'a> {
             let mut se = se;
             se.run()
         });
-        Ok(BackgroundSession {
-            mountpoint: mountpoint,
-            guard: guard,
-        })
+        Ok(BackgroundSession { mountpoint, guard })
     }
 }
 

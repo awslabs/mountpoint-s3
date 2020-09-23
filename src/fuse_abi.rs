@@ -18,7 +18,7 @@
 //!
 //! Items without a version annotation are valid with ABI 7.8 and later
 
-#![warn(missing_debug_implementations, rust_2018_idioms)]
+#![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 
 #[cfg(feature = "abi-7-9")]
