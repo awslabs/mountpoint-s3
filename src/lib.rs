@@ -566,6 +566,11 @@ pub fn mount<FS: Filesystem, P: AsRef<Path>>(
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
+///
+/// # Safety
+///
+/// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
+/// dropped. See rust-lang/rust#24292 for more details.
 pub unsafe fn spawn_mount<'a, FS: Filesystem + Send + 'a, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,

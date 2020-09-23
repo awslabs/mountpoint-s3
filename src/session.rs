@@ -100,6 +100,10 @@ impl<FS: Filesystem> Session<FS> {
 
 impl<'a, FS: Filesystem + Send + 'a> Session<FS> {
     /// Run the session loop in a background thread
+    /// # Safety
+    ///
+    /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
+    /// dropped. See rust-lang/rust#24292 for more details.
     pub unsafe fn spawn(self) -> io::Result<BackgroundSession<'a>> {
         BackgroundSession::new(self)
     }
@@ -123,6 +127,10 @@ impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
+    /// # Safety
+    ///
+    /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
+    /// dropped. See rust-lang/rust#24292 for more details.
     pub unsafe fn new<FS: Filesystem + Send + 'a>(
         se: Session<FS>,
     ) -> io::Result<BackgroundSession<'a>> {
