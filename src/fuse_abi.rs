@@ -53,8 +53,10 @@ pub const FUSE_KERNEL_MINOR_VERSION: u32 = 18;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 19;
 #[cfg(all(feature = "abi-7-20", not(feature = "abi-7-21")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 20;
-#[cfg(feature = "abi-7-21")]
+#[cfg(all(feature = "abi-7-21", not(feature = "abi-7-22")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 21;
+#[cfg(feature = "abi-7-22")]
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 22;
 
 pub const FUSE_ROOT_ID: u64 = 1;
 
@@ -178,6 +180,8 @@ pub mod consts {
     pub const FUSE_DO_READDIRPLUS: u32 = 1 << 13; // do READDIRPLUS (READDIR+LOOKUP in one)
     #[cfg(feature = "abi-7-21")]
     pub const FUSE_READDIRPLUS_AUTO: u32 = 1 << 14; // adaptive readdirplus
+    #[cfg(feature = "abi-7-22")]
+    pub const FUSE_ASYNC_DIO: u32 = 1 << 15; // asynchronous direct I/O submission
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
