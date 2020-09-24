@@ -8,9 +8,9 @@
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{error, info};
 use std::ffi::OsStr;
-use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::{fmt, ptr};
 use thread_scoped::{scoped, JoinGuard};
 
 use crate::channel::{self, Channel};
@@ -121,6 +121,7 @@ pub struct BackgroundSession<'a> {
     pub mountpoint: PathBuf,
     /// Thread guard of the background session
     pub guard: JoinGuard<'a, io::Result<()>>,
+    fuse_session: *mut libc::c_void,
 }
 
 impl<'a> BackgroundSession<'a> {
@@ -132,14 +133,21 @@ impl<'a> BackgroundSession<'a> {
     /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
     /// dropped. See rust-lang/rust#24292 for more details.
     pub unsafe fn new<FS: Filesystem + Send + 'a>(
-        se: Session<FS>,
+        mut se: Session<FS>,
     ) -> io::Result<BackgroundSession<'a>> {
         let mountpoint = se.mountpoint().to_path_buf();
+        // Take the fuse_session, so that we can unmount it
+        let fuse_session = se.ch.fuse_session;
+        se.ch.fuse_session = ptr::null_mut();
         let guard = scoped(move || {
             let mut se = se;
             se.run()
         });
-        Ok(BackgroundSession { mountpoint, guard })
+        Ok(BackgroundSession {
+            mountpoint,
+            guard,
+            fuse_session,
+        })
     }
 }
 
@@ -148,7 +156,7 @@ impl<'a> Drop for BackgroundSession<'a> {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,
         // drop the session and hence end the background thread.
-        match channel::unmount(&self.mountpoint) {
+        match channel::unmount(&self.mountpoint, self.fuse_session) {
             Ok(()) => (),
             Err(err) => error!("Failed to unmount {}: {}", self.mountpoint.display(), err),
         }

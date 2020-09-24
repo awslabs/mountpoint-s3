@@ -99,7 +99,7 @@ There's still a lot of stuff to be done. Feel free to contribute. See the [list 
 
 ## Compatibility
 
-Developed and tested on macOS. Tested under [Linux][FUSE for Linux], [macOS][FUSE for macOS] and [FreeBSD][FUSE for FreeBSD] using stable, beta and nightly [Rust] versions (see [Travis CI] for details).
+Developed and tested on Linux. Tested under [Linux][FUSE for Linux], [macOS][FUSE for macOS] (up to ABI 7.19) and [FreeBSD][FUSE for FreeBSD] using stable, beta and nightly [Rust] versions (see [Travis CI] for details).
 
 ## Contribution
 

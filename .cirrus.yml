@@ -7,7 +7,7 @@ task:
     folder: $CARGO_HOME/registry
     fingerprint_script: cat Cargo.lock || echo ""
   setup_script:
-    - pkg install -y pkgconf fusefs-libs
+    - pkg install -y pkgconf fusefs-libs fusefs-libs3
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y
   build_script:
@@ -15,8 +15,9 @@ task:
     - cargo build --all --all-targets
   doc_script:
     - . $HOME/.cargo/env
-    - cargo doc --all --no-deps --all-features
+    - cargo doc --all --no-deps --features=abi-7-21
   test_script:
     - . $HOME/.cargo/env
     - cargo test --all --all-targets
+    - cargo test --all --all-targets --features=abi-7-21
   before_cache_script: rm -rf $CARGO_HOME/registry/index

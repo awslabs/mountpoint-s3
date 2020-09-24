@@ -1,28 +1,25 @@
-os:
-  - linux
-  - osx
 language: rust
-rust:
-  - stable
-  - beta
-  - nightly
-env:
-  - FEATURES=
-  - FEATURES=abi-7-19
-matrix:
-  allow_failures:
-    - rust: nightly
-  # Avoid excessive number of tests
-  exclude:
-    - rust: beta
+rust: stable
+jobs:
+  include:
+    - os: linux
+      dist: bionic
+      env: FEATURES=
+      install: sudo apt-get update && sudo apt-get install -y libfuse-dev
+    - os: linux
+      dist: bionic
       env: FEATURES=abi-7-19
-    - rust: nightly
-      env: FEATURES=abi-7-19
+      install: sudo apt-get update && sudo apt-get install -y libfuse-dev
+#    - os: linux
+#      dist: focal
+#      env: FEATURES=abi-7-21
+#      install: sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3
+    - os: osx
+      env: FEATURES=
+      install: brew update && brew cask install osxfuse
     - os: osx
       env: FEATURES=abi-7-19
-install:
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get update && sudo apt-get install -y libfuse-dev; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update && brew cask install osxfuse; fi
+      install: brew update && brew cask install osxfuse
 script:
   - cargo build --all --all-targets --features=$FEATURES
   - cargo test --all --features=$FEATURES

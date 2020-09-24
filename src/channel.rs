@@ -2,13 +2,20 @@
 //!
 //! Raw communication channel to the FUSE kernel driver.
 
-use crate::fuse_sys::{fuse_args, fuse_mount_compat25};
+use crate::fuse_sys::fuse_args;
+#[cfg(not(feature = "abi-7-20"))]
+use crate::fuse_sys::fuse_mount_compat25;
+#[cfg(feature = "abi-7-20")]
+use crate::fuse_sys::{
+    fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
+    fuse_session_unmount,
+};
 use libc::{self, c_int, c_void, size_t};
 use log::error;
 use std::ffi::{CStr, CString, OsStr};
-use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::{io, ptr};
 
 use crate::reply::ReplySender;
 
@@ -30,6 +37,7 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T 
 pub struct Channel {
     mountpoint: PathBuf,
     fd: c_int,
+    pub(in crate) fuse_session: *mut c_void,
 }
 
 impl Channel {
@@ -37,6 +45,7 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
+    #[cfg(not(feature = "abi-7-20"))]
     pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         let mountpoint = mountpoint.canonicalize()?;
         with_fuse_args(options, |args| {
@@ -45,7 +54,37 @@ impl Channel {
             if fd < 0 {
                 Err(io::Error::last_os_error())
             } else {
-                Ok(Channel { mountpoint, fd })
+                Ok(Channel {
+                    mountpoint,
+                    fd,
+                    fuse_session: ptr::null_mut(),
+                })
+            }
+        })
+    }
+
+    #[cfg(feature = "abi-7-20")]
+    pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
+        let mountpoint = mountpoint.canonicalize()?;
+        with_fuse_args(options, |args| {
+            let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
+            let fuse_session = unsafe { fuse_session_new(args, ptr::null(), 0, ptr::null_mut()) };
+            if fuse_session == ptr::null_mut() {
+                return Err(io::Error::last_os_error());
+            }
+            let result = unsafe { fuse_session_mount(fuse_session, mnt.as_ptr()) };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let fd = unsafe { fuse_session_fd(fuse_session) };
+            if fd < 0 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(Channel {
+                    mountpoint,
+                    fd,
+                    fuse_session,
+                })
             }
         })
     }
@@ -86,6 +125,8 @@ impl Channel {
     }
 }
 
+unsafe impl Send for Channel {}
+
 impl Drop for Channel {
     fn drop(&mut self) {
         // TODO: send ioctl FUSEDEVIOCSETDAEMONDEAD on macOS before closing the fd
@@ -95,7 +136,8 @@ impl Drop for Channel {
             libc::close(self.fd);
         }
         // Unmount this channel's mount point
-        let _ = unmount(&self.mountpoint);
+        let _ = unmount(&self.mountpoint, self.fuse_session);
+        self.fuse_session = ptr::null_mut(); // unmount frees this pointer
     }
 }
 
@@ -132,7 +174,8 @@ impl ReplySender for ChannelSender {
 }
 
 /// Unmount an arbitrary mount point
-pub fn unmount(mountpoint: &Path) -> io::Result<()> {
+#[allow(unused_variables)]
+pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void) -> io::Result<()> {
     // fuse_unmount_compat22 unfortunately doesn't return a status. Additionally,
     // it attempts to call realpath, which in turn calls into the filesystem. So
     // if the filesystem returns an error, the unmount does not take place, with
@@ -149,7 +192,7 @@ pub fn unmount(mountpoint: &Path) -> io::Result<()> {
         target_os = "netbsd"
     ))]
     #[inline]
-    fn libc_umount(mnt: &CStr) -> c_int {
+    fn libc_umount(mnt: &CStr, _fuse_session: *mut c_void) -> c_int {
         unsafe { libc::unmount(mnt.as_ptr(), 0) }
     }
 
@@ -162,7 +205,8 @@ pub fn unmount(mountpoint: &Path) -> io::Result<()> {
         target_os = "netbsd"
     )))]
     #[inline]
-    fn libc_umount(mnt: &CStr) -> c_int {
+    fn libc_umount(mnt: &CStr, fuse_session: *mut c_void) -> c_int {
+        #[cfg(not(feature = "abi-7-20"))]
         use crate::fuse_sys::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
@@ -170,8 +214,16 @@ pub fn unmount(mountpoint: &Path) -> io::Result<()> {
         if rc < 0 && io::Error::last_os_error().kind() == PermissionDenied {
             // Linux always returns EPERM for non-root users.  We have to let the
             // library go through the setuid-root "fusermount -u" to unmount.
+            #[cfg(not(feature = "abi-7-20"))]
             unsafe {
                 fuse_unmount_compat22(mnt.as_ptr());
+            }
+            #[cfg(feature = "abi-7-20")]
+            unsafe {
+                if fuse_session != ptr::null_mut() {
+                    fuse_session_unmount(fuse_session);
+                    fuse_session_destroy(fuse_session);
+                }
             }
             0
         } else {
@@ -180,7 +232,7 @@ pub fn unmount(mountpoint: &Path) -> io::Result<()> {
     }
 
     let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
-    let rc = libc_umount(&mnt);
+    let rc = libc_umount(&mnt, fuse_session);
     if rc < 0 {
         Err(io::Error::last_os_error())
     } else {
