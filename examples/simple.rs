@@ -550,9 +550,14 @@ impl Filesystem for SimpleFS {
         _rdev: u32,
         reply: ReplyEntry,
     ) {
-        if (mode & (libc::S_IFREG | libc::S_IFLNK) as u32) == 0 {
+        let file_type = mode & libc::S_IFMT as u32;
+
+        if file_type != libc::S_IFREG as u32
+            && file_type != libc::S_IFLNK as u32
+            && file_type != libc::S_IFDIR as u32
+        {
             // TODO
-            warn!("mknod() implementation is incomplete. Only supports regular files and symlinks. Got {:o}", mode);
+            warn!("mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}", mode);
             reply.error(libc::ENOSYS);
             return;
         }
@@ -1420,15 +1425,17 @@ pub fn check_access(
     return access_mask == 0;
 }
 
-fn as_file_kind(mode: u32) -> FileKind {
-    if mode & libc::S_IFREG as u32 != 0 {
+fn as_file_kind(mut mode: u32) -> FileKind {
+    mode &= libc::S_IFMT as u32;
+
+    if mode == libc::S_IFREG as u32 {
         return FileKind::File;
-    } else if mode & libc::S_IFLNK as u32 != 0 {
+    } else if mode == libc::S_IFLNK as u32 {
         return FileKind::Symlink;
-    } else if mode & libc::S_IFDIR as u32 != 0 {
+    } else if mode == libc::S_IFDIR as u32 {
         return FileKind::Directory;
     } else {
-        unimplemented!();
+        unimplemented!("{}", mode);
     }
 }
 

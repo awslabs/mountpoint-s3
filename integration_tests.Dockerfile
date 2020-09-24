@@ -8,7 +8,7 @@ RUN adduser --disabled-password --gecos '' fsgqa
 RUN echo 'user_allow_other' >> /etc/fuse.conf
 
 RUN mkdir -p /code/pjdfstest && cd /code && git clone https://github.com/fleetfs/pjdfstest && cd pjdfstest \
-  && git checkout aec58fdb2f2a5e459b94976bd2b34e28e923d61c && autoreconf -ifs && ./configure && make pjdfstest
+  && git checkout d3beed6f5f15c204a8af3df2f518241931a42e94 && autoreconf -ifs && ./configure && make pjdfstest
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.42.0
 
