@@ -49,8 +49,10 @@ pub const FUSE_KERNEL_MINOR_VERSION: u32 = 16;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 17;
 #[cfg(all(feature = "abi-7-18", not(feature = "abi-7-19")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 18;
-#[cfg(feature = "abi-7-19")]
+#[cfg(all(feature = "abi-7-19", not(feature = "abi-7-20")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 19;
+#[cfg(feature = "abi-7-20")]
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 20;
 
 pub const FUSE_ROOT_ID: u64 = 1;
 
@@ -168,6 +170,8 @@ pub mod consts {
     pub const FUSE_FLOCK_LOCKS: u32 = 1 << 10; // remote locking for BSD style file locks
     #[cfg(feature = "abi-7-18")]
     pub const FUSE_HAS_IOCTL_DIR: u32 = 1 << 11; // kernel supports ioctl on directories
+    #[cfg(feature = "abi-7-20")]
+    pub const FUSE_AUTO_INVAL_DATA: u32 = 1 << 12; // automatically invalidate cached pages
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
