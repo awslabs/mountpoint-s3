@@ -499,6 +499,11 @@ impl<'a> Request<'a> {
                 // TODO: handle FUSE_FALLOCATE
                 self.reply::<ReplyEmpty>().error(ENOSYS);
             }
+            #[cfg(feature = "abi-7-21")]
+            ll::Operation::ReadDirPlus { arg: _ } => {
+                // TODO: handle FUSE_READDIRPLUS
+                self.reply::<ReplyEmpty>().error(ENOSYS);
+            }
 
             #[cfg(target_os = "macos")]
             ll::Operation::SetVolName { name } => {

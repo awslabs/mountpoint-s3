@@ -51,8 +51,10 @@ pub const FUSE_KERNEL_MINOR_VERSION: u32 = 17;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 18;
 #[cfg(all(feature = "abi-7-19", not(feature = "abi-7-20")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 19;
-#[cfg(feature = "abi-7-20")]
+#[cfg(all(feature = "abi-7-20", not(feature = "abi-7-21")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 20;
+#[cfg(feature = "abi-7-21")]
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 21;
 
 pub const FUSE_ROOT_ID: u64 = 1;
 
@@ -172,6 +174,10 @@ pub mod consts {
     pub const FUSE_HAS_IOCTL_DIR: u32 = 1 << 11; // kernel supports ioctl on directories
     #[cfg(feature = "abi-7-20")]
     pub const FUSE_AUTO_INVAL_DATA: u32 = 1 << 12; // automatically invalidate cached pages
+    #[cfg(feature = "abi-7-21")]
+    pub const FUSE_DO_READDIRPLUS: u32 = 1 << 13; // do READDIRPLUS (READDIR+LOOKUP in one)
+    #[cfg(feature = "abi-7-21")]
+    pub const FUSE_READDIRPLUS_AUTO: u32 = 1 << 14; // adaptive readdirplus
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
@@ -287,6 +293,8 @@ pub enum fuse_opcode {
     FUSE_BATCH_FORGET = 42,
     #[cfg(feature = "abi-7-19")]
     FUSE_FALLOCATE = 43,
+    #[cfg(feature = "abi-7-21")]
+    FUSE_READDIRPLUS = 44,
 
     #[cfg(target_os = "macos")]
     FUSE_SETVOLNAME = 61,
@@ -350,6 +358,8 @@ impl TryFrom<u32> for fuse_opcode {
             42 => Ok(fuse_opcode::FUSE_BATCH_FORGET),
             #[cfg(feature = "abi-7-19")]
             43 => Ok(fuse_opcode::FUSE_FALLOCATE),
+            #[cfg(feature = "abi-7-21")]
+            44 => Ok(fuse_opcode::FUSE_READDIRPLUS),
 
             #[cfg(target_os = "macos")]
             61 => Ok(fuse_opcode::FUSE_SETVOLNAME),
@@ -835,7 +845,10 @@ pub struct fuse_poll_in {
     pub fh: u64,
     pub kh: u64,
     pub flags: u32,
+    #[cfg(not(feature = "abi-7-21"))]
     pub padding: u32,
+    #[cfg(feature = "abi-7-21")]
+    pub events: u32,
 }
 
 #[cfg(feature = "abi-7-11")]

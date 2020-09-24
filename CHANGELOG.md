@@ -4,6 +4,7 @@
 
 * Enable FUSE_BIG_WRITES for ABI >= 7.10
 * Add FUSE_AUTO_INVAL_DATA
+* Add ABI 7.21
 
 ## 0.4.0 - 2020-06-18
 

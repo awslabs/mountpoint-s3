@@ -180,6 +180,10 @@ pub enum Operation<'a> {
     FAllocate {
         arg: &'a fuse_fallocate_in,
     },
+    #[cfg(feature = "abi-7-21")]
+    ReadDirPlus {
+        arg: &'a fuse_read_in,
+    },
 
     #[cfg(target_os = "macos")]
     SetVolName {
@@ -249,6 +253,8 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::BatchForget { arg, nodes } => write!(f, "BATCHFORGET nodes {}, nlookup {}", nodes.len(), arg.nlookup),
             #[cfg(feature = "abi-7-19")]
             Operation::FAllocate { arg: _ } => write!(f, "FALLOCATE"),
+            #[cfg(feature = "abi-7-21")]
+            Operation::ReadDirPlus { arg } => write!(f, "READDIRPLUS fh {}, offset {}, size {}", arg.fh, arg.offset, arg.size),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
@@ -359,6 +365,8 @@ impl<'a> Operation<'a> {
                 },
                 #[cfg(feature = "abi-7-19")]
                 fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate { arg: data.fetch()? },
+                #[cfg(feature = "abi-7-21")]
+                fuse_opcode::FUSE_READDIRPLUS => Operation::ReadDirPlus { arg: data.fetch()? },
 
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {
