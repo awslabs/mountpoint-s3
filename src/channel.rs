@@ -2,25 +2,33 @@
 //!
 //! Raw communication channel to the FUSE kernel driver.
 
+#[cfg(any(feature = "libfuse", test))]
 use crate::fuse_sys::fuse_args;
-#[cfg(not(feature = "abi-7-20"))]
+#[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
 use crate::fuse_sys::fuse_mount_compat25;
-#[cfg(feature = "abi-7-20")]
+#[cfg(not(feature = "libfuse"))]
+use crate::fuse_sys::{fuse_mount_pure, fuse_unmount_pure};
+#[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
 use crate::fuse_sys::{
     fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
 use libc::{self, c_int, c_void, size_t};
 use log::error;
-use std::ffi::{CStr, CString, OsStr};
+#[cfg(any(feature = "libfuse", test))]
+use std::ffi::OsStr;
+use std::ffi::{CStr, CString};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::{io, ptr};
 
 use crate::reply::ReplySender;
+#[cfg(not(feature = "libfuse"))]
+use crate::MountOption;
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
+#[cfg(any(feature = "libfuse", test))]
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T {
     let mut args = vec![CString::new("rust-fuse").unwrap()];
     args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap()));
@@ -36,7 +44,7 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T 
 #[derive(Debug)]
 pub struct Channel {
     mountpoint: PathBuf,
-    fd: c_int,
+    pub(in crate) fd: c_int,
     pub(in crate) fuse_session: *mut c_void,
 }
 
@@ -45,7 +53,7 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    #[cfg(not(feature = "abi-7-20"))]
+    #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
     pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         let mountpoint = mountpoint.canonicalize()?;
         with_fuse_args(options, |args| {
@@ -63,13 +71,13 @@ impl Channel {
         })
     }
 
-    #[cfg(feature = "abi-7-20")]
+    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
     pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         let mountpoint = mountpoint.canonicalize()?;
         with_fuse_args(options, |args| {
             let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
             let fuse_session = unsafe { fuse_session_new(args, ptr::null(), 0, ptr::null_mut()) };
-            if fuse_session == ptr::null_mut() {
+            if fuse_session.is_null() {
                 return Err(io::Error::last_os_error());
             }
             let result = unsafe { fuse_session_mount(fuse_session, mnt.as_ptr()) };
@@ -87,6 +95,21 @@ impl Channel {
                 })
             }
         })
+    }
+
+    #[cfg(not(feature = "libfuse"))]
+    pub fn new2(mountpoint: &Path, options: &[MountOption]) -> io::Result<Channel> {
+        let mountpoint = mountpoint.canonicalize()?;
+        let fd = fuse_mount_pure(mountpoint.as_os_str(), options)?;
+        if fd < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Channel {
+                mountpoint,
+                fd,
+                fuse_session: ptr::null_mut(),
+            })
+        }
     }
 
     /// Return path of the mounted filesystem
@@ -136,7 +159,7 @@ impl Drop for Channel {
             libc::close(self.fd);
         }
         // Unmount this channel's mount point
-        let _ = unmount(&self.mountpoint, self.fuse_session);
+        let _ = unmount(&self.mountpoint, self.fuse_session, self.fd);
         self.fuse_session = ptr::null_mut(); // unmount frees this pointer
     }
 }
@@ -175,7 +198,7 @@ impl ReplySender for ChannelSender {
 
 /// Unmount an arbitrary mount point
 #[allow(unused_variables)]
-pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void) -> io::Result<()> {
+pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void, fd: c_int) -> io::Result<()> {
     // fuse_unmount_compat22 unfortunately doesn't return a status. Additionally,
     // it attempts to call realpath, which in turn calls into the filesystem. So
     // if the filesystem returns an error, the unmount does not take place, with
@@ -192,7 +215,7 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void) -> io::Result<()> {
         target_os = "netbsd"
     ))]
     #[inline]
-    fn libc_umount(mnt: &CStr, _fuse_session: *mut c_void) -> c_int {
+    fn libc_umount(mnt: &CStr, _fuse_session: *mut c_void, _fd: c_int) -> c_int {
         unsafe { libc::unmount(mnt.as_ptr(), 0) }
     }
 
@@ -205,8 +228,8 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void) -> io::Result<()> {
         target_os = "netbsd"
     )))]
     #[inline]
-    fn libc_umount(mnt: &CStr, fuse_session: *mut c_void) -> c_int {
-        #[cfg(not(feature = "abi-7-20"))]
+    fn libc_umount(mnt: &CStr, fuse_session: *mut c_void, fd: c_int) -> c_int {
+        #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
         use crate::fuse_sys::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
@@ -214,17 +237,20 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void) -> io::Result<()> {
         if rc < 0 && io::Error::last_os_error().kind() == PermissionDenied {
             // Linux always returns EPERM for non-root users.  We have to let the
             // library go through the setuid-root "fusermount -u" to unmount.
-            #[cfg(not(feature = "abi-7-20"))]
+            #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
             unsafe {
                 fuse_unmount_compat22(mnt.as_ptr());
             }
-            #[cfg(feature = "abi-7-20")]
+            #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
             unsafe {
-                if fuse_session != ptr::null_mut() {
+                if fuse_session.is_null() {
                     fuse_session_unmount(fuse_session);
                     fuse_session_destroy(fuse_session);
                 }
             }
+            #[cfg(not(feature = "libfuse"))]
+            fuse_unmount_pure(mnt, fd);
+
             0
         } else {
             rc
@@ -232,7 +258,7 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void) -> io::Result<()> {
     }
 
     let mnt = CString::new(mountpoint.as_os_str().as_bytes())?;
-    let rc = libc_umount(&mnt, fuse_session);
+    let rc = libc_umount(&mnt, fuse_session, fd);
     if rc < 0 {
         Err(io::Error::last_os_error())
     } else {

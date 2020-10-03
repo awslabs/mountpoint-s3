@@ -5,3 +5,4 @@
 !./build.rs
 !./pjdfs.sh
 !./xfstests.sh
+!./mount_tests.sh

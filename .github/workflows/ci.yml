@@ -12,7 +12,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt update
-          sudo apt install -y libfuse-dev build-essential
+          sudo apt install -y libfuse-dev libfuse3-dev build-essential
 
       - uses: actions-rs/toolchain@v1
         with:

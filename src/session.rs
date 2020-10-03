@@ -7,6 +7,7 @@
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{error, info};
+#[cfg(feature = "libfuse")]
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -16,6 +17,8 @@ use thread_scoped::{scoped, JoinGuard};
 use crate::channel::{self, Channel};
 use crate::request::Request;
 use crate::Filesystem;
+#[cfg(not(feature = "libfuse"))]
+use crate::MountOption;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
@@ -45,9 +48,28 @@ pub struct Session<FS: Filesystem> {
 
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
+    #[cfg(feature = "libfuse")]
     pub fn new(filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
         Channel::new(mountpoint, options).map(|ch| Session {
+            filesystem,
+            ch,
+            proto_major: 0,
+            proto_minor: 0,
+            initialized: false,
+            destroyed: false,
+        })
+    }
+
+    /// Create a new session by mounting the given filesystem to the given mountpoint
+    #[cfg(not(feature = "libfuse"))]
+    pub fn new2(
+        filesystem: FS,
+        mountpoint: &Path,
+        options: &[MountOption],
+    ) -> io::Result<Session<FS>> {
+        info!("Mounting {}", mountpoint.display());
+        Channel::new2(mountpoint, options).map(|ch| Session {
             filesystem,
             ch,
             proto_major: 0,
@@ -122,6 +144,7 @@ pub struct BackgroundSession<'a> {
     /// Thread guard of the background session
     pub guard: JoinGuard<'a, io::Result<()>>,
     fuse_session: *mut libc::c_void,
+    fd: libc::c_int,
 }
 
 impl<'a> BackgroundSession<'a> {
@@ -138,6 +161,7 @@ impl<'a> BackgroundSession<'a> {
         let mountpoint = se.mountpoint().to_path_buf();
         // Take the fuse_session, so that we can unmount it
         let fuse_session = se.ch.fuse_session;
+        let fd = se.ch.fd;
         se.ch.fuse_session = ptr::null_mut();
         let guard = scoped(move || {
             let mut se = se;
@@ -147,6 +171,7 @@ impl<'a> BackgroundSession<'a> {
             mountpoint,
             guard,
             fuse_session,
+            fd,
         })
     }
 }
@@ -156,7 +181,7 @@ impl<'a> Drop for BackgroundSession<'a> {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,
         // drop the session and hence end the background thread.
-        match channel::unmount(&self.mountpoint, self.fuse_session) {
+        match channel::unmount(&self.mountpoint, self.fuse_session, self.fd) {
             Ok(()) => (),
             Err(err) => error!("Failed to unmount {}: {}", self.mountpoint.display(), err),
         }

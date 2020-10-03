@@ -15,6 +15,9 @@ use std::time::SystemTime;
 
 pub use crate::fuse_abi::consts;
 pub use crate::fuse_abi::FUSE_ROOT_ID;
+#[cfg(feature = "libfuse")]
+use crate::mount_options::option_to_string;
+pub use mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
@@ -27,6 +30,7 @@ mod channel;
 mod fuse_abi;
 mod fuse_sys;
 mod ll;
+mod mount_options;
 mod reply;
 mod request;
 mod session;
@@ -553,12 +557,42 @@ pub trait Filesystem {
 ///
 /// Note that you need to lead each option with a separate `"-o"` string. See
 /// `examples/hello.rs`.
+#[cfg(feature = "libfuse")]
 pub fn mount<FS: Filesystem, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,
     options: &[&OsStr],
 ) -> io::Result<()> {
     Session::new(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
+}
+
+/// Mount the given filesystem to the given mountpoint. This function will
+/// not return until the filesystem is unmounted.
+///
+/// NOTE: This will eventually replace mount(), once the API is stable
+#[cfg(not(feature = "libfuse"))]
+pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
+    filesystem: FS,
+    mountpoint: P,
+    options: &[MountOption],
+) -> io::Result<()> {
+    Session::new2(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
+}
+
+/// Mount the given filesystem to the given mountpoint. This function will
+/// not return until the filesystem is unmounted.
+///
+/// NOTE: This will eventually replace mount(), once the API is stable
+#[cfg(feature = "libfuse")]
+pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
+    filesystem: FS,
+    mountpoint: P,
+    options: &[MountOption],
+) -> io::Result<()> {
+    let options: Vec<String> = options.iter().map(|x| option_to_string(x)).collect();
+    let option_str = options.join(",");
+    let args = vec![OsStr::new("-o"), OsStr::new(&option_str)];
+    Session::new(filesystem, mountpoint.as_ref(), &args).and_then(|mut se| se.run())
 }
 
 /// Mount the given filesystem to the given mountpoint. This function spawns
@@ -571,6 +605,7 @@ pub fn mount<FS: Filesystem, P: AsRef<Path>>(
 ///
 /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
 /// dropped. See rust-lang/rust#24292 for more details.
+#[cfg(feature = "libfuse")]
 pub unsafe fn spawn_mount<'a, FS: Filesystem + Send + 'a, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,

@@ -1,7 +1,7 @@
 use clap::{crate_version, App, Arg};
 use fuser::{
-    Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    ReplyOpen, ReplyStatfs, ReplyWrite, Request, FUSE_ROOT_ID,
+    Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
+    ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request, FUSE_ROOT_ID,
 };
 use log::LevelFilter;
 use log::{debug, error, warn};
@@ -1519,20 +1519,21 @@ fn main() {
         .init();
 
     let direct_io: bool = matches.is_present("direct-io");
-    let mut fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o")];
-    let mut options = "fsname=fuser,auto_unmount".to_string();
+    let mut options = vec![
+        MountOption::FSName("fuser".to_string()),
+        MountOption::AutoUnmount,
+    ];
     if direct_io {
         println!("Using Direct IO");
-        options.push_str(",direct_io");
+        options.push(MountOption::DirectIO);
     }
     if let Ok(enabled) = fuse_allow_other_enabled() {
         if enabled {
-            options.push_str(",allow_other");
+            options.push(MountOption::AllowOther);
         }
     } else {
         eprintln!("Unable to read /etc/fuse.conf");
     }
-    fuse_args.push(&OsStr::new(&options));
 
     let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
 
@@ -1541,5 +1542,5 @@ fn main() {
         .unwrap_or_default()
         .to_string();
 
-    fuser::mount(SimpleFS::new(data_dir), mountpoint, &fuse_args).unwrap();
+    fuser::mount2(SimpleFS::new(data_dir), mountpoint, &options).unwrap();
 }

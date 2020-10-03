@@ -1,5 +1,6 @@
 use fuser::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request,
+    FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
+    Request,
 };
 use libc::ENOENT;
 use std::env;
@@ -113,9 +114,11 @@ impl Filesystem for HelloFS {
 fn main() {
     env_logger::init();
     let mountpoint = env::args_os().nth(1).unwrap();
-    let options = ["-o", "ro", "-o", "fsname=hello"]
-        .iter()
-        .map(|o| o.as_ref())
-        .collect::<Vec<&OsStr>>();
-    fuser::mount(HelloFS, mountpoint, &options).unwrap();
+    let mut options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
+    if let Some(auto_unmount) = env::args_os().nth(2) {
+        if auto_unmount.eq("--auto_unmount") {
+            options.push(MountOption::AutoUnmount);
+        }
+    }
+    fuser::mount2(HelloFS, mountpoint, &options).unwrap();
 }
