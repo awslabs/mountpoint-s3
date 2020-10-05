@@ -22,5 +22,6 @@ jobs:
       install: brew update && brew cask install osxfuse
 script:
   - cargo build --all --all-targets --features=$FEATURES
+  - cargo build --all --all-targets --no-default-features
   - cargo test --all --features=$FEATURES
   - cargo doc --all --no-deps --features=$FEATURES

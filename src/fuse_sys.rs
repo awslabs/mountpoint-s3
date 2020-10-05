@@ -120,8 +120,16 @@ pub fn fuse_unmount_pure(mountpoint: &CStr, fd: c_int) {
         }
     }
 
+    #[cfg(target_os = "linux")]
     unsafe {
         let result = libc::umount2(mountpoint.as_ptr(), libc::MNT_DETACH);
+        if result == 0 {
+            return;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let result = libc::unmount(mountpoint.as_ptr(), libc::MNT_FORCE);
         if result == 0 {
             return;
         }
@@ -169,15 +177,31 @@ fn receive_fusermount_message(socket_fd: c_int) -> Result<c_int, Error> {
     };
     let cmsg_buffer_len = unsafe { libc::CMSG_SPACE(mem::size_of::<c_int>() as libc::c_uint) };
     let mut cmsg_buffer = vec![0u8; cmsg_buffer_len as usize];
-    let mut message = libc::msghdr {
-        msg_name: ptr::null_mut(),
-        msg_namelen: 0,
-        msg_iov: &mut io_vec,
-        msg_iovlen: 1,
-        msg_control: (&mut cmsg_buffer).as_mut_ptr() as *mut libc::c_void,
-        msg_controllen: cmsg_buffer.len(),
-        msg_flags: 0,
-    };
+    let mut message;
+    #[cfg(target_os = "linux")]
+    {
+        message = libc::msghdr {
+            msg_name: ptr::null_mut(),
+            msg_namelen: 0,
+            msg_iov: &mut io_vec,
+            msg_iovlen: 1,
+            msg_control: (&mut cmsg_buffer).as_mut_ptr() as *mut libc::c_void,
+            msg_controllen: cmsg_buffer.len(),
+            msg_flags: 0,
+        };
+    }
+    #[cfg(target_os = "macos")]
+    {
+        message = libc::msghdr {
+            msg_name: ptr::null_mut(),
+            msg_namelen: 0,
+            msg_iov: &mut io_vec,
+            msg_iovlen: 1,
+            msg_control: (&mut cmsg_buffer).as_mut_ptr() as *mut libc::c_void,
+            msg_controllen: cmsg_buffer.len() as u32,
+            msg_flags: 0,
+        };
+    }
 
     let mut result;
     loop {
@@ -336,11 +360,25 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
     let mut flags = 0;
     if !options.contains(&MountOption::Dev) {
         // Default to nodev
-        flags |= libc::MS_NODEV;
+        #[cfg(target_os = "linux")]
+        {
+            flags |= libc::MS_NODEV;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            flags |= libc::MNT_NODEV;
+        }
     }
     if !options.contains(&MountOption::Suid) {
         // Default to nosuid
-        flags |= libc::MS_NOSUID;
+        #[cfg(target_os = "linux")]
+        {
+            flags |= libc::MS_NOSUID;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            flags |= libc::MNT_NOSUID;
+        }
     }
     for flag in options
         .iter()
@@ -366,17 +404,30 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
 
     let c_source = CString::new(source).unwrap();
     let c_mountpoint = CString::new(mountpoint.as_bytes()).unwrap();
-    let c_type = CString::new("fuse").unwrap();
-    let c_options = CString::new(mount_options).unwrap();
 
     let result = unsafe {
-        libc::mount(
-            c_source.as_ptr(),
-            c_mountpoint.as_ptr(),
-            c_type.as_ptr(),
-            flags,
-            c_options.as_ptr() as *const libc::c_void,
-        )
+        #[cfg(target_os = "linux")]
+        {
+            let c_options = CString::new(mount_options).unwrap();
+            let c_type = CString::new("fuse").unwrap();
+            libc::mount(
+                c_source.as_ptr(),
+                c_mountpoint.as_ptr(),
+                c_type.as_ptr(),
+                flags,
+                c_options.as_ptr() as *const libc::c_void,
+            )
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let mut c_options = CString::new(mount_options).unwrap();
+            libc::mount(
+                c_source.as_ptr(),
+                c_mountpoint.as_ptr(),
+                flags,
+                c_options.as_ptr() as *mut libc::c_void,
+            )
+        }
     };
     if result == -1 {
         let err = Error::last_os_error();

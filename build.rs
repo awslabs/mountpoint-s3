@@ -7,7 +7,7 @@ const LIBFUSE_NAME: &str = "fuse";
 #[cfg(all(not(target_os = "macos"), feature = "abi-7-20", feature = "libfuse"))]
 const LIBFUSE_NAME: &str = "fuse3";
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "libfuse"))]
 const LIBFUSE_NAME: &str = "osxfuse";
 
 #[cfg(all(not(feature = "abi-7-9"), feature = "libfuse"))]

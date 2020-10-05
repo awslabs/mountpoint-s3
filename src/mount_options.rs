@@ -114,7 +114,7 @@ pub fn option_to_string(option: &MountOption) -> String {
     }
 }
 
-#[cfg(not(feature = "libfuse"))]
+#[cfg(all(not(feature = "libfuse"), target_os = "linux"))]
 pub fn option_to_flag(option: &MountOption) -> libc::c_ulong {
     match option {
         MountOption::Dev => 0, // There is no option for dev. It's the absence of NoDev
@@ -130,6 +130,25 @@ pub fn option_to_flag(option: &MountOption) -> libc::c_ulong {
         MountOption::Async => 0,
         MountOption::Sync => libc::MS_SYNCHRONOUS,
         MountOption::DirSync => libc::MS_DIRSYNC,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(all(not(feature = "libfuse"), target_os = "macos"))]
+pub fn option_to_flag(option: &MountOption) -> libc::c_int {
+    match option {
+        MountOption::Dev => 0, // There is no option for dev. It's the absence of NoDev
+        MountOption::NoDev => libc::MNT_NODEV,
+        MountOption::Suid => 0,
+        MountOption::NoSuid => libc::MNT_NOSUID,
+        MountOption::RW => 0,
+        MountOption::RO => libc::MNT_RDONLY,
+        MountOption::Exec => 0,
+        MountOption::NoExec => libc::MNT_NOEXEC,
+        MountOption::Atime => 0,
+        MountOption::NoAtime => libc::MNT_NOATIME,
+        MountOption::Async => 0,
+        MountOption::Sync => libc::MNT_SYNCHRONOUS,
         _ => unreachable!(),
     }
 }
