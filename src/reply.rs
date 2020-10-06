@@ -1205,7 +1205,7 @@ mod test {
             ],
         };
         let reply = ReplyXattr::new(0xdeadbeef, sender);
-        reply.data(&vec![0x11, 0x22, 0x33, 0x44]);
+        reply.data(&[0x11, 0x22, 0x33, 0x44]);
     }
 
     #[test]

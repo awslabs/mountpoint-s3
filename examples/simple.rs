@@ -1,3 +1,5 @@
+#![allow(clippy::needless_return)]
+
 use clap::{crate_version, App, Arg};
 use fuser::{
     Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
@@ -7,7 +9,6 @@ use log::LevelFilter;
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use std::collections::hash_map::RandomState;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
@@ -121,7 +122,7 @@ impl SimpleFS {
             .truncate(true)
             .open(&path)
             .unwrap();
-        bincode::serialize_into(file, &(current_inode + 1));
+        bincode::serialize_into(file, &(current_inode + 1)).unwrap();
 
         current_inode + 1
     }
@@ -165,11 +166,7 @@ impl SimpleFS {
         }
     }
 
-    fn write_directory_content(
-        &self,
-        inode: Inode,
-        entries: DirectoryDescriptor,
-    ) -> Result<(), c_int> {
+    fn write_directory_content(&self, inode: Inode, entries: DirectoryDescriptor) {
         let path = Path::new(&self.data_dir)
             .join("contents")
             .join(inode.to_string());
@@ -179,9 +176,7 @@ impl SimpleFS {
             .truncate(true)
             .open(&path)
             .unwrap();
-        bincode::serialize_into(file, &entries);
-
-        Ok(())
+        bincode::serialize_into(file, &entries).unwrap();
     }
 
     fn get_inode(&self, inode: Inode) -> Result<InodeAttributes, c_int> {
@@ -195,7 +190,7 @@ impl SimpleFS {
         }
     }
 
-    fn write_inode(&self, inode: &InodeAttributes) -> Result<(), c_int> {
+    fn write_inode(&self, inode: &InodeAttributes) {
         let path = Path::new(&self.data_dir)
             .join("inodes")
             .join(inode.inode.to_string());
@@ -205,9 +200,7 @@ impl SimpleFS {
             .truncate(true)
             .open(&path)
             .unwrap();
-        bincode::serialize_into(file, inode);
-
-        Ok(())
+        bincode::serialize_into(file, inode).unwrap();
     }
 
     // Check whether a file should be removed from storage. Should be called after decrementing
@@ -217,11 +210,11 @@ impl SimpleFS {
             let inode_path = Path::new(&self.data_dir)
                 .join("inodes")
                 .join(inode.inode.to_string());
-            fs::remove_file(inode_path);
+            fs::remove_file(inode_path).unwrap();
             let content_path = Path::new(&self.data_dir)
                 .join("contents")
                 .join(inode.inode.to_string());
-            fs::remove_file(content_path);
+            fs::remove_file(content_path).unwrap();
 
             return true;
         }
@@ -255,7 +248,7 @@ impl SimpleFS {
 
         let path = self.content_path(inode);
         let file = OpenOptions::new().write(true).open(&path).unwrap();
-        file.set_len(new_length);
+        file.set_len(new_length).unwrap();
 
         attrs.size = new_length;
         attrs.last_metadata_changed = SystemTime::now();
@@ -327,8 +320,8 @@ impl SimpleFS {
 
 impl Filesystem for SimpleFS {
     fn init(&mut self, _req: &Request) -> Result<(), c_int> {
-        fs::create_dir(Path::new(&self.data_dir).join("inodes"));
-        fs::create_dir(Path::new(&self.data_dir).join("contents"));
+        fs::create_dir_all(Path::new(&self.data_dir).join("inodes")).unwrap();
+        fs::create_dir_all(Path::new(&self.data_dir).join("contents")).unwrap();
         if self.get_inode(FUSE_ROOT_ID).is_err() {
             // Initialize with empty filesystem
             let root = InodeAttributes {
@@ -523,7 +516,7 @@ impl Filesystem for SimpleFS {
             self.write_inode(&attrs);
         }
 
-        let mut attrs = self.get_inode(inode).unwrap();
+        let attrs = self.get_inode(inode).unwrap();
         reply.attr(&Duration::new(0, 0), &attrs.into());
         return;
     }
@@ -534,7 +527,7 @@ impl Filesystem for SimpleFS {
         if let Ok(mut file) = File::open(&path) {
             let file_size = file.metadata().unwrap().len();
             let mut buffer = vec![0; file_size as usize];
-            file.read_exact(&mut buffer);
+            file.read_exact(&mut buffer).unwrap();
             reply.data(&buffer);
         } else {
             reply.error(libc::ENOENT);
@@ -615,7 +608,7 @@ impl Filesystem for SimpleFS {
             xattrs: Default::default(),
         };
         self.write_inode(&attrs);
-        File::create(self.content_path(inode));
+        File::create(self.content_path(inode)).unwrap();
 
         if as_file_kind(mode) == FileKind::Directory {
             let mut entries = BTreeMap::new();
@@ -740,11 +733,13 @@ impl Filesystem for SimpleFS {
 
         let uid = req.uid();
         // "Sticky bit" handling
-        if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-            if uid != 0 && uid != parent_attrs.uid && uid != attrs.uid {
-                reply.error(libc::EACCES);
-                return;
-            }
+        if parent_attrs.mode & libc::S_ISVTX as u16 != 0
+            && uid != 0
+            && uid != parent_attrs.uid
+            && uid != attrs.uid
+        {
+            reply.error(libc::EACCES);
+            return;
         }
 
         parent_attrs.last_metadata_changed = SystemTime::now();
@@ -807,11 +802,13 @@ impl Filesystem for SimpleFS {
         }
 
         // "Sticky bit" handling
-        if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-            if req.uid() != 0 && req.uid() != parent_attrs.uid && req.uid() != attrs.uid {
-                reply.error(libc::EACCES);
-                return;
-            }
+        if parent_attrs.mode & libc::S_ISVTX as u16 != 0
+            && req.uid() != 0
+            && req.uid() != parent_attrs.uid
+            && req.uid() != attrs.uid
+        {
+            reply.error(libc::EACCES);
+            return;
         }
 
         parent_attrs.last_metadata_changed = SystemTime::now();
@@ -876,7 +873,7 @@ impl Filesystem for SimpleFS {
             .truncate(true)
             .open(&path)
             .unwrap();
-        file.write_all(link.as_bytes());
+        file.write_all(link.as_bytes()).unwrap();
 
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
@@ -934,11 +931,13 @@ impl Filesystem for SimpleFS {
         }
 
         // "Sticky bit" handling
-        if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-            if req.uid() != 0 && req.uid() != parent_attrs.uid && req.uid() != inode_attrs.uid {
-                reply.error(libc::EACCES);
-                return;
-            }
+        if parent_attrs.mode & libc::S_ISVTX as u16 != 0
+            && req.uid() != 0
+            && req.uid() != parent_attrs.uid
+            && req.uid() != inode_attrs.uid
+        {
+            reply.error(libc::EACCES);
+            return;
         }
 
         let mut new_parent_attrs = match self.get_inode(new_parent) {
@@ -1127,7 +1126,7 @@ impl Filesystem for SimpleFS {
 
     fn read(
         &mut self,
-        req: &Request,
+        _req: &Request,
         inode: u64,
         fh: u64,
         offset: i64,
@@ -1148,7 +1147,7 @@ impl Filesystem for SimpleFS {
             let read_size = min(size, file_size.saturating_sub(offset as u64) as u32);
 
             let mut buffer = vec![0; read_size as usize];
-            file.read_exact_at(&mut buffer, offset as u64);
+            file.read_exact_at(&mut buffer, offset as u64).unwrap();
             reply.data(&buffer);
         } else {
             reply.error(libc::ENOENT);
@@ -1174,8 +1173,8 @@ impl Filesystem for SimpleFS {
 
         let path = self.content_path(inode);
         if let Ok(mut file) = OpenOptions::new().write(true).open(&path) {
-            file.seek(SeekFrom::Start(offset as u64));
-            file.write_all(data);
+            file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            file.write_all(data).unwrap();
 
             let mut attrs = self.get_inode(inode).unwrap();
             attrs.last_metadata_changed = SystemTime::now();
@@ -1366,7 +1365,7 @@ impl Filesystem for SimpleFS {
             xattrs: Default::default(),
         };
         self.write_inode(&attrs);
-        File::create(self.content_path(inode));
+        File::create(self.content_path(inode)).unwrap();
 
         if as_file_kind(mode) == FileKind::Directory {
             let mut entries = BTreeMap::new();

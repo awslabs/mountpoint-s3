@@ -1,6 +1,5 @@
 use fuser::{Filesystem, MountOption};
 use std::env;
-use std::ffi::OsStr;
 
 struct NullFS;
 
