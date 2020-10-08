@@ -37,17 +37,32 @@ function run_test {
   wait $FUSE_PID
 }
 
-run_test --no-default-features 'without libfuse'
-run_test --no-default-features 'without libfuse' --auto_unmount
+apt install -y fuse
+echo 'user_allow_other' >> /etc/fuse.conf
 
+run_test --no-default-features 'without libfuse, with fusermount'
+run_test --no-default-features 'without libfuse, with fusermount' --auto_unmount
 
-apt install -y libfuse-dev pkg-config
+apt remove --purge -y fuse
+apt autoremove -y
+apt install -y fuse3
+echo 'user_allow_other' >> /etc/fuse.conf
+
+run_test --no-default-features 'without libfuse, with fusermount3'
+run_test --no-default-features 'without libfuse, with fusermount3' --auto_unmount
+
+apt remove --purge -y fuse3
+apt autoremove -y
+apt install -y libfuse-dev pkg-config fuse
+echo 'user_allow_other' >> /etc/fuse.conf
 
 run_test --features=libfuse 'with libfuse'
 run_test --features=libfuse 'with libfuse' --auto_unmount
 
-apt remove -y libfuse-dev
-apt install -y libfuse3-dev
+apt remove --purge -y libfuse-dev fuse
+apt autoremove -y
+apt install -y libfuse3-dev fuse3
+echo 'user_allow_other' >> /etc/fuse.conf
 
 run_test --features=libfuse,abi-7-30 'with libfuse3'
 run_test --features=libfuse,abi-7-30 'with libfuse3' --auto_unmount
