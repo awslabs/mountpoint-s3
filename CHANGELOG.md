@@ -7,6 +7,10 @@
 * Add ABI 7.21
 * Add ABI 7.22
 
+## 0.4.1 - 2020-10-07
+
+* Added new feature `serializable` that will enable serde serialization/deserialization for `FileType`, `FileAttr`
+
 ## 0.4.0 - 2020-06-18
 
 * Forked as `fuser` crate, at https://github.com/cberner/fuser
