@@ -434,7 +434,10 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
         if err.kind() == ErrorKind::PermissionDenied {
             return Ok(None); // Retry with fusermount
         } else {
-            return Err(err);
+            return Err(Error::new(
+                err.kind(),
+                format!("Error calling mount() at {:?}: {}", mountpoint, err),
+            ));
         }
     }
 

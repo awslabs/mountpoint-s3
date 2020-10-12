@@ -1517,15 +1517,10 @@ fn main() {
         .filter_level(log_level)
         .init();
 
-    let direct_io: bool = matches.is_present("direct-io");
     let mut options = vec![
         MountOption::FSName("fuser".to_string()),
         MountOption::AutoUnmount,
     ];
-    if direct_io {
-        println!("Using Direct IO");
-        options.push(MountOption::DirectIO);
-    }
     if let Ok(enabled) = fuse_allow_other_enabled() {
         if enabled {
             options.push(MountOption::AllowOther);

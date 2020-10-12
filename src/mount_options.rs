@@ -20,8 +20,6 @@ pub enum MountOption {
     AutoUnmount,
     /// Enable permission checking in the kernel
     DefaultPermissions,
-    /// Disables the kernel page cache. All read()/write() calls go to the FUSE filesystem
-    DirectIO,
 
     /* Flags */
     /// Enable special character and block devices
@@ -50,6 +48,8 @@ pub enum MountOption {
     Sync,
     /// All I/O will be done asynchronously
     Async,
+    /* libfuse library options, such as "direct_io", are not included since they are specific
+    to libfuse, and not part of the kernel ABI */
 }
 
 #[derive(PartialEq)]
@@ -67,7 +67,6 @@ pub fn option_group(option: &MountOption) -> MountOptionGroup {
         MountOption::Subtype(_) => MountOptionGroup::Fusermount,
         MountOption::CUSTOM(_) => MountOptionGroup::KernelOption,
         MountOption::AutoUnmount => MountOptionGroup::Fusermount,
-        MountOption::DirectIO => MountOptionGroup::KernelOption,
         MountOption::AllowOther => MountOptionGroup::KernelOption,
         MountOption::Dev => MountOptionGroup::KernelFlag,
         MountOption::NoDev => MountOptionGroup::KernelFlag,
@@ -94,7 +93,6 @@ pub fn option_to_string(option: &MountOption) -> String {
         MountOption::Subtype(subtype) => format!("subtype={}", subtype),
         MountOption::CUSTOM(value) => value.to_string(),
         MountOption::AutoUnmount => "auto_unmount".to_string(),
-        MountOption::DirectIO => "direct_io".to_string(),
         MountOption::AllowOther => "allow_other".to_string(),
         MountOption::AllowRoot => "allow_root".to_string(),
         MountOption::DefaultPermissions => "default_permissions".to_string(),
