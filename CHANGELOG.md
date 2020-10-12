@@ -7,7 +7,7 @@
 * Add ABI 7.21
 * Add ABI 7.22
 
-## 0.4.1 - 2020-10-07
+## 0.4.1 - 2020-10-12
 
 * Added new feature `serializable` that will enable serde serialization/deserialization for `FileType`, `FileAttr`
 
