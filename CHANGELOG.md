@@ -3,9 +3,11 @@
 ## 0.5.0 - UNRELEASED
 
 * Enable FUSE_BIG_WRITES for ABI >= 7.10
-* Add FUSE_AUTO_INVAL_DATA
-* Add ABI 7.21
-* Add ABI 7.22
+* Add FUSE_AUTO_INVAL_DATA constant
+* Add ABI 7.21 to 7.31
+* Add support for building with libfuse3
+* Add support for building without libfuse/libfuse3
+* Add `mount2()` with improved option API
 
 ## 0.4.1 - 2020-10-12
 
