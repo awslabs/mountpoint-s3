@@ -4,7 +4,7 @@
 
 * Enable FUSE_BIG_WRITES for ABI >= 7.10
 * Add FUSE_AUTO_INVAL_DATA constant
-* Add ABI 7.21 to 7.31
+* Add ABI 7.20 to 7.31 feature flags. Support for these are incomplete.
 * Add support for building with libfuse3
 * Add support for building without libfuse/libfuse3
 * Add `mount2()` with improved option API
