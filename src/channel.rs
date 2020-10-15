@@ -4,11 +4,11 @@
 
 #[cfg(any(feature = "libfuse", test))]
 use crate::fuse_sys::fuse_args;
-#[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
+#[cfg(feature = "libfuse2")]
 use crate::fuse_sys::fuse_mount_compat25;
 #[cfg(not(feature = "libfuse"))]
 use crate::fuse_sys::{fuse_mount_pure, fuse_unmount_pure};
-#[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+#[cfg(feature = "libfuse3")]
 use crate::fuse_sys::{
     fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
@@ -53,7 +53,7 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
+    #[cfg(feature = "libfuse2")]
     pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         let mountpoint = mountpoint.canonicalize()?;
         with_fuse_args(options, |args| {
@@ -71,7 +71,7 @@ impl Channel {
         })
     }
 
-    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+    #[cfg(feature = "libfuse3")]
     pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
         let mountpoint = mountpoint.canonicalize()?;
         with_fuse_args(options, |args| {
@@ -229,7 +229,7 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void, fd: c_int) -> io::R
     )))]
     #[inline]
     fn libc_umount(mnt: &CStr, fuse_session: *mut c_void, fd: c_int) -> c_int {
-        #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
+        #[cfg(feature = "libfuse2")]
         use crate::fuse_sys::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
@@ -237,11 +237,11 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void, fd: c_int) -> io::R
         if rc < 0 && io::Error::last_os_error().kind() == PermissionDenied {
             // Linux always returns EPERM for non-root users.  We have to let the
             // library go through the setuid-root "fusermount -u" to unmount.
-            #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
+            #[cfg(feature = "libfuse2")]
             unsafe {
                 fuse_unmount_compat22(mnt.as_ptr());
             }
-            #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+            #[cfg(feature = "libfuse3")]
             unsafe {
                 if fuse_session.is_null() {
                     fuse_session_unmount(fuse_session);

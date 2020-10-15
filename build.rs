@@ -1,33 +1,34 @@
-#[cfg(all(
-    not(target_os = "macos"),
-    not(feature = "abi-7-20"),
-    feature = "libfuse"
-))]
-const LIBFUSE_NAME: &str = "fuse";
-#[cfg(all(not(target_os = "macos"), feature = "abi-7-20", feature = "libfuse"))]
-const LIBFUSE_NAME: &str = "fuse3";
-
-#[cfg(all(target_os = "macos", feature = "libfuse"))]
-const LIBFUSE_NAME: &str = "osxfuse";
-
-#[cfg(all(not(feature = "abi-7-9"), feature = "libfuse"))]
-const REQUIRED_VERSION: &str = "2.6.0";
-#[cfg(all(feature = "abi-7-9", not(feature = "abi-7-20"), feature = "libfuse"))]
-const REQUIRED_VERSION: &str = "2.9.1";
-#[cfg(all(feature = "abi-7-20", not(feature = "abi-7-27"), feature = "libfuse"))]
-const REQUIRED_VERSION: &str = "3.0.0";
-#[cfg(all(feature = "abi-7-27", not(feature = "abi-7-30"), feature = "libfuse"))]
-const REQUIRED_VERSION: &str = "3.5.0";
-#[cfg(all(feature = "abi-7-30", feature = "libfuse"))]
-const REQUIRED_VERSION: &str = "3.9.0";
-
 fn main() {
     #[cfg(feature = "libfuse")]
     {
-        pkg_config::Config::new()
-            .atleast_version(REQUIRED_VERSION)
-            .probe(LIBFUSE_NAME)
-            .map_err(|e| eprintln!("{}", e))
-            .unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            pkg_config::Config::new()
+                .atleast_version("2.6.0")
+                .probe("osxfuse")
+                .map_err(|e| eprintln!("{}", e))
+                .unwrap();
+            println!("cargo:rustc-cfg=feature=\"libfuse2\"");
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // First try to link with libfuse3
+            if pkg_config::Config::new()
+                .atleast_version("3.0.0")
+                .probe("fuse3")
+                .map_err(|e| eprintln!("{}", e))
+                .is_ok()
+            {
+                println!("cargo:rustc-cfg=feature=\"libfuse3\"");
+            } else {
+                // Fallback to libfuse
+                pkg_config::Config::new()
+                    .atleast_version("2.6.0")
+                    .probe("fuse")
+                    .map_err(|e| eprintln!("{}", e))
+                    .unwrap();
+                println!("cargo:rustc-cfg=feature=\"libfuse2\"");
+            }
+        }
     }
 }

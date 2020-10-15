@@ -10,7 +10,7 @@
 use crate::mount_options::{option_group, option_to_flag, option_to_string, MountOptionGroup};
 #[cfg(not(feature = "libfuse"))]
 use crate::MountOption;
-#[cfg(feature = "abi-7-20")]
+#[cfg(feature = "libfuse3")]
 use libc::c_void;
 use libc::{c_char, c_int};
 #[cfg(not(feature = "libfuse"))]
@@ -55,11 +55,11 @@ extern "C" {
     // *_compat25 functions were introduced in FUSE 2.6 when function signatures changed.
     // Therefore, the minimum version requirement for *_compat25 functions is libfuse-2.6.0.
 
-    #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
+    #[cfg(feature = "libfuse2")]
     pub fn fuse_mount_compat25(mountpoint: *const c_char, args: *const fuse_args) -> c_int;
-    #[cfg(all(not(feature = "abi-7-20"), feature = "libfuse"))]
+    #[cfg(feature = "libfuse2")]
     pub fn fuse_unmount_compat22(mountpoint: *const c_char);
-    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+    #[cfg(feature = "libfuse3")]
     // Really this returns *fuse_session, but we don't need to access its fields
     pub fn fuse_session_new(
         args: *const fuse_args,
@@ -67,18 +67,18 @@ extern "C" {
         op_size: libc::size_t,
         userdata: *mut c_void,
     ) -> *mut c_void;
-    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+    #[cfg(feature = "libfuse3")]
     pub fn fuse_session_mount(
         se: *mut c_void, // This argument is really a *fuse_session
         mountpoint: *const c_char,
     ) -> c_int;
-    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+    #[cfg(feature = "libfuse3")]
     // This function's argument is really a *fuse_session
     pub fn fuse_session_fd(se: *mut c_void) -> c_int;
-    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+    #[cfg(feature = "libfuse3")]
     // This function's argument is really a *fuse_session
     pub fn fuse_session_unmount(se: *mut c_void);
-    #[cfg(all(feature = "abi-7-20", feature = "libfuse"))]
+    #[cfg(feature = "libfuse3")]
     // This function's argument is really a *fuse_session
     pub fn fuse_session_destroy(se: *mut c_void);
 }
