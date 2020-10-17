@@ -1,4 +1,7 @@
 fn main() {
+    #[cfg(all(not(feature = "libfuse"), not(target_os = "linux")))]
+    unimplemented!("Building without libfuse is only supported on Linux");
+
     #[cfg(feature = "libfuse")]
     {
         #[cfg(target_os = "macos")]
