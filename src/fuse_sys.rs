@@ -57,7 +57,17 @@ extern "C" {
 
     #[cfg(feature = "libfuse2")]
     pub fn fuse_mount_compat25(mountpoint: *const c_char, args: *const fuse_args) -> c_int;
-    #[cfg(feature = "libfuse2")]
+    #[cfg(all(
+        feature = "libfuse2",
+        not(any(
+            target_os = "macos",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "openbsd",
+            target_os = "bitrig",
+            target_os = "netbsd"
+        ))
+    ))]
     pub fn fuse_unmount_compat22(mountpoint: *const c_char);
     #[cfg(feature = "libfuse3")]
     // Really this returns *fuse_session, but we don't need to access its fields
