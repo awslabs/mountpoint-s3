@@ -3,10 +3,10 @@
 set -x
 
 exit_handler() {
-    exit "$TEST_EXIT_STATUS"
+    exit "${TEST_EXIT_STATUS:-1}"
 }
 trap exit_handler TERM
-trap "kill 0" INT EXIT
+trap 'kill $(jobs -p); exit $TEST_EXIT_STATUS' INT EXIT
 
 export RUST_BACKTRACE=1
 
@@ -23,14 +23,14 @@ function run_test {
 
   echo "mounting at $DIR"
   # Make sure FUSE was successfully mounted
-  mount | grep hello || exit
+  mount | grep hello || exit 1
 
   if [[ $(cat ${DIR}/hello.txt) = "Hello World!" ]]; then
       echo -e "$GREEN OK $2 $3 $NC"
   else
       echo -e "$RED FAILED $2 $3 $NC"
       export TEST_EXIT_STATUS=1
-      exit
+      exit 1
   fi
 
   kill $FUSE_PID

@@ -1,0 +1,18 @@
+image: macOS
+
+install:
+  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.42.0
+  - brew update > /dev/null && brew cask install osxfuse
+  - export PATH=$HOME/.cargo/bin:$PATH
+  - export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+  - sudo /Library/Filesystems/osxfuse.fs/Contents/Resources/load_osxfuse
+
+test_script:
+  - cargo build --all --all-targets
+  - cargo build --all --all-targets --all-features
+  - cargo test --all
+  - cargo test --all --all-features
+  - cargo doc --all --no-deps --all-features
+  - bash osx_mount_tests.sh
+
+build: false
