@@ -26,7 +26,7 @@ A working FUSE filesystem consists of three parts:
 
 The kernel driver is provided by the FUSE project, the userspace implementation needs to be provided by the developer. FUSE-Rust provides a replacement for the libfuse userspace library between these two. This way, a developer can fully take advantage of the Rust type interface and runtime features when building a FUSE filesystem in Rust.
 
-Except for a single setup (mount) function call and a final teardown (umount) function call to libfuse, everything runs in Rust.
+Except for a single setup (mount) function call and a final teardown (umount) function call to libfuse, everything runs in Rust, and on Linux these calls to libfuse are optional. They can be removed by building without the "libfuse" feature flag.
 
 ## Dependencies
 
