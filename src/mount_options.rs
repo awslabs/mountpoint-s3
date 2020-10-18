@@ -1,7 +1,12 @@
+use std::collections::HashSet;
+use std::io;
+use std::io::ErrorKind;
+use std::iter::FromIterator;
+
 /// Mount options accepted by the FUSE filesystem type
 /// See 'man mount.fuse' for details
 // TODO: add all options that 'man mount.fuse' documents and libfuse supports
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub enum MountOption {
     /// Set the name of the source in mtab
     FSName(String),
@@ -50,6 +55,46 @@ pub enum MountOption {
     Async,
     /* libfuse library options, such as "direct_io", are not included since they are specific
     to libfuse, and not part of the kernel ABI */
+}
+
+pub fn check_option_conflicts(options: &[MountOption]) -> Result<(), io::Error> {
+    let mut options_set = HashSet::new();
+    options_set.extend(options.iter().cloned());
+    let conflicting = HashSet::from_iter(options.iter().map(conflicts_with).flatten());
+    let intersection: Vec<MountOption> = conflicting.intersection(&options_set).cloned().collect();
+    if !intersection.is_empty() {
+        Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("Conflicting mount options found: {:?}", intersection),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn conflicts_with(option: &MountOption) -> Vec<MountOption> {
+    match option {
+        MountOption::FSName(_) => vec![],
+        MountOption::Subtype(_) => vec![],
+        MountOption::CUSTOM(_) => vec![],
+        MountOption::AllowOther => vec![MountOption::AllowRoot],
+        MountOption::AllowRoot => vec![MountOption::AllowOther],
+        MountOption::AutoUnmount => vec![],
+        MountOption::DefaultPermissions => vec![],
+        MountOption::Dev => vec![MountOption::NoDev],
+        MountOption::NoDev => vec![MountOption::Dev],
+        MountOption::Suid => vec![MountOption::NoSuid],
+        MountOption::NoSuid => vec![MountOption::Suid],
+        MountOption::RO => vec![MountOption::RW],
+        MountOption::RW => vec![MountOption::RO],
+        MountOption::Exec => vec![MountOption::NoExec],
+        MountOption::NoExec => vec![MountOption::Exec],
+        MountOption::Atime => vec![MountOption::NoAtime],
+        MountOption::NoAtime => vec![MountOption::Atime],
+        MountOption::DirSync => vec![],
+        MountOption::Sync => vec![MountOption::Async],
+        MountOption::Async => vec![MountOption::Sync],
+    }
 }
 
 #[derive(PartialEq)]
@@ -151,4 +196,14 @@ pub fn option_to_flag(option: &MountOption) -> libc::c_int {
     }
 }
 
-// TODO: add a function to validate the selected set of options: i.e. can't set both RW & RO
+#[cfg(test)]
+mod test {
+    use crate::mount_options::check_option_conflicts;
+    use crate::MountOption;
+
+    #[test]
+    fn option_checking() {
+        assert!(check_option_conflicts(&[MountOption::Suid, MountOption::NoSuid]).is_err());
+        assert!(check_option_conflicts(&[MountOption::Suid, MountOption::NoExec]).is_ok());
+    }
+}

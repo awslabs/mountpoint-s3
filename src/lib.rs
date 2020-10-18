@@ -17,6 +17,7 @@ use std::time::SystemTime;
 
 pub use crate::fuse_abi::consts;
 pub use crate::fuse_abi::FUSE_ROOT_ID;
+use crate::mount_options::check_option_conflicts;
 #[cfg(feature = "libfuse")]
 use crate::mount_options::option_to_string;
 pub use mount_options::MountOption;
@@ -580,6 +581,7 @@ pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
     mountpoint: P,
     options: &[MountOption],
 ) -> io::Result<()> {
+    check_option_conflicts(options)?;
     Session::new2(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
 }
 
@@ -593,6 +595,7 @@ pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
     mountpoint: P,
     options: &[MountOption],
 ) -> io::Result<()> {
+    check_option_conflicts(options)?;
     let options: Vec<String> = options.iter().map(|x| option_to_string(x)).collect();
     let option_str = options.join(",");
     let args = vec![OsStr::new("-o"), OsStr::new(&option_str)];
