@@ -399,16 +399,16 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
 
     // Default name is "/dev/fuse", then use the subtype, and lastly prefer the name
     let mut source = fuse_device_name;
-    if let Some(MountOption::Subtype(subtype)) = options.iter().find(|x| match **x {
-        MountOption::Subtype(_) => true,
-        _ => false,
-    }) {
+    if let Some(MountOption::Subtype(subtype)) = options
+        .iter()
+        .find(|x| matches!(**x, MountOption::Subtype(_)))
+    {
         source = subtype;
     }
-    if let Some(MountOption::FSName(name)) = options.iter().find(|x| match **x {
-        MountOption::FSName(_) => true,
-        _ => false,
-    }) {
+    if let Some(MountOption::FSName(name)) = options
+        .iter()
+        .find(|x| matches!(**x, MountOption::FSName(_)))
+    {
         source = name;
     }
 
