@@ -62,9 +62,9 @@ sudo yum install fuse-devel pkgconfig
 
 ### macOS
 
-Installer packages can be downloaded from the [FUSE for macOS homepage][FUSE for macOS].
+Installer packages can be downloaded from the [FUSE for macOS homepage][FUSE for macOS]. This is the *kernel* part that needs to be installed always.
 
-To install using [Homebrew]:
+#### To install using Homebrew
 
 ```sh
 brew cask install osxfuse
@@ -74,6 +74,24 @@ To install `pkg-config` (required for building only):
 
 ```sh
 brew install pkg-config
+```
+
+#### To install using Nix
+
+``` sh
+nix-env -iA nixos.osxfuse
+```
+
+And `pkg-config` (required for building):
+
+``` sh
+nix-env -iA nixos.pkg-config
+```
+
+When using `nix` it is required that you specify `PKG_CONFIG_PATH` environment variable to point at where `osxfuse` is installed:
+
+``` sh
+export PKG_CONFIG_PATH=${HOME}/.nix-profile/lib/pkgconfig
 ```
 
 ### FreeBSD
