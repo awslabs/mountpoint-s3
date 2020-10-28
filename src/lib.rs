@@ -613,10 +613,10 @@ pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
 /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
 /// dropped. See rust-lang/rust#24292 for more details.
 #[cfg(feature = "libfuse")]
-pub unsafe fn spawn_mount<'a, FS: Filesystem + Send + 'a, P: AsRef<Path>>(
+pub fn spawn_mount<'a, FS: Filesystem + Send + 'static + 'a, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,
     options: &[&OsStr],
-) -> io::Result<BackgroundSession<'a>> {
+) -> io::Result<BackgroundSession> {
     Session::new(filesystem, mountpoint.as_ref(), options).and_then(|se| se.spawn())
 }

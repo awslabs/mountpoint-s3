@@ -11,8 +11,8 @@ use log::{error, info};
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::thread::{self, JoinHandle};
 use std::{fmt, ptr};
-use thread_scoped::{scoped, JoinGuard};
 
 use crate::channel::{self, Channel};
 use crate::request::Request;
@@ -120,13 +120,9 @@ impl<FS: Filesystem> Session<FS> {
     }
 }
 
-impl<'a, FS: Filesystem + Send + 'a> Session<FS> {
+impl<FS: 'static + Filesystem + Send> Session<FS> {
     /// Run the session loop in a background thread
-    /// # Safety
-    ///
-    /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
-    /// dropped. See rust-lang/rust#24292 for more details.
-    pub unsafe fn spawn(self) -> io::Result<BackgroundSession<'a>> {
+    pub fn spawn(self) -> io::Result<BackgroundSession> {
         BackgroundSession::new(self)
     }
 }
@@ -138,32 +134,28 @@ impl<FS: Filesystem> Drop for Session<FS> {
 }
 
 /// The background session data structure
-pub struct BackgroundSession<'a> {
+pub struct BackgroundSession {
     /// Path of the mounted filesystem
     pub mountpoint: PathBuf,
     /// Thread guard of the background session
-    pub guard: JoinGuard<'a, io::Result<()>>,
+    pub guard: JoinHandle<io::Result<()>>,
     fuse_session: *mut libc::c_void,
     fd: libc::c_int,
 }
 
-impl<'a> BackgroundSession<'a> {
+impl BackgroundSession {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    /// # Safety
-    ///
-    /// This interface is inherently unsafe if the BackgroundSession is allowed to leak without being
-    /// dropped. See rust-lang/rust#24292 for more details.
-    pub unsafe fn new<FS: Filesystem + Send + 'a>(
+    pub fn new<FS: Filesystem + Send + 'static>(
         mut se: Session<FS>,
-    ) -> io::Result<BackgroundSession<'a>> {
+    ) -> io::Result<BackgroundSession> {
         let mountpoint = se.mountpoint().to_path_buf();
         // Take the fuse_session, so that we can unmount it
         let fuse_session = se.ch.fuse_session;
         let fd = se.ch.fd;
         se.ch.fuse_session = ptr::null_mut();
-        let guard = scoped(move || {
+        let guard = thread::spawn(move || {
             let mut se = se;
             se.run()
         });
@@ -176,7 +168,7 @@ impl<'a> BackgroundSession<'a> {
     }
 }
 
-impl<'a> Drop for BackgroundSession<'a> {
+impl Drop for BackgroundSession {
     fn drop(&mut self) {
         info!("Unmounting {}", self.mountpoint.display());
         // Unmounting the filesystem will eventually end the session loop,
@@ -190,7 +182,7 @@ impl<'a> Drop for BackgroundSession<'a> {
 
 // replace with #[derive(Debug)] if Debug ever gets implemented for
 // thread_scoped::JoinGuard
-impl<'a> fmt::Debug for BackgroundSession<'a> {
+impl<'a> fmt::Debug for BackgroundSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
