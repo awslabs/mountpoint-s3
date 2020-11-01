@@ -1,6 +1,7 @@
 # FUSE for Rust - Changelog
 
 ## 0.6.0 - UNRELEASED
+* make `spawn_mount()` safe
 
 ## 0.5.0 - 2020-10-17
 
