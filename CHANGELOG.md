@@ -2,8 +2,9 @@
 
 ## 0.6.0 - UNRELEASED
 * Make `spawn_mount()` safe
-* Add support for `fallocate()` and `ioctl()`
+* Add support for `fallocate()`, `ioctl()`, `rename2()`, and `lseek()`
 * Add support for FUSE_BATCH_FORGET
+* Add support for FUSE_READDIRPLUS
 
 ## 0.5.0 - 2020-10-17
 
