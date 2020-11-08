@@ -180,7 +180,6 @@ pub mod consts {
     pub const FUSE_BIG_WRITES: u32 = 1 << 5; // filesystem can handle write size larger than 4kB
     #[cfg(feature = "abi-7-12")]
     pub const FUSE_DONT_MASK: u32 = 1 << 6; // don't apply umask to file mode on create operations
-
     #[cfg(all(feature = "abi-7-14", not(target_os = "macos")))]
     pub const FUSE_SPLICE_WRITE: u32 = 1 << 7; // kernel supports splice write on the device
     #[cfg(all(feature = "abi-7-14", not(target_os = "macos")))]
@@ -200,6 +199,8 @@ pub mod consts {
     pub const FUSE_READDIRPLUS_AUTO: u32 = 1 << 14; // adaptive readdirplus
     #[cfg(feature = "abi-7-22")]
     pub const FUSE_ASYNC_DIO: u32 = 1 << 15; // asynchronous direct I/O submission
+    #[cfg(feature = "abi-7-25")]
+    pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18; // allow parallel lookups and readdir
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
