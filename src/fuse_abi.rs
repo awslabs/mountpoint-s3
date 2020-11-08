@@ -207,6 +207,8 @@ pub mod consts {
     pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18; // allow parallel lookups and readdir
     #[cfg(feature = "abi-7-26")]
     pub const FUSE_HANDLE_KILLPRIV: u32 = 1 << 19; // fs handles killing suid/sgid/cap on write/chown/trunc
+    #[cfg(feature = "abi-7-26")]
+    pub const FUSE_POSIX_ACL: u32 = 1 << 20; // filesystem supports posix acls
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
