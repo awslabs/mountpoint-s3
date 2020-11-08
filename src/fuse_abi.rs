@@ -215,6 +215,8 @@ pub mod consts {
     pub const FUSE_CACHE_SYMLINKS: u32 = 1 << 23; // cache READLINK responses
     #[cfg(feature = "abi-7-29")]
     pub const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24; // kernel supports zero-message opendir
+    #[cfg(feature = "abi-7-30")]
+    pub const FUSE_EXPLICIT_INVAL_DATA: u32 = 1 << 25; // only invalidate cached pages on explicit request
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
