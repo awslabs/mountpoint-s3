@@ -209,6 +209,8 @@ pub mod consts {
     pub const FUSE_HANDLE_KILLPRIV: u32 = 1 << 19; // fs handles killing suid/sgid/cap on write/chown/trunc
     #[cfg(feature = "abi-7-26")]
     pub const FUSE_POSIX_ACL: u32 = 1 << 20; // filesystem supports posix acls
+    #[cfg(feature = "abi-7-27")]
+    pub const FUSE_ABORT_ERROR: u32 = 1 << 21; // reading the device after abort returns ECONNABORTED
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;

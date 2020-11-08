@@ -11,6 +11,7 @@
 * Add FUSE_PARALLEL_DIROPS flag
 * Add FUSE_HANDLE_KILLPRIV flag
 * Add FUSE_POSIX_ACL flag
+* Add FUSE_ABORT_ERROR flag
 
 ## 0.5.0 - 2020-10-17
 
