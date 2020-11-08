@@ -269,6 +269,8 @@ pub mod consts {
     pub const FUSE_IOCTL_32BIT: u32 = 1 << 3; // 32bit ioctl
     #[cfg(feature = "abi-7-18")]
     pub const FUSE_IOCTL_DIR: u32 = 1 << 4; // is a directory
+    #[cfg(feature = "abi-7-30")]
+    pub const FUSE_IOCTL_COMPAT_X32: u32 = 1 << 5; // x32 compat ioctl on 64bit machine (64bit time_t)
     #[cfg(feature = "abi-7-11")]
     pub const FUSE_IOCTL_MAX_IOV: u32 = 256; // maximum of in_iovecs + out_iovecs
 
