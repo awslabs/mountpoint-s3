@@ -199,6 +199,8 @@ pub mod consts {
     pub const FUSE_READDIRPLUS_AUTO: u32 = 1 << 14; // adaptive readdirplus
     #[cfg(feature = "abi-7-22")]
     pub const FUSE_ASYNC_DIO: u32 = 1 << 15; // asynchronous direct I/O submission
+    #[cfg(feature = "abi-7-23")]
+    pub const FUSE_WRITEBACK_CACHE: u32 = 1 << 16; // use writeback cache for buffered writes
     #[cfg(feature = "abi-7-25")]
     pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18; // allow parallel lookups and readdir
 
