@@ -205,6 +205,8 @@ pub mod consts {
     pub const FUSE_NO_OPEN_SUPPORT: u32 = 1 << 17; // kernel supports zero-message opens
     #[cfg(feature = "abi-7-25")]
     pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18; // allow parallel lookups and readdir
+    #[cfg(feature = "abi-7-26")]
+    pub const FUSE_HANDLE_KILLPRIV: u32 = 1 << 19; // fs handles killing suid/sgid/cap on write/chown/trunc
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u32 = 1 << 27;
