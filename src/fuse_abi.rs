@@ -211,6 +211,8 @@ pub mod consts {
     pub const FUSE_POSIX_ACL: u32 = 1 << 20; // filesystem supports posix acls
     #[cfg(feature = "abi-7-27")]
     pub const FUSE_ABORT_ERROR: u32 = 1 << 21; // reading the device after abort returns ECONNABORTED
+    #[cfg(feature = "abi-7-28")]
+    pub const FUSE_CACHE_SYMLINKS: u32 = 1 << 23; // cache READLINK responses
     #[cfg(feature = "abi-7-29")]
     pub const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24; // kernel supports zero-message opendir
 

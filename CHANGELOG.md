@@ -13,6 +13,7 @@
 * Add FUSE_POSIX_ACL flag
 * Add FUSE_ABORT_ERROR flag
 * Add FUSE_NO_OPENDIR_SUPPORT flag
+* Add FUSE_CACHE_SYMLINKS flag
 
 ## 0.5.0 - 2020-10-17
 
