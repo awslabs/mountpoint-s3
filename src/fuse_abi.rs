@@ -163,6 +163,8 @@ pub mod consts {
     pub const FOPEN_NONSEEKABLE: u32 = 1 << 2; // the file is not seekable
     #[cfg(feature = "abi-7-28")]
     pub const FOPEN_CACHE_DIR: u32 = 1 << 3; // allow caching this directory
+    #[cfg(feature = "abi-7-31")]
+    pub const FOPEN_STREAM: u32 = 1 << 4; // the file is stream-like (no file position at all)
 
     #[cfg(target_os = "macos")]
     pub const FOPEN_PURGE_ATTR: u32 = 1 << 30;

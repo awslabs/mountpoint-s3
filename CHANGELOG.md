@@ -17,6 +17,7 @@
 * Add FUSE_EXPLICIT_INVAL_DATA flag
 * Add FUSE_IOCTL_COMPAT_X32 flag
 * Add FOPEN_CACHE_DIR flag
+* Add FOPEN_STREAM flag
 
 ## 0.5.0 - 2020-10-17
 
