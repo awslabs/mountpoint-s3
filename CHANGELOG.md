@@ -12,6 +12,7 @@
 * Add FUSE_HANDLE_KILLPRIV flag
 * Add FUSE_POSIX_ACL flag
 * Add FUSE_ABORT_ERROR flag
+* Add FUSE_NO_OPENDIR_SUPPORT flag
 
 ## 0.5.0 - 2020-10-17
 
