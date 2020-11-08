@@ -234,6 +234,8 @@ pub mod consts {
     pub const FUSE_WRITE_CACHE: u32 = 1 << 0; // delayed write from page cache, file handle is guessed
     #[cfg(feature = "abi-7-9")]
     pub const FUSE_WRITE_LOCKOWNER: u32 = 1 << 1; // lock_owner field is valid
+    #[cfg(feature = "abi-7-31")]
+    pub const FUSE_WRITE_KILL_PRIV: u32 = 1 << 2; // kill suid and sgid bits
 
     // Read flags
     #[cfg(feature = "abi-7-9")]

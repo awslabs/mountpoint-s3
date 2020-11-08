@@ -5,6 +5,7 @@
 * Add support for `fallocate()`, `ioctl()`, `rename2()`, and `lseek()`
 * Add support for FUSE_BATCH_FORGET
 * Add support for FUSE_READDIRPLUS
+* Add FUSE_WRITE_KILL_PRIV flag for `write()`
 
 ## 0.5.0 - 2020-10-17
 
