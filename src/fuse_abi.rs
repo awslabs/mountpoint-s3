@@ -161,6 +161,8 @@ pub mod consts {
     pub const FOPEN_KEEP_CACHE: u32 = 1 << 1; // don't invalidate the data cache on open
     #[cfg(feature = "abi-7-10")]
     pub const FOPEN_NONSEEKABLE: u32 = 1 << 2; // the file is not seekable
+    #[cfg(feature = "abi-7-28")]
+    pub const FOPEN_CACHE_DIR: u32 = 1 << 3; // allow caching this directory
 
     #[cfg(target_os = "macos")]
     pub const FOPEN_PURGE_ATTR: u32 = 1 << 30;
