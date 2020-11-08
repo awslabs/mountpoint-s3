@@ -7,6 +7,7 @@
 * Add support for FUSE_READDIRPLUS
 * Add FUSE_WRITE_KILL_PRIV flag for `write()`
 * Add FUSE_WRITEBACK_CACHE flag
+* Add FUSE_NO_OPEN_SUPPORT flag
 * Add FUSE_PARALLEL_DIROPS flag
 
 ## 0.5.0 - 2020-10-17
