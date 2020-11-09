@@ -158,6 +158,7 @@ pub trait Filesystem {
         _atime_now: bool,
         _mtime: Option<SystemTime>,
         _mtime_now: bool,
+        _ctime: Option<SystemTime>,
         _fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,

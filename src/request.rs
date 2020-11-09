@@ -171,6 +171,13 @@ impl<'a> Request<'a> {
                     0 => None,
                     _ => Some(UNIX_EPOCH + Duration::new(arg.mtime, arg.mtimensec)),
                 };
+                #[cfg(feature = "abi-7-23")]
+                let ctime = match arg.valid & FATTR_CTIME {
+                    0 => None,
+                    _ => Some(UNIX_EPOCH + Duration::new(arg.ctime, arg.ctimensec)),
+                };
+                #[cfg(not(feature = "abi-7-23"))]
+                let ctime = None;
                 let fh = match arg.valid & FATTR_FH {
                     0 => None,
                     _ => Some(arg.fh),
@@ -227,6 +234,7 @@ impl<'a> Request<'a> {
                     arg.atime_now(),
                     mtime,
                     arg.mtime_now(),
+                    ctime,
                     fh,
                     crtime,
                     chgtime,

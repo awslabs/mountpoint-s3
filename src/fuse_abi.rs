@@ -146,6 +146,8 @@ pub mod consts {
     pub const FATTR_MTIME_NOW: u32 = 1 << 8;
     #[cfg(feature = "abi-7-9")]
     pub const FATTR_LOCKOWNER: u32 = 1 << 9;
+    #[cfg(feature = "abi-7-23")]
+    pub const FATTR_CTIME: u32 = 1 << 10;
 
     #[cfg(target_os = "macos")]
     pub const FATTR_CRTIME: u32 = 1 << 28;
@@ -604,10 +606,16 @@ pub struct fuse_setattr_in {
     pub lock_owner: u64,
     pub atime: u64,
     pub mtime: u64,
+    #[cfg(not(feature = "abi-7-23"))]
     pub unused2: u64,
+    #[cfg(feature = "abi-7-23")]
+    pub ctime: u64,
     pub atimensec: u32,
     pub mtimensec: u32,
+    #[cfg(not(feature = "abi-7-23"))]
     pub unused3: u32,
+    #[cfg(feature = "abi-7-23")]
+    pub ctimensec: u32,
     pub mode: u32,
     pub unused4: u32,
     pub uid: u32,

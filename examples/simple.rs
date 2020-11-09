@@ -394,6 +394,7 @@ impl Filesystem for SimpleFS {
         atime_now: bool,
         mtime: Option<SystemTime>,
         mtime_now: bool,
+        _ctime: Option<SystemTime>,
         fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
