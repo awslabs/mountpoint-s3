@@ -102,8 +102,14 @@ impl<'a> Request<'a> {
                     max_write: MAX_WRITE_SIZE as u32, // use a max write size that fits into the session's buffer
                     #[cfg(feature = "abi-7-23")]
                     time_gran: 1, // 1 means nano-second granularity. TODO: make this configurable
-                    #[cfg(feature = "abi-7-23")]
+                    #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
                     reserved: [0; 9],
+                    #[cfg(feature = "abi-7-28")]
+                    max_pages: 0, // TODO: max this configurable when FUSE_MAX_PAGES is set
+                    #[cfg(feature = "abi-7-28")]
+                    unused2: 0,
+                    #[cfg(feature = "abi-7-28")]
+                    reserved: [0; 8],
                 };
                 debug!(
                     "INIT response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}",

@@ -218,6 +218,8 @@ pub mod consts {
     #[cfg(feature = "abi-7-27")]
     pub const FUSE_ABORT_ERROR: u32 = 1 << 21; // reading the device after abort returns ECONNABORTED
     #[cfg(feature = "abi-7-28")]
+    pub const FUSE_MAX_PAGES: u32 = 1 << 22; // init_out.max_pages contains the max number of req pages
+    #[cfg(feature = "abi-7-28")]
     pub const FUSE_CACHE_SYMLINKS: u32 = 1 << 23; // cache READLINK responses
     #[cfg(feature = "abi-7-29")]
     pub const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24; // kernel supports zero-message opendir
@@ -834,8 +836,14 @@ pub struct fuse_init_out {
     pub max_write: u32,
     #[cfg(feature = "abi-7-23")]
     pub time_gran: u32,
-    #[cfg(feature = "abi-7-23")]
+    #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
     pub reserved: [u32; 9],
+    #[cfg(feature = "abi-7-28")]
+    pub max_pages: u16,
+    #[cfg(feature = "abi-7-28")]
+    pub unused2: u16,
+    #[cfg(feature = "abi-7-28")]
+    pub reserved: [u32; 8],
 }
 
 #[cfg(feature = "abi-7-12")]
