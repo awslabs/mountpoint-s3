@@ -824,6 +824,10 @@ pub struct fuse_init_out {
     #[cfg(feature = "abi-7-13")]
     pub congestion_threshold: u16,
     pub max_write: u32,
+    #[cfg(feature = "abi-7-23")]
+    pub time_gran: u32,
+    #[cfg(feature = "abi-7-23")]
+    pub reserved: [u32; 9],
 }
 
 #[cfg(feature = "abi-7-12")]
