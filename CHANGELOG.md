@@ -18,6 +18,10 @@
 * Add FUSE_IOCTL_COMPAT_X32 flag
 * Add FOPEN_CACHE_DIR flag
 * Add FOPEN_STREAM flag
+* Add FUSE_MAX_PAGES flag
+* Add max_pages, and time_gran support to init code path (these are not currently configurable)
+* Add support for ctime in `setattr()`
+* Add support for FUSE_COPY_FILE_RANGE via `copy_range()` method
 
 ## 0.5.0 - 2020-10-17
 
