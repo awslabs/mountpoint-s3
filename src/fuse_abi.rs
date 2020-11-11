@@ -350,6 +350,8 @@ pub enum fuse_opcode {
     FUSE_RENAME2 = 45,
     #[cfg(feature = "abi-7-24")]
     FUSE_LSEEK = 46,
+    #[cfg(feature = "abi-7-28")]
+    FUSE_COPY_FILE_RANGE = 47,
 
     #[cfg(target_os = "macos")]
     FUSE_SETVOLNAME = 61,
@@ -419,6 +421,8 @@ impl TryFrom<u32> for fuse_opcode {
             45 => Ok(fuse_opcode::FUSE_RENAME2),
             #[cfg(feature = "abi-7-24")]
             46 => Ok(fuse_opcode::FUSE_LSEEK),
+            #[cfg(feature = "abi-7-28")]
+            47 => Ok(fuse_opcode::FUSE_COPY_FILE_RANGE),
 
             #[cfg(target_os = "macos")]
             61 => Ok(fuse_opcode::FUSE_SETVOLNAME),
@@ -1072,4 +1076,16 @@ pub struct fuse_lseek_in {
 #[derive(Debug)]
 pub struct fuse_lseek_out {
     pub offset: i64,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct fuse_copy_file_range_in {
+    pub fh_in: u64,
+    pub off_in: u64,
+    pub nodeid_out: u64,
+    pub fh_out: u64,
+    pub off_out: u64,
+    pub len: u64,
+    pub flags: u64,
 }

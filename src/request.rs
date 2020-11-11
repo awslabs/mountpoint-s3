@@ -562,6 +562,21 @@ impl<'a> Request<'a> {
                     self.reply(),
                 );
             }
+            #[cfg(feature = "abi-7-28")]
+            ll::Operation::CopyFileRange { arg } => {
+                se.filesystem.copy_range(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh_in,
+                    arg.off_in,
+                    arg.nodeid_out,
+                    arg.fh_out,
+                    arg.off_out,
+                    arg.len,
+                    arg.flags,
+                    self.reply(),
+                );
+            }
             #[cfg(target_os = "macos")]
             ll::Operation::SetVolName { name } => {
                 se.filesystem.setvolname(self, name, self.reply());

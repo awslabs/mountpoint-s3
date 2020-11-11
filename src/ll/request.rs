@@ -194,6 +194,10 @@ pub enum Operation<'a> {
     Lseek {
         arg: &'a fuse_lseek_in,
     },
+    #[cfg(feature = "abi-7-28")]
+    CopyFileRange {
+        arg: &'a fuse_copy_file_range_in,
+    },
 
     #[cfg(target_os = "macos")]
     SetVolName {
@@ -269,6 +273,8 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::Rename2 { arg, name, newname } => write!(f, "RENAME2 name {:?}, newdir {:#018x}, newname {:?}", name, arg.newdir, newname),
             #[cfg(feature = "abi-7-24")]
             Operation::Lseek { arg } => write!(f, "LSEEK fh {}, offset {}, whence {}", arg.fh, arg.offset, arg.whence),
+            #[cfg(feature = "abi-7-28")]
+            Operation::CopyFileRange { arg } => write!(f, "COPY_FILE_RANGE fh_in {}, offset_in {}, fh_out {}, offset_out {}, inode_out {}, len {}", arg.fh_in, arg.off_in, arg.fh_out, arg.off_out, arg.nodeid_out, arg.len),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName { name } => write!(f, "SETVOLNAME name {:?}", name),
@@ -389,6 +395,10 @@ impl<'a> Operation<'a> {
                 },
                 #[cfg(feature = "abi-7-24")]
                 fuse_opcode::FUSE_LSEEK => Operation::Lseek { arg: data.fetch()? },
+                #[cfg(feature = "abi-7-28")]
+                fuse_opcode::FUSE_COPY_FILE_RANGE => {
+                    Operation::CopyFileRange { arg: data.fetch()? }
+                }
 
                 #[cfg(target_os = "macos")]
                 fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {
