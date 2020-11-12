@@ -668,7 +668,9 @@ impl fuse_setattr_in {
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_open_in {
-    pub flags: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i32 when invoking the filesystem's open method and this matches the open() syscall
+    pub flags: i32,
     pub unused: u32,
 }
 

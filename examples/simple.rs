@@ -1081,16 +1081,16 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn open(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
-        let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
+        let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
-                if flags as i32 & libc::O_TRUNC != 0 {
+                if flags & libc::O_TRUNC != 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
-                if flags as i32 & FMODE_EXEC != 0 {
+                if flags & FMODE_EXEC != 0 {
                     // Open is from internal exec syscall
                     (libc::X_OK, true, false)
                 } else {
@@ -1193,12 +1193,12 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn opendir(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
+    fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
-        let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
+        let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
-                if flags as i32 & libc::O_TRUNC != 0 {
+                if flags & libc::O_TRUNC != 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
