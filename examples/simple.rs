@@ -887,6 +887,7 @@ impl Filesystem for SimpleFS {
         name: &OsStr,
         new_parent: u64,
         new_name: &OsStr,
+        _flags: u32,
         reply: ReplyEmpty,
     ) {
         let name_str = if let Some(value) = name.to_str() {

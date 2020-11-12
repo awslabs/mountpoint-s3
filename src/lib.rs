@@ -230,19 +230,6 @@ pub trait Filesystem {
         _name: &OsStr,
         _newparent: u64,
         _newname: &OsStr,
-        reply: ReplyEmpty,
-    ) {
-        reply.error(ENOSYS);
-    }
-
-    /// Rename a file.
-    fn rename2(
-        &mut self,
-        _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _newparent: u64,
-        _newname: &OsStr,
         _flags: u32,
         reply: ReplyEmpty,
     ) {

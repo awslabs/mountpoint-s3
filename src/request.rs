@@ -291,6 +291,7 @@ impl<'a> Request<'a> {
                     &name,
                     arg.newdir,
                     &newname,
+                    0,
                     self.reply(),
                 );
             }
@@ -541,7 +542,7 @@ impl<'a> Request<'a> {
             }
             #[cfg(feature = "abi-7-23")]
             ll::Operation::Rename2 { arg, name, newname } => {
-                se.filesystem.rename2(
+                se.filesystem.rename(
                     self,
                     self.request.nodeid(),
                     name,
