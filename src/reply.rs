@@ -660,6 +660,7 @@ impl ReplyDirectory {
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
+    #[must_use]
     pub fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
         let name = name.as_ref().as_bytes();
         let entlen = mem::size_of::<fuse_dirent>() + name.len();
@@ -1320,8 +1321,8 @@ mod test {
             ],
         };
         let mut reply = ReplyDirectory::new(0xdeadbeef, sender, 4096);
-        reply.add(0xaabb, 1, FileType::Directory, "hello");
-        reply.add(0xccdd, 2, FileType::RegularFile, "world.rs");
+        assert!(!reply.add(0xaabb, 1, FileType::Directory, "hello"));
+        assert!(!reply.add(0xccdd, 2, FileType::RegularFile, "world.rs"));
         reply.ok();
     }
 
