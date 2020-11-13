@@ -715,14 +715,18 @@ pub struct fuse_flush_in {
 #[derive(Debug)]
 pub struct fuse_read_in {
     pub fh: u64,
-    pub offset: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i64 when invoking the filesystem's read method
+    pub offset: i64,
     pub size: u32,
     #[cfg(feature = "abi-7-9")]
     pub read_flags: u32,
     #[cfg(feature = "abi-7-9")]
     pub lock_owner: u64,
     #[cfg(feature = "abi-7-9")]
-    pub flags: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i32 when invoking the filesystem's read method
+    pub flags: i32,
     #[cfg(feature = "abi-7-9")]
     pub padding: u32,
 }
@@ -731,13 +735,17 @@ pub struct fuse_read_in {
 #[derive(Debug)]
 pub struct fuse_write_in {
     pub fh: u64,
-    pub offset: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i64 when invoking the filesystem's write method
+    pub offset: i64,
     pub size: u32,
     pub write_flags: u32,
     #[cfg(feature = "abi-7-9")]
     pub lock_owner: u64,
     #[cfg(feature = "abi-7-9")]
-    pub flags: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i32 when invoking the filesystem's read method
+    pub flags: i32,
     #[cfg(feature = "abi-7-9")]
     pub padding: u32,
 }

@@ -267,6 +267,9 @@ pub trait Filesystem {
     /// return value of the read system call will reflect the return value of this
     /// operation. fh will contain the value set by the open method, or will be undefined
     /// if the open method didn't set any value.
+    ///
+    /// flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9
+    /// lock_owner: only supported with ABI >= 7.9
     fn read(
         &mut self,
         _req: &Request<'_>,
@@ -274,6 +277,8 @@ pub trait Filesystem {
         _fh: u64,
         _offset: i64,
         _size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
         reply.error(ENOSYS);
@@ -285,6 +290,12 @@ pub trait Filesystem {
     /// which case the return value of the write system call will reflect the return
     /// value of this operation. fh will contain the value set by the open method, or
     /// will be undefined if the open method didn't set any value.
+    ///
+    /// write_flags: will contain FUSE_WRITE_CACHE, if this write is from the page cache. If set,
+    /// the pid, uid, gid, and fh may not match the value that would have been sent if write cachin
+    /// is disabled
+    /// flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9
+    /// lock_owner: only supported with ABI >= 7.9
     fn write(
         &mut self,
         _req: &Request<'_>,
@@ -292,7 +303,9 @@ pub trait Filesystem {
         _fh: u64,
         _offset: i64,
         _data: &[u8],
-        _flags: u32,
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
         reply.error(ENOSYS);
@@ -391,7 +404,7 @@ pub trait Filesystem {
         _req: &Request<'_>,
         _ino: u64,
         _fh: u64,
-        _offset: u64,
+        _offset: i64,
         reply: ReplyDirectoryPlus,
     ) {
         reply.error(ENOSYS);

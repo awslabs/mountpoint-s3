@@ -309,17 +309,37 @@ impl<'a> Request<'a> {
                     .open(self, self.request.nodeid(), arg.flags, self.reply());
             }
             ll::Operation::Read { arg } => {
+                #[cfg(not(feature = "abi-7-9"))]
                 se.filesystem.read(
                     self,
                     self.request.nodeid(),
                     arg.fh,
                     arg.offset as i64,
                     arg.size,
+                    0,
+                    None,
+                    self.reply(),
+                );
+                #[cfg(feature = "abi-7-9")]
+                se.filesystem.read(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh,
+                    arg.offset as i64,
+                    arg.size,
+                    arg.flags,
+                    if arg.read_flags & FUSE_READ_LOCKOWNER != 0 {
+                        Some(arg.lock_owner)
+                    } else {
+                        None
+                    },
                     self.reply(),
                 );
             }
             ll::Operation::Write { arg, data } => {
                 assert!(data.len() == arg.size as usize);
+
+                #[cfg(not(feature = "abi-7-9"))]
                 se.filesystem.write(
                     self,
                     self.request.nodeid(),
@@ -327,6 +347,24 @@ impl<'a> Request<'a> {
                     arg.offset as i64,
                     data,
                     arg.write_flags,
+                    0,
+                    None,
+                    self.reply(),
+                );
+                #[cfg(feature = "abi-7-9")]
+                se.filesystem.write(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh,
+                    arg.offset as i64,
+                    data,
+                    arg.write_flags,
+                    arg.flags,
+                    if arg.write_flags & FUSE_WRITE_LOCKOWNER != 0 {
+                        Some(arg.lock_owner)
+                    } else {
+                        None
+                    },
                     self.reply(),
                 );
             }

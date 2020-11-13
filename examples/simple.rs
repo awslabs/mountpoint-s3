@@ -1134,6 +1134,8 @@ impl Filesystem for SimpleFS {
         fh: u64,
         offset: i64,
         size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
         debug!("read() called on {:?}", inode);
@@ -1164,7 +1166,9 @@ impl Filesystem for SimpleFS {
         fh: u64,
         offset: i64,
         data: &[u8],
-        _flags: u32,
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
         debug!("write() called with {:?}", inode);

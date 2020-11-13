@@ -75,6 +75,8 @@ impl Filesystem for HelloFS {
         _fh: u64,
         offset: i64,
         _size: u32,
+        _flags: i32,
+        _lock: Option<u64>,
         reply: ReplyData,
     ) {
         if ino == 2 {
