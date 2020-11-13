@@ -379,12 +379,27 @@ impl<'a> Request<'a> {
             }
             ll::Operation::Release { arg } => {
                 let flush = !matches!(arg.release_flags & FUSE_RELEASE_FLUSH, 0);
+                #[cfg(not(feature = "abi-7-17"))]
                 se.filesystem.release(
                     self,
                     self.request.nodeid(),
                     arg.fh,
                     arg.flags,
-                    arg.lock_owner,
+                    Some(arg.lock_owner),
+                    flush,
+                    self.reply(),
+                );
+                #[cfg(feature = "abi-7-17")]
+                se.filesystem.release(
+                    self,
+                    self.request.nodeid(),
+                    arg.fh,
+                    arg.flags,
+                    if arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
+                        Some(arg.lock_owner)
+                    } else {
+                        None
+                    },
                     flush,
                     self.reply(),
                 );

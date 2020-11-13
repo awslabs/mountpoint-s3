@@ -345,8 +345,8 @@ pub trait Filesystem {
         _req: &Request<'_>,
         _ino: u64,
         _fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
@@ -419,7 +419,7 @@ pub trait Filesystem {
         _req: &Request<'_>,
         _ino: u64,
         _fh: u64,
-        _flags: u32,
+        _flags: i32,
         reply: ReplyEmpty,
     ) {
         reply.ok();

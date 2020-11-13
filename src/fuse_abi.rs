@@ -697,7 +697,9 @@ pub struct fuse_open_out {
 #[derive(Debug)]
 pub struct fuse_release_in {
     pub fh: u64,
-    pub flags: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i32 when invoking the filesystem's read method
+    pub flags: i32,
     pub release_flags: u32,
     pub lock_owner: u64,
 }
