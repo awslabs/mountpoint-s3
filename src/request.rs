@@ -618,7 +618,7 @@ impl<'a> Request<'a> {
             }
             #[cfg(feature = "abi-7-28")]
             ll::Operation::CopyFileRange { arg } => {
-                se.filesystem.copy_range(
+                se.filesystem.copy_file_range(
                     self,
                     self.request.nodeid(),
                     arg.fh_in,

@@ -1104,10 +1104,12 @@ pub struct fuse_lseek_out {
 #[derive(Debug)]
 pub struct fuse_copy_file_range_in {
     pub fh_in: u64,
-    pub off_in: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub off_in: i64,
     pub nodeid_out: u64,
     pub fh_out: u64,
-    pub off_out: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub off_out: i64,
     pub len: u64,
     pub flags: u64,
 }
