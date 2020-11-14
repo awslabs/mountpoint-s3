@@ -606,7 +606,7 @@ pub trait Filesystem {
         _ino: u64,
         _fh: u64,
         _offset: i64,
-        _whence: u32,
+        _whence: i32,
         reply: ReplyLseek,
     ) {
         reply.error(ENOSYS);

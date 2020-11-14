@@ -1090,7 +1090,8 @@ pub struct fuse_notify_retrieve_in {
 pub struct fuse_lseek_in {
     pub fh: u64,
     pub offset: i64,
-    pub whence: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub whence: i32,
     pub padding: u32,
 }
 
