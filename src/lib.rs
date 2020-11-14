@@ -182,6 +182,7 @@ pub trait Filesystem {
         _parent: u64,
         _name: &OsStr,
         _mode: u32,
+        _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
@@ -195,6 +196,7 @@ pub trait Filesystem {
         _parent: u64,
         _name: &OsStr,
         _mode: u32,
+        _umask: u32,
         reply: ReplyEntry,
     ) {
         reply.error(ENOSYS);
@@ -511,6 +513,7 @@ pub trait Filesystem {
         _parent: u64,
         _name: &OsStr,
         _mode: u32,
+        _umask: u32,
         _flags: i32,
         reply: ReplyCreate,
     ) {

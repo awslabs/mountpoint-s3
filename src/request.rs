@@ -268,18 +268,46 @@ impl<'a> Request<'a> {
                     .readlink(self, self.request.nodeid(), self.reply());
             }
             ll::Operation::MkNod { arg, name } => {
+                #[cfg(not(feature = "abi-7-12"))]
                 se.filesystem.mknod(
                     self,
                     self.request.nodeid(),
                     &name,
                     arg.mode,
+                    0,
+                    arg.rdev,
+                    self.reply(),
+                );
+                #[cfg(feature = "abi-7-12")]
+                se.filesystem.mknod(
+                    self,
+                    self.request.nodeid(),
+                    &name,
+                    arg.mode,
+                    arg.umask,
                     arg.rdev,
                     self.reply(),
                 );
             }
             ll::Operation::MkDir { arg, name } => {
-                se.filesystem
-                    .mkdir(self, self.request.nodeid(), &name, arg.mode, self.reply());
+                #[cfg(not(feature = "abi-7-12"))]
+                se.filesystem.mkdir(
+                    self,
+                    self.request.nodeid(),
+                    &name,
+                    arg.mode,
+                    0,
+                    self.reply(),
+                );
+                #[cfg(feature = "abi-7-12")]
+                se.filesystem.mkdir(
+                    self,
+                    self.request.nodeid(),
+                    &name,
+                    arg.mode,
+                    arg.umask,
+                    self.reply(),
+                );
             }
             ll::Operation::Unlink { name } => {
                 se.filesystem
@@ -493,11 +521,23 @@ impl<'a> Request<'a> {
                     .access(self, self.request.nodeid(), arg.mask, self.reply());
             }
             ll::Operation::Create { arg, name } => {
+                #[cfg(not(feature = "abi-7-12"))]
                 se.filesystem.create(
                     self,
                     self.request.nodeid(),
                     &name,
                     arg.mode,
+                    0,
+                    arg.flags,
+                    self.reply(),
+                );
+                #[cfg(feature = "abi-7-12")]
+                se.filesystem.create(
+                    self,
+                    self.request.nodeid(),
+                    &name,
+                    arg.mode,
+                    arg.umask,
                     arg.flags,
                     self.reply(),
                 );

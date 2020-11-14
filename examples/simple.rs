@@ -569,6 +569,7 @@ impl Filesystem for SimpleFS {
         parent: u64,
         name: &OsStr,
         mode: u32,
+        _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
@@ -654,7 +655,15 @@ impl Filesystem for SimpleFS {
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
 
-    fn mkdir(&mut self, req: &Request, parent: u64, name: &OsStr, mode: u32, reply: ReplyEntry) {
+    fn mkdir(
+        &mut self,
+        req: &Request,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        _umask: u32,
+        reply: ReplyEntry,
+    ) {
         debug!("mkdir() called with {:?} {:?} {:o}", parent, name, mode);
         if self.lookup_name(parent, name).is_ok() {
             reply.error(libc::EEXIST);
@@ -1332,6 +1341,7 @@ impl Filesystem for SimpleFS {
         parent: u64,
         name: &OsStr,
         mode: u32,
+        _umask: u32,
         flags: i32,
         reply: ReplyCreate,
     ) {

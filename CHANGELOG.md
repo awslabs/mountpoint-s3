@@ -8,6 +8,7 @@
 * Change `mask` parameter of `access()` to be signed, so that it matches libfuse and the associated constants in libc
 * Change lock type parameter of `getlk()` and `setlk()` to be signed, so that it matches libfuse and the associated constants in libc
 * Add `lock_owner` and file `flags` parameters to `read()` and `write()`
+* Add `umask` parameter to `mknod()`, `mkdir()` and `create()`
 * Add support for `fallocate()`, `ioctl()`, `copy_file_range()`, and `lseek()`
 * Add support for FUSE_BATCH_FORGET
 * Add support for FUSE_READDIRPLUS
