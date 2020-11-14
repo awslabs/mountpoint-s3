@@ -2,9 +2,16 @@
 
 ## 0.6.0 - UNRELEASED
 * Make `spawn_mount()` safe
-* Add support for `fallocate()`, `ioctl()`, `rename2()`, and `lseek()`
+* Change `flags` parameter of `create()`, `open()`, `opendir()`, `release()`, `releasedir()` to be signed, so that it matches
+  libfuse and the associated constants in libc
+* Change `flags` parameter of `setxattr()` to be signed, so that it matches libfuse
+* Change `mask` parameter of `access()` to be signed, so that it matches libfuse and the associated constants in libc
+* Change lock type parameter of `getlk()` and `setlk()` to be signed, so that it matches libfuse and the associated constants in libc
+* Add `lock_owner` and file `flags` parameters to `read()` and `write()`
+* Add support for `fallocate()`, `ioctl()`, `copy_file_range()`, and `lseek()`
 * Add support for FUSE_BATCH_FORGET
 * Add support for FUSE_READDIRPLUS
+* Add support for FUSE_RENAME2
 * Add FUSE_WRITE_KILL_PRIV flag for `write()`
 * Add FUSE_WRITEBACK_CACHE flag
 * Add FUSE_NO_OPEN_SUPPORT flag
@@ -21,7 +28,7 @@
 * Add FUSE_MAX_PAGES flag
 * Add max_pages, and time_gran support to init code path (these are not currently configurable)
 * Add support for ctime in `setattr()`
-* Add support for FUSE_COPY_FILE_RANGE via `copy_range()` method
+* Add support for timestamps before the unix epoch in `getattr()` and `setattr()`
 
 ## 0.5.0 - 2020-10-17
 
