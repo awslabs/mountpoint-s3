@@ -777,7 +777,7 @@ pub struct fuse_fsync_in {
 #[derive(Debug)]
 pub struct fuse_setxattr_in {
     pub size: u32,
-    pub flags: u32,
+    pub flags: i32,
     #[cfg(target_os = "macos")]
     pub position: u32,
     #[cfg(target_os = "macos")]

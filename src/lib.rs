@@ -452,7 +452,7 @@ pub trait Filesystem {
         _ino: u64,
         _name: &OsStr,
         _value: &[u8],
-        _flags: u32,
+        _flags: i32,
         _position: u32,
         reply: ReplyEmpty,
     ) {
