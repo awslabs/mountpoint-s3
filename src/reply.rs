@@ -673,7 +673,7 @@ impl ReplyDirectory {
             let p = self.data.as_mut_ptr().add(self.data.len());
             let pdirent: *mut fuse_dirent = p as *mut fuse_dirent;
             (*pdirent).ino = ino;
-            (*pdirent).off = offset as u64;
+            (*pdirent).off = offset;
             (*pdirent).namelen = name.len() as u32;
             (*pdirent).typ = mode_from_kind_and_perm(kind, 0) >> 12;
             let p = p.add(mem::size_of_val(&*pdirent));
@@ -721,7 +721,7 @@ impl ReplyDirectoryPlus {
     pub fn add<T: AsRef<OsStr>>(
         &mut self,
         ino: u64,
-        offset: u64,
+        offset: i64,
         name: T,
         ttl: &Duration,
         attr: &FileAttr,

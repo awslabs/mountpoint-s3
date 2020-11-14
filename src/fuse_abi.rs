@@ -1010,7 +1010,8 @@ pub struct fuse_out_header {
 #[derive(Debug)]
 pub struct fuse_dirent {
     pub ino: u64,
-    pub off: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub off: i64,
     pub namelen: u32,
     pub typ: u32,
     // followed by name of namelen bytes
