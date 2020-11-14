@@ -236,14 +236,7 @@ impl SimpleFS {
 
         let mut attrs = self.get_inode(inode)?;
 
-        if !check_access(
-            attrs.uid,
-            attrs.gid,
-            attrs.mode,
-            uid,
-            gid,
-            libc::W_OK as u32,
-        ) {
+        if !check_access(attrs.uid, attrs.gid, attrs.mode, uid, gid, libc::W_OK) {
             return Err(libc::EACCES);
         }
 
@@ -303,7 +296,7 @@ impl SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             return Err(libc::EACCES);
         }
@@ -361,7 +354,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::X_OK as u32,
+            libc::X_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -502,7 +495,7 @@ impl Filesystem for SimpleFS {
                     attrs.mode,
                     req.uid(),
                     req.gid(),
-                    libc::W_OK as u32,
+                    libc::W_OK,
                 )
             {
                 reply.error(libc::EACCES);
@@ -584,7 +577,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -656,7 +649,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -727,7 +720,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -797,7 +790,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -927,7 +920,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -957,7 +950,7 @@ impl Filesystem for SimpleFS {
             new_parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -1000,7 +993,7 @@ impl Filesystem for SimpleFS {
                 inode_attrs.mode,
                 req.uid(),
                 req.gid(),
-                libc::W_OK as u32,
+                libc::W_OK,
             )
         {
             reply.error(libc::EACCES);
@@ -1114,7 +1107,7 @@ impl Filesystem for SimpleFS {
                     attr.mode,
                     req.uid(),
                     req.gid(),
-                    access_mask as u32,
+                    access_mask,
                 ) {
                     reply.opened(self.allocate_next_file_handle(read, write), 0);
                     return;
@@ -1225,7 +1218,7 @@ impl Filesystem for SimpleFS {
                     attr.mode,
                     req.uid(),
                     req.gid(),
-                    access_mask as u32,
+                    access_mask,
                 ) {
                     reply.opened(self.allocate_next_file_handle(read, write), 0);
                     return;
@@ -1285,7 +1278,7 @@ impl Filesystem for SimpleFS {
         );
     }
 
-    fn access(&mut self, req: &Request, inode: u64, mask: u32, reply: ReplyEmpty) {
+    fn access(&mut self, req: &Request, inode: u64, mask: i32, reply: ReplyEmpty) {
         debug!("access() called with {:?} {:?}", inode, mask);
         match self.get_inode(inode) {
             Ok(attr) => {
@@ -1346,7 +1339,7 @@ impl Filesystem for SimpleFS {
             parent_attrs.mode,
             req.uid(),
             req.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             reply.error(libc::EACCES);
             return;
@@ -1438,18 +1431,18 @@ pub fn check_access(
     file_mode: u16,
     uid: u32,
     gid: u32,
-    mut access_mask: u32,
+    mut access_mask: i32,
 ) -> bool {
     // F_OK tests for existence of file
-    if access_mask == libc::F_OK as u32 {
+    if access_mask == libc::F_OK {
         return true;
     }
-    let file_mode = u32::from(file_mode);
+    let file_mode = i32::from(file_mode);
 
     // root is allowed to read & write anything
     if uid == 0 {
         // root only allowed to exec if one of the X bits is set
-        access_mask &= libc::X_OK as u32;
+        access_mask &= libc::X_OK;
         access_mask -= access_mask & (file_mode >> 6);
         access_mask -= access_mask & (file_mode >> 3);
         access_mask -= access_mask & file_mode;
