@@ -20,6 +20,7 @@ use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplyEmpty, ReplyRaw};
 use crate::session::{Session, MAX_WRITE_SIZE};
 use crate::Filesystem;
+use crate::TimeOrNow::{Now, SpecificTime};
 
 /// We generally support async reads
 #[cfg(all(not(target_os = "macos"), not(feature = "abi-7-10")))]
@@ -179,11 +180,19 @@ impl<'a> Request<'a> {
                 };
                 let atime = match arg.valid & FATTR_ATIME {
                     0 => None,
-                    _ => Some(system_time_from_time(arg.atime, arg.atimensec)),
+                    _ => Some(if arg.atime_now() {
+                        Now
+                    } else {
+                        SpecificTime(system_time_from_time(arg.atime, arg.atimensec))
+                    }),
                 };
                 let mtime = match arg.valid & FATTR_MTIME {
                     0 => None,
-                    _ => Some(system_time_from_time(arg.mtime, arg.mtimensec)),
+                    _ => Some(if arg.mtime_now() {
+                        Now
+                    } else {
+                        SpecificTime(system_time_from_time(arg.mtime, arg.mtimensec))
+                    }),
                 };
                 #[cfg(feature = "abi-7-23")]
                 let ctime = match arg.valid & FATTR_CTIME {
@@ -251,9 +260,7 @@ impl<'a> Request<'a> {
                     gid,
                     size,
                     atime,
-                    arg.atime_now(),
                     mtime,
-                    arg.mtime_now(),
                     ctime,
                     fh,
                     crtime,

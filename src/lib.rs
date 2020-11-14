@@ -99,6 +99,16 @@ pub struct FileAttr {
     pub flags: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// Possible input arguments for atime & mtime, which can either be set to a specified time,
+/// or to the current time
+pub enum TimeOrNow {
+    /// Specific time provided
+    SpecificTime(SystemTime),
+    /// Current time
+    Now,
+}
+
 /// Filesystem trait.
 ///
 /// This trait must be implemented to provide a userspace filesystem via FUSE.
@@ -154,10 +164,8 @@ pub trait Filesystem {
         _uid: Option<u32>,
         _gid: Option<u32>,
         _size: Option<u64>,
-        _atime: Option<SystemTime>,
-        _atime_now: bool,
-        _mtime: Option<SystemTime>,
-        _mtime_now: bool,
+        _atime: Option<TimeOrNow>,
+        _mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
         _fh: Option<u64>,
         _crtime: Option<SystemTime>,

@@ -7,6 +7,7 @@
 * Change `flags` parameter of `setxattr()` to be signed, so that it matches libfuse
 * Change `mask` parameter of `access()` to be signed, so that it matches libfuse and the associated constants in libc
 * Change lock type parameter of `getlk()` and `setlk()` to be signed, so that it matches libfuse and the associated constants in libc
+* Change atime & atime_now and mtime & mtime_now parameters of `setattr()` to make their relationship more obvious
 * Add `lock_owner` and file `flags` parameters to `read()` and `write()`
 * Add `umask` parameter to `mknod()`, `mkdir()` and `create()`
 * Add support for `fallocate()`, `ioctl()`, `copy_file_range()`, and `lseek()`

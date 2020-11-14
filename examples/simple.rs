@@ -1,9 +1,10 @@
 #![allow(clippy::needless_return)]
 
 use clap::{crate_version, App, Arg};
+use fuser::TimeOrNow::Now;
 use fuser::{
     Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request, FUSE_ROOT_ID,
+    ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow, FUSE_ROOT_ID,
 };
 use log::LevelFilter;
 use log::{debug, error, warn};
@@ -409,10 +410,8 @@ impl Filesystem for SimpleFS {
         uid: Option<u32>,
         gid: Option<u32>,
         size: Option<u64>,
-        atime: Option<SystemTime>,
-        atime_now: bool,
-        mtime: Option<SystemTime>,
-        mtime_now: bool,
+        atime: Option<TimeOrNow>,
+        mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
         fh: Option<u64>,
         _crtime: Option<SystemTime>,
@@ -500,24 +499,11 @@ impl Filesystem for SimpleFS {
             }
         }
 
-        if atime.is_some() || mtime.is_some() {
-            debug!(
-                "utimens() called with {:?}, {:?}, {:?}",
-                inode, atime, mtime
-            );
-            let now = time_now();
-            let atime = if atime_now {
-                Some(now)
-            } else {
-                atime.as_ref().map(time_from_system_time)
-            };
-            let mtime = if mtime_now {
-                Some(now)
-            } else {
-                mtime.as_ref().map(time_from_system_time)
-            };
+        let now = time_now();
+        if let Some(atime) = atime {
+            debug!("utimens() called with {:?}, atime={:?}", inode, atime);
 
-            if attrs.uid != req.uid() && req.uid() != 0 && (!atime_now || !mtime_now) {
+            if attrs.uid != req.uid() && req.uid() != 0 && atime != Now {
                 reply.error(libc::EPERM);
                 return;
             }
@@ -536,12 +522,38 @@ impl Filesystem for SimpleFS {
                 return;
             }
 
-            if let Some(atime) = atime {
-                attrs.last_accessed = atime;
+            attrs.last_accessed = match atime {
+                TimeOrNow::SpecificTime(time) => time_from_system_time(&time),
+                Now => now,
+            };
+            self.write_inode(&attrs);
+        }
+        if let Some(mtime) = mtime {
+            debug!("utimens() called with {:?}, mtime={:?}", inode, mtime);
+
+            if attrs.uid != req.uid() && req.uid() != 0 && mtime != Now {
+                reply.error(libc::EPERM);
+                return;
             }
-            if let Some(mtime) = mtime {
-                attrs.last_modified = mtime;
+
+            if attrs.uid != req.uid()
+                && !check_access(
+                    attrs.uid,
+                    attrs.gid,
+                    attrs.mode,
+                    req.uid(),
+                    req.gid(),
+                    libc::W_OK,
+                )
+            {
+                reply.error(libc::EACCES);
+                return;
             }
+
+            attrs.last_modified = match mtime {
+                TimeOrNow::SpecificTime(time) => time_from_system_time(&time),
+                Now => now,
+            };
             self.write_inode(&attrs);
         }
 
