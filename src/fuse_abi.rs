@@ -921,7 +921,7 @@ pub struct fuse_ioctl_in {
     pub fh: u64,
     pub flags: u32,
     pub cmd: u32,
-    pub arg: u64,
+    pub arg: u64, // TODO: this is currently unused, but is defined as a void* in libfuse
     pub in_size: u32,
     pub out_size: u32,
 }
@@ -976,9 +976,12 @@ pub struct fuse_notify_poll_wakeup_out {
 #[derive(Debug)]
 pub struct fuse_fallocate_in {
     pub fh: u64,
-    pub offset: u64,
-    pub length: u64,
-    pub mode: u32,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub offset: i64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub length: i64,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub mode: i32,
     pub padding: u32,
 }
 

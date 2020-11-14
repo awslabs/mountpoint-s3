@@ -591,9 +591,9 @@ pub trait Filesystem {
         _req: &Request<'_>,
         _ino: u64,
         _fh: u64,
-        _offset: u64,
-        _length: u64,
-        _mode: u32,
+        _offset: i64,
+        _length: i64,
+        _mode: i32,
         reply: ReplyEmpty,
     ) {
         reply.error(ENOSYS);
