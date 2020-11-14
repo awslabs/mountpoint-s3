@@ -11,7 +11,7 @@ use libc::{EIO, ENOSYS, EPROTO};
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use crate::channel::ChannelSender;
 use crate::ll;
@@ -33,6 +33,14 @@ const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
 #[cfg(target_os = "macos")]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
 // TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
+
+fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
+    if secs >= 0 {
+        SystemTime::UNIX_EPOCH + Duration::new(secs as u64, nsecs)
+    } else {
+        SystemTime::UNIX_EPOCH - Duration::new((-secs) as u64, nsecs)
+    }
+}
 
 /// Request data structure
 #[derive(Debug)]
@@ -171,16 +179,16 @@ impl<'a> Request<'a> {
                 };
                 let atime = match arg.valid & FATTR_ATIME {
                     0 => None,
-                    _ => Some(UNIX_EPOCH + Duration::new(arg.atime, arg.atimensec)),
+                    _ => Some(system_time_from_time(arg.atime, arg.atimensec)),
                 };
                 let mtime = match arg.valid & FATTR_MTIME {
                     0 => None,
-                    _ => Some(UNIX_EPOCH + Duration::new(arg.mtime, arg.mtimensec)),
+                    _ => Some(system_time_from_time(arg.mtime, arg.mtimensec)),
                 };
                 #[cfg(feature = "abi-7-23")]
                 let ctime = match arg.valid & FATTR_CTIME {
                     0 => None,
-                    _ => Some(UNIX_EPOCH + Duration::new(arg.ctime, arg.ctimensec)),
+                    _ => Some(system_time_from_time(arg.ctime, arg.ctimensec)),
                 };
                 #[cfg(not(feature = "abi-7-23"))]
                 let ctime = None;
@@ -200,15 +208,21 @@ impl<'a> Request<'a> {
                 ) {
                     let crtime = match arg.valid & FATTR_CRTIME {
                         0 => None,
-                        _ => Some(UNIX_EPOCH + Duration::new(arg.crtime, arg.crtimensec)),
+                        _ => {
+                            Some(SystemTime::UNIX_EPOCH + Duration::new(arg.crtime, arg.crtimensec))
+                        }
                     };
                     let chgtime = match arg.valid & FATTR_CHGTIME {
                         0 => None,
-                        _ => Some(UNIX_EPOCH + Duration::new(arg.chgtime, arg.chgtimensec)),
+                        _ => Some(
+                            SystemTime::UNIX_EPOCH + Duration::new(arg.chgtime, arg.chgtimensec),
+                        ),
                     };
                     let bkuptime = match arg.valid & FATTR_BKUPTIME {
                         0 => None,
-                        _ => Some(UNIX_EPOCH + Duration::new(arg.bkuptime, arg.bkuptimensec)),
+                        _ => Some(
+                            SystemTime::UNIX_EPOCH + Duration::new(arg.bkuptime, arg.bkuptimensec),
+                        ),
                     };
                     let flags = match arg.valid & FATTR_FLAGS {
                         0 => None,

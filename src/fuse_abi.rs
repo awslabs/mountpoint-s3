@@ -84,9 +84,15 @@ pub struct fuse_attr {
     pub ino: u64,
     pub size: u64,
     pub blocks: u64,
-    pub atime: u64,
-    pub mtime: u64,
-    pub ctime: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    // to match stat.st_atime
+    pub atime: i64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    // to match stat.st_mtime
+    pub mtime: i64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    // to match stat.st_ctime
+    pub ctime: i64,
     #[cfg(target_os = "macos")]
     pub crtime: u64,
     pub atimensec: u32,
@@ -611,12 +617,18 @@ pub struct fuse_setattr_in {
     pub unused1: u64,
     #[cfg(feature = "abi-7-9")]
     pub lock_owner: u64,
-    pub atime: u64,
-    pub mtime: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    // to match stat.st_atime
+    pub atime: i64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    // to match stat.st_mtime
+    pub mtime: i64,
     #[cfg(not(feature = "abi-7-23"))]
     pub unused2: u64,
     #[cfg(feature = "abi-7-23")]
-    pub ctime: u64,
+    // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
+    // to match stat.st_ctime
+    pub ctime: i64,
     pub atimensec: u32,
     pub mtimensec: u32,
     #[cfg(not(feature = "abi-7-23"))]

@@ -22,9 +22,6 @@ DIR=/var/tmp/fuse-xfstests/check-fuser
 mkdir -p $DIR
 cd /code/fuse-xfstests
 
-# TODO: Test 258 doesn't work because libfuse uses u64 type instead of i64 like the Linux kernel uses for timespec.
-echo "generic/258" > xfs_excludes.txt
-
 # TODO: requires flock
 echo "generic/478" >> xfs_excludes.txt
 

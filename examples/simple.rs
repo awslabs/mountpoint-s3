@@ -18,7 +18,7 @@ use std::os::unix::fs::FileExt;
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs, io};
 
 const BLOCK_SIZE: u64 = 512;
@@ -54,14 +54,37 @@ impl From<FileKind> for fuser::FileType {
     }
 }
 
+fn time_now() -> (i64, u32) {
+    time_from_system_time(&SystemTime::now())
+}
+
+fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
+    if secs >= 0 {
+        UNIX_EPOCH + Duration::new(secs as u64, nsecs)
+    } else {
+        UNIX_EPOCH - Duration::new((-secs) as u64, nsecs)
+    }
+}
+
+fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
+    // Convert to signed 64-bit time with epoch at 0
+    match system_time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
+        Err(before_epoch_error) => (
+            -(before_epoch_error.duration().as_secs() as i64),
+            before_epoch_error.duration().subsec_nanos(),
+        ),
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct InodeAttributes {
     pub inode: Inode,
     pub open_file_handles: u64, // Ref count of open file handles to this inode
     pub size: u64,
-    pub last_accessed: SystemTime,
-    pub last_modified: SystemTime,
-    pub last_metadata_changed: SystemTime,
+    pub last_accessed: (i64, u32),
+    pub last_modified: (i64, u32),
+    pub last_metadata_changed: (i64, u32),
     pub kind: FileKind,
     // Permissions and special mode bits
     pub mode: u16,
@@ -77,9 +100,12 @@ impl From<InodeAttributes> for fuser::FileAttr {
             ino: attrs.inode,
             size: attrs.size,
             blocks: (attrs.size + BLOCK_SIZE - 1) / BLOCK_SIZE,
-            atime: attrs.last_accessed,
-            mtime: attrs.last_modified,
-            ctime: attrs.last_metadata_changed,
+            atime: system_time_from_time(attrs.last_accessed.0, attrs.last_accessed.1),
+            mtime: system_time_from_time(attrs.last_modified.0, attrs.last_modified.1),
+            ctime: system_time_from_time(
+                attrs.last_metadata_changed.0,
+                attrs.last_metadata_changed.1,
+            ),
             crtime: SystemTime::UNIX_EPOCH,
             kind: attrs.kind.into(),
             perm: attrs.mode,
@@ -245,8 +271,8 @@ impl SimpleFS {
         file.set_len(new_length).unwrap();
 
         attrs.size = new_length;
-        attrs.last_metadata_changed = SystemTime::now();
-        attrs.last_modified = SystemTime::now();
+        attrs.last_metadata_changed = time_now();
+        attrs.last_modified = time_now();
 
         self.write_inode(&attrs);
 
@@ -300,8 +326,8 @@ impl SimpleFS {
         ) {
             return Err(libc::EACCES);
         }
-        parent_attrs.last_modified = SystemTime::now();
-        parent_attrs.last_metadata_changed = SystemTime::now();
+        parent_attrs.last_modified = time_now();
+        parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
         let mut entries = self.get_directory_content(parent).unwrap();
@@ -322,9 +348,9 @@ impl Filesystem for SimpleFS {
                 inode: FUSE_ROOT_ID,
                 open_file_handles: 0,
                 size: 0,
-                last_accessed: SystemTime::now(),
-                last_modified: SystemTime::now(),
-                last_metadata_changed: SystemTime::now(),
+                last_accessed: time_now(),
+                last_modified: time_now(),
+                last_metadata_changed: time_now(),
                 kind: FileKind::Directory,
                 mode: 0o777,
                 hardlinks: 2,
@@ -410,7 +436,7 @@ impl Filesystem for SimpleFS {
                 return;
             }
             attrs.mode = mode as u16;
-            attrs.last_metadata_changed = SystemTime::now();
+            attrs.last_metadata_changed = time_now();
             self.write_inode(&attrs);
             reply.attr(&Duration::new(0, 0), &attrs.into());
             return;
@@ -446,7 +472,7 @@ impl Filesystem for SimpleFS {
             if let Some(gid) = gid {
                 attrs.gid = gid;
             }
-            attrs.last_metadata_changed = SystemTime::now();
+            attrs.last_metadata_changed = time_now();
             self.write_inode(&attrs);
             reply.attr(&Duration::new(0, 0), &attrs.into());
             return;
@@ -479,9 +505,17 @@ impl Filesystem for SimpleFS {
                 "utimens() called with {:?}, {:?}, {:?}",
                 inode, atime, mtime
             );
-            let now = SystemTime::now();
-            let atime = if atime_now { Some(now) } else { atime };
-            let mtime = if mtime_now { Some(now) } else { mtime };
+            let now = time_now();
+            let atime = if atime_now {
+                Some(now)
+            } else {
+                atime.as_ref().map(time_from_system_time)
+            };
+            let mtime = if mtime_now {
+                Some(now)
+            } else {
+                mtime.as_ref().map(time_from_system_time)
+            };
 
             if attrs.uid != req.uid() && req.uid() != 0 && (!atime_now || !mtime_now) {
                 reply.error(libc::EPERM);
@@ -582,8 +616,8 @@ impl Filesystem for SimpleFS {
             reply.error(libc::EACCES);
             return;
         }
-        parent_attrs.last_modified = SystemTime::now();
-        parent_attrs.last_metadata_changed = SystemTime::now();
+        parent_attrs.last_modified = time_now();
+        parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
         let inode = self.allocate_next_inode();
@@ -591,9 +625,9 @@ impl Filesystem for SimpleFS {
             inode,
             open_file_handles: 0,
             size: 0,
-            last_accessed: SystemTime::now(),
-            last_modified: SystemTime::now(),
-            last_metadata_changed: SystemTime::now(),
+            last_accessed: time_now(),
+            last_modified: time_now(),
+            last_metadata_changed: time_now(),
             kind: as_file_kind(mode),
             // TODO: suid/sgid not supported
             mode: (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16,
@@ -654,8 +688,8 @@ impl Filesystem for SimpleFS {
             reply.error(libc::EACCES);
             return;
         }
-        parent_attrs.last_modified = SystemTime::now();
-        parent_attrs.last_metadata_changed = SystemTime::now();
+        parent_attrs.last_modified = time_now();
+        parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
         let inode = self.allocate_next_inode();
@@ -663,9 +697,9 @@ impl Filesystem for SimpleFS {
             inode,
             open_file_handles: 0,
             size: BLOCK_SIZE,
-            last_accessed: SystemTime::now(),
-            last_modified: SystemTime::now(),
-            last_metadata_changed: SystemTime::now(),
+            last_accessed: time_now(),
+            last_modified: time_now(),
+            last_metadata_changed: time_now(),
             kind: FileKind::Directory,
             // TODO: suid/sgid not supported
             mode: (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16,
@@ -737,12 +771,12 @@ impl Filesystem for SimpleFS {
             return;
         }
 
-        parent_attrs.last_metadata_changed = SystemTime::now();
-        parent_attrs.last_modified = SystemTime::now();
+        parent_attrs.last_metadata_changed = time_now();
+        parent_attrs.last_modified = time_now();
         self.write_inode(&parent_attrs);
 
         attrs.hardlinks -= 1;
-        attrs.last_metadata_changed = SystemTime::now();
+        attrs.last_metadata_changed = time_now();
         self.write_inode(&attrs);
         self.gc_inode(&attrs);
 
@@ -806,12 +840,12 @@ impl Filesystem for SimpleFS {
             return;
         }
 
-        parent_attrs.last_metadata_changed = SystemTime::now();
-        parent_attrs.last_modified = SystemTime::now();
+        parent_attrs.last_metadata_changed = time_now();
+        parent_attrs.last_modified = time_now();
         self.write_inode(&parent_attrs);
 
         attrs.hardlinks = 0;
-        attrs.last_metadata_changed = SystemTime::now();
+        attrs.last_metadata_changed = time_now();
         self.write_inode(&attrs);
         self.gc_inode(&attrs);
 
@@ -844,9 +878,9 @@ impl Filesystem for SimpleFS {
             inode,
             open_file_handles: 0,
             size: link.as_bytes().len() as u64,
-            last_accessed: SystemTime::now(),
-            last_modified: SystemTime::now(),
-            last_metadata_changed: SystemTime::now(),
+            last_accessed: time_now(),
+            last_modified: time_now(),
+            last_metadata_changed: time_now(),
             kind: FileKind::Symlink,
             mode: 0o777,
             hardlinks: 1,
@@ -1011,7 +1045,7 @@ impl Filesystem for SimpleFS {
             } else {
                 existing_inode_attrs.hardlinks -= 1;
             }
-            existing_inode_attrs.last_metadata_changed = SystemTime::now();
+            existing_inode_attrs.last_metadata_changed = time_now();
             self.write_inode(&existing_inode_attrs);
             self.gc_inode(&existing_inode_attrs);
         }
@@ -1027,13 +1061,13 @@ impl Filesystem for SimpleFS {
         );
         self.write_directory_content(new_parent, entries);
 
-        parent_attrs.last_metadata_changed = SystemTime::now();
-        parent_attrs.last_modified = SystemTime::now();
+        parent_attrs.last_metadata_changed = time_now();
+        parent_attrs.last_modified = time_now();
         self.write_inode(&parent_attrs);
-        new_parent_attrs.last_metadata_changed = SystemTime::now();
-        new_parent_attrs.last_modified = SystemTime::now();
+        new_parent_attrs.last_metadata_changed = time_now();
+        new_parent_attrs.last_modified = time_now();
         self.write_inode(&new_parent_attrs);
-        inode_attrs.last_metadata_changed = SystemTime::now();
+        inode_attrs.last_metadata_changed = time_now();
         self.write_inode(&inode_attrs);
 
         if inode_attrs.kind == FileKind::Directory {
@@ -1068,7 +1102,7 @@ impl Filesystem for SimpleFS {
             reply.error(error_code);
         } else {
             attrs.hardlinks += 1;
-            attrs.last_metadata_changed = SystemTime::now();
+            attrs.last_metadata_changed = time_now();
             self.write_inode(&attrs);
             reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
         }
@@ -1177,8 +1211,8 @@ impl Filesystem for SimpleFS {
             file.write_all(data).unwrap();
 
             let mut attrs = self.get_inode(inode).unwrap();
-            attrs.last_metadata_changed = SystemTime::now();
-            attrs.last_modified = SystemTime::now();
+            attrs.last_metadata_changed = time_now();
+            attrs.last_modified = time_now();
             if data.len() + offset as usize > attrs.size as usize {
                 attrs.size = (data.len() + offset as usize) as u64;
             }
@@ -1344,8 +1378,8 @@ impl Filesystem for SimpleFS {
             reply.error(libc::EACCES);
             return;
         }
-        parent_attrs.last_modified = SystemTime::now();
-        parent_attrs.last_metadata_changed = SystemTime::now();
+        parent_attrs.last_modified = time_now();
+        parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
         let inode = self.allocate_next_inode();
@@ -1353,9 +1387,9 @@ impl Filesystem for SimpleFS {
             inode,
             open_file_handles: 0,
             size: 0,
-            last_accessed: SystemTime::now(),
-            last_modified: SystemTime::now(),
-            last_metadata_changed: SystemTime::now(),
+            last_accessed: time_now(),
+            last_modified: time_now(),
+            last_metadata_changed: time_now(),
             kind: as_file_kind(mode),
             // TODO: suid/sgid not supported
             mode: (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16,
@@ -1406,8 +1440,8 @@ impl Filesystem for SimpleFS {
             }
             if mode & libc::FALLOC_FL_KEEP_SIZE == 0 {
                 let mut attrs = self.get_inode(inode).unwrap();
-                attrs.last_metadata_changed = SystemTime::now();
-                attrs.last_modified = SystemTime::now();
+                attrs.last_metadata_changed = time_now();
+                attrs.last_modified = time_now();
                 if (offset + length) as u64 > attrs.size {
                     attrs.size = (offset + length) as u64;
                 }

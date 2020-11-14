@@ -22,7 +22,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
-use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{mem, ptr, slice};
 
 use crate::{FileAttr, FileType};
@@ -58,9 +58,15 @@ fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U>(data: &T, f: F) -> U {
     }
 }
 
-fn time_from_system_time(system_time: &SystemTime) -> Result<(u64, u32), SystemTimeError> {
-    let duration = system_time.duration_since(UNIX_EPOCH)?;
-    Ok((duration.as_secs(), duration.subsec_nanos()))
+fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
+    // Convert to signed 64-bit time with epoch at 0
+    match system_time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
+        Err(before_epoch_error) => (
+            -(before_epoch_error.duration().as_secs() as i64),
+            before_epoch_error.duration().subsec_nanos(),
+        ),
+    }
 }
 
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
@@ -83,11 +89,10 @@ fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 /// Returns a fuse_attr from FileAttr
 #[cfg(target_os = "macos")]
 fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
-    // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
-    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime).unwrap();
-    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime).unwrap();
-    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime).unwrap();
-    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime).unwrap();
+    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
+    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
+    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
+    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime);
 
     fuse_attr {
         ino: attr.ino,
@@ -96,7 +101,7 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
         atime: atime_secs,
         mtime: mtime_secs,
         ctime: ctime_secs,
-        crtime: crtime_secs,
+        crtime: crtime_secs as u64,
         atimensec: atime_nanos,
         mtimensec: mtime_nanos,
         ctimensec: ctime_nanos,
@@ -117,10 +122,9 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
 /// Returns a fuse_attr from FileAttr
 #[cfg(not(target_os = "macos"))]
 fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
-    // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
-    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime).unwrap();
-    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime).unwrap();
-    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime).unwrap();
+    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
+    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
+    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
 
     fuse_attr {
         ino: attr.ino,
@@ -360,12 +364,11 @@ impl Reply for ReplyXTimes {
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
     pub fn xtimes(self, bkuptime: SystemTime, crtime: SystemTime) {
-        // FIXME: unwrap may panic, use unwrap_or((0, 0)) or return a result instead?
-        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime).unwrap();
-        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime).unwrap();
+        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
+        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime);
         self.reply.ok(&fuse_getxtimes_out {
-            bkuptime: bkuptime_secs,
-            crtime: crtime_secs,
+            bkuptime: bkuptime_secs as u64,
+            crtime: crtime_secs as u64,
             bkuptimensec: bkuptime_nanos,
             crtimensec: crtime_nanos,
         });
