@@ -511,7 +511,7 @@ pub trait Filesystem {
         _parent: u64,
         _name: &OsStr,
         _mode: u32,
-        _flags: u32,
+        _flags: i32,
         reply: ReplyCreate,
     ) {
         reply.error(ENOSYS);

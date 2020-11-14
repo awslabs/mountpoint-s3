@@ -677,7 +677,9 @@ pub struct fuse_open_in {
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_create_in {
-    pub flags: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
+    // to an i32 when invoking the filesystem's create method and this matches the open() syscall
+    pub flags: i32,
     pub mode: u32,
     #[cfg(feature = "abi-7-12")]
     pub umask: u32,
@@ -778,7 +780,7 @@ pub struct fuse_fsync_in {
 pub struct fuse_setxattr_in {
     pub size: u32,
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
-    // to an i32 when invoking the filesystem's open method and this matches the open() syscall
+    // to an i32 when invoking the filesystem's setxattr method
     pub flags: i32,
     #[cfg(target_os = "macos")]
     pub position: u32,
@@ -826,7 +828,7 @@ pub struct fuse_lk_out {
 #[derive(Debug)]
 pub struct fuse_access_in {
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
-    // to an i32 when invoking the filesystem's open method and this matches the open() syscall
+    // to an i32 when invoking the filesystem's access method
     pub mask: i32,
     pub padding: u32,
 }

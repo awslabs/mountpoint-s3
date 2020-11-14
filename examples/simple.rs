@@ -1298,7 +1298,7 @@ impl Filesystem for SimpleFS {
         parent: u64,
         name: &OsStr,
         mode: u32,
-        flags: u32,
+        flags: i32,
         reply: ReplyCreate,
     ) {
         debug!("create() called with {:?} {:?}", parent, name);
@@ -1314,7 +1314,7 @@ impl Filesystem for SimpleFS {
             reply.error(libc::EINVAL);
             return;
         };
-        let (read, write) = match flags as i32 & libc::O_ACCMODE {
+        let (read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => (true, false),
             libc::O_WRONLY => (false, true),
             libc::O_RDWR => (true, true),
