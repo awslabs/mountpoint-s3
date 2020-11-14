@@ -127,7 +127,8 @@ pub struct fuse_kstatfs {
 pub struct fuse_file_lock {
     pub start: u64,
     pub end: u64,
-    pub typ: u32,
+    // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is treated as signed
+    pub typ: i32,
     pub pid: u32,
 }
 

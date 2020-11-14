@@ -550,7 +550,7 @@ impl Reply for ReplyLock {
 
 impl ReplyLock {
     /// Reply to a request with the given open result
-    pub fn locked(self, start: u64, end: u64, typ: u32, pid: u32) {
+    pub fn locked(self, start: u64, end: u64, typ: i32, pid: u32) {
         self.reply.ok(&fuse_lk_out {
             lk: fuse_file_lock {
                 start,

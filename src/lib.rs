@@ -526,7 +526,7 @@ pub trait Filesystem {
         _lock_owner: u64,
         _start: u64,
         _end: u64,
-        _typ: u32,
+        _typ: i32,
         _pid: u32,
         reply: ReplyLock,
     ) {
@@ -548,7 +548,7 @@ pub trait Filesystem {
         _lock_owner: u64,
         _start: u64,
         _end: u64,
-        _typ: u32,
+        _typ: i32,
         _pid: u32,
         _sleep: bool,
         reply: ReplyEmpty,
