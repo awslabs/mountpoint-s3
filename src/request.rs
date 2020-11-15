@@ -14,26 +14,13 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use crate::channel::ChannelSender;
-use crate::ll;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplyEmpty, ReplyRaw};
-use crate::session::{Session, MAX_WRITE_SIZE};
+use crate::session::Session;
 use crate::Filesystem;
 use crate::TimeOrNow::{Now, SpecificTime};
-
-/// We generally support async reads
-#[cfg(all(not(target_os = "macos"), not(feature = "abi-7-10")))]
-const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
-#[cfg(all(not(target_os = "macos"), feature = "abi-7-10"))]
-const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
-// TODO: Add FUSE_EXPORT_SUPPORT
-
-/// On macOS, we additionally support case insensitiveness, volume renames and xtimes
-/// TODO: we should eventually let the filesystem implementation decide which flags to set
-#[cfg(target_os = "macos")]
-const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
-// TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
+use crate::{ll, KernelConfig};
 
 fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
     if secs >= 0 {
@@ -88,8 +75,10 @@ impl<'a> Request<'a> {
                 // Remember ABI version supported by kernel
                 se.proto_major = arg.major;
                 se.proto_minor = arg.minor;
+
+                let mut config = KernelConfig::new(arg.flags, arg.max_readahead);
                 // Call filesystem init method and give it a chance to return an error
-                let res = se.filesystem.init(self);
+                let res = se.filesystem.init(self, &mut config);
                 if let Err(err) = res {
                     reply.error(err);
                     return;
@@ -100,21 +89,21 @@ impl<'a> Request<'a> {
                 let init = fuse_init_out {
                     major: FUSE_KERNEL_VERSION,
                     minor: FUSE_KERNEL_MINOR_VERSION,
-                    max_readahead: arg.max_readahead, // accept any readahead size
-                    flags: arg.flags & INIT_FLAGS, // use features given in INIT_FLAGS and reported as capable
+                    max_readahead: config.max_readahead,
+                    flags: arg.flags & config.requested, // use requested features and reported as capable
                     #[cfg(not(feature = "abi-7-13"))]
                     unused: 0,
                     #[cfg(feature = "abi-7-13")]
-                    max_background: 16, // TODO: this is just a placeholder. Make it configurable
+                    max_background: config.max_background,
                     #[cfg(feature = "abi-7-13")]
-                    congestion_threshold: 32, // TODO: this is just a placeholder. Make it configurable
-                    max_write: MAX_WRITE_SIZE as u32, // use a max write size that fits into the session's buffer
+                    congestion_threshold: config.congestion_threshold,
+                    max_write: config.max_write,
                     #[cfg(feature = "abi-7-23")]
-                    time_gran: 1, // 1 means nano-second granularity. TODO: make this configurable
+                    time_gran: config.time_gran,
                     #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
                     reserved: [0; 9],
                     #[cfg(feature = "abi-7-28")]
-                    max_pages: 0, // TODO: max this configurable when FUSE_MAX_PAGES is set
+                    max_pages: config.max_pages,
                     #[cfg(feature = "abi-7-28")]
                     unused2: 0,
                     #[cfg(feature = "abi-7-28")]

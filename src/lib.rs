@@ -16,10 +16,12 @@ use std::path::Path;
 use std::time::SystemTime;
 
 pub use crate::fuse_abi::consts;
+use crate::fuse_abi::consts::*;
 pub use crate::fuse_abi::FUSE_ROOT_ID;
 use crate::mount_options::check_option_conflicts;
 #[cfg(feature = "libfuse")]
 use crate::mount_options::option_to_string;
+use crate::session::MAX_WRITE_SIZE;
 pub use mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
@@ -40,6 +42,19 @@ mod mount_options;
 mod reply;
 mod request;
 mod session;
+
+/// We generally support async reads
+#[cfg(all(not(target_os = "macos"), not(feature = "abi-7-10")))]
+const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
+#[cfg(all(not(target_os = "macos"), feature = "abi-7-10"))]
+const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
+// TODO: Add FUSE_EXPORT_SUPPORT
+
+/// On macOS, we additionally support case insensitiveness, volume renames and xtimes
+/// TODO: we should eventually let the filesystem implementation decide which flags to set
+#[cfg(target_os = "macos")]
+const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
+// TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
 
 /// File types
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -99,6 +114,54 @@ pub struct FileAttr {
     pub flags: u32,
 }
 
+/// Configuration of the fuse kernel module connection
+#[derive(Debug)]
+pub struct KernelConfig {
+    capabilities: u32,
+    requested: u32,
+    max_readahead: u32,
+    #[cfg(feature = "abi-7-13")]
+    max_background: u16,
+    #[cfg(feature = "abi-7-13")]
+    congestion_threshold: u16,
+    max_write: u32,
+    #[cfg(feature = "abi-7-23")]
+    time_gran: u32,
+    #[cfg(feature = "abi-7-28")]
+    max_pages: u16,
+}
+
+impl KernelConfig {
+    fn new(capabilities: u32, max_readahead: u32) -> KernelConfig {
+        KernelConfig {
+            capabilities,
+            requested: INIT_FLAGS,
+            max_readahead,
+            #[cfg(feature = "abi-7-13")]
+            max_background: 16,
+            #[cfg(feature = "abi-7-13")]
+            congestion_threshold: 12,
+            // use a max write size that fits into the session's buffer
+            max_write: MAX_WRITE_SIZE as u32,
+            // 1 means nano-second granularity.
+            #[cfg(feature = "abi-7-23")]
+            time_gran: 1,
+            #[cfg(feature = "abi-7-28")]
+            max_pages: 0,
+        }
+    }
+
+    /// Set the maximum number of pending background requests. Such as readahead requests.
+    ///
+    /// On success returns the previous value. On error returns the nearest value which will succeed
+    #[cfg(feature = "abi-7-13")]
+    pub fn set_max_background(&mut self, value: u16) -> Result<u16, u16> {
+        let previous = self.max_background;
+        self.max_background = value;
+        Ok(previous)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// Possible input arguments for atime & mtime, which can either be set to a specified time,
 /// or to the current time
@@ -119,7 +182,8 @@ pub enum TimeOrNow {
 pub trait Filesystem {
     /// Initialize filesystem.
     /// Called before any other filesystem method.
-    fn init(&mut self, _req: &Request<'_>) -> Result<(), c_int> {
+    /// The kernel module connection can be configured using the KernelConfig object
+    fn init(&mut self, _req: &Request<'_>, _config: &mut KernelConfig) -> Result<(), c_int> {
         Ok(())
     }
 
