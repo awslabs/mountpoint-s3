@@ -12,7 +12,8 @@
 
 FUSE-Rust does not just provide bindings, it is a rewrite of the original FUSE C library to fully take advantage of Rust's architecture.
 
-This library was originally forked from the [`fuse` crate](https://github.com/zargony/fuse-rs)
+This library was originally forked from the [`fuse` crate](https://github.com/zargony/fuse-rs) with the intention
+of continuing development. In particular adding features from ABIs after 7.19
 
 ## Documentation
 
@@ -38,7 +39,7 @@ To build FUSE-Rust or any program that depends on it, `pkg-config` needs to be i
 
 ### Linux
 
-[FUSE for Linux] is available in most Linux distributions and usually called `fuse`. To install on a Debian based system:
+[FUSE for Linux] is available in most Linux distributions and usually called `fuse` or `fuse3` (this crate is compatible with both). To install on a Debian based system:
 
 ```sh
 sudo apt-get install fuse
