@@ -33,6 +33,8 @@ pub use reply::{
 };
 pub use request::Request;
 pub use session::{BackgroundSession, Session};
+#[cfg(feature = "abi-7-13")]
+use std::cmp::min;
 
 mod channel;
 mod fuse_abi;
@@ -123,7 +125,7 @@ pub struct KernelConfig {
     #[cfg(feature = "abi-7-13")]
     max_background: u16,
     #[cfg(feature = "abi-7-13")]
-    congestion_threshold: u16,
+    congestion_threshold: Option<u16>,
     max_write: u32,
     #[cfg(feature = "abi-7-23")]
     time_gran: u32,
@@ -140,7 +142,7 @@ impl KernelConfig {
             #[cfg(feature = "abi-7-13")]
             max_background: 16,
             #[cfg(feature = "abi-7-13")]
-            congestion_threshold: 12,
+            congestion_threshold: None,
             // use a max write size that fits into the session's buffer
             max_write: MAX_WRITE_SIZE as u32,
             // 1 means nano-second granularity.
@@ -162,6 +164,29 @@ impl KernelConfig {
         let previous = self.max_background;
         self.max_background = value;
         Ok(previous)
+    }
+
+    /// Set the threshold of background requests at which the kernel will consider the filesystem
+    /// request queue congested. (it may then switch to sleeping instead of spin-waiting, for example)
+    ///
+    /// On success returns the previous value. On error returns the nearest value which will succeed
+    #[cfg(feature = "abi-7-13")]
+    pub fn set_congestion_threshold(&mut self, value: u16) -> Result<u16, u16> {
+        if value == 0 {
+            return Err(1);
+        }
+        let previous = self.congestion_threshold();
+        self.congestion_threshold = Some(value);
+        Ok(previous)
+    }
+
+    #[cfg(feature = "abi-7-13")]
+    fn congestion_threshold(&self) -> u16 {
+        match self.congestion_threshold {
+            // Default to a threshold of 3/4 of the max background threads
+            None => (self.max_background as u32 * 3 / 4) as u16,
+            Some(value) => min(value, self.max_background),
+        }
     }
 }
 

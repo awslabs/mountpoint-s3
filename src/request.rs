@@ -96,7 +96,7 @@ impl<'a> Request<'a> {
                     #[cfg(feature = "abi-7-13")]
                     max_background: config.max_background,
                     #[cfg(feature = "abi-7-13")]
-                    congestion_threshold: config.congestion_threshold,
+                    congestion_threshold: config.congestion_threshold(),
                     max_write: config.max_write,
                     #[cfg(feature = "abi-7-23")]
                     time_gran: config.time_gran,
