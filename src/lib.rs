@@ -156,6 +156,9 @@ impl KernelConfig {
     /// On success returns the previous value. On error returns the nearest value which will succeed
     #[cfg(feature = "abi-7-13")]
     pub fn set_max_background(&mut self, value: u16) -> Result<u16, u16> {
+        if value == 0 {
+            return Err(1);
+        }
         let previous = self.max_background;
         self.max_background = value;
         Ok(previous)
