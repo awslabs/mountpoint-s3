@@ -10,6 +10,7 @@
 * Change atime & atime_now and mtime & mtime_now parameters of `setattr()` to make their relationship more obvious
 * Add `lock_owner` and file `flags` parameters to `read()` and `write()`
 * Add `umask` parameter to `mknod()`, `mkdir()` and `create()`
+* Add `KernelConfig` parameter to `init()` to allow `Filesystem` to configure the kernel connection attributes
 * Add support for `fallocate()`, `ioctl()`, `copy_file_range()`, and `lseek()`
 * Add support for FUSE_BATCH_FORGET
 * Add support for FUSE_READDIRPLUS
