@@ -526,6 +526,7 @@ impl Filesystem for SimpleFS {
                 TimeOrNow::SpecificTime(time) => time_from_system_time(&time),
                 Now => now,
             };
+            attrs.last_metadata_changed = now;
             self.write_inode(&attrs);
         }
         if let Some(mtime) = mtime {
@@ -554,6 +555,7 @@ impl Filesystem for SimpleFS {
                 TimeOrNow::SpecificTime(time) => time_from_system_time(&time),
                 Now => now,
             };
+            attrs.last_metadata_changed = now;
             self.write_inode(&attrs);
         }
 

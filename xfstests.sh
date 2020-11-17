@@ -38,9 +38,6 @@ echo "generic/062" >> xfs_excludes.txt
 # TODO: takes > 10min
 echo "generic/069" >> xfs_excludes.txt
 
-# TODO: seems like ctime failure
-echo "generic/221" >> xfs_excludes.txt
-
 # TODO: needs fallocate which is missing from Linux FUSE driver (https://github.com/libfuse/libfuse/issues/395)
 echo "generic/263" >> xfs_excludes.txt
 
