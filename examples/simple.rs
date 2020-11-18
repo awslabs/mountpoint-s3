@@ -1157,7 +1157,7 @@ impl Filesystem for SimpleFS {
         };
 
         match self.get_inode(inode) {
-            Ok(attr) => {
+            Ok(mut attr) => {
                 if check_access(
                     attr.uid,
                     attr.gid,
@@ -1166,6 +1166,8 @@ impl Filesystem for SimpleFS {
                     req.gid(),
                     access_mask,
                 ) {
+                    attr.open_file_handles += 1;
+                    self.write_inode(&attr);
                     reply.opened(self.allocate_next_file_handle(read, write), 0);
                     return;
                 } else {
@@ -1247,6 +1249,22 @@ impl Filesystem for SimpleFS {
         }
     }
 
+    fn release(
+        &mut self,
+        _req: &Request<'_>,
+        inode: u64,
+        _fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        if let Ok(mut attrs) = self.get_inode(inode) {
+            attrs.open_file_handles -= 1;
+        }
+        reply.ok();
+    }
+
     fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
         let (access_mask, read, write) = match flags & libc::O_ACCMODE {
@@ -1268,7 +1286,7 @@ impl Filesystem for SimpleFS {
         };
 
         match self.get_inode(inode) {
-            Ok(attr) => {
+            Ok(mut attr) => {
                 if check_access(
                     attr.uid,
                     attr.gid,
@@ -1277,6 +1295,8 @@ impl Filesystem for SimpleFS {
                     req.gid(),
                     access_mask,
                 ) {
+                    attr.open_file_handles += 1;
+                    self.write_inode(&attr);
                     reply.opened(self.allocate_next_file_handle(read, write), 0);
                     return;
                 } else {
@@ -1317,6 +1337,20 @@ impl Filesystem for SimpleFS {
             }
         }
 
+        reply.ok();
+    }
+
+    fn releasedir(
+        &mut self,
+        _req: &Request<'_>,
+        inode: u64,
+        _fh: u64,
+        _flags: i32,
+        reply: ReplyEmpty,
+    ) {
+        if let Ok(mut attrs) = self.get_inode(inode) {
+            attrs.open_file_handles -= 1;
+        }
         reply.ok();
     }
 

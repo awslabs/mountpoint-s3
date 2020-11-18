@@ -26,10 +26,6 @@ cd /code/fuse-xfstests
 echo "generic/478" >> xfs_excludes.txt
 
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
-echo "generic/035" >> xfs_excludes.txt
-echo "generic/426" >> xfs_excludes.txt
-echo "generic/467" >> xfs_excludes.txt
-echo "generic/477" >> xfs_excludes.txt
 echo "generic/484" >> xfs_excludes.txt
 
 # Writes directly to scratch block dev
@@ -115,6 +111,9 @@ echo "generic/476" >> xfs_excludes.txt
 # TODO: writing to /proc/sys/vm/drop_caches is not allowed inside Docker
 echo "generic/086" >> xfs_excludes.txt
 echo "generic/391" >> xfs_excludes.txt
+echo "generic/426" >> xfs_excludes.txt
+echo "generic/467" >> xfs_excludes.txt
+echo "generic/477" >> xfs_excludes.txt
 
 FUSER_EXTRA_MOUNT_OPTIONS="" TEST_DEV="$TEST_DATA_DIR" TEST_DIR="$TEST_DIR" SCRATCH_DEV="$SCRATCH_DATA_DIR" SCRATCH_MNT="$SCRATCH_DIR" \
 ./check-fuser -E xfs_excludes.txt \
