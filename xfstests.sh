@@ -40,6 +40,9 @@ echo "generic/263" >> xfs_excludes.txt
 # TODO: Passes, but takes ~30min
 echo "generic/127" >> xfs_excludes.txt
 
+# TODO: requires more complete falloc support. Also fills up the entire hard disk...
+echo "generic/103" >> xfs_excludes.txt
+
 # TODO: requires support for mknod on character files
 echo "generic/184" >> xfs_excludes.txt
 echo "generic/401" >> xfs_excludes.txt
@@ -87,7 +90,6 @@ echo "generic/319" >> xfs_excludes.txt
 
 # TODO: requires supporting non-UTF8 xattr keys
 echo "generic/453" >> xfs_excludes.txt
-echo "generic/454" >> xfs_excludes.txt
 
 # TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
 echo "generic/089" >> xfs_excludes.txt
