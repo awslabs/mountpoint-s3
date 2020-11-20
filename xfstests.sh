@@ -88,9 +88,6 @@ echo "generic/317" >> xfs_excludes.txt
 # TODO: requires more complete ACL support
 echo "generic/319" >> xfs_excludes.txt
 
-# TODO: requires supporting non-UTF8 xattr keys
-echo "generic/453" >> xfs_excludes.txt
-
 # TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
 echo "generic/089" >> xfs_excludes.txt
 

@@ -8,7 +8,7 @@ use fuser::{
     FUSE_ROOT_ID,
 };
 use log::LevelFilter;
-use log::{debug, error, warn};
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::collections::BTreeMap;
@@ -38,7 +38,7 @@ const FMODE_EXEC: i32 = 0x20;
 
 type Inode = u64;
 
-type DirectoryDescriptor = BTreeMap<String, (Inode, FileKind)>;
+type DirectoryDescriptor = BTreeMap<Vec<u8>, (Inode, FileKind)>;
 
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq)]
 enum FileKind {
@@ -377,15 +377,8 @@ impl SimpleFS {
     }
 
     fn lookup_name(&self, parent: u64, name: &OsStr) -> Result<InodeAttributes, c_int> {
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            return Err(libc::EINVAL);
-        };
-
         let entries = self.get_directory_content(parent)?;
-        if let Some((inode, _)) = entries.get(name) {
+        if let Some((inode, _)) = entries.get(name.as_bytes()) {
             return self.get_inode(*inode);
         } else {
             return Err(libc::ENOENT);
@@ -404,13 +397,6 @@ impl SimpleFS {
             return Err(libc::EEXIST);
         }
 
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            return Err(libc::EINVAL);
-        };
-
         let mut parent_attrs = self.get_inode(parent)?;
 
         if !check_access(
@@ -428,7 +414,7 @@ impl SimpleFS {
         self.write_inode(&parent_attrs);
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.insert(name.to_string(), (inode, kind));
+        entries.insert(name.as_bytes().to_vec(), (inode, kind));
         self.write_directory_content(parent, entries);
 
         Ok(())
@@ -457,7 +443,7 @@ impl Filesystem for SimpleFS {
             };
             self.write_inode(&root);
             let mut entries = BTreeMap::new();
-            entries.insert(".".to_string(), (FUSE_ROOT_ID, FileKind::Directory));
+            entries.insert(b".".to_vec(), (FUSE_ROOT_ID, FileKind::Directory));
             self.write_directory_content(FUSE_ROOT_ID, entries);
         }
         Ok(())
@@ -700,14 +686,6 @@ impl Filesystem for SimpleFS {
             return;
         }
 
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
-        };
-
         let mut parent_attrs = match self.get_inode(parent) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -752,13 +730,13 @@ impl Filesystem for SimpleFS {
 
         if as_file_kind(mode) == FileKind::Directory {
             let mut entries = BTreeMap::new();
-            entries.insert(".".to_string(), (inode, FileKind::Directory));
-            entries.insert("..".to_string(), (parent, FileKind::Directory));
+            entries.insert(b".".to_vec(), (inode, FileKind::Directory));
+            entries.insert(b"..".to_vec(), (parent, FileKind::Directory));
             self.write_directory_content(inode, entries);
         }
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.insert(name.to_string(), (inode, attrs.kind));
+        entries.insert(name.as_bytes().to_vec(), (inode, attrs.kind));
         self.write_directory_content(parent, entries);
 
         // TODO: implement flags
@@ -779,14 +757,6 @@ impl Filesystem for SimpleFS {
             reply.error(libc::EEXIST);
             return;
         }
-
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
-        };
 
         let mut parent_attrs = match self.get_inode(parent) {
             Ok(attrs) => attrs,
@@ -830,12 +800,12 @@ impl Filesystem for SimpleFS {
         self.write_inode(&attrs);
 
         let mut entries = BTreeMap::new();
-        entries.insert(".".to_string(), (inode, FileKind::Directory));
-        entries.insert("..".to_string(), (parent, FileKind::Directory));
+        entries.insert(b".".to_vec(), (inode, FileKind::Directory));
+        entries.insert(b"..".to_vec(), (parent, FileKind::Directory));
         self.write_directory_content(inode, entries);
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.insert(name.to_string(), (inode, FileKind::Directory));
+        entries.insert(name.as_bytes().to_vec(), (inode, FileKind::Directory));
         self.write_directory_content(parent, entries);
 
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
@@ -849,14 +819,6 @@ impl Filesystem for SimpleFS {
                 reply.error(error_code);
                 return;
             }
-        };
-
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
         };
 
         let mut parent_attrs = match self.get_inode(parent) {
@@ -900,7 +862,7 @@ impl Filesystem for SimpleFS {
         self.gc_inode(&attrs);
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.remove(name);
+        entries.remove(name.as_bytes());
         self.write_directory_content(parent, entries);
 
         reply.ok();
@@ -914,14 +876,6 @@ impl Filesystem for SimpleFS {
                 reply.error(error_code);
                 return;
             }
-        };
-
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
         };
 
         let mut parent_attrs = match self.get_inode(parent) {
@@ -969,7 +923,7 @@ impl Filesystem for SimpleFS {
         self.gc_inode(&attrs);
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.remove(name);
+        entries.remove(name.as_bytes());
         self.write_directory_content(parent, entries);
 
         reply.ok();
@@ -984,19 +938,11 @@ impl Filesystem for SimpleFS {
         reply: ReplyEntry,
     ) {
         debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
-        let link = if let Some(value) = link.to_str() {
-            value
-        } else {
-            error!("Link is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
-        };
-
         let inode = self.allocate_next_inode();
         let attrs = InodeAttributes {
             inode,
             open_file_handles: 0,
-            size: link.as_bytes().len() as u64,
+            size: link.as_os_str().as_bytes().len() as u64,
             last_accessed: time_now(),
             last_modified: time_now(),
             last_metadata_changed: time_now(),
@@ -1021,7 +967,7 @@ impl Filesystem for SimpleFS {
             .truncate(true)
             .open(&path)
             .unwrap();
-        file.write_all(link.as_bytes()).unwrap();
+        file.write_all(link.as_os_str().as_bytes()).unwrap();
 
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
@@ -1036,21 +982,6 @@ impl Filesystem for SimpleFS {
         _flags: u32,
         reply: ReplyEmpty,
     ) {
-        let name_str = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
-        };
-        let new_name_str = if let Some(value) = new_name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
-        };
-
         let mut inode_attrs = match self.lookup_name(parent, name) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1156,7 +1087,7 @@ impl Filesystem for SimpleFS {
         // If target already exists decrement its hardlink count
         if let Ok(mut existing_inode_attrs) = self.lookup_name(new_parent, new_name) {
             let mut entries = self.get_directory_content(new_parent).unwrap();
-            entries.remove(new_name_str);
+            entries.remove(new_name.as_bytes());
             self.write_directory_content(new_parent, entries);
 
             if existing_inode_attrs.kind == FileKind::Directory {
@@ -1170,12 +1101,12 @@ impl Filesystem for SimpleFS {
         }
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.remove(name_str);
+        entries.remove(name.as_bytes());
         self.write_directory_content(parent, entries);
 
         let mut entries = self.get_directory_content(new_parent).unwrap();
         entries.insert(
-            new_name_str.to_string(),
+            new_name.as_bytes().to_vec(),
             (inode_attrs.inode, inode_attrs.kind),
         );
         self.write_directory_content(new_parent, entries);
@@ -1191,7 +1122,7 @@ impl Filesystem for SimpleFS {
 
         if inode_attrs.kind == FileKind::Directory {
             let mut entries = self.get_directory_content(inode_attrs.inode).unwrap();
-            entries.insert("..".to_string(), (new_parent, FileKind::Directory));
+            entries.insert(b"..".to_vec(), (new_parent, FileKind::Directory));
             self.write_directory_content(inode_attrs.inode, entries);
         }
 
@@ -1425,8 +1356,12 @@ impl Filesystem for SimpleFS {
         for (index, entry) in entries.iter().skip(offset as usize).enumerate() {
             let (name, (inode, file_type)) = entry;
 
-            let buffer_full: bool =
-                reply.add(*inode, offset + index as i64 + 1, (*file_type).into(), name);
+            let buffer_full: bool = reply.add(
+                *inode,
+                offset + index as i64 + 1,
+                (*file_type).into(),
+                OsStr::from_bytes(name),
+            );
 
             if buffer_full {
                 break;
@@ -1598,13 +1533,6 @@ impl Filesystem for SimpleFS {
             return;
         }
 
-        let name = if let Some(value) = name.to_str() {
-            value
-        } else {
-            error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
-            return;
-        };
         let (read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => (true, false),
             libc::O_WRONLY => (false, true),
@@ -1660,13 +1588,13 @@ impl Filesystem for SimpleFS {
 
         if as_file_kind(mode) == FileKind::Directory {
             let mut entries = BTreeMap::new();
-            entries.insert(".".to_string(), (inode, FileKind::Directory));
-            entries.insert("..".to_string(), (parent, FileKind::Directory));
+            entries.insert(b".".to_vec(), (inode, FileKind::Directory));
+            entries.insert(b"..".to_vec(), (parent, FileKind::Directory));
             self.write_directory_content(inode, entries);
         }
 
         let mut entries = self.get_directory_content(parent).unwrap();
-        entries.insert(name.to_string(), (inode, attrs.kind));
+        entries.insert(name.as_bytes().to_vec(), (inode, attrs.kind));
         self.write_directory_content(parent, entries);
 
         // TODO: implement flags
