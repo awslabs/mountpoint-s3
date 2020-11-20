@@ -94,6 +94,14 @@ echo "generic/089" >> xfs_excludes.txt
 # TODO: very slow. Passes, but takes > 30min
 echo "generic/074" >> xfs_excludes.txt
 
+# TODO: very slow. Ran for > 3hrs without completing
+echo "generic/339" >> xfs_excludes.txt
+
+# TODO: Passes, but takes ~60min on CI
+echo "generic/006" >> xfs_excludes.txt
+echo "generic/011" >> xfs_excludes.txt
+echo "generic/070" >> xfs_excludes.txt
+
 # TODO: very slow. Passes, but takes 20min
 echo "generic/438" >> xfs_excludes.txt
 
