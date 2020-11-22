@@ -1,6 +1,8 @@
 # FUSE for Rust - Changelog
 
-## 0.6.0 - UNRELEASED
+## 0.7.0 - UNRELEASED
+
+## 0.6.0 - 2020-11-22
 * Make `spawn_mount()` safe
 * Change `flags` parameter of `create()`, `open()`, `opendir()`, `release()`, `releasedir()` to be signed, so that it matches
   libfuse and the associated constants in libc
