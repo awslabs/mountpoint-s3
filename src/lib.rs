@@ -726,7 +726,7 @@ pub trait Filesystem {
         _fh_out: u64,
         _offset_out: i64,
         _len: u64,
-        _flags: u64,
+        _flags: u32,
         reply: ReplyWrite,
     ) {
         reply.error(ENOSYS);

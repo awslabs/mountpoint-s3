@@ -677,7 +677,7 @@ impl<'a> Request<'a> {
                     arg.fh_out,
                     arg.off_out,
                     arg.len,
-                    arg.flags,
+                    arg.flags as u32,
                     self.reply(),
                 );
             }

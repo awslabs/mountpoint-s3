@@ -1645,7 +1645,7 @@ impl Filesystem for SimpleFS {
         dest_fh: u64,
         dest_offset: i64,
         size: u64,
-        _flags: u64,
+        _flags: u32,
         reply: ReplyWrite,
     ) {
         debug!(
