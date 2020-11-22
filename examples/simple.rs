@@ -1412,7 +1412,6 @@ impl Filesystem for SimpleFS {
     ) {
         if let Ok(mut attrs) = self.get_inode(inode) {
             if let Err(error) = xattr_access_check(key.as_bytes(), libc::W_OK, &attrs, request) {
-                dbg!(error);
                 reply.error(error);
                 return;
             }
@@ -1436,7 +1435,6 @@ impl Filesystem for SimpleFS {
     ) {
         if let Ok(attrs) = self.get_inode(inode) {
             if let Err(error) = xattr_access_check(key.as_bytes(), libc::R_OK, &attrs, request) {
-                dbg!("HI2", error);
                 reply.error(error);
                 return;
             }
@@ -1461,7 +1459,6 @@ impl Filesystem for SimpleFS {
     }
 
     fn listxattr(&mut self, _req: &Request<'_>, inode: u64, size: u32, reply: ReplyXattr) {
-        dbg!("HI");
         if let Ok(attrs) = self.get_inode(inode) {
             let mut bytes = vec![];
             // Convert to concatenated null-terminated strings
@@ -1633,6 +1630,63 @@ impl Filesystem for SimpleFS {
                 self.write_inode(&attrs);
             }
             reply.ok();
+        } else {
+            reply.error(libc::ENOENT);
+        }
+    }
+
+    fn copy_file_range(
+        &mut self,
+        _req: &Request<'_>,
+        src_inode: u64,
+        src_fh: u64,
+        src_offset: i64,
+        dest_inode: u64,
+        dest_fh: u64,
+        dest_offset: i64,
+        size: u64,
+        _flags: u64,
+        reply: ReplyWrite,
+    ) {
+        debug!(
+            "copy_file_range() called with src ({}, {}, {}) dest ({}, {}, {}) size={}",
+            src_fh, src_inode, src_offset, dest_fh, dest_inode, dest_offset, size
+        );
+        if !self.check_file_handle_read(src_fh) {
+            reply.error(libc::EACCES);
+            return;
+        }
+        if !self.check_file_handle_write(dest_fh) {
+            reply.error(libc::EACCES);
+            return;
+        }
+
+        let src_path = self.content_path(src_inode);
+        if let Ok(file) = File::open(&src_path) {
+            let file_size = file.metadata().unwrap().len();
+            // Could underflow if file length is less than local_start
+            let read_size = min(size, file_size.saturating_sub(src_offset as u64));
+
+            let mut data = vec![0; read_size as usize];
+            file.read_exact_at(&mut data, src_offset as u64).unwrap();
+
+            let dest_path = self.content_path(dest_inode);
+            if let Ok(mut file) = OpenOptions::new().write(true).open(&dest_path) {
+                file.seek(SeekFrom::Start(dest_offset as u64)).unwrap();
+                file.write_all(&data).unwrap();
+
+                let mut attrs = self.get_inode(dest_inode).unwrap();
+                attrs.last_metadata_changed = time_now();
+                attrs.last_modified = time_now();
+                if data.len() + dest_offset as usize > attrs.size as usize {
+                    attrs.size = (data.len() + dest_offset as usize) as u64;
+                }
+                self.write_inode(&attrs);
+
+                reply.written(data.len() as u32);
+            } else {
+                reply.error(libc::EBADF);
+            }
         } else {
             reply.error(libc::ENOENT);
         }

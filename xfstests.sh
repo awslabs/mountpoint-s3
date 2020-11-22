@@ -25,6 +25,9 @@ cd /code/fuse-xfstests
 # TODO: requires flock
 echo "generic/478" >> xfs_excludes.txt
 
+# TODO: requires RENAME_EXCHANGE
+echo "generic/025" >> xfs_excludes.txt
+
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
 echo "generic/484" >> xfs_excludes.txt
 
@@ -105,7 +108,7 @@ echo "generic/070" >> xfs_excludes.txt
 # TODO: very slow. Passes, but takes 20min
 echo "generic/438" >> xfs_excludes.txt
 
-# TODO: requires COPY_FILE_RANGE support
+# TODO: requires newer (> 4.9.0) version of xfs_io. Otherwise these will infinite loop
 echo "generic/430" >> xfs_excludes.txt
 echo "generic/431" >> xfs_excludes.txt
 echo "generic/432" >> xfs_excludes.txt
@@ -127,6 +130,12 @@ FUSER_EXTRA_MOUNT_OPTIONS="" TEST_DEV="$TEST_DATA_DIR" TEST_DIR="$TEST_DIR" SCRA
 | tee /code/logs/xfstests.log
 
 export XFSTESTS_EXIT_STATUS=${PIPESTATUS[0]}
+
+if [ $XFSTESTS_EXIT_STATUS ]
+then
+  cat /code/fuse-xfstests/results/generic/*.bad
+  cp /code/fuse-xfstests/results/generic/*.bad /code/logs/
+fi
 
 rm -rf ${TEST_DATA_DIR}
 rm -rf ${TEST_DIR}
