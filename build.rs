@@ -1,3 +1,5 @@
+static MAC_FUSE_4: &str = "/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse";
+
 fn main() {
     #[cfg(all(not(feature = "libfuse"), not(target_os = "linux")))]
     unimplemented!("Building without libfuse is only supported on Linux");
@@ -6,9 +8,14 @@ fn main() {
     {
         #[cfg(target_os = "macos")]
         {
+            let probelib = if std::path::Path::new(MAC_FUSE_4).exists() {
+                "fuse"
+            } else {
+                "osxfuse"
+            };
             pkg_config::Config::new()
                 .atleast_version("2.6.0")
-                .probe("osxfuse")
+                .probe(probelib)
                 .map_err(|e| eprintln!("{}", e))
                 .unwrap();
             println!("cargo:rustc-cfg=feature=\"libfuse2\"");
