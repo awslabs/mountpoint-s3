@@ -2,7 +2,7 @@ image: macOS
 
 install:
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.42.0
-  - brew update > /dev/null && brew cask install osxfuse
+  - brew update > /dev/null && brew install --cask osxfuse
   - export PATH=$HOME/.cargo/bin:$PATH
   - export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
   - sudo /Library/Filesystems/osxfuse.fs/Contents/Resources/load_osxfuse
