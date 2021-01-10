@@ -1,6 +1,8 @@
 # FUSE for Rust - Changelog
 
-## 0.7.0 - UNRELEASED
+## 0.8.0 - UNRELEASED
+
+## 0.7.0 - 2021-01-10
 * Support building with MacFuse 4.x on OSX
 * Support configuring max_write & max_readahead via `KernelConfig` during `init`
 * Support configuring filesystem timestamp granularity via `KernelConfig.set_time_granularity` during `init`
