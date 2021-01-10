@@ -13,6 +13,8 @@ use std::convert::AsRef;
 use std::ffi::OsStr;
 use std::io;
 use std::path::Path;
+#[cfg(feature = "abi-7-23")]
+use std::time::Duration;
 use std::time::SystemTime;
 
 pub use crate::fuse_abi::consts;
@@ -33,6 +35,7 @@ pub use reply::{
 };
 pub use request::Request;
 pub use session::{BackgroundSession, Session};
+#[cfg(feature = "abi-7-28")]
 use std::cmp::max;
 #[cfg(feature = "abi-7-13")]
 use std::cmp::min;
@@ -146,7 +149,7 @@ pub struct KernelConfig {
     congestion_threshold: Option<u16>,
     max_write: u32,
     #[cfg(feature = "abi-7-23")]
-    time_gran: u32,
+    time_gran: Duration,
 }
 
 impl KernelConfig {
@@ -162,10 +165,36 @@ impl KernelConfig {
             congestion_threshold: None,
             // use a max write size that fits into the session's buffer
             max_write: MAX_WRITE_SIZE as u32,
-            // 1 means nano-second granularity.
+            // 1ns means nano-second granularity.
             #[cfg(feature = "abi-7-23")]
-            time_gran: 1,
+            time_gran: Duration::new(0, 1),
         }
+    }
+
+    /// Set the timestamp granularity
+    ///
+    /// Must be a power of 10 nanoseconds. i.e. 1s, 0.1s, 0.01s, 1ms, 0.1ms...etc
+    ///
+    /// On success returns the previous value. On error returns the nearest value which will succeed
+    #[cfg(feature = "abi-7-23")]
+    pub fn set_time_granularity(&mut self, value: Duration) -> Result<Duration, Duration> {
+        if value.as_nanos() == 0 {
+            return Err(Duration::new(0, 1));
+        }
+        if value.as_secs() > 1 || (value.as_secs() == 1 && value.subsec_nanos() > 0) {
+            return Err(Duration::new(1, 0));
+        }
+        let mut power_of_10 = 1;
+        while power_of_10 < value.as_nanos() {
+            if value.as_nanos() < power_of_10 * 10 {
+                // value must not be a power of ten, since power_of_10 < value < power_of_10 * 10
+                return Err(Duration::new(0, power_of_10 as u32));
+            }
+            power_of_10 *= 10;
+        }
+        let previous = self.time_gran;
+        self.time_gran = value;
+        Ok(previous)
     }
 
     /// Set the maximum write size for a single request

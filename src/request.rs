@@ -99,7 +99,7 @@ impl<'a> Request<'a> {
                     congestion_threshold: config.congestion_threshold(),
                     max_write: config.max_write,
                     #[cfg(feature = "abi-7-23")]
-                    time_gran: config.time_gran,
+                    time_gran: config.time_gran.as_nanos() as u32,
                     #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
                     reserved: [0; 9],
                     #[cfg(feature = "abi-7-28")]
