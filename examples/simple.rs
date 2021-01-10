@@ -1,6 +1,7 @@
 #![allow(clippy::needless_return)]
 
 use clap::{crate_version, App, Arg};
+use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::TimeOrNow::Now;
 use fuser::{
     Filesystem, KernelConfig, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
@@ -222,13 +223,15 @@ impl From<InodeAttributes> for fuser::FileAttr {
 struct SimpleFS {
     data_dir: String,
     next_file_handle: AtomicU64,
+    direct_io: bool,
 }
 
 impl SimpleFS {
-    fn new(data_dir: String) -> SimpleFS {
+    fn new(data_dir: String, direct_io: bool) -> SimpleFS {
         SimpleFS {
             data_dir,
             next_file_handle: AtomicU64::new(1),
+            direct_io,
         }
     }
 
@@ -1195,7 +1198,8 @@ impl Filesystem for SimpleFS {
                 ) {
                     attr.open_file_handles += 1;
                     self.write_inode(&attr);
-                    reply.opened(self.allocate_next_file_handle(read, write), 0);
+                    let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
+                    reply.opened(self.allocate_next_file_handle(read, write), open_flags);
                     return;
                 } else {
                     reply.error(libc::EACCES);
@@ -1217,7 +1221,10 @@ impl Filesystem for SimpleFS {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        debug!("read() called on {:?}", inode);
+        debug!(
+            "read() called on {:?} offset={:?} size={:?}",
+            inode, offset, size
+        );
         assert!(offset >= 0);
         if !self.check_file_handle_read(fh) {
             reply.error(libc::EACCES);
@@ -1250,7 +1257,7 @@ impl Filesystem for SimpleFS {
         _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
-        debug!("write() called with {:?}", inode);
+        debug!("write() called with {:?} size={:?}", inode, data.len());
         assert!(offset >= 0);
         if !self.check_file_handle_write(fh) {
             reply.error(libc::EACCES);
@@ -1324,7 +1331,8 @@ impl Filesystem for SimpleFS {
                 ) {
                     attr.open_file_handles += 1;
                     self.write_inode(&attr);
-                    reply.opened(self.allocate_next_file_handle(read, write), 0);
+                    let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
+                    reply.opened(self.allocate_next_file_handle(read, write), open_flags);
                     return;
                 } else {
                     reply.error(libc::EACCES);
@@ -1840,5 +1848,10 @@ fn main() {
         .unwrap_or_default()
         .to_string();
 
-    fuser::mount2(SimpleFS::new(data_dir), mountpoint, &options).unwrap();
+    fuser::mount2(
+        SimpleFS::new(data_dir, matches.is_present("direct-io")),
+        mountpoint,
+        &options,
+    )
+    .unwrap();
 }
