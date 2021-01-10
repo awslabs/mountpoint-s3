@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::io;
 use std::io::ErrorKind;
-use std::iter::FromIterator;
 
 /// Mount options accepted by the FUSE filesystem type
 /// See 'man mount.fuse' for details
@@ -60,7 +59,7 @@ pub enum MountOption {
 pub fn check_option_conflicts(options: &[MountOption]) -> Result<(), io::Error> {
     let mut options_set = HashSet::new();
     options_set.extend(options.iter().cloned());
-    let conflicting = HashSet::from_iter(options.iter().map(conflicts_with).flatten());
+    let conflicting: HashSet<MountOption> = options.iter().map(conflicts_with).flatten().collect();
     let intersection: Vec<MountOption> = conflicting.intersection(&options_set).cloned().collect();
     if !intersection.is_empty() {
         Err(io::Error::new(

@@ -363,7 +363,7 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
         .iter()
         .filter(|x| option_group(*x) == MountOptionGroup::KernelOption)
     {
-        mount_options.push_str(",");
+        mount_options.push(',');
         mount_options.push_str(&option_to_string(option));
     }
 

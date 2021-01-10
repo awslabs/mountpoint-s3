@@ -457,7 +457,7 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
         }
         // Parse/check operation arguments
         let operation =
-            Operation::parse(&opcode, &mut data).ok_or_else(|| RequestError::InsufficientData)?;
+            Operation::parse(&opcode, &mut data).ok_or(RequestError::InsufficientData)?;
         Ok(Self { header, operation })
     }
 }
