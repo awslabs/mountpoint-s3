@@ -229,12 +229,10 @@ impl KernelConfig {
 
     /// Add a set of capabilities.
     ///
-    /// On success returns Ok, else return 1 when capabilities you provided are not all supported by kernel.
-    pub fn add_capabilities(
-        self: &mut Self,
-        capabilities_to_add: u32) -> Result<(), u16> {
+    /// On success returns Ok, else return bits of capabilities not supported when capabilities you provided are not all supported by kernel.
+    pub fn add_capabilities(self: &mut Self, capabilities_to_add: u32) -> Result<(), u32> {
         if capabilities_to_add & self.capabilities != capabilities_to_add {
-            return Err(1);
+            return Err(capabilities_to_add - (capabilities_to_add & self.capabilities));
         }
         self.requested |= capabilities_to_add;
         Ok(())
