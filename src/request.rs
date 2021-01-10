@@ -103,7 +103,7 @@ impl<'a> Request<'a> {
                     #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
                     reserved: [0; 9],
                     #[cfg(feature = "abi-7-28")]
-                    max_pages: config.max_pages,
+                    max_pages: config.max_pages(),
                     #[cfg(feature = "abi-7-28")]
                     unused2: 0,
                     #[cfg(feature = "abi-7-28")]

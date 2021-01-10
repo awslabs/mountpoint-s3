@@ -33,6 +33,7 @@ pub use reply::{
 };
 pub use request::Request;
 pub use session::{BackgroundSession, Session};
+use std::cmp::max;
 #[cfg(feature = "abi-7-13")]
 use std::cmp::min;
 
@@ -57,6 +58,22 @@ const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
 #[cfg(target_os = "macos")]
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
 // TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
+
+const fn default_init_flags(#[allow(unused_variables)] capabilities: u32) -> u32 {
+    #[cfg(not(feature = "abi-7-28"))]
+    {
+        INIT_FLAGS
+    }
+
+    #[cfg(feature = "abi-7-28")]
+    {
+        let mut flags = INIT_FLAGS;
+        if capabilities & FUSE_MAX_PAGES != 0 {
+            flags |= FUSE_MAX_PAGES;
+        }
+        flags
+    }
+}
 
 /// File types
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -122,6 +139,7 @@ pub struct KernelConfig {
     capabilities: u32,
     requested: u32,
     max_readahead: u32,
+    max_max_readahead: u32,
     #[cfg(feature = "abi-7-13")]
     max_background: u16,
     #[cfg(feature = "abi-7-13")]
@@ -129,16 +147,15 @@ pub struct KernelConfig {
     max_write: u32,
     #[cfg(feature = "abi-7-23")]
     time_gran: u32,
-    #[cfg(feature = "abi-7-28")]
-    max_pages: u16,
 }
 
 impl KernelConfig {
     fn new(capabilities: u32, max_readahead: u32) -> KernelConfig {
         KernelConfig {
             capabilities,
-            requested: INIT_FLAGS,
+            requested: default_init_flags(capabilities),
             max_readahead,
+            max_max_readahead: max_readahead,
             #[cfg(feature = "abi-7-13")]
             max_background: 16,
             #[cfg(feature = "abi-7-13")]
@@ -148,9 +165,37 @@ impl KernelConfig {
             // 1 means nano-second granularity.
             #[cfg(feature = "abi-7-23")]
             time_gran: 1,
-            #[cfg(feature = "abi-7-28")]
-            max_pages: 0,
         }
+    }
+
+    /// Set the maximum write size for a single request
+    ///
+    /// On success returns the previous value. On error returns the nearest value which will succeed
+    pub fn set_max_write(&mut self, value: u32) -> Result<u32, u32> {
+        if value == 0 {
+            return Err(1);
+        }
+        if value > MAX_WRITE_SIZE as u32 {
+            return Err(MAX_WRITE_SIZE as u32);
+        }
+        let previous = self.max_write;
+        self.max_write = value;
+        Ok(previous)
+    }
+
+    /// Set the maximum readahead size
+    ///
+    /// On success returns the previous value. On error returns the nearest value which will succeed
+    pub fn set_max_readahead(&mut self, value: u32) -> Result<u32, u32> {
+        if value == 0 {
+            return Err(1);
+        }
+        if value > self.max_max_readahead {
+            return Err(self.max_max_readahead);
+        }
+        let previous = self.max_readahead;
+        self.max_readahead = value;
+        Ok(previous)
     }
 
     /// Set the maximum number of pending background requests. Such as readahead requests.
@@ -187,6 +232,11 @@ impl KernelConfig {
             None => (self.max_background as u32 * 3 / 4) as u16,
             Some(value) => min(value, self.max_background),
         }
+    }
+
+    #[cfg(feature = "abi-7-28")]
+    fn max_pages(&self) -> u16 {
+        ((max(self.max_write, self.max_readahead) - 1) / page_size::get() as u32) as u16 + 1
     }
 }
 
