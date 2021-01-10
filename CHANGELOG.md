@@ -4,6 +4,7 @@
 * Support building with MacFuse 4.x on OSX
 * Support configuring max_write & max_readahead via `KernelConfig` during `init`
 * Support configuring filesystem timestamp granularity via `KernelConfig.set_time_granularity` during `init`
+* Support requesting additional capability flags via `KernelConfig.add_capabilities` during `init`
 
 ## 0.6.0 - 2020-11-22
 * Make `spawn_mount()` safe
