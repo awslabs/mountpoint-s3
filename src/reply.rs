@@ -6,7 +6,6 @@
 //! data without cloning the data. A reply *must always* be used (by calling either ok() or
 //! error() exactly once).
 
-use crate::fuse_abi::fuse_getxattr_out;
 #[cfg(target_os = "macos")]
 use crate::fuse_abi::fuse_getxtimes_out;
 use crate::fuse_abi::{fuse_attr, fuse_attr_out, fuse_entry_out, fuse_file_lock, fuse_kstatfs};
@@ -14,16 +13,18 @@ use crate::fuse_abi::{
     fuse_bmap_out, fuse_ioctl_out, fuse_lk_out, fuse_lseek_out, fuse_open_out, fuse_statfs_out,
     fuse_write_out,
 };
+use crate::fuse_abi::{fuse_create_out, fuse_getxattr_out};
 use crate::fuse_abi::{fuse_dirent, fuse_direntplus, fuse_out_header};
 use libc::{c_int, EIO, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
 use log::warn;
-use std::convert::AsRef;
+use std::convert::{AsRef, TryInto};
 use std::ffi::OsStr;
 use std::fmt;
 use std::marker::PhantomData;
+use std::mem;
 use std::os::unix::ffi::OsStrExt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::{mem, ptr, slice};
+use zerocopy::AsBytes;
 
 use crate::{FileAttr, FileType};
 
@@ -43,19 +44,6 @@ impl fmt::Debug for Box<dyn ReplySender> {
 pub trait Reply {
     /// Create a new reply for the given request
     fn new<S: ReplySender>(unique: u64, sender: S) -> Self;
-}
-
-/// Serialize an arbitrary type to bytes (memory copy, useful for fuse_*_out types)
-fn as_bytes<T, U, F: FnOnce(&[&[u8]]) -> U>(data: &T, f: F) -> U {
-    let len = mem::size_of::<T>();
-    match len {
-        0 => f(&[]),
-        len => {
-            let p = data as *const T as *const u8;
-            let bytes = unsafe { slice::from_raw_parts(p, len) };
-            f(&[bytes])
-        }
-    }
 }
 
 fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
@@ -152,7 +140,7 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
 /// Raw reply
 ///
 #[derive(Debug)]
-pub struct ReplyRaw<T> {
+pub(crate) struct ReplyRaw<T: AsBytes> {
     /// Unique id of the request to reply to
     unique: u64,
     /// Closure to call for sending the reply
@@ -162,7 +150,7 @@ pub struct ReplyRaw<T> {
     marker: PhantomData<T>,
 }
 
-impl<T> Reply for ReplyRaw<T> {
+impl<T: AsBytes> Reply for ReplyRaw<T> {
     fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyRaw<T> {
         let sender = Box::new(sender);
         ReplyRaw {
@@ -173,7 +161,7 @@ impl<T> Reply for ReplyRaw<T> {
     }
 }
 
-impl<T> ReplyRaw<T> {
+impl<T: AsBytes> ReplyRaw<T> {
     /// Reply to a request with the given error code and data. Must be called
     /// only once (the `ok` and `error` methods ensure this by consuming `self`)
     fn send(&mut self, err: c_int, bytes: &[&[u8]]) {
@@ -184,19 +172,15 @@ impl<T> ReplyRaw<T> {
             error: -err,
             unique: self.unique,
         };
-        as_bytes(&header, |headerbytes| {
-            let sender = self.sender.take().unwrap();
-            let mut sendbytes = headerbytes.to_vec();
-            sendbytes.extend(bytes);
-            sender.send(&sendbytes);
-        });
+        let sender = self.sender.take().unwrap();
+        let mut sendbytes = [header.as_bytes()].to_vec();
+        sendbytes.extend(bytes);
+        sender.send(sendbytes.as_ref());
     }
 
     /// Reply to a request with the given type
     pub fn ok(mut self, data: &T) {
-        as_bytes(data, |bytes| {
-            self.send(0, bytes);
-        })
+        self.send(0, &[data.as_bytes()])
     }
 
     /// Reply to a request with the given error code
@@ -205,7 +189,7 @@ impl<T> ReplyRaw<T> {
     }
 }
 
-impl<T> Drop for ReplyRaw<T> {
+impl<T: AsBytes> Drop for ReplyRaw<T> {
     fn drop(&mut self) {
         if self.sender.is_some() {
             warn!(
@@ -497,7 +481,7 @@ impl ReplyStatfs {
 ///
 #[derive(Debug)]
 pub struct ReplyCreate {
-    reply: ReplyRaw<(fuse_entry_out, fuse_open_out)>,
+    reply: ReplyRaw<fuse_create_out>,
 }
 
 impl Reply for ReplyCreate {
@@ -511,7 +495,7 @@ impl Reply for ReplyCreate {
 impl ReplyCreate {
     /// Reply to a request with the given entry
     pub fn created(self, ttl: &Duration, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
-        self.reply.ok(&(
+        self.reply.ok(&fuse_create_out(
             fuse_entry_out {
                 nodeid: attr.ino,
                 generation,
@@ -625,14 +609,10 @@ impl ReplyIoctl {
             out_iovs: if !data.is_empty() { 1 } else { 0 },
         };
 
-        let header_len = mem::size_of::<fuse_ioctl_out>();
-        let header_p = &header as *const fuse_ioctl_out as *const u8;
-        let header_bytes = unsafe { slice::from_raw_parts(header_p, header_len) };
-
         if !data.is_empty() {
-            self.reply.send(0, &[header_bytes, data]);
+            self.reply.send(0, &[header.as_bytes(), data]);
         } else {
-            self.reply.send(0, &[header_bytes]);
+            self.reply.send(0, &[header.as_bytes()]);
         }
     }
 
@@ -668,24 +648,19 @@ impl ReplyDirectory {
         let name = name.as_ref().as_bytes();
         let entlen = mem::size_of::<fuse_dirent>() + name.len();
         let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
-        let padlen = entsize - entlen;
         if self.data.len() + entsize > self.data.capacity() {
             return true;
         }
-        unsafe {
-            let p = self.data.as_mut_ptr().add(self.data.len());
-            let pdirent: *mut fuse_dirent = p as *mut fuse_dirent;
-            (*pdirent).ino = ino;
-            (*pdirent).off = offset;
-            (*pdirent).namelen = name.len() as u32;
-            (*pdirent).typ = mode_from_kind_and_perm(kind, 0) >> 12;
-            let p = p.add(mem::size_of_val(&*pdirent));
-            ptr::copy_nonoverlapping(name.as_ptr(), p, name.len());
-            let p = p.add(name.len());
-            ptr::write_bytes(p, 0u8, padlen);
-            let newlen = self.data.len() + entsize;
-            self.data.set_len(newlen);
-        }
+        let header = fuse_dirent {
+            ino,
+            off: offset,
+            namelen: name.len().try_into().expect("Name too long"),
+            typ: mode_from_kind_and_perm(kind, 0) >> 12,
+        };
+        self.data.extend_from_slice(header.as_bytes());
+        self.data.extend_from_slice(name);
+        let padlen = entsize - entlen;
+        self.data.extend_from_slice(&b"\0\0\0\0\0\0\0\0"[..padlen]);
         false
     }
 
@@ -737,11 +712,8 @@ impl ReplyDirectoryPlus {
         if self.data.len() + entsize > self.data.capacity() {
             return true;
         }
-        unsafe {
-            let p = self.data.as_mut_ptr().add(self.data.len());
-            let pdirentplus = p as *mut fuse_direntplus;
-
-            (*pdirentplus).entry_out = fuse_entry_out {
+        let direntplus = fuse_direntplus {
+            entry_out: fuse_entry_out {
                 nodeid: attr.ino,
                 generation,
                 entry_valid: ttl.as_secs(),
@@ -749,21 +721,17 @@ impl ReplyDirectoryPlus {
                 entry_valid_nsec: ttl.subsec_nanos(),
                 attr_valid_nsec: ttl.subsec_nanos(),
                 attr: fuse_attr_from_attr(attr),
-            };
-
-            let pdirent: *mut fuse_dirent = &mut (*pdirentplus).dirent;
-            (*pdirent).ino = ino;
-            (*pdirent).off = offset;
-            (*pdirent).namelen = name.len() as u32;
-            (*pdirent).typ = mode_from_kind_and_perm(attr.kind, 0) >> 12;
-
-            let p = p.add(mem::size_of_val(&*pdirent));
-            ptr::copy_nonoverlapping(name.as_ptr(), p, name.len());
-            let p = p.add(name.len());
-            ptr::write_bytes(p, 0u8, padlen);
-            let newlen = self.data.len() + entsize;
-            self.data.set_len(newlen);
-        }
+            },
+            dirent: fuse_dirent {
+                ino,
+                off: offset,
+                namelen: name.len().try_into().expect("Name too long"),
+                typ: mode_from_kind_and_perm(attr.kind, 0) >> 12,
+            },
+        };
+        self.data.extend_from_slice(direntplus.as_bytes());
+        self.data.extend_from_slice(name);
+        self.data.extend_from_slice(&b"\0\0\0\0\0\0\0\0"[..padlen]);
         false
     }
 
@@ -841,7 +809,7 @@ impl ReplyLseek {
 
 #[cfg(test)]
 mod test {
-    use super::as_bytes;
+    use super::AsBytes;
     #[cfg(target_os = "macos")]
     use super::ReplyXTimes;
     use super::ReplyXattr;
@@ -853,6 +821,7 @@ mod test {
     use std::time::{Duration, UNIX_EPOCH};
 
     #[allow(dead_code)]
+    #[derive(Debug, AsBytes)]
     #[repr(C)]
     struct Data {
         a: u8,
@@ -862,18 +831,13 @@ mod test {
 
     #[test]
     fn serialize_empty() {
-        let data = ();
-        as_bytes(&data, |bytes| {
-            assert!(bytes.is_empty());
-        });
+        assert!(().as_bytes().is_empty());
     }
 
     #[test]
     fn serialize_slice() {
         let data: [u8; 4] = [0x12, 0x34, 0x56, 0x78];
-        as_bytes(&data, |bytes| {
-            assert_eq!(bytes, [[0x12, 0x34, 0x56, 0x78]]);
-        });
+        assert_eq!(data.as_bytes(), [0x12, 0x34, 0x56, 0x78]);
     }
 
     #[test]
@@ -883,28 +847,7 @@ mod test {
             b: 0x34,
             c: 0x5678,
         };
-        as_bytes(&data, |bytes| {
-            assert_eq!(bytes, [[0x12, 0x34, 0x78, 0x56]]);
-        });
-    }
-
-    #[test]
-    fn serialize_tuple() {
-        let data = (
-            Data {
-                a: 0x12,
-                b: 0x34,
-                c: 0x5678,
-            },
-            Data {
-                a: 0x9a,
-                b: 0xbc,
-                c: 0xdef0,
-            },
-        );
-        as_bytes(&data, |bytes| {
-            assert_eq!(bytes, [[0x12, 0x34, 0x78, 0x56, 0x9a, 0xbc, 0xf0, 0xde]]);
-        });
+        assert_eq!(data.as_bytes(), [0x12, 0x34, 0x78, 0x56]);
     }
 
     struct AssertSender {
