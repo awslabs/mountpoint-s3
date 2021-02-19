@@ -3,13 +3,20 @@
 //! Raw communication channel to the FUSE kernel driver.
 
 #[cfg(any(feature = "libfuse", test))]
-use crate::fuse_sys::fuse_args;
-#[cfg(feature = "libfuse2")]
-use crate::fuse_sys::fuse_mount_compat25;
-#[cfg(not(feature = "libfuse"))]
-use crate::fuse_sys::{fuse_mount_pure, fuse_unmount_pure};
+mod fuse2_sys;
 #[cfg(feature = "libfuse3")]
-use crate::fuse_sys::{
+mod fuse3_sys;
+#[cfg(not(feature = "libfuse"))]
+mod fuse_pure;
+
+#[cfg(any(feature = "libfuse", test))]
+use fuse2_sys::fuse_args;
+#[cfg(feature = "libfuse2")]
+use fuse2_sys::fuse_mount_compat25;
+#[cfg(not(feature = "libfuse"))]
+use fuse_pure::{fuse_mount_pure, fuse_unmount_pure};
+#[cfg(feature = "libfuse3")]
+use fuse3_sys::{
     fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
@@ -227,7 +234,7 @@ pub fn unmount(mountpoint: &Path, fuse_session: *mut c_void, fd: c_int) -> io::R
     #[inline]
     fn libc_umount(mnt: &CStr, fuse_session: *mut c_void, fd: c_int) -> c_int {
         #[cfg(feature = "libfuse2")]
-        use crate::fuse_sys::fuse_unmount_compat22;
+        use fuse2_sys::fuse_unmount_compat22;
         use std::io::ErrorKind::PermissionDenied;
 
         let rc = unsafe { libc::umount(mnt.as_ptr()) };

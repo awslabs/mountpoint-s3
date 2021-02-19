@@ -6,94 +6,25 @@
 #![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 
-#[cfg(not(feature = "libfuse"))]
 use crate::mount_options::{option_group, option_to_flag, option_to_string, MountOptionGroup};
-#[cfg(not(feature = "libfuse"))]
 use crate::MountOption;
-#[cfg(feature = "libfuse3")]
-use libc::c_void;
-use libc::{c_char, c_int};
-#[cfg(not(feature = "libfuse"))]
+use libc::c_int;
 use log::{debug, error};
-#[cfg(not(feature = "libfuse"))]
 use std::ffi::{CStr, CString, OsStr};
-#[cfg(not(feature = "libfuse"))]
 use std::fs::{File, OpenOptions};
-#[cfg(not(feature = "libfuse"))]
 use std::io;
-#[cfg(not(feature = "libfuse"))]
 use std::io::{Error, ErrorKind, Read};
-#[cfg(not(feature = "libfuse"))]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(not(feature = "libfuse"))]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(not(feature = "libfuse"))]
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
-#[cfg(not(feature = "libfuse"))]
 use std::os::unix::net::UnixStream;
-#[cfg(not(feature = "libfuse"))]
 use std::process::{Command, Stdio};
-#[cfg(not(feature = "libfuse"))]
 use std::{mem, ptr};
 
-#[cfg(not(feature = "libfuse"))]
 const FUSERMOUNT_BIN: &str = "fusermount";
-#[cfg(not(feature = "libfuse"))]
 const FUSERMOUNT3_BIN: &str = "fusermount3";
-#[cfg(not(feature = "libfuse"))]
 const FUSERMOUNT_COMM_ENV: &str = "_FUSE_COMMFD";
 
-#[repr(C)]
-#[derive(Debug)]
-pub struct fuse_args {
-    pub argc: c_int,
-    pub argv: *const *const c_char,
-    pub allocated: c_int,
-}
-
-extern "C" {
-    // *_compat25 functions were introduced in FUSE 2.6 when function signatures changed.
-    // Therefore, the minimum version requirement for *_compat25 functions is libfuse-2.6.0.
-
-    #[cfg(feature = "libfuse2")]
-    pub fn fuse_mount_compat25(mountpoint: *const c_char, args: *const fuse_args) -> c_int;
-    #[cfg(all(
-        feature = "libfuse2",
-        not(any(
-            target_os = "macos",
-            target_os = "freebsd",
-            target_os = "dragonfly",
-            target_os = "openbsd",
-            target_os = "bitrig",
-            target_os = "netbsd"
-        ))
-    ))]
-    pub fn fuse_unmount_compat22(mountpoint: *const c_char);
-    #[cfg(feature = "libfuse3")]
-    // Really this returns *fuse_session, but we don't need to access its fields
-    pub fn fuse_session_new(
-        args: *const fuse_args,
-        op: *const c_void, // This argument is really a *const fuse_lowlevel_ops, but we don't use them
-        op_size: libc::size_t,
-        userdata: *mut c_void,
-    ) -> *mut c_void;
-    #[cfg(feature = "libfuse3")]
-    pub fn fuse_session_mount(
-        se: *mut c_void, // This argument is really a *fuse_session
-        mountpoint: *const c_char,
-    ) -> c_int;
-    #[cfg(feature = "libfuse3")]
-    // This function's argument is really a *fuse_session
-    pub fn fuse_session_fd(se: *mut c_void) -> c_int;
-    #[cfg(feature = "libfuse3")]
-    // This function's argument is really a *fuse_session
-    pub fn fuse_session_unmount(se: *mut c_void);
-    #[cfg(feature = "libfuse3")]
-    // This function's argument is really a *fuse_session
-    pub fn fuse_session_destroy(se: *mut c_void);
-}
-
-#[cfg(not(feature = "libfuse"))]
 pub fn fuse_mount_pure(mountpoint: &OsStr, options: &[MountOption]) -> Result<c_int, io::Error> {
     if options.contains(&MountOption::AutoUnmount) {
         // Auto unmount is only supported via fusermount
@@ -109,7 +40,6 @@ pub fn fuse_mount_pure(mountpoint: &OsStr, options: &[MountOption]) -> Result<c_
     }
 }
 
-#[cfg(not(feature = "libfuse"))]
 pub fn fuse_unmount_pure(mountpoint: &CStr, fd: c_int) {
     if fd != -1 {
         let mut poll_result = libc::pollfd {
@@ -160,7 +90,6 @@ pub fn fuse_unmount_pure(mountpoint: &CStr, fd: c_int) {
     }
 }
 
-#[cfg(not(feature = "libfuse"))]
 fn detect_fusermount_bin() -> String {
     for name in [
         FUSERMOUNT3_BIN.to_string(),
@@ -178,7 +107,6 @@ fn detect_fusermount_bin() -> String {
     FUSERMOUNT3_BIN.to_string()
 }
 
-#[cfg(not(feature = "libfuse"))]
 fn receive_fusermount_message(socket_fd: c_int) -> Result<c_int, Error> {
     let mut io_vec_buf = [0u8];
     let mut io_vec = libc::iovec {
@@ -250,7 +178,6 @@ fn receive_fusermount_message(socket_fd: c_int) -> Result<c_int, Error> {
     }
 }
 
-#[cfg(not(feature = "libfuse"))]
 fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<c_int, Error> {
     let (child_socket, receive_socket) = UnixStream::pair()?;
 
@@ -327,7 +254,6 @@ fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<
 }
 
 // If returned option is none. Then fusermount binary should be tried
-#[cfg(not(feature = "libfuse"))]
 fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<c_int>, Error> {
     let fuse_device_name = "/dev/fuse";
 

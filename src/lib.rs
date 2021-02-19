@@ -43,7 +43,6 @@ use std::cmp::min;
 #[cfg(feature = "async_api")]
 pub mod async_api;
 mod channel;
-mod fuse_sys;
 mod ll;
 mod mount_options;
 mod reply;
