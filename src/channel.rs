@@ -118,21 +118,18 @@ impl Channel {
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
-    pub fn receive(&self, buffer: &mut Vec<u8>) -> io::Result<()> {
+    pub fn receive(&self, buffer: &mut [u8]) -> io::Result<usize> {
         let rc = unsafe {
             libc::read(
                 self.fd,
                 buffer.as_ptr() as *mut c_void,
-                buffer.capacity() as size_t,
+                buffer.len() as size_t,
             )
         };
         if rc < 0 {
             Err(io::Error::last_os_error())
         } else {
-            unsafe {
-                buffer.set_len(rc as usize);
-            }
-            Ok(())
+            Ok(rc as usize)
         }
     }
 

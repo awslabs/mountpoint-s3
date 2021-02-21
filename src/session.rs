@@ -9,12 +9,13 @@ use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{error, info};
 #[cfg(feature = "libfuse")]
 use std::ffi::OsStr;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
 use std::{fmt, ptr};
+use std::{io, ops::DerefMut};
 
 use crate::channel::{self, Channel};
+use crate::fuse_abi as abi;
 use crate::request::Request;
 use crate::Filesystem;
 #[cfg(not(feature = "libfuse"))]
@@ -91,12 +92,16 @@ impl<FS: Filesystem> Session<FS> {
     pub fn run(&mut self) -> io::Result<()> {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
-        let mut buffer: Vec<u8> = Vec::with_capacity(BUFFER_SIZE);
+        let mut buffer = vec![0; BUFFER_SIZE];
+        let buf = aligned_sub_buf(
+            buffer.deref_mut(),
+            std::mem::align_of::<abi::fuse_in_header>(),
+        );
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
-            match self.ch.receive(&mut buffer) {
-                Ok(()) => match Request::new(self.ch.sender(), &buffer) {
+            match self.ch.receive(buf) {
+                Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
                     // Dispatch request
                     Some(req) => req.dispatch(self),
                     // Quit loop on illegal request
@@ -117,6 +122,15 @@ impl<FS: Filesystem> Session<FS> {
             }
         }
         Ok(())
+    }
+}
+
+fn aligned_sub_buf(buf: &mut [u8], alignment: usize) -> &mut [u8] {
+    let off = alignment - (buf.as_ptr() as usize) % alignment;
+    if off == alignment {
+        buf
+    } else {
+        &mut buf[off..]
     }
 }
 

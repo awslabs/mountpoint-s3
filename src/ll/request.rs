@@ -291,132 +291,128 @@ impl<'a> fmt::Display for Operation<'a> {
 
 impl<'a> Operation<'a> {
     fn parse(opcode: &fuse_opcode, data: &mut ArgumentIterator<'a>) -> Option<Self> {
-        unsafe {
-            Some(match opcode {
-                fuse_opcode::FUSE_LOOKUP => Operation::Lookup {
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_FORGET => Operation::Forget { arg: data.fetch()? },
-                fuse_opcode::FUSE_GETATTR => Operation::GetAttr,
-                fuse_opcode::FUSE_SETATTR => Operation::SetAttr { arg: data.fetch()? },
-                fuse_opcode::FUSE_READLINK => Operation::ReadLink,
-                fuse_opcode::FUSE_SYMLINK => Operation::SymLink {
-                    name: data.fetch_str()?,
-                    link: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_MKNOD => Operation::MkNod {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_MKDIR => Operation::MkDir {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_UNLINK => Operation::Unlink {
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_RMDIR => Operation::RmDir {
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_RENAME => Operation::Rename {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                    newname: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_LINK => Operation::Link {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_OPEN => Operation::Open { arg: data.fetch()? },
-                fuse_opcode::FUSE_READ => Operation::Read { arg: data.fetch()? },
-                fuse_opcode::FUSE_WRITE => Operation::Write {
-                    arg: data.fetch()?,
-                    data: data.fetch_all(),
-                },
-                fuse_opcode::FUSE_STATFS => Operation::StatFs,
-                fuse_opcode::FUSE_RELEASE => Operation::Release { arg: data.fetch()? },
-                fuse_opcode::FUSE_FSYNC => Operation::FSync { arg: data.fetch()? },
-                fuse_opcode::FUSE_SETXATTR => Operation::SetXAttr {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                    value: data.fetch_all(),
-                },
-                fuse_opcode::FUSE_GETXATTR => Operation::GetXAttr {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_LISTXATTR => Operation::ListXAttr { arg: data.fetch()? },
-                fuse_opcode::FUSE_REMOVEXATTR => Operation::RemoveXAttr {
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_FLUSH => Operation::Flush { arg: data.fetch()? },
-                fuse_opcode::FUSE_INIT => Operation::Init { arg: data.fetch()? },
-                fuse_opcode::FUSE_OPENDIR => Operation::OpenDir { arg: data.fetch()? },
-                fuse_opcode::FUSE_READDIR => Operation::ReadDir { arg: data.fetch()? },
-                fuse_opcode::FUSE_RELEASEDIR => Operation::ReleaseDir { arg: data.fetch()? },
-                fuse_opcode::FUSE_FSYNCDIR => Operation::FSyncDir { arg: data.fetch()? },
-                fuse_opcode::FUSE_GETLK => Operation::GetLk { arg: data.fetch()? },
-                fuse_opcode::FUSE_SETLK => Operation::SetLk { arg: data.fetch()? },
-                fuse_opcode::FUSE_SETLKW => Operation::SetLkW { arg: data.fetch()? },
-                fuse_opcode::FUSE_ACCESS => Operation::Access { arg: data.fetch()? },
-                fuse_opcode::FUSE_CREATE => Operation::Create {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                },
-                fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt { arg: data.fetch()? },
-                fuse_opcode::FUSE_BMAP => Operation::BMap { arg: data.fetch()? },
-                fuse_opcode::FUSE_DESTROY => Operation::Destroy,
-                #[cfg(feature = "abi-7-11")]
-                fuse_opcode::FUSE_IOCTL => Operation::IoCtl {
-                    arg: data.fetch()?,
-                    data: data.fetch_all(),
-                },
-                #[cfg(feature = "abi-7-11")]
-                fuse_opcode::FUSE_POLL => Operation::Poll { arg: data.fetch()? },
-                #[cfg(feature = "abi-7-15")]
-                fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply {
-                    data: data.fetch_all(),
-                },
-                #[cfg(feature = "abi-7-16")]
-                // TODO: parse the nodes
-                fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget {
-                    arg: data.fetch()?,
-                    nodes: &[],
-                },
-                #[cfg(feature = "abi-7-19")]
-                fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate { arg: data.fetch()? },
-                #[cfg(feature = "abi-7-21")]
-                fuse_opcode::FUSE_READDIRPLUS => Operation::ReadDirPlus { arg: data.fetch()? },
-                #[cfg(feature = "abi-7-23")]
-                fuse_opcode::FUSE_RENAME2 => Operation::Rename2 {
-                    arg: data.fetch()?,
-                    name: data.fetch_str()?,
-                    newname: data.fetch_str()?,
-                },
-                #[cfg(feature = "abi-7-24")]
-                fuse_opcode::FUSE_LSEEK => Operation::Lseek { arg: data.fetch()? },
-                #[cfg(feature = "abi-7-28")]
-                fuse_opcode::FUSE_COPY_FILE_RANGE => {
-                    Operation::CopyFileRange { arg: data.fetch()? }
-                }
+        Some(match opcode {
+            fuse_opcode::FUSE_LOOKUP => Operation::Lookup {
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_FORGET => Operation::Forget { arg: data.fetch()? },
+            fuse_opcode::FUSE_GETATTR => Operation::GetAttr,
+            fuse_opcode::FUSE_SETATTR => Operation::SetAttr { arg: data.fetch()? },
+            fuse_opcode::FUSE_READLINK => Operation::ReadLink,
+            fuse_opcode::FUSE_SYMLINK => Operation::SymLink {
+                name: data.fetch_str()?,
+                link: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_MKNOD => Operation::MkNod {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_MKDIR => Operation::MkDir {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_UNLINK => Operation::Unlink {
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_RMDIR => Operation::RmDir {
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_RENAME => Operation::Rename {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+                newname: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_LINK => Operation::Link {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_OPEN => Operation::Open { arg: data.fetch()? },
+            fuse_opcode::FUSE_READ => Operation::Read { arg: data.fetch()? },
+            fuse_opcode::FUSE_WRITE => Operation::Write {
+                arg: data.fetch()?,
+                data: data.fetch_all(),
+            },
+            fuse_opcode::FUSE_STATFS => Operation::StatFs,
+            fuse_opcode::FUSE_RELEASE => Operation::Release { arg: data.fetch()? },
+            fuse_opcode::FUSE_FSYNC => Operation::FSync { arg: data.fetch()? },
+            fuse_opcode::FUSE_SETXATTR => Operation::SetXAttr {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+                value: data.fetch_all(),
+            },
+            fuse_opcode::FUSE_GETXATTR => Operation::GetXAttr {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_LISTXATTR => Operation::ListXAttr { arg: data.fetch()? },
+            fuse_opcode::FUSE_REMOVEXATTR => Operation::RemoveXAttr {
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_FLUSH => Operation::Flush { arg: data.fetch()? },
+            fuse_opcode::FUSE_INIT => Operation::Init { arg: data.fetch()? },
+            fuse_opcode::FUSE_OPENDIR => Operation::OpenDir { arg: data.fetch()? },
+            fuse_opcode::FUSE_READDIR => Operation::ReadDir { arg: data.fetch()? },
+            fuse_opcode::FUSE_RELEASEDIR => Operation::ReleaseDir { arg: data.fetch()? },
+            fuse_opcode::FUSE_FSYNCDIR => Operation::FSyncDir { arg: data.fetch()? },
+            fuse_opcode::FUSE_GETLK => Operation::GetLk { arg: data.fetch()? },
+            fuse_opcode::FUSE_SETLK => Operation::SetLk { arg: data.fetch()? },
+            fuse_opcode::FUSE_SETLKW => Operation::SetLkW { arg: data.fetch()? },
+            fuse_opcode::FUSE_ACCESS => Operation::Access { arg: data.fetch()? },
+            fuse_opcode::FUSE_CREATE => Operation::Create {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+            },
+            fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt { arg: data.fetch()? },
+            fuse_opcode::FUSE_BMAP => Operation::BMap { arg: data.fetch()? },
+            fuse_opcode::FUSE_DESTROY => Operation::Destroy,
+            #[cfg(feature = "abi-7-11")]
+            fuse_opcode::FUSE_IOCTL => Operation::IoCtl {
+                arg: data.fetch()?,
+                data: data.fetch_all(),
+            },
+            #[cfg(feature = "abi-7-11")]
+            fuse_opcode::FUSE_POLL => Operation::Poll { arg: data.fetch()? },
+            #[cfg(feature = "abi-7-15")]
+            fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply {
+                data: data.fetch_all(),
+            },
+            #[cfg(feature = "abi-7-16")]
+            // TODO: parse the nodes
+            fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget {
+                arg: data.fetch()?,
+                nodes: &[],
+            },
+            #[cfg(feature = "abi-7-19")]
+            fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate { arg: data.fetch()? },
+            #[cfg(feature = "abi-7-21")]
+            fuse_opcode::FUSE_READDIRPLUS => Operation::ReadDirPlus { arg: data.fetch()? },
+            #[cfg(feature = "abi-7-23")]
+            fuse_opcode::FUSE_RENAME2 => Operation::Rename2 {
+                arg: data.fetch()?,
+                name: data.fetch_str()?,
+                newname: data.fetch_str()?,
+            },
+            #[cfg(feature = "abi-7-24")]
+            fuse_opcode::FUSE_LSEEK => Operation::Lseek { arg: data.fetch()? },
+            #[cfg(feature = "abi-7-28")]
+            fuse_opcode::FUSE_COPY_FILE_RANGE => Operation::CopyFileRange { arg: data.fetch()? },
 
-                #[cfg(target_os = "macos")]
-                fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {
-                    name: data.fetch_str()?,
-                },
-                #[cfg(target_os = "macos")]
-                fuse_opcode::FUSE_GETXTIMES => Operation::GetXTimes,
-                #[cfg(target_os = "macos")]
-                fuse_opcode::FUSE_EXCHANGE => Operation::Exchange {
-                    arg: data.fetch()?,
-                    oldname: data.fetch_str()?,
-                    newname: data.fetch_str()?,
-                },
+            #[cfg(target_os = "macos")]
+            fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName {
+                name: data.fetch_str()?,
+            },
+            #[cfg(target_os = "macos")]
+            fuse_opcode::FUSE_GETXTIMES => Operation::GetXTimes,
+            #[cfg(target_os = "macos")]
+            fuse_opcode::FUSE_EXCHANGE => Operation::Exchange {
+                arg: data.fetch()?,
+                oldname: data.fetch_str()?,
+                newname: data.fetch_str()?,
+            },
 
-                #[cfg(feature = "abi-7-12")]
-                fuse_opcode::CUSE_INIT => Operation::CuseInit { arg: data.fetch()? },
-            })
-        }
+            #[cfg(feature = "abi-7-12")]
+            fuse_opcode::CUSE_INIT => Operation::CuseInit { arg: data.fetch()? },
+        })
     }
 }
 
@@ -446,8 +442,9 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
         let data_len = data.len();
         let mut data = ArgumentIterator::new(data);
         // Parse header
-        let header: &fuse_in_header =
-            unsafe { data.fetch() }.ok_or_else(|| RequestError::ShortReadHeader(data.len()))?;
+        let header: &fuse_in_header = data
+            .fetch()
+            .ok_or_else(|| RequestError::ShortReadHeader(data.len()))?;
         // Parse/check opcode
         let opcode = fuse_opcode::try_from(header.opcode)
             .map_err(|_: InvalidOpcodeError| RequestError::UnknownOperation(header.opcode))?;
@@ -506,10 +503,11 @@ impl<'a> Request<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test::AlignedData;
     use super::*;
 
     #[cfg(target_endian = "big")]
-    const INIT_REQUEST: [u8; 56] = [
+    const INIT_REQUEST: AlignedData<[u8; 56]> = AlignedData([
         0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x1a, // len, opcode
         0xde, 0xad, 0xbe, 0xef, 0xba, 0xad, 0xd0, 0x0d, // unique
         0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, // nodeid
@@ -517,10 +515,10 @@ mod tests {
         0xc0, 0xde, 0xba, 0x5e, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x08, // major, minor
         0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, // max_readahead, flags
-    ];
+    ]);
 
     #[cfg(target_endian = "little")]
-    const INIT_REQUEST: [u8; 56] = [
+    const INIT_REQUEST: AlignedData<[u8; 56]> = AlignedData([
         0x38, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
         0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
@@ -528,10 +526,10 @@ mod tests {
         0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // major, minor
         0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // max_readahead, flags
-    ];
+    ]);
 
     #[cfg(target_endian = "big")]
-    const MKNOD_REQUEST: [u8; 56] = [
+    const MKNOD_REQUEST: AlignedData<[u8; 56]> = [
         0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x08, // len, opcode
         0xde, 0xad, 0xbe, 0xef, 0xba, 0xad, 0xd0, 0x0d, // unique
         0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, // nodeid
@@ -542,7 +540,7 @@ mod tests {
     ];
 
     #[cfg(all(target_endian = "little", not(feature = "abi-7-12")))]
-    const MKNOD_REQUEST: [u8; 56] = [
+    const MKNOD_REQUEST: AlignedData<[u8; 56]> = AlignedData([
         0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
         0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
@@ -550,10 +548,10 @@ mod tests {
         0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
         0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
-    ];
+    ]);
 
     #[cfg(all(target_endian = "little", feature = "abi-7-12"))]
-    const MKNOD_REQUEST: [u8; 64] = [
+    const MKNOD_REQUEST: AlignedData<[u8; 64]> = AlignedData([
         0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
         0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
@@ -562,7 +560,7 @@ mod tests {
         0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
         0xed, 0x01, 0x00, 0x00, 0xe7, 0x03, 0x00, 0x00, // umask, padding
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
-    ];
+    ]);
 
     #[test]
     fn short_read_header() {
