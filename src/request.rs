@@ -5,13 +5,14 @@
 //!
 //! TODO: This module is meant to go away soon in favor of `ll::Request`.
 
-use crate::fuse_abi::consts::*;
 use crate::fuse_abi::*;
 use libc::{EIO, ENOSYS, EPROTO};
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 use std::path::Path;
 
+#[cfg(feature = "abi-7-11")]
+use crate::fuse_abi::consts::FUSE_IOCTL_UNRESTRICTED;
 use crate::channel::ChannelSender;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
@@ -167,44 +168,23 @@ impl<'a> Request<'a> {
                     .readlink(self, self.request.nodeid(), self.reply());
             }
             ll::Operation::MkNod(x) => {
-                #[cfg(not(feature = "abi-7-12"))]
                 se.filesystem.mknod(
                     self,
                     self.request.nodeid(),
                     &x.name,
                     x.arg.mode,
-                    0,
+                    x.umask(),
                     x.arg.rdev,
-                    self.reply(),
-                );
-                #[cfg(feature = "abi-7-12")]
-                se.filesystem.mknod(
-                    self,
-                    self.request.nodeid(),
-                    &name,
-                    arg.mode,
-                    arg.umask,
-                    arg.rdev,
                     self.reply(),
                 );
             }
             ll::Operation::MkDir(x) => {
-                #[cfg(not(feature = "abi-7-12"))]
                 se.filesystem.mkdir(
                     self,
                     self.request.nodeid(),
                     &x.name,
                     x.arg.mode,
-                    0,
-                    self.reply(),
-                );
-                #[cfg(feature = "abi-7-12")]
-                se.filesystem.mkdir(
-                    self,
-                    self.request.nodeid(),
-                    &name,
-                    arg.mode,
-                    arg.umask,
+                    x.umask(),
                     self.reply(),
                 );
             }
@@ -250,37 +230,19 @@ impl<'a> Request<'a> {
                     .open(self, self.request.nodeid(), x.arg.flags, self.reply());
             }
             ll::Operation::Read(x) => {
-                #[cfg(not(feature = "abi-7-9"))]
                 se.filesystem.read(
                     self,
                     self.request.nodeid(),
                     x.arg.fh,
                     x.arg.offset as i64,
                     x.arg.size,
-                    0,
-                    None,
-                    self.reply(),
-                );
-                #[cfg(feature = "abi-7-9")]
-                se.filesystem.read(
-                    self,
-                    self.request.nodeid(),
-                    x.arg.fh,
-                    x.arg.offset as i64,
-                    x.arg.size,
-                    x.arg.flags,
-                    if x.arg.read_flags & FUSE_READ_LOCKOWNER != 0 {
-                        Some(x.arg.lock_owner)
-                    } else {
-                        None
-                    },
+                    x.flags(),
+                    x.lock_owner(),
                     self.reply(),
                 );
             }
             ll::Operation::Write(x) => {
                 assert!(x.data.len() == x.arg.size as usize);
-
-                #[cfg(not(feature = "abi-7-9"))]
                 se.filesystem.write(
                     self,
                     self.request.nodeid(),
@@ -288,24 +250,8 @@ impl<'a> Request<'a> {
                     x.arg.offset as i64,
                     x.data,
                     x.arg.write_flags,
-                    0,
-                    None,
-                    self.reply(),
-                );
-                #[cfg(feature = "abi-7-9")]
-                se.filesystem.write(
-                    self,
-                    self.request.nodeid(),
-                    x.arg.fh,
-                    x.arg.offset as i64,
-                    x.data,
-                    x.arg.write_flags,
-                    x.arg.flags,
-                    if x.arg.write_flags & FUSE_WRITE_LOCKOWNER != 0 {
-                        Some(x.arg.lock_owner)
-                    } else {
-                        None
-                    },
+                    x.flags(),
+                    x.lock_owner(),
                     self.reply(),
                 );
             }
@@ -319,39 +265,22 @@ impl<'a> Request<'a> {
                 );
             }
             ll::Operation::Release(x) => {
-                let flush = !matches!(x.arg.release_flags & FUSE_RELEASE_FLUSH, 0);
-                #[cfg(not(feature = "abi-7-17"))]
                 se.filesystem.release(
                     self,
                     self.request.nodeid(),
                     x.arg.fh,
                     x.arg.flags,
-                    Some(x.arg.lock_owner),
-                    flush,
-                    self.reply(),
-                );
-                #[cfg(feature = "abi-7-17")]
-                se.filesystem.release(
-                    self,
-                    self.request.nodeid(),
-                    arg.fh,
-                    arg.flags,
-                    if arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
-                        Some(arg.lock_owner)
-                    } else {
-                        None
-                    },
-                    flush,
+                    x.lock_owner(),
+                    x.flush(),
                     self.reply(),
                 );
             }
             ll::Operation::FSync(x) => {
-                let datasync = !matches!(x.arg.fsync_flags & 1, 0);
                 se.filesystem.fsync(
                     self,
                     self.request.nodeid(),
                     x.arg.fh,
-                    datasync,
+                    x.datasync(),
                     self.reply(),
                 );
             }
@@ -378,12 +307,11 @@ impl<'a> Request<'a> {
                 );
             }
             ll::Operation::FSyncDir(x) => {
-                let datasync = !matches!(x.arg.fsync_flags & 1, 0);
                 se.filesystem.fsyncdir(
                     self,
                     self.request.nodeid(),
                     x.arg.fh,
-                    datasync,
+                    x.datasync(),
                     self.reply(),
                 );
             }
@@ -393,23 +321,13 @@ impl<'a> Request<'a> {
             }
             ll::Operation::SetXAttr(x) => {
                 assert!(x.value.len() == x.arg.size as usize);
-                #[cfg(target_os = "macos")]
-                #[inline]
-                fn get_position(arg: &fuse_setxattr_in) -> u32 {
-                    arg.position
-                }
-                #[cfg(not(target_os = "macos"))]
-                #[inline]
-                fn get_position(_arg: &fuse_setxattr_in) -> u32 {
-                    0
-                }
                 se.filesystem.setxattr(
                     self,
                     self.request.nodeid(),
                     x.name,
                     x.value,
                     x.arg.flags,
-                    get_position(x.arg),
+                    x.position(),
                     self.reply(),
                 );
             }
@@ -435,24 +353,13 @@ impl<'a> Request<'a> {
                     .access(self, self.request.nodeid(), x.arg.mask, self.reply());
             }
             ll::Operation::Create(x) => {
-                #[cfg(not(feature = "abi-7-12"))]
                 se.filesystem.create(
                     self,
                     self.request.nodeid(),
                     &x.name,
                     x.arg.mode,
-                    0,
+                    x.umask(),
                     x.arg.flags,
-                    self.reply(),
-                );
-                #[cfg(feature = "abi-7-12")]
-                se.filesystem.create(
-                    self,
-                    self.request.nodeid(),
-                    &name,
-                    arg.mode,
-                    arg.umask,
-                    arg.flags,
                     self.reply(),
                 );
             }
@@ -509,8 +416,7 @@ impl<'a> Request<'a> {
 
             #[cfg(feature = "abi-7-11")]
             ll::Operation::IoCtl(x) => {
-                let in_data = &data[..x.arg.in_size as usize];
-                if (arg.flags & FUSE_IOCTL_UNRESTRICTED) > 0 {
+                if (x.arg.flags & FUSE_IOCTL_UNRESTRICTED) > 0 {
                     self.reply::<ReplyEmpty>().error(ENOSYS);
                 } else {
                     se.filesystem.ioctl(
@@ -519,7 +425,7 @@ impl<'a> Request<'a> {
                         x.arg.fh,
                         x.arg.flags,
                         x.arg.cmd,
-                        in_data,
+                        x.in_data(),
                         x.arg.out_size,
                         self.reply(),
                     );
@@ -566,9 +472,9 @@ impl<'a> Request<'a> {
                 se.filesystem.rename(
                     self,
                     self.request.nodeid(),
-                    name,
+                    x.name,
                     x.arg.newdir,
-                    newname,
+                    x.newname,
                     x.arg.flags,
                     self.reply(),
                 );

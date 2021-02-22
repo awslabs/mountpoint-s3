@@ -186,10 +186,26 @@ mod op {
         pub arg: &'a fuse_mknod_in,
         pub name: &'a OsStr,
     }
+    impl<'a> MkNod<'a> {
+        pub fn umask(&self) -> u32 {
+            #[cfg(not(feature = "abi-7-12"))]
+            return 0;
+            #[cfg(feature = "abi-7-12")]
+            self.arg.umask
+        }
+    }
     #[derive(Debug)]
     pub struct MkDir<'a> {
         pub arg: &'a fuse_mkdir_in,
         pub name: &'a OsStr,
+    }
+    impl<'a> MkDir<'a> {
+        pub fn umask(&self) -> u32 {
+            #[cfg(not(feature = "abi-7-12"))]
+            return 0;
+            #[cfg(feature = "abi-7-12")]
+            self.arg.umask
+        }
     }
     #[derive(Debug)]
     pub struct Unlink<'a> {
@@ -218,10 +234,46 @@ mod op {
     pub struct Read<'a> {
         pub arg: &'a fuse_read_in,
     }
+    impl<'a> Read<'a> {
+        pub fn lock_owner(&self) -> Option<u64> {
+            #[cfg(not(feature = "abi-7-9"))]
+            return None;
+            #[cfg(feature = "abi-7-9")]
+            if self.arg.read_flags & FUSE_READ_LOCKOWNER != 0 {
+                Some(self.arg.lock_owner)
+            } else {
+                None
+            }
+        }
+        pub fn flags(&self) -> i32 {
+            #[cfg(not(feature = "abi-7-9"))]
+            return 0;
+            #[cfg(feature = "abi-7-9")]
+            self.arg.flags
+        }
+    }
     #[derive(Debug)]
     pub struct Write<'a> {
         pub arg: &'a fuse_write_in,
         pub data: &'a [u8],
+    }
+    impl<'a> Write<'a> {
+        pub fn lock_owner(&self) -> Option<u64> {
+            #[cfg(feature = "abi-7-9")]
+            if self.arg.write_flags & FUSE_WRITE_LOCKOWNER != 0 {
+                Some(self.arg.lock_owner)
+            } else {
+                None
+            }
+            #[cfg(not(feature = "abi-7-9"))]
+            None
+        }
+        pub fn flags(&self) -> i32 {
+            #[cfg(feature = "abi-7-9")]
+            return self.arg.flags;
+            #[cfg(not(feature = "abi-7-9"))]
+            0
+        }
     }
     #[derive(Debug)]
     pub struct StatFs();
@@ -229,15 +281,43 @@ mod op {
     pub struct Release<'a> {
         pub arg: &'a fuse_release_in,
     }
+    impl<'a> Release<'a> {
+        pub fn flush(&self) -> bool {
+            self.arg.release_flags & FUSE_RELEASE_FLUSH != 0
+        }
+        pub fn lock_owner(&self) -> Option<u64> {
+            #[cfg(not(feature = "abi-7-17"))]
+            return Some(self.arg.lock_owner);
+            #[cfg(feature = "abi-7-17")]
+            if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
+                Some(self.arg.lock_owner)
+            } else {
+                None
+            }
+        }
+    }
     #[derive(Debug)]
     pub struct FSync<'a> {
         pub arg: &'a fuse_fsync_in,
+    }
+    impl<'a> FSync<'a> {
+        pub fn datasync(&self) -> bool {
+            self.arg.fsync_flags & 1 != 0
+        }
     }
     #[derive(Debug)]
     pub struct SetXAttr<'a> {
         pub arg: &'a fuse_setxattr_in,
         pub name: &'a OsStr,
         pub value: &'a [u8],
+    }
+    impl<'a> SetXAttr<'a> {
+        pub fn position(&self) -> u32 {
+            #[cfg(target_os = "macos")]
+            return self.arg.position;
+            #[cfg(not(target_os = "macos"))]
+            0
+        }
     }
     #[derive(Debug)]
     pub struct GetXAttr<'a> {
@@ -276,6 +356,11 @@ mod op {
     pub struct FSyncDir<'a> {
         pub arg: &'a fuse_fsync_in,
     }
+    impl<'a> FSyncDir<'a> {
+        pub fn datasync(&self) -> bool {
+            self.arg.fsync_flags & 1 != 0
+        }
+    }
     #[derive(Debug)]
     pub struct GetLk<'a> {
         pub arg: &'a fuse_lk_in,
@@ -297,6 +382,14 @@ mod op {
         pub arg: &'a fuse_create_in,
         pub name: &'a OsStr,
     }
+    impl<'a> Create<'a> {
+        pub fn umask(&self) -> u32 {
+            #[cfg(not(feature = "abi-7-12"))]
+            return 0;
+            #[cfg(feature = "abi-7-12")]
+            self.arg.umask
+        }
+    }
     #[derive(Debug)]
     pub struct Interrupt<'a> {
         pub arg: &'a fuse_interrupt_in,
@@ -312,6 +405,12 @@ mod op {
     pub struct IoCtl<'a> {
         pub arg: &'a fuse_ioctl_in,
         pub data: &'a [u8],
+    }
+    #[cfg(feature = "abi-7-11")]
+    impl<'a> IoCtl<'a> {
+        pub fn in_data(&self) -> &[u8] {
+            &self.data[..self.arg.in_size as usize]
+        }
     }
     #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
