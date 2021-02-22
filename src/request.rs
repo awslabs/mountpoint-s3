@@ -11,7 +11,6 @@ use libc::{EIO, ENOSYS, EPROTO};
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 use std::path::Path;
-use std::time::{Duration, SystemTime};
 
 use crate::channel::ChannelSender;
 #[cfg(feature = "abi-7-21")]
@@ -19,16 +18,7 @@ use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplyEmpty, ReplyRaw};
 use crate::session::Session;
 use crate::Filesystem;
-use crate::TimeOrNow::{Now, SpecificTime};
 use crate::{ll, KernelConfig};
-
-fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
-    if secs >= 0 {
-        SystemTime::UNIX_EPOCH + Duration::new(secs as u64, nsecs)
-    } else {
-        SystemTime::UNIX_EPOCH - Duration::new((-secs) as u64, nsecs)
-    }
-}
 
 /// Request data structure
 #[derive(Debug)]
@@ -154,113 +144,21 @@ impl<'a> Request<'a> {
                     .getattr(self, self.request.nodeid(), self.reply());
             }
             ll::Operation::SetAttr(x) => {
-                let mode = match x.arg.valid & FATTR_MODE {
-                    0 => None,
-                    _ => Some(x.arg.mode),
-                };
-                let uid = match x.arg.valid & FATTR_UID {
-                    0 => None,
-                    _ => Some(x.arg.uid),
-                };
-                let gid = match x.arg.valid & FATTR_GID {
-                    0 => None,
-                    _ => Some(x.arg.gid),
-                };
-                let size = match x.arg.valid & FATTR_SIZE {
-                    0 => None,
-                    _ => Some(x.arg.size),
-                };
-                let atime = match x.arg.valid & FATTR_ATIME {
-                    0 => None,
-                    _ => Some(if x.arg.atime_now() {
-                        Now
-                    } else {
-                        SpecificTime(system_time_from_time(x.arg.atime, x.arg.atimensec))
-                    }),
-                };
-                let mtime = match x.arg.valid & FATTR_MTIME {
-                    0 => None,
-                    _ => Some(if x.arg.mtime_now() {
-                        Now
-                    } else {
-                        SpecificTime(system_time_from_time(x.arg.mtime, x.arg.mtimensec))
-                    }),
-                };
-                #[cfg(feature = "abi-7-23")]
-                let ctime = match arg.valid & FATTR_CTIME {
-                    0 => None,
-                    _ => Some(system_time_from_time(arg.ctime, arg.ctimensec)),
-                };
-                #[cfg(not(feature = "abi-7-23"))]
-                let ctime = None;
-                let fh = match x.arg.valid & FATTR_FH {
-                    0 => None,
-                    _ => Some(x.arg.fh),
-                };
-                #[cfg(target_os = "macos")]
-                #[inline]
-                fn get_macos_setattr(
-                    arg: &fuse_setattr_in,
-                ) -> (
-                    Option<SystemTime>,
-                    Option<SystemTime>,
-                    Option<SystemTime>,
-                    Option<u32>,
-                ) {
-                    let crtime = match x.arg.valid & FATTR_CRTIME {
-                        0 => None,
-                        _ => Some(
-                            SystemTime::UNIX_EPOCH + Duration::new(x.arg.crtime, x.arg.crtimensec),
-                        ),
-                    };
-                    let chgtime = match x.arg.valid & FATTR_CHGTIME {
-                        0 => None,
-                        _ => Some(
-                            SystemTime::UNIX_EPOCH
-                                + Duration::new(x.arg.chgtime, x.arg.chgtimensec),
-                        ),
-                    };
-                    let bkuptime = match x.arg.valid & FATTR_BKUPTIME {
-                        0 => None,
-                        _ => Some(
-                            SystemTime::UNIX_EPOCH
-                                + Duration::new(x.arg.bkuptime, x.arg.bkuptimensec),
-                        ),
-                    };
-                    let flags = match x.arg.valid & FATTR_FLAGS {
-                        0 => None,
-                        _ => Some(x.arg.flags),
-                    };
-                    (crtime, chgtime, bkuptime, flags)
-                }
-                #[cfg(not(target_os = "macos"))]
-                #[inline]
-                fn get_macos_setattr(
-                    _arg: &fuse_setattr_in,
-                ) -> (
-                    Option<SystemTime>,
-                    Option<SystemTime>,
-                    Option<SystemTime>,
-                    Option<u32>,
-                ) {
-                    (None, None, None, None)
-                }
-                let (crtime, chgtime, bkuptime, flags) = get_macos_setattr(x.arg);
                 se.filesystem.setattr(
                     self,
                     self.request.nodeid(),
-                    mode,
-                    uid,
-                    gid,
-                    size,
-                    atime,
-                    mtime,
-                    ctime,
-                    fh,
-                    crtime,
-                    chgtime,
-                    bkuptime,
-                    flags,
+                    x.mode(),
+                    x.uid(),
+                    x.gid(),
+                    x.size(),
+                    x.atime(),
+                    x.mtime(),
+                    x.ctime(),
+                    x.fh(),
+                    x.crtime(),
+                    x.chgtime(),
+                    x.bkuptime(),
+                    x.flags(),
                     self.reply(),
                 );
             }

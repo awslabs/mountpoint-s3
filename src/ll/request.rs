@@ -43,8 +43,12 @@ impl fmt::Display for RequestError {
 impl error::Error for RequestError {}
 
 mod op {
-    use crate::fuse_abi::*;
-    use std::ffi::OsStr;
+    use crate::fuse_abi::consts::*;
+    use crate::{fuse_abi::*, TimeOrNow};
+    use std::{
+        ffi::OsStr,
+        time::{Duration, SystemTime},
+    };
 
     #[derive(Debug)]
     pub struct Lookup<'a> {
@@ -59,6 +63,116 @@ mod op {
     #[derive(Debug)]
     pub struct SetAttr<'a> {
         pub arg: &'a fuse_setattr_in,
+    }
+    impl<'a> SetAttr<'a> {
+        pub fn mode(&self) -> Option<u32> {
+            match self.arg.valid & FATTR_MODE {
+                0 => None,
+                _ => Some(self.arg.mode),
+            }
+        }
+        pub fn uid(&self) -> Option<u32> {
+            match self.arg.valid & FATTR_UID {
+                0 => None,
+                _ => Some(self.arg.uid),
+            }
+        }
+        pub fn gid(&self) -> Option<u32> {
+            match self.arg.valid & FATTR_GID {
+                0 => None,
+                _ => Some(self.arg.gid),
+            }
+        }
+        pub fn size(&self) -> Option<u64> {
+            match self.arg.valid & FATTR_SIZE {
+                0 => None,
+                _ => Some(self.arg.size),
+            }
+        }
+        pub fn atime(&self) -> Option<TimeOrNow> {
+            match self.arg.valid & FATTR_ATIME {
+                0 => None,
+                _ => Some(if self.arg.atime_now() {
+                    TimeOrNow::Now
+                } else {
+                    TimeOrNow::SpecificTime(system_time_from_time(
+                        self.arg.atime,
+                        self.arg.atimensec,
+                    ))
+                }),
+            }
+        }
+        pub fn mtime(&self) -> Option<TimeOrNow> {
+            match self.arg.valid & FATTR_MTIME {
+                0 => None,
+                _ => Some(if self.arg.mtime_now() {
+                    TimeOrNow::Now
+                } else {
+                    TimeOrNow::SpecificTime(system_time_from_time(
+                        self.arg.mtime,
+                        self.arg.mtimensec,
+                    ))
+                }),
+            }
+        }
+        pub fn ctime(&self) -> Option<SystemTime> {
+            #[cfg(feature = "abi-7-23")]
+            match self.arg.valid & FATTR_CTIME {
+                0 => None,
+                _ => Some(system_time_from_time(self.arg.ctime, self.arg.ctimensec)),
+            }
+            #[cfg(not(feature = "abi-7-23"))]
+            None
+        }
+        pub fn fh(&self) -> Option<u64> {
+            match self.arg.valid & FATTR_FH {
+                0 => None,
+                _ => Some(self.arg.fh),
+            }
+        }
+        pub fn crtime(&self) -> Option<SystemTime> {
+            #[cfg(target_os = "macos")]
+            match self.arg.valid & FATTR_CRTIME {
+                0 => None,
+                _ => Some(
+                    SystemTime::UNIX_EPOCH + Duration::new(self.arg.crtime, self.arg.crtimensec),
+                ),
+            }
+            #[cfg(not(target_os = "macos"))]
+            None
+        }
+        pub fn chgtime(&self) -> Option<SystemTime> {
+            #[cfg(target_os = "macos")]
+            match self.arg.valid & FATTR_CHGTIME {
+                0 => None,
+                _ => Some(
+                    SystemTime::UNIX_EPOCH + Duration::new(self.arg.chgtime, self.arg.chgtimensec),
+                ),
+            }
+            #[cfg(not(target_os = "macos"))]
+            None
+        }
+        pub fn bkuptime(&self) -> Option<SystemTime> {
+            #[cfg(target_os = "macos")]
+            match self.arg.valid & FATTR_BKUPTIME {
+                0 => None,
+                _ => Some(
+                    SystemTime::UNIX_EPOCH
+                        + Duration::new(self.arg.bkuptime, self.arg.bkuptimensec),
+                ),
+            }
+            #[cfg(not(target_os = "macos"))]
+            None
+        }
+        pub fn flags(&self) -> Option<u32> {
+            #[cfg(target_os = "macos")]
+            match self.arg.valid & FATTR_FLAGS {
+                0 => None,
+                _ => Some(self.arg.flags),
+            }
+            #[cfg(not(target_os = "macos"))]
+            None
+        }
     }
     #[derive(Debug)]
     pub struct ReadLink();
@@ -263,6 +377,14 @@ mod op {
     #[derive(Debug)]
     pub struct CuseInit<'a> {
         pub arg: &'a fuse_init_in,
+    }
+
+    fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
+        if secs >= 0 {
+            SystemTime::UNIX_EPOCH + Duration::new(secs as u64, nsecs)
+        } else {
+            SystemTime::UNIX_EPOCH - Duration::new((-secs) as u64, nsecs)
+        }
     }
 }
 use op::*;
