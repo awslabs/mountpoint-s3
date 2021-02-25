@@ -15,7 +15,7 @@ use std::{fmt, ptr};
 use std::{io, ops::DerefMut};
 
 use crate::channel::{self, Channel};
-use crate::fuse_abi as abi;
+use crate::ll::fuse_abi as abi;
 use crate::request::Request;
 use crate::Filesystem;
 #[cfg(not(feature = "libfuse"))]

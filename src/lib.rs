@@ -17,9 +17,9 @@ use std::path::Path;
 use std::time::Duration;
 use std::time::SystemTime;
 
-pub use crate::fuse_abi::consts;
-use crate::fuse_abi::consts::*;
-pub use crate::fuse_abi::FUSE_ROOT_ID;
+pub use crate::ll::fuse_abi::consts;
+use crate::ll::fuse_abi::consts::*;
+pub use crate::ll::fuse_abi::FUSE_ROOT_ID;
 use crate::mount_options::check_option_conflicts;
 #[cfg(feature = "libfuse")]
 use crate::mount_options::option_to_string;
@@ -41,7 +41,6 @@ use std::cmp::max;
 use std::cmp::min;
 
 mod channel;
-mod fuse_abi;
 mod fuse_sys;
 mod ll;
 mod mount_options;
@@ -326,7 +325,7 @@ pub trait Filesystem {
     /// Like forget, but take multiple forget requests at once for performance. The default
     /// implementation will fallback to forget.
     #[cfg(feature = "abi-7-16")]
-    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_abi::fuse_forget_one]) {
+    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[ll::fuse_abi::fuse_forget_one]) {
         for node in nodes {
             self.forget(req, node.nodeid, node.nlookup);
         }

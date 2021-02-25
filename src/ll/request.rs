@@ -3,7 +3,7 @@
 //! A request represents information about a filesystem operation the kernel driver wants us to
 //! perform.
 
-use crate::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
+use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
 use std::convert::TryFrom;
 use std::{error, fmt, mem};
 
@@ -43,8 +43,9 @@ impl fmt::Display for RequestError {
 impl error::Error for RequestError {}
 
 mod op {
-    use crate::fuse_abi::consts::*;
-    use crate::{fuse_abi::*, TimeOrNow};
+    use super::super::fuse_abi::consts::*;
+    use super::super::fuse_abi::*;
+    use crate::TimeOrNow;
     use std::{
         ffi::OsStr,
         time::{Duration, SystemTime},

@@ -1,7 +1,7 @@
 //! Low-level kernel communication.
 
 mod argument;
-
+pub mod fuse_abi;
 mod request;
 
 pub use request::{Operation, Request, RequestError};

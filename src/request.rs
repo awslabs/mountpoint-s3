@@ -5,14 +5,12 @@
 //!
 //! TODO: This module is meant to go away soon in favor of `ll::Request`.
 
-use crate::fuse_abi::*;
+use crate::ll::fuse_abi as abi;
 use libc::{EIO, ENOSYS, EPROTO};
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 use std::path::Path;
 
-#[cfg(feature = "abi-7-11")]
-use crate::fuse_abi::consts::FUSE_IOCTL_UNRESTRICTED;
 use crate::channel::ChannelSender;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
@@ -56,7 +54,7 @@ impl<'a> Request<'a> {
         match self.request.operation() {
             // Filesystem initialization
             ll::Operation::Init(x) => {
-                let reply: ReplyRaw<fuse_init_out> = self.reply();
+                let reply: ReplyRaw<abi::fuse_init_out> = self.reply();
                 // We don't support ABI versions before 7.6
                 if x.arg.major < 7 || (x.arg.major == 7 && x.arg.minor < 6) {
                     error!(
@@ -80,9 +78,9 @@ impl<'a> Request<'a> {
                 // Reply with our desired version and settings. If the kernel supports a
                 // larger major version, it'll re-send a matching init message. If it
                 // supports only lower major versions, we replied with an error above.
-                let init = fuse_init_out {
-                    major: FUSE_KERNEL_VERSION,
-                    minor: FUSE_KERNEL_MINOR_VERSION,
+                let init = abi::fuse_init_out {
+                    major: abi::FUSE_KERNEL_VERSION,
+                    minor: abi::FUSE_KERNEL_MINOR_VERSION,
                     max_readahead: config.max_readahead,
                     flags: x.arg.flags & config.requested, // use requested features and reported as capable
                     #[cfg(not(feature = "abi-7-13"))]
@@ -416,7 +414,7 @@ impl<'a> Request<'a> {
 
             #[cfg(feature = "abi-7-11")]
             ll::Operation::IoCtl(x) => {
-                if (x.arg.flags & FUSE_IOCTL_UNRESTRICTED) > 0 {
+                if (x.arg.flags & abi::consts::FUSE_IOCTL_UNRESTRICTED) > 0 {
                     self.reply::<ReplyEmpty>().error(ENOSYS);
                 } else {
                     se.filesystem.ioctl(
