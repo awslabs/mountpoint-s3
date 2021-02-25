@@ -294,6 +294,9 @@ pub mod consts {
     #[cfg(feature = "abi-7-9")]
     pub const FUSE_POLL_SCHEDULE_NOTIFY: u32 = 1 << 0; // request poll notify
 
+    // fsync flags
+    pub const FUSE_FSYNC_FDATASYNC: u32 = 1 << 0; // Sync data only, not metadata
+
     // The read buffer is required to be at least 8k, but may be much larger
     pub const FUSE_MIN_READ_BUFFER: usize = 8192;
 }
