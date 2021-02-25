@@ -126,7 +126,7 @@ echo "generic/467" >> xfs_excludes.txt
 echo "generic/477" >> xfs_excludes.txt
 
 FUSER_EXTRA_MOUNT_OPTIONS="" TEST_DEV="$TEST_DATA_DIR" TEST_DIR="$TEST_DIR" SCRATCH_DEV="$SCRATCH_DATA_DIR" SCRATCH_MNT="$SCRATCH_DIR" \
-./check-fuser -E xfs_excludes.txt \
+./check-fuser -E xfs_excludes.txt "$@" \
 | tee /code/logs/xfstests.log
 
 export XFSTESTS_EXIT_STATUS=${PIPESTATUS[0]}

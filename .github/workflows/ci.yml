@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  pull_request:
+  push:
 
 jobs:
   compile:
@@ -63,4 +63,4 @@ jobs:
         run: cargo install --force cargo-deny --locked
 
       - name: Run tests
-        run: INTERACTIVE="" make test
+        run: INTERACTIVE="" make pre

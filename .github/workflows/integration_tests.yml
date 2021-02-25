@@ -1,0 +1,74 @@
+name: Integration tests
+
+on:
+  push:
+
+jobs:
+  integration_tests:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        test_group: [mount_tests, pjdfs_tests_fuse2, pjdfs_tests_fuse3, pjdfs_tests_pure]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install packages
+        run: |
+          sudo apt update
+          sudo apt install -y libfuse-dev libfuse3-dev build-essential
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo build
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: INTERACTIVE="" make ${{ matrix.test_group }}
+  xfs_integration_tests:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        test_group: ["generic/0*", "generic/1*", "generic/2*", "generic/3*", "generic/4*", "generic/5*", "generic/6*"]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup cache location
+        run: mkdir -p ~/docker_data
+      - name: Cache dockerdata
+        uses: actions/cache@v1
+        with:
+          path: ~/docker_data
+          key: ${{ runner.os }}-docker-data-${{ hashFiles('.github/**') }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Make cache folders
+        run: mkdir -p $HOME/docker_data/docker-target:/code/fuser/target $HOME/docker_data/docker-cargo:/root/.cargo $HOME/docker_data/docker-rustup:/root/.rustup $HOME/docker_data/docker-xfstests
+      - name: Build docker image
+        run: |
+          docker build -t fuser:xfstests -f .github/scripts/xfstests_min.Dockerfile .
+      - name: Run tests
+        run: >-
+          docker run --rm -t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined
+          --memory=2g --kernel-memory=200m 
+          -v "$GITHUB_WORKSPACE:/code/fuser"
+          -v "$HOME/docker_data/docker-target:/code/fuser/target"
+          -v "$HOME/docker_data/docker-cargo:/root/.cargo"
+          -v "$HOME/docker_data/docker-rustup:/root/.rustup"
+          -v "$HOME/docker_data/docker-xfstests:/code/xfstests"
+          -v "$GITHUB_WORKSPACE/logs:/code/logs"
+          fuser:xfstests
+          bash -c "/code/fuser/.github/scripts/xfs_inside_docker_tests.sh ${{matrix.test_group}}"
+      - name: Fix permissions
+        run: sudo chown -R $USER ~/docker_data
