@@ -17,9 +17,9 @@ use std::path::Path;
 use std::time::Duration;
 use std::time::SystemTime;
 
-pub use crate::ll::fuse_abi::consts;
 use crate::ll::fuse_abi::consts::*;
 pub use crate::ll::fuse_abi::FUSE_ROOT_ID;
+pub use crate::ll::{fuse_abi::consts, TimeOrNow};
 use crate::mount_options::check_option_conflicts;
 #[cfg(feature = "libfuse")]
 use crate::mount_options::option_to_string;
@@ -277,16 +277,6 @@ impl KernelConfig {
     fn max_pages(&self) -> u16 {
         ((max(self.max_write, self.max_readahead) - 1) / page_size::get() as u32) as u16 + 1
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-/// Possible input arguments for atime & mtime, which can either be set to a specified time,
-/// or to the current time
-pub enum TimeOrNow {
-    /// Specific time provided
-    SpecificTime(SystemTime),
-    /// Current time
-    Now,
 }
 
 /// Filesystem trait.

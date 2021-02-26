@@ -4,7 +4,19 @@ mod argument;
 pub mod fuse_abi;
 mod request;
 
+use std::time::SystemTime;
+
 pub use request::{Operation, Request, RequestError};
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// Possible input arguments for atime & mtime, which can either be set to a specified time,
+/// or to the current time
+pub enum TimeOrNow {
+    /// Specific time provided
+    SpecificTime(SystemTime),
+    /// Current time
+    Now,
+}
 
 #[cfg(test)]
 mod test {

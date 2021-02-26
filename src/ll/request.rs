@@ -119,7 +119,7 @@ impl error::Error for RequestError {}
 mod op {
     use super::super::fuse_abi::consts::*;
     use super::super::fuse_abi::*;
-    use crate::TimeOrNow;
+    use super::super::TimeOrNow;
     use std::{
         ffi::OsStr,
         time::{Duration, SystemTime},
