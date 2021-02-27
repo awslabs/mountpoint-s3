@@ -656,8 +656,8 @@ mod op {
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.0.fh)
         }
-        pub fn datasync(&self) -> bool {
-            self.0.fsync_flags & 1 != 0
+        pub fn fdatasync(&self) -> bool {
+            self.0.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
         }
     }
     #[derive(Debug)]
@@ -1267,9 +1267,9 @@ impl<'a> fmt::Display for Operation<'a> {
             ),
             Operation::FSyncDir(x) => write!(
                 f,
-                "FSYNCDIR fh {:?}, fsync datasync: {}",
+                "FSYNCDIR fh {:?}, fsync fdatasync: {}",
                 x.file_handle(),
-                x.datasync()
+                x.fdatasync()
             ),
             Operation::GetLk(x) => write!(
                 f,

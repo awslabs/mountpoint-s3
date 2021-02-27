@@ -308,7 +308,7 @@ impl<'a> Request<'a> {
                     self,
                     self.request.nodeid().into(),
                     x.file_handle().into(),
-                    x.datasync(),
+                    x.fdatasync(),
                     self.reply(),
                 );
             }
