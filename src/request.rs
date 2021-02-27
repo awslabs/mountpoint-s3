@@ -59,14 +59,14 @@ impl<'a> Request<'a> {
                 let reply: ReplyRaw<abi::fuse_init_out> = self.reply();
                 // We don't support ABI versions before 7.6
                 let v = x.version();
-                if v < (7, 6) {
-                    error!("Unsupported FUSE ABI version {}.{}", v.0, v.1);
+                if v < ll::Version(7, 6) {
+                    error!("Unsupported FUSE ABI version {}", v);
                     reply.error(EPROTO);
                     return;
                 }
                 // Remember ABI version supported by kernel
-                se.proto_major = v.0;
-                se.proto_minor = v.1;
+                se.proto_major = v.major();
+                se.proto_minor = v.minor();
 
                 let mut config = KernelConfig::new(x.capabilities(), x.max_readahead());
                 // Call filesystem init method and give it a chance to return an error

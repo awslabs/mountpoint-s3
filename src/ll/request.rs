@@ -5,7 +5,7 @@
 
 use super::fuse_abi as abi;
 use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
-use std::convert::TryFrom;
+use std::{convert::TryFrom, fmt::Display};
 use std::{error, fmt, mem};
 
 use super::argument::ArgumentIterator;
@@ -113,6 +113,23 @@ impl Lock {
             typ: x.typ,
             pid: x.pid,
         }
+    }
+}
+
+/// A newtype for ABI version
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version(pub u32, pub u32);
+impl Version {
+    pub fn major(&self) -> u32 {
+        self.0
+    }
+    pub fn minor(&self) -> u32 {
+        self.1
+    }
+}
+impl Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.0, self.1)
     }
 }
 
@@ -584,8 +601,8 @@ mod op {
         pub fn max_readahead(&self) -> u32 {
             self.0.max_readahead
         }
-        pub fn version(&self) -> (u32, u32) {
-            (self.0.major, self.0.minor)
+        pub fn version(&self) -> super::Version {
+            super::Version(self.0.major, self.0.minor)
         }
     }
     #[derive(Debug)]
@@ -1227,9 +1244,8 @@ impl<'a> fmt::Display for Operation<'a> {
             ),
             Operation::Init(x) => write!(
                 f,
-                "INIT kernel ABI {}.{}, capabilities {:#x}, max readahead {}",
-                x.version().0,
-                x.version().1,
+                "INIT kernel ABI {}, capabilities {:#x}, max readahead {}",
+                x.version(),
                 x.capabilities(),
                 x.max_readahead()
             ),
@@ -1522,7 +1538,7 @@ mod tests {
         assert_eq!(req.pid(), 0xc0de_ba5e);
         match req.operation() {
             Operation::Init(x) => {
-                assert_eq!(x.version(), (7, 8));
+                assert_eq!(x.version(), Version(7, 8));
                 assert_eq!(x.max_readahead(), 4096);
             }
             _ => panic!("Unexpected request operation"),
