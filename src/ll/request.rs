@@ -383,6 +383,11 @@ mod op {
             self.name
         }
     }
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct FilenameInDir<'a> {
+        pub dir: INodeNo,
+        pub name: &'a OsStr,
+    }
     #[derive(Debug)]
     pub struct Rename<'a> {
         arg: &'a fuse_rename_in,
@@ -391,11 +396,17 @@ mod op {
         old_parent: INodeNo,
     }
     impl<'a> Rename<'a> {
-        pub fn from(&self) -> (INodeNo, &'a OsStr) {
-            (self.old_parent, self.name)
+        pub fn from(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: self.old_parent,
+                name: self.name,
+            }
         }
-        pub fn to(&self) -> (INodeNo, &'a OsStr) {
-            (INodeNo(self.arg.newdir), self.newname)
+        pub fn to(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: INodeNo(self.arg.newdir),
+                name: self.newname,
+            }
         }
     }
     #[derive(Debug)]
@@ -410,8 +421,11 @@ mod op {
         pub fn inode_no(&self) -> INodeNo {
             INodeNo(self.arg.oldnodeid)
         }
-        pub fn to(&self) -> (INodeNo, &'a OsStr) {
-            (self.new_parent, self.name)
+        pub fn to(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: self.new_parent,
+                name: self.name,
+            }
         }
     }
     #[derive(Debug)]
@@ -848,11 +862,17 @@ mod op {
     }
     #[cfg(feature = "abi-7-23")]
     impl<'a> Rename2<'a> {
-        pub fn from(&self) -> (INodeNo, &'a OsStr) {
-            (self.old_parent, self.name)
+        pub fn from(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: self.old_parent,
+                name: self.name,
+            }
         }
-        pub fn to(&self) -> (INodeNo, &'a OsStr) {
-            (INodeNo(self.arg.newdir), self.newname)
+        pub fn to(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: INodeNo(self.arg.newdir),
+                name: self.newname,
+            }
         }
         /// Flags as passed to renameat2.  As of Linux 3.18 this is
         /// [libc::RENAME_EXCHANGE], [libc::RENAME_NOREPLACE] and
@@ -938,11 +958,17 @@ mod op {
     }
     #[cfg(target_os = "macos")]
     impl<'a> Exchange<'a> {
-        pub fn from(&self) -> (INodeNo, &'a OsStr) {
-            (INodeNo(self.arg.olddir), self.oldname)
+        pub fn from(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: INodeNo(self.arg.olddir),
+                name: self.oldname,
+            }
         }
-        pub fn to(&self) -> (INodeNo, &'a OsStr) {
-            (INodeNo(self.arg.newdir), self.newname)
+        pub fn to(&self) -> FilenameInDir<'a> {
+            FilenameInDir::<'a> {
+                dir: INodeNo(self.arg.newdir),
+                name: self.newname,
+            }
         }
         pub fn options(&self) -> u64 {
             self.arg.options

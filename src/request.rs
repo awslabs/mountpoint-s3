@@ -207,9 +207,9 @@ impl<'a> Request<'a> {
                 se.filesystem.rename(
                     self,
                     self.request.nodeid().into(),
-                    x.from().1,
-                    x.to().0.into(),
-                    x.to().1,
+                    x.from().name,
+                    x.to().dir.into(),
+                    x.to().name,
                     0,
                     self.reply(),
                 );
@@ -219,7 +219,7 @@ impl<'a> Request<'a> {
                     self,
                     x.inode_no().into(),
                     self.request.nodeid().into(),
-                    x.to().1,
+                    x.to().name,
                     self.reply(),
                 );
             }
@@ -475,10 +475,10 @@ impl<'a> Request<'a> {
             ll::Operation::Rename2(x) => {
                 se.filesystem.rename(
                     self,
-                    x.from().0.into(),
-                    x.from().1,
-                    x.to().0.into(),
-                    x.to().1,
+                    x.from().dir.into(),
+                    x.from().name,
+                    x.to().dir.into(),
+                    x.to().name,
                     x.flags(),
                     self.reply(),
                 );
@@ -523,10 +523,10 @@ impl<'a> Request<'a> {
             ll::Operation::Exchange(x) => {
                 se.filesystem.exchange(
                     self,
-                    x.from().0.into(),
-                    x.from().1,
-                    x.to().0.into(),
-                    x.to().1,
+                    x.from().dir.into(),
+                    x.from().name,
+                    x.to().dir.into(),
+                    x.to().name,
                     x.options(),
                     self.reply(),
                 );
