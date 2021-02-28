@@ -76,6 +76,19 @@ function run_test {
 
   kill $FUSE_PID
   wait $FUSE_PID
+
+  if [[ "$3" == "--auto_unmount" ]]; then
+      # Make sure the FUSE mount automatically unmounted
+      if [[ $(mount | grep hello) ]]; then
+          echo -e "$RED FAILED Mount not cleaned up: $2 $3 $NC"
+          export TEST_EXIT_STATUS=1
+          exit 1
+      else
+          echo -e "$GREEN OK Mount cleaned up: $2 $3 $NC"
+      fi
+  else
+      umount $DIR
+  fi
 }
 
 apt update

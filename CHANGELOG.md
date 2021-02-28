@@ -4,6 +4,7 @@
 * Ensure that `Filesystem::destroy` is always called
 * Remove request parameter to `Filesystem::destroy`
 * Fix `MountOption::AllowRoot`. Previously using it resulted in a crash.
+* Fix `MountOption::AutoUnmount` to work when `AllowRoot` and `AllowOther` are both not set
 
 ## 0.8.0 - 2021-06-11
 * Deprecate `mount()`

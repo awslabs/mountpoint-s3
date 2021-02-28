@@ -17,7 +17,7 @@ use crate::ll::Request as _;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplySender};
-use crate::session::Session;
+use crate::session::{Session, SessionACL};
 use crate::Filesystem;
 use crate::{ll, KernelConfig};
 
@@ -70,8 +70,12 @@ impl<'a> Request<'a> {
         se: &mut Session<FS>,
     ) -> Result<Option<Response>, Errno> {
         let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
-        // Implement allow_root
-        if se.allow_root && self.request.uid() != se.session_owner && self.request.uid() != 0 {
+        // Implement allow_root & access check for auto_unmount
+        if (se.allowed == SessionACL::RootAndOwner
+            && self.request.uid() != se.session_owner
+            && self.request.uid() != 0)
+            || (se.allowed == SessionACL::Owner && self.request.uid() != se.session_owner)
+        {
             #[cfg(feature = "abi-7-21")]
             {
                 match op {

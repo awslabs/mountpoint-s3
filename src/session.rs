@@ -27,6 +27,13 @@ pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
 const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum SessionACL {
+    All,
+    RootAndOwner,
+    Owner,
+}
+
 /// The session data structure
 #[derive(Debug)]
 pub struct Session<FS: Filesystem> {
@@ -38,8 +45,9 @@ pub struct Session<FS: Filesystem> {
     mount: Option<Mount>,
     /// Mount point
     mountpoint: PathBuf,
-    /// Whether to restrict access to root + owner
-    pub(crate) allow_root: bool,
+    /// Whether to restrict access to owner, root + owner, or unrestricted
+    /// Used to implement allow_root and auto_unmount
+    pub(crate) allowed: SessionACL,
     /// User that launched the fuser process
     pub(crate) session_owner: u32,
     /// FUSE protocol major version
@@ -60,14 +68,35 @@ impl<FS: Filesystem> Session<FS> {
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        let (file, mount) = Mount::new(mountpoint, options)?;
+        // If AutoUnmount is requested, but not AllowRoot or AllowOther we enforce the ACL
+        // ourself and implicitly set AllowOther because fusermount needs allow_root or allow_other
+        // to handle the auto_unmount option
+        let (file, mount) = if options.contains(&MountOption::AutoUnmount)
+            && !(options.contains(&MountOption::AllowRoot)
+                || options.contains(&MountOption::AllowOther))
+        {
+            let mut modified_options = options.to_vec();
+            modified_options.push(MountOption::AllowOther);
+            Mount::new(mountpoint, &modified_options)?
+        } else {
+            Mount::new(mountpoint, options)?
+        };
+
         let ch = Channel::new(file);
+        let allowed = if options.contains(&MountOption::AllowRoot) {
+            SessionACL::RootAndOwner
+        } else if options.contains(&MountOption::AllowOther) {
+            SessionACL::All
+        } else {
+            SessionACL::Owner
+        };
+
         Ok(Session {
             filesystem,
             ch,
             mount: Some(mount),
             mountpoint: mountpoint.to_owned(),
-            allow_root: options.contains(&MountOption::AllowRoot),
+            allowed,
             session_owner: unsafe { libc::geteuid() },
             proto_major: 0,
             proto_minor: 0,
