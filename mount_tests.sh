@@ -37,6 +37,7 @@ function run_test {
   wait $FUSE_PID
 }
 
+apt update
 apt install -y fuse
 echo 'user_allow_other' >> /etc/fuse.conf
 
