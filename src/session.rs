@@ -6,12 +6,12 @@
 //! for filesystem operations under its mount point.
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use log::{error, info};
+use log::info;
 #[cfg(feature = "libfuse")]
 use std::ffi::OsStr;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
-use std::{fmt, ptr};
 use std::{io, ops::DerefMut};
 
 use crate::channel::{self, Channel};
@@ -37,6 +37,10 @@ pub struct Session<FS: Filesystem> {
     pub filesystem: FS,
     /// Communication channel to the kernel driver
     ch: Channel,
+    /// Handle to the mount.  Dropping this unmounts.
+    mount: Option<super::channel::Mount>,
+    /// Mount point
+    mountpoint: PathBuf,
     /// FUSE protocol major version
     pub proto_major: u32,
     /// FUSE protocol minor version
@@ -52,9 +56,12 @@ impl<FS: Filesystem> Session<FS> {
     #[cfg(feature = "libfuse")]
     pub fn new(filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        Channel::new(mountpoint, options).map(|ch| Session {
+        let (ch, mount) = Channel::new(mountpoint, options)?;
+        Ok(Session {
             filesystem,
             ch,
+            mount: Some(mount),
+            mountpoint: mountpoint.to_owned(),
             proto_major: 0,
             proto_minor: 0,
             initialized: false,
@@ -70,9 +77,12 @@ impl<FS: Filesystem> Session<FS> {
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        Channel::new2(mountpoint, options).map(|ch| Session {
+        let (ch, mount) = Channel::new2(mountpoint, options)?;
+        Ok(Session {
             filesystem,
             ch,
+            mount: Some(mount),
+            mountpoint: mountpoint.to_owned(),
             proto_major: 0,
             proto_minor: 0,
             initialized: false,
@@ -82,7 +92,7 @@ impl<FS: Filesystem> Session<FS> {
 
     /// Return path of the mounted filesystem
     pub fn mountpoint(&self) -> &Path {
-        &self.ch.mountpoint()
+        &self.mountpoint
     }
 
     /// Run the session loop that receives kernel requests and dispatches them to method
@@ -153,8 +163,8 @@ pub struct BackgroundSession {
     pub mountpoint: PathBuf,
     /// Thread guard of the background session
     pub guard: JoinHandle<io::Result<()>>,
-    fuse_session: *mut libc::c_void,
-    fd: libc::c_int,
+    /// Ensures the filesystem is unmounted when the session ends
+    _mount: channel::Mount,
 }
 
 impl BackgroundSession {
@@ -166,9 +176,8 @@ impl BackgroundSession {
     ) -> io::Result<BackgroundSession> {
         let mountpoint = se.mountpoint().to_path_buf();
         // Take the fuse_session, so that we can unmount it
-        let fuse_session = se.ch.fuse_session;
-        let fd = se.ch.fd;
-        se.ch.fuse_session = ptr::null_mut();
+        let mount = std::mem::take(&mut se.mount);
+        let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
         let guard = thread::spawn(move || {
             let mut se = se;
             se.run()
@@ -176,21 +185,9 @@ impl BackgroundSession {
         Ok(BackgroundSession {
             mountpoint,
             guard,
-            fuse_session,
-            fd,
+            _mount: mount,
         })
     }
-}
-
-impl Drop for BackgroundSession {
-    fn drop(&mut self) {
-        info!("Unmounting {}", self.mountpoint.display());
-        // Unmounting the filesystem will eventually end the session loop,
-        // drop the session and hence end the background thread.
-        match channel::unmount(&self.mountpoint, self.fuse_session, self.fd) {
-            Ok(()) => (),
-            Err(err) => error!("Failed to unmount {}: {}", self.mountpoint.display(), err),
-        }
     }
 }
 

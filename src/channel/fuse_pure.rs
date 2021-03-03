@@ -16,7 +16,7 @@ use std::io;
 use std::io::{Error, ErrorKind, Read};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 use std::{mem, ptr};
@@ -25,41 +25,58 @@ const FUSERMOUNT_BIN: &str = "fusermount";
 const FUSERMOUNT3_BIN: &str = "fusermount3";
 const FUSERMOUNT_COMM_ENV: &str = "_FUSE_COMMFD";
 
-pub fn fuse_mount_pure(mountpoint: &OsStr, options: &[MountOption]) -> Result<c_int, io::Error> {
+use super::*;
+
+#[derive(Debug)]
+pub struct Mount {
+    mountpoint: CString,
+}
+impl Mount {
+    pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(File, Mount)> {
+        let mountpoint = mountpoint.canonicalize()?;
+        Ok((
+            fuse_mount_pure(mountpoint.as_os_str(), options)?,
+            Mount {
+                mountpoint: CString::new(mountpoint.as_os_str().as_bytes())?,
+            },
+        ))
+    }
+}
+
+impl Drop for Mount {
+    fn drop(&mut self) {
+        use std::io::ErrorKind::PermissionDenied;
+
+        let rc = super::libc_umount(&self.mountpoint);
+        if rc < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == PermissionDenied {
+                // Linux always returns EPERM for non-root users.  We have to let the
+                // library go through the setuid-root "fusermount -u" to unmount.
+                fuse_unmount_pure(&self.mountpoint)
+            } else {
+                error!("Unmount failed: {}", err)
+            }
+        }
+    }
+}
+
+fn fuse_mount_pure(mountpoint: &OsStr, options: &[MountOption]) -> Result<File, io::Error> {
     if options.contains(&MountOption::AutoUnmount) {
         // Auto unmount is only supported via fusermount
         return fuse_mount_fusermount(mountpoint, options);
     }
 
     let res = fuse_mount_sys(mountpoint, options)?;
-    if let Some(fd) = res {
-        Ok(fd)
+    if let Some(file) = res {
+        Ok(file)
     } else {
         // Retry
         fuse_mount_fusermount(mountpoint, options)
     }
 }
 
-pub fn fuse_unmount_pure(mountpoint: &CStr, fd: c_int) {
-    if fd != -1 {
-        let mut poll_result = libc::pollfd {
-            fd,
-            events: 0,
-            revents: 0,
-        };
-
-        unsafe {
-            let result = libc::poll(&mut poll_result, 1, 0);
-            libc::close(fd);
-            // If the filesystem has already been unmounted, avoid unmounting it again
-            // Unmounting it a second time could cause a race with a newly mounted filesystem
-            // living at the same mountpoint
-            if result > 0 && (poll_result.revents & libc::POLLERR) != 0 {
-                return;
-            }
-        }
-    }
-
+fn fuse_unmount_pure(mountpoint: &CStr) {
     #[cfg(target_os = "linux")]
     unsafe {
         let result = libc::umount2(mountpoint.as_ptr(), libc::MNT_DETACH);
@@ -107,7 +124,7 @@ fn detect_fusermount_bin() -> String {
     FUSERMOUNT3_BIN.to_string()
 }
 
-fn receive_fusermount_message(socket_fd: c_int) -> Result<c_int, Error> {
+fn receive_fusermount_message(socket_fd: c_int) -> Result<File, Error> {
     let mut io_vec_buf = [0u8];
     let mut io_vec = libc::iovec {
         iov_base: (&mut io_vec_buf).as_mut_ptr() as *mut libc::c_void,
@@ -174,11 +191,16 @@ fn receive_fusermount_message(socket_fd: c_int) -> Result<c_int, Error> {
         }
         let fd_data = libc::CMSG_DATA(control_msg);
 
-        Ok(*(fd_data as *const c_int))
+        let fd = *(fd_data as *const c_int);
+        if fd < 0 {
+            Err(ErrorKind::InvalidData.into())
+        } else {
+            Ok(File::from_raw_fd(fd))
+        }
     }
 }
 
-fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<c_int, Error> {
+fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<File, Error> {
     let (child_socket, receive_socket) = UnixStream::pair()?;
 
     let comm_fd = child_socket.into_raw_fd();
@@ -204,7 +226,7 @@ fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<
     drop(child_socket); // close socket in parent
 
     let receive_fd = receive_socket.into_raw_fd();
-    let fd = receive_fusermount_message(receive_fd)?;
+    let file = receive_fusermount_message(receive_fd)?;
 
     if !options.contains(&MountOption::AutoUnmount) {
         // Only close the socket, if auto unmount is not set.
@@ -240,21 +262,15 @@ fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<
         }
     }
 
-    if fd < 0 {
-        return Err(Error::from(ErrorKind::InvalidData));
-    }
-
-    assert!(fd > 2);
-
     unsafe {
-        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
     }
 
-    Ok(fd)
+    Ok(file)
 }
 
 // If returned option is none. Then fusermount binary should be tried
-fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<c_int>, Error> {
+fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<File>, Error> {
     let fuse_device_name = "/dev/fuse";
 
     let mountpoint_mode = File::open(mountpoint)?.metadata()?.permissions().mode();
@@ -262,12 +278,12 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
     // Auto unmount requests must be sent to fusermount binary
     assert!(!options.contains(&MountOption::AutoUnmount));
 
-    let fd = match OpenOptions::new()
+    let file = match OpenOptions::new()
         .read(true)
         .write(true)
         .open(fuse_device_name)
     {
-        Ok(file) => file.into_raw_fd(),
+        Ok(file) => file,
         Err(error) => {
             if error.kind() == ErrorKind::NotFound {
                 error!("{} not found. Try 'modprobe fuse'", fuse_device_name);
@@ -275,11 +291,15 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
             return Err(error);
         }
     };
-    assert!(fd > 2, "Conflict with stdin/stdout/stderr. fd={}", fd);
+    assert!(
+        file.as_raw_fd() > 2,
+        "Conflict with stdin/stdout/stderr. fd={}",
+        file.as_raw_fd()
+    );
 
     let mut mount_options = format!(
         "fd={},rootmode={:o},user_id={},group_id={}",
-        fd,
+        file.as_raw_fd(),
         mountpoint_mode,
         users::get_current_uid(),
         users::get_current_gid()
@@ -377,5 +397,5 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
         }
     }
 
-    Ok(Some(fd))
+    Ok(Some(file))
 }
