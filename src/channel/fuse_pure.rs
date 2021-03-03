@@ -30,14 +30,17 @@ use super::*;
 #[derive(Debug)]
 pub struct Mount {
     mountpoint: CString,
+    auto_unmount_socket: Option<UnixStream>,
 }
 impl Mount {
     pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(File, Mount)> {
         let mountpoint = mountpoint.canonicalize()?;
+        let (file, sock) = fuse_mount_pure(mountpoint.as_os_str(), options)?;
         Ok((
-            fuse_mount_pure(mountpoint.as_os_str(), options)?,
+            file,
             Mount {
                 mountpoint: CString::new(mountpoint.as_os_str().as_bytes())?,
+                auto_unmount_socket: sock,
             },
         ))
     }
@@ -46,7 +49,11 @@ impl Mount {
 impl Drop for Mount {
     fn drop(&mut self) {
         use std::io::ErrorKind::PermissionDenied;
-
+        if let Some(sock) = mem::take(&mut self.auto_unmount_socket) {
+            drop(sock);
+            // fusermount in auto-unmount mode, no more work to do.
+            return;
+        }
         let rc = super::libc_umount(&self.mountpoint);
         if rc < 0 {
             let err = io::Error::last_os_error();
@@ -61,7 +68,10 @@ impl Drop for Mount {
     }
 }
 
-fn fuse_mount_pure(mountpoint: &OsStr, options: &[MountOption]) -> Result<File, io::Error> {
+fn fuse_mount_pure(
+    mountpoint: &OsStr,
+    options: &[MountOption],
+) -> Result<(File, Option<UnixStream>), io::Error> {
     if options.contains(&MountOption::AutoUnmount) {
         // Auto unmount is only supported via fusermount
         return fuse_mount_fusermount(mountpoint, options);
@@ -69,7 +79,7 @@ fn fuse_mount_pure(mountpoint: &OsStr, options: &[MountOption]) -> Result<File, 
 
     let res = fuse_mount_sys(mountpoint, options)?;
     if let Some(file) = res {
-        Ok(file)
+        Ok((file, None))
     } else {
         // Retry
         fuse_mount_fusermount(mountpoint, options)
@@ -200,7 +210,10 @@ fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
     }
 }
 
-fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<File, Error> {
+fn fuse_mount_fusermount(
+    mountpoint: &OsStr,
+    options: &[MountOption],
+) -> Result<(File, Option<UnixStream>), Error> {
     let (child_socket, receive_socket) = UnixStream::pair()?;
 
     unsafe {
@@ -224,17 +237,16 @@ fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<
     drop(child_socket); // close socket in parent
 
     let file = receive_fusermount_message(&receive_socket)?;
+    let mut receive_socket = Some(receive_socket);
 
     if !options.contains(&MountOption::AutoUnmount) {
         // Only close the socket, if auto unmount is not set.
         // fusermount will keep running until the socket is closed, if auto unmount is set
-        drop(receive_socket);
+        drop(mem::take(&mut receive_socket));
         let output = fusermount_child.wait_with_output()?;
         debug!("fusermount: {}", String::from_utf8_lossy(&output.stdout));
         debug!("fusermount: {}", String::from_utf8_lossy(&output.stderr));
     } else {
-        // Don't close the socket if auto-unmount is set.  It will be closed when the process exits
-        mem::forget(receive_socket);
         if let Some(mut stdout) = fusermount_child.stdout {
             let stdout_fd = stdout.as_raw_fd();
             unsafe {
@@ -265,7 +277,7 @@ fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<
         libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
     }
 
-    Ok(file)
+    Ok((file, receive_socket))
 }
 
 // If returned option is none. Then fusermount binary should be tried
