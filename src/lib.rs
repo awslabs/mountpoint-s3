@@ -17,14 +17,14 @@ use std::path::Path;
 use std::time::Duration;
 use std::time::SystemTime;
 
+use crate::channel::mount_options::check_option_conflicts;
+#[cfg(feature = "libfuse")]
+use crate::channel::mount_options::option_to_string;
 use crate::ll::fuse_abi::consts::*;
 pub use crate::ll::fuse_abi::FUSE_ROOT_ID;
 pub use crate::ll::{fuse_abi::consts, TimeOrNow};
-use crate::mount_options::check_option_conflicts;
-#[cfg(feature = "libfuse")]
-use crate::mount_options::option_to_string;
 use crate::session::MAX_WRITE_SIZE;
-pub use mount_options::MountOption;
+pub use channel::mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
@@ -44,7 +44,6 @@ use std::cmp::min;
 pub mod async_api;
 mod channel;
 mod ll;
-mod mount_options;
 mod reply;
 mod request;
 mod session;

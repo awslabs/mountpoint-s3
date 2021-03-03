@@ -197,8 +197,8 @@ pub fn option_to_flag(option: &MountOption) -> libc::c_int {
 
 #[cfg(test)]
 mod test {
-    use crate::mount_options::check_option_conflicts;
-    use crate::MountOption;
+    use super::check_option_conflicts;
+    use super::MountOption;
 
     #[test]
     fn option_checking() {

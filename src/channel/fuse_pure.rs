@@ -6,8 +6,8 @@
 #![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 
-use crate::mount_options::{option_group, option_to_flag, option_to_string, MountOptionGroup};
-use crate::MountOption;
+use super::mount_options::MountOption;
+use super::mount_options::{option_group, option_to_flag, option_to_string, MountOptionGroup};
 use libc::c_int;
 use log::{debug, error};
 use std::ffi::{CStr, CString, OsStr};

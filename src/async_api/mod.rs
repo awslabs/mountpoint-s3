@@ -18,11 +18,11 @@ use std::path::Path;
 
 use std::time::SystemTime;
 
-use crate::ll::TimeOrNow;
 #[cfg(feature = "async_impl")]
-use crate::mount_options::check_option_conflicts;
+use crate::channel::mount_options::check_option_conflicts;
 #[cfg(all(feature = "libfuse", feature = "async_impl"))]
-use crate::mount_options::option_to_string;
+use crate::channel::mount_options::option_to_string;
+use crate::ll::TimeOrNow;
 
 use crate::KernelConfig;
 

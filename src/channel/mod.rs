@@ -13,6 +13,7 @@ mod fuse3_sys;
 
 #[cfg(not(feature = "libfuse"))]
 mod fuse_pure;
+pub mod mount_options;
 
 #[cfg(any(feature = "libfuse", test))]
 use fuse2_sys::fuse_args;
