@@ -124,7 +124,7 @@ fn detect_fusermount_bin() -> String {
     FUSERMOUNT3_BIN.to_string()
 }
 
-fn receive_fusermount_message(socket_fd: c_int) -> Result<File, Error> {
+fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
     let mut io_vec_buf = [0u8];
     let mut io_vec = libc::iovec {
         iov_base: (&mut io_vec_buf).as_mut_ptr() as *mut libc::c_void,
@@ -161,7 +161,7 @@ fn receive_fusermount_message(socket_fd: c_int) -> Result<File, Error> {
     let mut result;
     loop {
         unsafe {
-            result = libc::recvmsg(socket_fd, &mut message, 0);
+            result = libc::recvmsg(socket.as_raw_fd(), &mut message, 0);
         }
         if result != -1 {
             break;
@@ -203,9 +203,8 @@ fn receive_fusermount_message(socket_fd: c_int) -> Result<File, Error> {
 fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<File, Error> {
     let (child_socket, receive_socket) = UnixStream::pair()?;
 
-    let comm_fd = child_socket.into_raw_fd();
     unsafe {
-        libc::fcntl(comm_fd, libc::F_SETFD, 0);
+        libc::fcntl(child_socket.as_raw_fd(), libc::F_SETFD, 0);
     }
 
     let mut builder = Command::new(detect_fusermount_bin());
@@ -218,24 +217,24 @@ fn fuse_mount_fusermount(mountpoint: &OsStr, options: &[MountOption]) -> Result<
     builder
         .arg("--")
         .arg(mountpoint)
-        .env(FUSERMOUNT_COMM_ENV, comm_fd.to_string());
+        .env(FUSERMOUNT_COMM_ENV, child_socket.as_raw_fd().to_string());
 
     let fusermount_child = builder.spawn()?;
 
-    let child_socket = unsafe { UnixStream::from_raw_fd(comm_fd) };
     drop(child_socket); // close socket in parent
 
-    let receive_fd = receive_socket.into_raw_fd();
-    let file = receive_fusermount_message(receive_fd)?;
+    let file = receive_fusermount_message(&receive_socket)?;
 
     if !options.contains(&MountOption::AutoUnmount) {
         // Only close the socket, if auto unmount is not set.
         // fusermount will keep running until the socket is closed, if auto unmount is set
-        drop(unsafe { UnixStream::from_raw_fd(receive_fd) });
+        drop(receive_socket);
         let output = fusermount_child.wait_with_output()?;
         debug!("fusermount: {}", String::from_utf8_lossy(&output.stdout));
         debug!("fusermount: {}", String::from_utf8_lossy(&output.stderr));
     } else {
+        // Don't close the socket if auto-unmount is set.  It will be closed when the process exits
+        mem::forget(receive_socket);
         if let Some(mut stdout) = fusermount_child.stdout {
             let stdout_fd = stdout.as_raw_fd();
             unsafe {
