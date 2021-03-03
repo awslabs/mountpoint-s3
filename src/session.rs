@@ -133,6 +133,10 @@ impl<FS: Filesystem> Session<FS> {
         }
         Ok(())
     }
+    /// Unmount the filesystem
+    pub fn unmount(&mut self) {
+        drop(std::mem::take(&mut self.mount));
+    }
 }
 
 fn aligned_sub_buf(buf: &mut [u8], alignment: usize) -> &mut [u8] {
@@ -188,6 +192,15 @@ impl BackgroundSession {
             _mount: mount,
         })
     }
+    /// Unmount the filesystem and join the background thread.
+    pub fn join(self) {
+        let Self {
+            mountpoint: _,
+            guard,
+            _mount,
+        } = self;
+        drop(_mount);
+        guard.join().unwrap().unwrap();
     }
 }
 
