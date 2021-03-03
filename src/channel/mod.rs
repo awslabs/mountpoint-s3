@@ -26,7 +26,6 @@ use std::{ffi::CStr, fs::File, sync::Arc};
 use std::{
     ffi::{CString, OsStr},
     os::unix::ffi::OsStrExt,
-    sync::Arc,
 };
 
 use crate::reply::ReplySender;
@@ -56,7 +55,7 @@ pub use fuse_pure::Mount;
 
 /// A raw communication channel to the FUSE kernel driver
 #[derive(Debug)]
-pub struct Channel(File);
+pub struct Channel(Arc<File>);
 
 impl Channel {
     /// Create a new communication channel to the kernel driver by mounting the
@@ -96,17 +95,13 @@ impl Channel {
     /// and they can safely be sent to other threads.
     pub fn sender(&self) -> ChannelSender {
         // Since write/writev syscalls are threadsafe, we can simply create
-        // a sender by using the same fd and use it in other threads. Only
-        // the channel closes the fd when dropped. If any sender is used after
-        // dropping the channel, it'll return an EBADF error.
-        ChannelSender { fd: self.0.as_raw_fd() }
+        // a sender by using the same file and use it in other threads.
+        ChannelSender(self.0.clone())
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct ChannelSender {
-    fd: c_int,
-}
+#[derive(Clone, Debug)]
+pub struct ChannelSender(Arc<File>);
 
 impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
@@ -118,7 +113,8 @@ impl ChannelSender {
                 iov_len: d.len() as size_t,
             })
             .collect();
-        let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
+        let rc =
+            unsafe { libc::writev(self.0.as_raw_fd(), iovecs.as_ptr(), iovecs.len() as c_int) };
         if rc < 0 {
             Err(io::Error::last_os_error())
         } else {
