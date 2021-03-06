@@ -14,6 +14,7 @@ use std::convert::TryInto;
 use std::path::Path;
 
 use crate::channel::ChannelSender;
+use crate::ll::Request as _;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplyEmpty, ReplyRaw};
@@ -29,13 +30,13 @@ pub struct Request<'a> {
     /// Request raw data
     data: &'a [u8],
     /// Parsed request
-    request: ll::Request<'a>,
+    request: ll::AnyRequest<'a>,
 }
 
 impl<'a> Request<'a> {
     /// Create a new request from the given data
     pub fn new(ch: ChannelSender, data: &'a [u8]) -> Option<Request<'a>> {
-        let request = match ll::Request::try_from(data) {
+        let request = match ll::AnyRequest::try_from(data) {
             Ok(request) => request,
             Err(err) => {
                 error!("{}", err);

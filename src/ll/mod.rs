@@ -6,7 +6,7 @@ mod request;
 
 use std::time::SystemTime;
 
-pub use request::{Operation, Request, RequestError, Version};
+pub use request::{AnyRequest, Operation, Request, RequestError, Version};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// Possible input arguments for atime & mtime, which can either be set to a specified time,

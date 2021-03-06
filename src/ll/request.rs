@@ -153,20 +153,75 @@ impl fmt::Display for RequestError {
 
 impl error::Error for RequestError {}
 
+pub trait Request {
+    /// Returns the unique identifier of this request.
+    ///
+    /// The FUSE kernel driver assigns a unique id to every concurrent request. This allows to
+    /// distinguish between multiple concurrent requests. The unique id of a request may be
+    /// reused in later requests after it has completed.
+    fn unique(&self) -> RequestId;
+
+    /// Returns the node id of the inode this request is targeted to.
+    fn nodeid(&self) -> INodeNo;
+
+    /// Returns the UID that the process that triggered this request runs under.
+    fn uid(&self) -> u32;
+
+    /// Returns the GID that the process that triggered this request runs under.
+    fn gid(&self) -> u32;
+
+    /// Returns the PID of the process that triggered this request.
+    fn pid(&self) -> u32;
+}
+
+macro_rules! impl_request {
+    ($structname: ty) => {
+        impl<'a> super::Request for $structname {
+            #[inline]
+            fn unique(&self) -> RequestId {
+                RequestId(self.header.unique)
+            }
+
+            #[inline]
+            fn nodeid(&self) -> INodeNo {
+                INodeNo(self.header.nodeid)
+            }
+
+            #[inline]
+            fn uid(&self) -> u32 {
+                self.header.uid
+            }
+
+            #[inline]
+            fn gid(&self) -> u32 {
+                self.header.gid
+            }
+
+            #[inline]
+            fn pid(&self) -> u32 {
+                self.header.pid
+            }
+        }
+    };
+}
+
 mod op {
-    use super::super::{argument::ArgumentIterator, TimeOrNow};
+    use super::{
+        super::{argument::ArgumentIterator, TimeOrNow},
+        Request,
+    };
     use super::{
         abi::consts::*, abi::*, FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId,
     };
     use std::{
         ffi::OsStr,
         fmt::Display,
-        marker::PhantomData,
         time::{Duration, SystemTime},
     };
 
     #[derive(Debug)]
     pub struct Lookup<'a> {
+        header: &'a fuse_in_header,
         name: &'a OsStr,
     }
     impl<'a> Lookup<'a> {
@@ -175,103 +230,124 @@ mod op {
         }
     }
     #[derive(Debug)]
-    pub struct Forget<'a>(&'a fuse_forget_in);
+    pub struct Forget<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_forget_in,
+    }
+    impl_request!(Forget<'_>);
     impl<'a> Forget<'a> {
         /// The number of lookups previously performed on this inode
         pub fn nlookup(&self) -> u64 {
-            self.0.nlookup
+            self.arg.nlookup
         }
     }
     #[derive(Debug)]
-    pub struct GetAttr<'a>(PhantomData<&'a u8>);
+    pub struct GetAttr<'a> {
+        header: &'a fuse_in_header,
+    }
+    impl_request!(GetAttr<'_>);
+
     #[derive(Debug)]
-    pub struct SetAttr<'a>(&'a fuse_setattr_in);
+    pub struct SetAttr<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_setattr_in,
+    }
+    impl_request!(SetAttr<'_>);
     impl<'a> SetAttr<'a> {
         pub fn mode(&self) -> Option<u32> {
-            match self.0.valid & FATTR_MODE {
+            match self.arg.valid & FATTR_MODE {
                 0 => None,
-                _ => Some(self.0.mode),
+                _ => Some(self.arg.mode),
             }
         }
         pub fn uid(&self) -> Option<u32> {
-            match self.0.valid & FATTR_UID {
+            match self.arg.valid & FATTR_UID {
                 0 => None,
-                _ => Some(self.0.uid),
+                _ => Some(self.arg.uid),
             }
         }
         pub fn gid(&self) -> Option<u32> {
-            match self.0.valid & FATTR_GID {
+            match self.arg.valid & FATTR_GID {
                 0 => None,
-                _ => Some(self.0.gid),
+                _ => Some(self.arg.gid),
             }
         }
         pub fn size(&self) -> Option<u64> {
-            match self.0.valid & FATTR_SIZE {
+            match self.arg.valid & FATTR_SIZE {
                 0 => None,
-                _ => Some(self.0.size),
+                _ => Some(self.arg.size),
             }
         }
         pub fn atime(&self) -> Option<TimeOrNow> {
-            match self.0.valid & FATTR_ATIME {
+            match self.arg.valid & FATTR_ATIME {
                 0 => None,
-                _ => Some(if self.0.atime_now() {
+                _ => Some(if self.arg.atime_now() {
                     TimeOrNow::Now
                 } else {
-                    TimeOrNow::SpecificTime(system_time_from_time(self.0.atime, self.0.atimensec))
+                    TimeOrNow::SpecificTime(system_time_from_time(
+                        self.arg.atime,
+                        self.arg.atimensec,
+                    ))
                 }),
             }
         }
         pub fn mtime(&self) -> Option<TimeOrNow> {
-            match self.0.valid & FATTR_MTIME {
+            match self.arg.valid & FATTR_MTIME {
                 0 => None,
-                _ => Some(if self.0.mtime_now() {
+                _ => Some(if self.arg.mtime_now() {
                     TimeOrNow::Now
                 } else {
-                    TimeOrNow::SpecificTime(system_time_from_time(self.0.mtime, self.0.mtimensec))
+                    TimeOrNow::SpecificTime(system_time_from_time(
+                        self.arg.mtime,
+                        self.arg.mtimensec,
+                    ))
                 }),
             }
         }
         pub fn ctime(&self) -> Option<SystemTime> {
             #[cfg(feature = "abi-7-23")]
-            match self.0.valid & FATTR_CTIME {
+            match self.arg.valid & FATTR_CTIME {
                 0 => None,
-                _ => Some(system_time_from_time(self.0.ctime, self.0.ctimensec)),
+                _ => Some(system_time_from_time(self.arg.ctime, self.arg.ctimensec)),
             }
             #[cfg(not(feature = "abi-7-23"))]
             None
         }
         pub fn file_handle(&self) -> Option<FileHandle> {
-            match self.0.valid & FATTR_FH {
+            match self.arg.valid & FATTR_FH {
                 0 => None,
-                _ => Some(FileHandle(self.0.fh)),
+                _ => Some(FileHandle(self.arg.fh)),
             }
         }
         pub fn crtime(&self) -> Option<SystemTime> {
             #[cfg(target_os = "macos")]
-            match self.0.valid & FATTR_CRTIME {
+            match self.arg.valid & FATTR_CRTIME {
                 0 => None,
-                _ => Some(SystemTime::UNIX_EPOCH + Duration::new(self.0.crtime, self.0.crtimensec)),
+                _ => Some(
+                    SystemTime::UNIX_EPOCH + Duration::new(self.arg.crtime, self.arg.crtimensec),
+                ),
             }
             #[cfg(not(target_os = "macos"))]
             None
         }
         pub fn chgtime(&self) -> Option<SystemTime> {
             #[cfg(target_os = "macos")]
-            match self.0.valid & FATTR_CHGTIME {
+            match self.arg.valid & FATTR_CHGTIME {
                 0 => None,
-                _ => {
-                    Some(SystemTime::UNIX_EPOCH + Duration::new(self.0.chgtime, self.0.chgtimensec))
-                }
+                _ => Some(
+                    SystemTime::UNIX_EPOCH + Duration::new(self.arg.chgtime, self.arg.chgtimensec),
+                ),
             }
             #[cfg(not(target_os = "macos"))]
             None
         }
         pub fn bkuptime(&self) -> Option<SystemTime> {
             #[cfg(target_os = "macos")]
-            match self.0.valid & FATTR_BKUPTIME {
+            match self.arg.valid & FATTR_BKUPTIME {
                 0 => None,
                 _ => Some(
-                    SystemTime::UNIX_EPOCH + Duration::new(self.0.bkuptime, self.0.bkuptimensec),
+                    SystemTime::UNIX_EPOCH
+                        + Duration::new(self.arg.bkuptime, self.arg.bkuptimensec),
                 ),
             }
             #[cfg(not(target_os = "macos"))]
@@ -279,9 +355,9 @@ mod op {
         }
         pub fn flags(&self) -> Option<u32> {
             #[cfg(target_os = "macos")]
-            match self.0.valid & FATTR_FLAGS {
+            match self.arg.valid & FATTR_FLAGS {
                 0 => None,
-                _ => Some(self.0.flags),
+                _ => Some(self.arg.flags),
             }
             #[cfg(not(target_os = "macos"))]
             None
@@ -310,12 +386,18 @@ mod op {
         }
     }
     #[derive(Debug)]
-    pub struct ReadLink();
+    pub struct ReadLink<'a> {
+        header: &'a fuse_in_header,
+    }
+    impl_request!(ReadLink<'_>);
+
     #[derive(Debug)]
     pub struct SymLink<'a> {
+        header: &'a fuse_in_header,
         target: &'a OsStr,
         link: &'a OsStr,
     }
+    impl_request!(SymLink<'_>);
     impl<'a> SymLink<'a> {
         pub fn target(&self) -> &'a OsStr {
             self.target
@@ -326,9 +408,11 @@ mod op {
     }
     #[derive(Debug)]
     pub struct MkNod<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_mknod_in,
         name: &'a OsStr,
     }
+    impl_request!(MkNod<'_>);
     impl<'a> MkNod<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -348,9 +432,11 @@ mod op {
     }
     #[derive(Debug)]
     pub struct MkDir<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_mkdir_in,
         name: &'a OsStr,
     }
+    impl_request!(MkDir<'_>);
     impl<'a> MkDir<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -367,8 +453,10 @@ mod op {
     }
     #[derive(Debug)]
     pub struct Unlink<'a> {
+        header: &'a fuse_in_header,
         name: &'a OsStr,
     }
+    impl_request!(Unlink<'_>);
     impl<'a> Unlink<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -376,8 +464,10 @@ mod op {
     }
     #[derive(Debug)]
     pub struct RmDir<'a> {
+        header: &'a fuse_in_header,
         pub name: &'a OsStr,
     }
+    impl_request!(RmDir<'_>);
     impl<'a> RmDir<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -390,15 +480,16 @@ mod op {
     }
     #[derive(Debug)]
     pub struct Rename<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_rename_in,
         name: &'a OsStr,
         newname: &'a OsStr,
-        old_parent: INodeNo,
     }
+    impl_request!(Rename<'_>);
     impl<'a> Rename<'a> {
         pub fn from(&self) -> FilenameInDir<'a> {
             FilenameInDir::<'a> {
-                dir: self.old_parent,
+                dir: self.nodeid(),
                 name: self.name,
             }
         }
@@ -409,12 +500,14 @@ mod op {
             }
         }
     }
+
     #[derive(Debug)]
     pub struct Link<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_link_in,
         name: &'a OsStr,
-        new_parent: INodeNo,
     }
+    impl_request!(Link<'_>);
     impl<'a> Link<'a> {
         /// This is the inode no of the file to be linked.  The inode number in
         /// the fuse header is of the directory that it will be linked into.
@@ -423,36 +516,46 @@ mod op {
         }
         pub fn to(&self) -> FilenameInDir<'a> {
             FilenameInDir::<'a> {
-                dir: self.new_parent,
+                dir: self.nodeid(),
                 name: self.name,
             }
         }
     }
+
     #[derive(Debug)]
-    pub struct Open<'a>(&'a fuse_open_in);
+    pub struct Open<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_open_in,
+    }
+    impl_request!(Open<'_>);
     impl<'a> Open<'a> {
         pub fn flags(&self) -> i32 {
-            self.0.flags
+            self.arg.flags
         }
     }
+
     #[derive(Debug)]
-    pub struct Read<'a>(&'a fuse_read_in);
+    pub struct Read<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_read_in,
+    }
+    impl_request!(Read<'_>);
     impl<'a> Read<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn offset(&self) -> i64 {
-            self.0.offset
+            self.arg.offset
         }
         pub fn size(&self) -> u32 {
-            self.0.size
+            self.arg.size
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
             #[cfg(not(feature = "abi-7-9"))]
             return None;
             #[cfg(feature = "abi-7-9")]
-            if self.0.read_flags & FUSE_READ_LOCKOWNER != 0 {
-                Some(LockOwner(self.0.lock_owner))
+            if self.arg.read_flags & FUSE_READ_LOCKOWNER != 0 {
+                Some(LockOwner(self.arg.lock_owner))
             } else {
                 None
             }
@@ -462,14 +565,17 @@ mod op {
             #[cfg(not(feature = "abi-7-9"))]
             return 0;
             #[cfg(feature = "abi-7-9")]
-            self.0.flags
+            self.arg.flags
         }
     }
+
     #[derive(Debug)]
     pub struct Write<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_write_in,
         data: &'a [u8],
     }
+    impl_request!(Write<'_>);
     impl<'a> Write<'a> {
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -506,47 +612,62 @@ mod op {
         }
     }
     #[derive(Debug)]
-    pub struct StatFs();
+    pub struct StatFs<'a> {
+        header: &'a fuse_in_header,
+    }
+    impl_request!(StatFs<'_>);
+
     #[derive(Debug)]
-    pub struct Release<'a>(&'a fuse_release_in);
+    pub struct Release<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_release_in,
+    }
+    impl_request!(Release<'_>);
     impl<'a> Release<'a> {
         pub fn flush(&self) -> bool {
-            self.0.release_flags & FUSE_RELEASE_FLUSH != 0
+            self.arg.release_flags & FUSE_RELEASE_FLUSH != 0
         }
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         /// TODO: Document what flags are valid, or remove this
         pub fn flags(&self) -> i32 {
-            self.0.flags
+            self.arg.flags
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
             #[cfg(not(feature = "abi-7-17"))]
-            return Some(LockOwner(self.0.lock_owner));
+            return Some(LockOwner(self.arg.lock_owner));
             #[cfg(feature = "abi-7-17")]
-            if self.0.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
-                Some(LockOwner(self.0.lock_owner))
+            if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
+                Some(LockOwner(self.arg.lock_owner))
             } else {
                 None
             }
         }
     }
+
     #[derive(Debug)]
-    pub struct FSync<'a>(&'a fuse_fsync_in);
+    pub struct FSync<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_fsync_in,
+    }
+    impl_request!(FSync<'a>);
     impl<'a> FSync<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn fdatasync(&self) -> bool {
-            self.0.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
+            self.arg.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
         }
     }
     #[derive(Debug)]
     pub struct SetXAttr<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_setxattr_in,
         name: &'a OsStr,
         value: &'a [u8],
     }
+    impl_request!(SetXAttr<'a>);
     impl<'a> SetXAttr<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -569,9 +690,11 @@ mod op {
     }
     #[derive(Debug)]
     pub struct GetXAttr<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_getxattr_in,
         name: &'a OsStr,
     }
+    impl_request!(GetXAttr<'a>);
     impl<'a> GetXAttr<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -581,150 +704,198 @@ mod op {
         }
     }
     #[derive(Debug)]
-    pub struct ListXAttr<'a>(&'a fuse_getxattr_in);
+    pub struct ListXAttr<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_getxattr_in,
+    }
+    impl_request!(ListXAttr<'a>);
     impl<'a> ListXAttr<'a> {
         pub fn size(&self) -> u32 {
-            self.0.size
+            self.arg.size
         }
     }
     #[derive(Debug)]
     pub struct RemoveXAttr<'a> {
+        header: &'a fuse_in_header,
         name: &'a OsStr,
     }
+    impl_request!(RemoveXAttr<'a>);
     impl<'a> RemoveXAttr<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
         }
     }
     #[derive(Debug)]
-    pub struct Flush<'a>(&'a fuse_flush_in);
+    pub struct Flush<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_flush_in,
+    }
+    impl_request!(Flush<'a>);
     impl<'a> Flush<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn lock_owner(&self) -> LockOwner {
-            LockOwner(self.0.lock_owner)
+            LockOwner(self.arg.lock_owner)
         }
     }
     #[derive(Debug)]
-    pub struct Init<'a>(&'a fuse_init_in);
+    pub struct Init<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_init_in,
+    }
+    impl_request!(Init<'a>);
     impl<'a> Init<'a> {
         pub fn capabilities(&self) -> u32 {
-            self.0.flags
+            self.arg.flags
         }
         pub fn max_readahead(&self) -> u32 {
-            self.0.max_readahead
+            self.arg.max_readahead
         }
         pub fn version(&self) -> super::Version {
-            super::Version(self.0.major, self.0.minor)
+            super::Version(self.arg.major, self.arg.minor)
         }
     }
     #[derive(Debug)]
-    pub struct OpenDir<'a>(&'a fuse_open_in);
+    pub struct OpenDir<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_open_in,
+    }
+    impl_request!(OpenDir<'a>);
     impl<'a> OpenDir<'a> {
         /// Flags as passed to open
         pub fn flags(&self) -> i32 {
-            self.0.flags
+            self.arg.flags
         }
     }
     #[derive(Debug)]
-    pub struct ReadDir<'a>(&'a fuse_read_in);
+    pub struct ReadDir<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_read_in,
+    }
+    impl_request!(ReadDir<'a>);
     impl<'a> ReadDir<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn offset(&self) -> i64 {
-            self.0.offset
+            self.arg.offset
         }
         pub fn size(&self) -> u32 {
-            self.0.size
+            self.arg.size
         }
     }
     #[derive(Debug)]
-    pub struct ReleaseDir<'a>(&'a fuse_release_in);
+    pub struct ReleaseDir<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_release_in,
+    }
+    impl_request!(ReleaseDir<'a>);
     impl<'a> ReleaseDir<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn flush(&self) -> bool {
-            self.0.release_flags & consts::FUSE_RELEASE_FLUSH != 0
+            self.arg.release_flags & consts::FUSE_RELEASE_FLUSH != 0
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
             #[cfg(not(feature = "abi-7-17"))]
-            return Some(LockOwner(self.0.lock_owner));
+            return Some(LockOwner(self.arg.lock_owner));
             #[cfg(feature = "abi-7-17")]
-            if self.0.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
-                Some(LockOwner(self.0.lock_owner))
+            if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
+                Some(LockOwner(self.arg.lock_owner))
             } else {
                 None
             }
         }
         /// TODO: Document what values this may take
         pub fn flags(&self) -> i32 {
-            self.0.flags
+            self.arg.flags
         }
     }
     #[derive(Debug)]
-    pub struct FSyncDir<'a>(&'a fuse_fsync_in);
+    pub struct FSyncDir<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_fsync_in,
+    }
+    impl_request!(FSyncDir<'a>);
     impl<'a> FSyncDir<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn fdatasync(&self) -> bool {
-            self.0.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
+            self.arg.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
         }
     }
     #[derive(Debug)]
-    pub struct GetLk<'a>(&'a fuse_lk_in);
+    pub struct GetLk<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_lk_in,
+    }
+    impl_request!(GetLk<'a>);
     impl<'a> GetLk<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn lock(&self) -> Lock {
-            Lock::from_abi(&self.0.lk)
+            Lock::from_abi(&self.arg.lk)
         }
         pub fn lock_owner(&self) -> LockOwner {
-            LockOwner(self.0.owner)
+            LockOwner(self.arg.owner)
         }
     }
     #[derive(Debug)]
-    pub struct SetLk<'a>(&'a fuse_lk_in);
+    pub struct SetLk<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_lk_in,
+    }
+    impl_request!(SetLk<'a>);
     impl<'a> SetLk<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn lock(&self) -> Lock {
-            Lock::from_abi(&self.0.lk)
+            Lock::from_abi(&self.arg.lk)
         }
         pub fn lock_owner(&self) -> LockOwner {
-            LockOwner(self.0.owner)
+            LockOwner(self.arg.owner)
         }
     }
     #[derive(Debug)]
-    pub struct SetLkW<'a>(&'a fuse_lk_in);
+    pub struct SetLkW<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_lk_in,
+    }
+    impl_request!(SetLkW<'a>);
     impl<'a> SetLkW<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn lock(&self) -> Lock {
-            Lock::from_abi(&self.0.lk)
+            Lock::from_abi(&self.arg.lk)
         }
         pub fn lock_owner(&self) -> LockOwner {
-            LockOwner(self.0.owner)
+            LockOwner(self.arg.owner)
         }
     }
     #[derive(Debug)]
-    pub struct Access<'a>(&'a fuse_access_in);
+    pub struct Access<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_access_in,
+    }
+    impl_request!(Access<'a>);
     impl<'a> Access<'a> {
         pub fn mask(&self) -> i32 {
-            self.0.mask
+            self.arg.mask
         }
     }
     #[derive(Debug)]
     pub struct Create<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_create_in,
         name: &'a OsStr,
     }
+    impl_request!(Create<'a>);
     impl<'a> Create<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
@@ -744,31 +915,45 @@ mod op {
         }
     }
     #[derive(Debug)]
-    pub struct Interrupt<'a>(&'a fuse_interrupt_in);
+    pub struct Interrupt<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_interrupt_in,
+    }
+    impl_request!(Interrupt<'a>);
     impl<'a> Interrupt<'a> {
         pub fn unique(&self) -> RequestId {
-            RequestId(self.0.unique)
+            RequestId(self.arg.unique)
         }
     }
     #[derive(Debug)]
-    pub struct BMap<'a>(&'a fuse_bmap_in);
+    pub struct BMap<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_bmap_in,
+    }
+    impl_request!(BMap<'a>);
     impl<'a> BMap<'a> {
         pub fn block_size(&self) -> u32 {
-            self.0.blocksize
+            self.arg.blocksize
         }
         pub fn block(&self) -> u64 {
-            self.0.block
+            self.arg.block
         }
     }
-    /// This is 'a for forwards compatibilty
     #[derive(Debug)]
-    pub struct Destroy<'a>(PhantomData<&'a u8>);
+    pub struct Destroy<'a> {
+        header: &'a fuse_in_header,
+    }
+    impl_request!(Destroy<'a>);
+
     #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
     pub struct IoCtl<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_ioctl_in,
         data: &'a [u8],
     }
+    #[cfg(feature = "abi-7-11")]
+    impl_request!(IoCtl<'a>);
     #[cfg(feature = "abi-7-11")]
     impl<'a> IoCtl<'a> {
         pub fn in_data(&self) -> &[u8] {
@@ -794,22 +979,37 @@ mod op {
     }
     #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
-    pub struct Poll<'a>(&'a fuse_poll_in);
+    pub struct Poll<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_poll_in,
+    }
+    #[cfg(feature = "abi-7-11")]
+    impl_request!(Poll<'a>);
     #[cfg(feature = "abi-7-11")]
     impl<'a> Poll<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
     }
+
     #[cfg(feature = "abi-7-15")]
     #[derive(Debug)]
-    pub struct NotifyReply<'a>(&'a [u8]);
+    pub struct NotifyReply<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a [u8],
+    }
+    #[cfg(feature = "abi-7-15")]
+    impl_request!(NotifyReply<'a>);
+
     #[cfg(feature = "abi-7-16")]
     #[derive(Debug)]
     pub struct BatchForget<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_batch_forget_in,
         nodes: &'a [fuse_forget_one],
     }
+    #[cfg(feature = "abi-7-16")]
+    impl_request!(BatchForget<'a>);
     #[cfg(feature = "abi-7-16")]
     impl<'a> BatchForget<'a> {
         /// TODO: Don't return fuse_forget_one, this should be private
@@ -817,49 +1017,63 @@ mod op {
             self.nodes
         }
     }
+
     /// Implementations should return EINVAL if offset or length are < 0
     #[cfg(feature = "abi-7-19")]
     #[derive(Debug)]
-    pub struct FAllocate<'a>(&'a fuse_fallocate_in);
+    pub struct FAllocate<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_fallocate_in,
+    }
+    #[cfg(feature = "abi-7-19")]
+    impl_request!(FAllocate<'a>);
     #[cfg(feature = "abi-7-19")]
     impl<'a> FAllocate<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn offset(&self) -> i64 {
-            self.0.offset
+            self.arg.offset
         }
         pub fn len(&self) -> i64 {
-            self.0.length
+            self.arg.length
         }
         /// `mode` as passed to fallocate.  See `man 2 fallocate`
         pub fn mode(&self) -> i32 {
-            self.0.mode
+            self.arg.mode
         }
     }
     #[cfg(feature = "abi-7-21")]
     #[derive(Debug)]
-    pub struct ReadDirPlus<'a>(&'a fuse_read_in);
+    pub struct ReadDirPlus<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_read_in,
+    }
+    #[cfg(feature = "abi-7-21")]
+    impl_request!(ReadDirPlus<'a>);
     #[cfg(feature = "abi-7-21")]
     impl<'a> ReadDirPlus<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn offset(&self) -> i64 {
-            self.0.offset
+            self.arg.offset
         }
         pub fn size(&self) -> u32 {
-            self.0.size
+            self.arg.size
         }
     }
     #[cfg(feature = "abi-7-23")]
     #[derive(Debug)]
     pub struct Rename2<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_rename2_in,
         name: &'a OsStr,
         newname: &'a OsStr,
         old_parent: INodeNo,
     }
+    #[cfg(feature = "abi-7-23")]
+    impl_request!(Rename2<'a>);
     #[cfg(feature = "abi-7-23")]
     impl<'a> Rename2<'a> {
         pub fn from(&self) -> FilenameInDir<'a> {
@@ -884,18 +1098,23 @@ mod op {
     }
     #[cfg(feature = "abi-7-24")]
     #[derive(Debug)]
-    pub struct Lseek<'a>(&'a fuse_lseek_in);
+    pub struct Lseek<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_lseek_in,
+    }
+    #[cfg(feature = "abi-7-24")]
+    impl_request!(Lseek<'a>);
     #[cfg(feature = "abi-7-24")]
     impl<'a> Lseek<'a> {
         pub fn file_handle(&self) -> FileHandle {
-            FileHandle(self.0.fh)
+            FileHandle(self.arg.fh)
         }
         pub fn offset(&self) -> i64 {
-            self.0.offset
+            self.arg.offset
         }
         /// TODO: Make this return an enum
         pub fn whence(&self) -> i32 {
-            self.0.whence
+            self.arg.whence
         }
     }
     #[derive(Debug, Clone, Copy)]
@@ -907,14 +1126,16 @@ mod op {
     #[cfg(feature = "abi-7-28")]
     #[derive(Debug)]
     pub struct CopyFileRange<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_copy_file_range_in,
-        ino_in: INodeNo,
     }
+    #[cfg(feature = "abi-7-28")]
+    impl_request!(CopyFileRange<'a>);
     #[cfg(feature = "abi-7-28")]
     impl<'a> CopyFileRange<'a> {
         pub fn input(&self) -> CopyFileRangeFile {
             CopyFileRangeFile {
-                inode: self.ino_in,
+                inode: self.nodeid(),
                 file_handle: FileHandle(self.arg.fh_in),
                 offset: self.arg.off_in,
             }
@@ -937,25 +1158,36 @@ mod op {
     #[cfg(target_os = "macos")]
     #[derive(Debug)]
     pub struct SetVolName<'a> {
+        header: &'a fuse_in_header,
         name: &'a OsStr,
     }
+    #[cfg(target_os = "macos")]
+    impl_request!(SetVolName<'a>);
     #[cfg(target_os = "macos")]
     impl<'a> SetVolName<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
         }
     }
+
     #[cfg(target_os = "macos")]
     #[derive(Debug)]
-    pub struct GetXTimes<'a>(PhantomData<&'a u8>);
+    pub struct GetXTimes<'a> {
+        header: &'a fuse_in_header,
+    }
+    #[cfg(target_os = "macos")]
+    impl_request!(GetXTimes<'a>);
     // API TODO: Consider rename2(RENAME_EXCHANGE)
     #[cfg(target_os = "macos")]
     #[derive(Debug)]
     pub struct Exchange<'a> {
+        header: &'a fuse_in_header,
         arg: &'a fuse_exchange_in,
         oldname: &'a OsStr,
         newname: &'a OsStr,
     }
+    #[cfg(target_os = "macos")]
+    impl_request!(Exchange<'a>);
     #[cfg(target_os = "macos")]
     impl<'a> Exchange<'a> {
         pub fn from(&self) -> FilenameInDir<'a> {
@@ -976,7 +1208,12 @@ mod op {
     }
     #[cfg(feature = "abi-7-12")]
     #[derive(Debug)]
-    pub struct CuseInit<'a>(&'a fuse_init_in);
+    pub struct CuseInit<'a> {
+        header: &'a fuse_in_header,
+        arg: &'a fuse_init_in,
+    }
+    #[cfg(feature = "abi-7-12")]
+    impl_request!(CuseInit<'a>);
 
     fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
         if secs >= 0 {
@@ -986,63 +1223,89 @@ mod op {
         }
     }
     pub(crate) fn parse<'a>(
-        header: &fuse_in_header,
+        header: &'a fuse_in_header,
         opcode: &fuse_opcode,
         data: &'a [u8],
     ) -> Option<Operation<'a>> {
         let mut data = ArgumentIterator::new(data);
         Some(match opcode {
             fuse_opcode::FUSE_LOOKUP => Operation::Lookup(Lookup {
+                header: header,
                 name: data.fetch_str()?,
             }),
-            fuse_opcode::FUSE_FORGET => Operation::Forget(Forget(data.fetch()?)),
-            fuse_opcode::FUSE_GETATTR => Operation::GetAttr(GetAttr(PhantomData::<&'a u8> {})),
-            fuse_opcode::FUSE_SETATTR => Operation::SetAttr(SetAttr(data.fetch()?)),
-            fuse_opcode::FUSE_READLINK => Operation::ReadLink(ReadLink {}),
+            fuse_opcode::FUSE_FORGET => Operation::Forget(Forget {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_GETATTR => Operation::GetAttr(GetAttr { header }),
+            fuse_opcode::FUSE_SETATTR => Operation::SetAttr(SetAttr {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_READLINK => Operation::ReadLink(ReadLink { header }),
             fuse_opcode::FUSE_SYMLINK => Operation::SymLink(SymLink {
+                header,
                 target: data.fetch_str()?,
                 link: data.fetch_str()?,
             }),
             fuse_opcode::FUSE_MKNOD => Operation::MkNod(MkNod {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
             }),
             fuse_opcode::FUSE_MKDIR => Operation::MkDir(MkDir {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
             }),
             fuse_opcode::FUSE_UNLINK => Operation::Unlink(Unlink {
+                header,
                 name: data.fetch_str()?,
             }),
             fuse_opcode::FUSE_RMDIR => Operation::RmDir(RmDir {
+                header,
                 name: data.fetch_str()?,
             }),
             fuse_opcode::FUSE_RENAME => Operation::Rename(Rename {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
                 newname: data.fetch_str()?,
-                old_parent: INodeNo(header.nodeid),
             }),
             fuse_opcode::FUSE_LINK => Operation::Link(Link {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
-                new_parent: INodeNo(header.nodeid),
             }),
-            fuse_opcode::FUSE_OPEN => Operation::Open(Open(data.fetch()?)),
-            fuse_opcode::FUSE_READ => Operation::Read(Read(data.fetch()?)),
+            fuse_opcode::FUSE_OPEN => Operation::Open(Open {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_READ => Operation::Read(Read {
+                header,
+                arg: data.fetch()?,
+            }),
             fuse_opcode::FUSE_WRITE => Operation::Write({
                 let out = Write {
+                    header,
                     arg: data.fetch()?,
                     data: data.fetch_all(),
                 };
                 assert!(out.data().len() == out.arg.size as usize);
                 out
             }),
-            fuse_opcode::FUSE_STATFS => Operation::StatFs(StatFs {}),
-            fuse_opcode::FUSE_RELEASE => Operation::Release(Release(data.fetch()?)),
-            fuse_opcode::FUSE_FSYNC => Operation::FSync(FSync(data.fetch()?)),
+            fuse_opcode::FUSE_STATFS => Operation::StatFs(StatFs { header }),
+            fuse_opcode::FUSE_RELEASE => Operation::Release(Release {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_FSYNC => Operation::FSync(FSync {
+                header,
+                arg: data.fetch()?,
+            }),
             fuse_opcode::FUSE_SETXATTR => Operation::SetXAttr({
                 let out = SetXAttr {
+                    header,
                     arg: data.fetch()?,
                     name: data.fetch_str()?,
                     value: data.fetch_all(),
@@ -1051,79 +1314,144 @@ mod op {
                 out
             }),
             fuse_opcode::FUSE_GETXATTR => Operation::GetXAttr(GetXAttr {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
             }),
-            fuse_opcode::FUSE_LISTXATTR => Operation::ListXAttr(ListXAttr(data.fetch()?)),
+            fuse_opcode::FUSE_LISTXATTR => Operation::ListXAttr(ListXAttr {
+                header,
+                arg: data.fetch()?,
+            }),
             fuse_opcode::FUSE_REMOVEXATTR => Operation::RemoveXAttr(RemoveXAttr {
+                header,
                 name: data.fetch_str()?,
             }),
-            fuse_opcode::FUSE_FLUSH => Operation::Flush(Flush(data.fetch()?)),
-            fuse_opcode::FUSE_INIT => Operation::Init(Init(data.fetch()?)),
-            fuse_opcode::FUSE_OPENDIR => Operation::OpenDir(OpenDir(data.fetch()?)),
-            fuse_opcode::FUSE_READDIR => Operation::ReadDir(ReadDir(data.fetch()?)),
-            fuse_opcode::FUSE_RELEASEDIR => Operation::ReleaseDir(ReleaseDir(data.fetch()?)),
-            fuse_opcode::FUSE_FSYNCDIR => Operation::FSyncDir(FSyncDir(data.fetch()?)),
-            fuse_opcode::FUSE_GETLK => Operation::GetLk(GetLk(data.fetch()?)),
-            fuse_opcode::FUSE_SETLK => Operation::SetLk(SetLk(data.fetch()?)),
-            fuse_opcode::FUSE_SETLKW => Operation::SetLkW(SetLkW(data.fetch()?)),
-            fuse_opcode::FUSE_ACCESS => Operation::Access(Access(data.fetch()?)),
+            fuse_opcode::FUSE_FLUSH => Operation::Flush(Flush {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_INIT => Operation::Init(Init {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_OPENDIR => Operation::OpenDir(OpenDir {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_READDIR => Operation::ReadDir(ReadDir {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_RELEASEDIR => Operation::ReleaseDir(ReleaseDir {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_FSYNCDIR => Operation::FSyncDir(FSyncDir {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_GETLK => Operation::GetLk(GetLk {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_SETLK => Operation::SetLk(SetLk {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_SETLKW => Operation::SetLkW(SetLkW {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_ACCESS => Operation::Access(Access {
+                header,
+                arg: data.fetch()?,
+            }),
             fuse_opcode::FUSE_CREATE => Operation::Create(Create {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
             }),
-            fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt(Interrupt(data.fetch()?)),
-            fuse_opcode::FUSE_BMAP => Operation::BMap(BMap(data.fetch()?)),
-            fuse_opcode::FUSE_DESTROY => Operation::Destroy(Destroy(PhantomData::<&'a u8> {})),
+            fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt(Interrupt {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_BMAP => Operation::BMap(BMap {
+                header,
+                arg: data.fetch()?,
+            }),
+            fuse_opcode::FUSE_DESTROY => Operation::Destroy(Destroy { header }),
             #[cfg(feature = "abi-7-11")]
             fuse_opcode::FUSE_IOCTL => Operation::IoCtl(IoCtl {
+                header,
                 arg: data.fetch()?,
                 data: data.fetch_all(),
             }),
             #[cfg(feature = "abi-7-11")]
-            fuse_opcode::FUSE_POLL => Operation::Poll(Poll(data.fetch()?)),
+            fuse_opcode::FUSE_POLL => Operation::Poll(Poll {
+                header,
+                arg: data.fetch()?,
+            }),
             #[cfg(feature = "abi-7-15")]
-            fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply(NotifyReply(data.fetch_all())),
+            fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply(NotifyReply {
+                header,
+                arg: data.fetch_all(),
+            }),
             #[cfg(feature = "abi-7-16")]
             // TODO: parse the nodes
             fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget(BatchForget {
+                header,
                 arg: data.fetch()?,
                 nodes: &[],
             }),
             #[cfg(feature = "abi-7-19")]
-            fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate(FAllocate(data.fetch()?)),
+            fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate(FAllocate {
+                header,
+                arg: data.fetch()?,
+            }),
             #[cfg(feature = "abi-7-21")]
-            fuse_opcode::FUSE_READDIRPLUS => Operation::ReadDirPlus(ReadDirPlus(data.fetch()?)),
+            fuse_opcode::FUSE_READDIRPLUS => Operation::ReadDirPlus(ReadDirPlus {
+                header,
+                arg: data.fetch()?,
+            }),
             #[cfg(feature = "abi-7-23")]
             fuse_opcode::FUSE_RENAME2 => Operation::Rename2(Rename2 {
+                header,
                 arg: data.fetch()?,
                 name: data.fetch_str()?,
                 newname: data.fetch_str()?,
                 old_parent: INodeNo(header.nodeid),
             }),
             #[cfg(feature = "abi-7-24")]
-            fuse_opcode::FUSE_LSEEK => Operation::Lseek(Lseek(data.fetch()?)),
+            fuse_opcode::FUSE_LSEEK => Operation::Lseek(Lseek {
+                header,
+                arg: data.fetch()?,
+            }),
             #[cfg(feature = "abi-7-28")]
             fuse_opcode::FUSE_COPY_FILE_RANGE => Operation::CopyFileRange(CopyFileRange {
+                header,
                 arg: data.fetch()?,
-                ino_in: INodeNo(header.nodeid),
             }),
 
             #[cfg(target_os = "macos")]
             fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName(SetVolName {
+                header,
                 name: data.fetch_str()?,
             }),
             #[cfg(target_os = "macos")]
-            fuse_opcode::FUSE_GETXTIMES => Operation::GetXTimes(GetXTimes(PhantomData::<&'a u8>)),
+            fuse_opcode::FUSE_GETXTIMES => Operation::GetXTimes(GetXTimes { header }),
             #[cfg(target_os = "macos")]
             fuse_opcode::FUSE_EXCHANGE => Operation::Exchange(Exchange {
+                header,
                 arg: data.fetch()?,
                 oldname: data.fetch_str()?,
                 newname: data.fetch_str()?,
             }),
 
             #[cfg(feature = "abi-7-12")]
-            fuse_opcode::CUSE_INIT => Operation::CuseInit(CuseInit(data.fetch()?)),
+            fuse_opcode::CUSE_INIT => Operation::CuseInit(CuseInit {
+                header,
+                arg: data.fetch()?,
+            }),
         })
     }
 }
@@ -1137,7 +1465,7 @@ pub enum Operation<'a> {
     Forget(Forget<'a>),
     GetAttr(GetAttr<'a>),
     SetAttr(SetAttr<'a>),
-    ReadLink(ReadLink),
+    ReadLink(ReadLink<'a>),
     SymLink(SymLink<'a>),
     MkNod(MkNod<'a>),
     MkDir(MkDir<'a>),
@@ -1148,7 +1476,7 @@ pub enum Operation<'a> {
     Open(Open<'a>),
     Read(Read<'a>),
     Write(Write<'a>),
-    StatFs(StatFs),
+    StatFs(StatFs<'a>),
     Release(Release<'a>),
     FSync(FSync<'a>),
     SetXAttr(SetXAttr<'a>),
@@ -1392,12 +1720,13 @@ impl<'a> fmt::Display for Operation<'a> {
 
 /// Low-level request of a filesystem operation the kernel driver wants to perform.
 #[derive(Debug)]
-pub struct Request<'a> {
+pub struct AnyRequest<'a> {
     header: &'a fuse_in_header,
     data: &'a [u8],
 }
+impl_request!(AnyRequest<'_>);
 
-impl<'a> Request<'a> {
+impl<'a> AnyRequest<'a> {
     pub fn operation(&self) -> Result<Operation<'a>, RequestError> {
         // Parse/check opcode
         let opcode = fuse_opcode::try_from(self.header.opcode)
@@ -1407,7 +1736,7 @@ impl<'a> Request<'a> {
     }
 }
 
-impl<'a> fmt::Display for Request<'a> {
+impl<'a> fmt::Display for AnyRequest<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -1417,7 +1746,7 @@ impl<'a> fmt::Display for Request<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for Request<'a> {
+impl<'a> TryFrom<&'a [u8]> for AnyRequest<'a> {
     type Error = RequestError;
 
     fn try_from(data: &'a [u8]) -> Result<Self, Self::Error> {
@@ -1437,42 +1766,6 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
             header,
             data: &data[mem::size_of::<fuse_in_header>()..header.len as usize],
         })
-    }
-}
-
-impl<'a> Request<'a> {
-    /// Returns the unique identifier of this request.
-    ///
-    /// The FUSE kernel driver assigns a unique id to every concurrent request. This allows to
-    /// distinguish between multiple concurrent requests. The unique id of a request may be
-    /// reused in later requests after it has completed.
-    #[inline]
-    pub fn unique(&self) -> RequestId {
-        RequestId(self.header.unique)
-    }
-
-    /// Returns the node id of the inode this request is targeted to.
-    #[inline]
-    pub fn nodeid(&self) -> INodeNo {
-        INodeNo(self.header.nodeid)
-    }
-
-    /// Returns the UID that the process that triggered this request runs under.
-    #[inline]
-    pub fn uid(&self) -> u32 {
-        self.header.uid
-    }
-
-    /// Returns the GID that the process that triggered this request runs under.
-    #[inline]
-    pub fn gid(&self) -> u32 {
-        self.header.gid
-    }
-
-    /// Returns the PID of the process that triggered this request.
-    #[inline]
-    pub fn pid(&self) -> u32 {
-        self.header.pid
     }
 }
 
@@ -1540,7 +1833,7 @@ mod tests {
 
     #[test]
     fn short_read_header() {
-        match Request::try_from(&INIT_REQUEST[..20]) {
+        match AnyRequest::try_from(&INIT_REQUEST[..20]) {
             Err(RequestError::ShortReadHeader(20)) => (),
             _ => panic!("Unexpected request parsing result"),
         }
@@ -1548,7 +1841,7 @@ mod tests {
 
     #[test]
     fn short_read() {
-        match Request::try_from(&INIT_REQUEST[..48]) {
+        match AnyRequest::try_from(&INIT_REQUEST[..48]) {
             Err(RequestError::ShortRead(48, 56)) => (),
             _ => panic!("Unexpected request parsing result"),
         }
@@ -1556,7 +1849,7 @@ mod tests {
 
     #[test]
     fn init() {
-        let req = Request::try_from(&INIT_REQUEST[..]).unwrap();
+        let req = AnyRequest::try_from(&INIT_REQUEST[..]).unwrap();
         assert_eq!(req.header.len, 56);
         assert_eq!(req.header.opcode, 26);
         assert_eq!(req.unique(), RequestId(0xdead_beef_baad_f00d));
@@ -1575,7 +1868,7 @@ mod tests {
 
     #[test]
     fn mknod() {
-        let req = Request::try_from(&MKNOD_REQUEST[..]).unwrap();
+        let req = AnyRequest::try_from(&MKNOD_REQUEST[..]).unwrap();
         assert_eq!(req.header.len, 56);
         assert_eq!(req.header.opcode, 8);
         assert_eq!(req.unique(), RequestId(0xdead_beef_baad_f00d));
