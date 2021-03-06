@@ -988,8 +988,9 @@ mod op {
     pub(crate) fn parse<'a>(
         header: &fuse_in_header,
         opcode: &fuse_opcode,
-        data: &mut ArgumentIterator<'a>,
+        data: &'a [u8],
     ) -> Option<Operation<'a>> {
+        let mut data = ArgumentIterator::new(data);
         Some(match opcode {
             fuse_opcode::FUSE_LOOKUP => Operation::Lookup(Lookup {
                 name: data.fetch_str()?,
@@ -1393,15 +1394,25 @@ impl<'a> fmt::Display for Operation<'a> {
 #[derive(Debug)]
 pub struct Request<'a> {
     header: &'a fuse_in_header,
-    operation: Operation<'a>,
+    data: &'a [u8],
+}
+
+impl<'a> Request<'a> {
+    pub fn operation(&self) -> Result<Operation<'a>, RequestError> {
+        // Parse/check opcode
+        let opcode = fuse_opcode::try_from(self.header.opcode)
+            .map_err(|_: InvalidOpcodeError| RequestError::UnknownOperation(self.header.opcode))?;
+        // Parse/check operation arguments
+        op::parse(&self.header, &opcode, self.data).ok_or(RequestError::InsufficientData)
+    }
 }
 
 impl<'a> fmt::Display for Request<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "FUSE({:3}) ino {:#018x}: {}",
-            self.header.unique, self.header.nodeid, self.operation
+            "FUSE({:3}) ino {:#018x}",
+            self.header.unique, self.header.nodeid
         )
     }
 }
@@ -1413,22 +1424,19 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
         // Parse a raw packet as sent by the kernel driver into typed data. Every request always
         // begins with a `fuse_in_header` struct followed by arguments depending on the opcode.
         let data_len = data.len();
-        let mut data = ArgumentIterator::new(data);
+        let mut arg_iter = ArgumentIterator::new(data);
         // Parse header
-        let header: &fuse_in_header = data
+        let header: &fuse_in_header = arg_iter
             .fetch()
-            .ok_or_else(|| RequestError::ShortReadHeader(data.len()))?;
-        // Parse/check opcode
-        let opcode = fuse_opcode::try_from(header.opcode)
-            .map_err(|_: InvalidOpcodeError| RequestError::UnknownOperation(header.opcode))?;
+            .ok_or_else(|| RequestError::ShortReadHeader(arg_iter.len()))?;
         // Check data size
         if data_len < header.len as usize {
             return Err(RequestError::ShortRead(data_len, header.len as usize));
         }
-        // Parse/check operation arguments
-        let operation =
-            op::parse(header, &opcode, &mut data).ok_or(RequestError::InsufficientData)?;
-        Ok(Self { header, operation })
+        Ok(Self {
+            header,
+            data: &data[mem::size_of::<fuse_in_header>()..header.len as usize],
+        })
     }
 }
 
@@ -1465,12 +1473,6 @@ impl<'a> Request<'a> {
     #[inline]
     pub fn pid(&self) -> u32 {
         self.header.pid
-    }
-
-    /// Returns the filesystem operation (and its arguments) of this request.
-    #[inline]
-    pub fn operation(&self) -> &Operation<'_> {
-        &self.operation
     }
 }
 
@@ -1562,7 +1564,7 @@ mod tests {
         assert_eq!(req.uid(), 0xc001_d00d);
         assert_eq!(req.gid(), 0xc001_cafe);
         assert_eq!(req.pid(), 0xc0de_ba5e);
-        match req.operation() {
+        match req.operation().unwrap() {
             Operation::Init(x) => {
                 assert_eq!(x.version(), Version(7, 8));
                 assert_eq!(x.max_readahead(), 4096);
@@ -1581,7 +1583,7 @@ mod tests {
         assert_eq!(req.uid(), 0xc001_d00d);
         assert_eq!(req.gid(), 0xc001_cafe);
         assert_eq!(req.pid(), 0xc0de_ba5e);
-        match req.operation() {
+        match req.operation().unwrap() {
             Operation::MkNod(x) => {
                 assert_eq!(x.mode(), 0o644);
                 #[cfg(feature = "abi-7-12")]

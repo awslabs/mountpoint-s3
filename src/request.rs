@@ -38,7 +38,6 @@ impl<'a> Request<'a> {
         let request = match ll::Request::try_from(data) {
             Ok(request) => request,
             Err(err) => {
-                // FIXME: Reply with ENOSYS?
                 error!("{}", err);
                 return None;
             }
@@ -52,8 +51,14 @@ impl<'a> Request<'a> {
     /// request and sends back the returned reply to the kernel
     pub fn dispatch<FS: Filesystem>(&self, se: &mut Session<FS>) {
         debug!("{}", self.request);
-
-        match self.request.operation() {
+        let op = match self.request.operation() {
+            Ok(x) => x,
+            Err(_) => {
+                self.reply::<ReplyEmpty>().error(libc::ENOSYS);
+                return;
+            }
+        };
+        match op {
             // Filesystem initialization
             ll::Operation::Init(x) => {
                 let reply: ReplyRaw<abi::fuse_init_out> = self.reply();
