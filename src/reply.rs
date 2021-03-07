@@ -14,10 +14,11 @@ use crate::ll::fuse_abi::{
     fuse_lseek_out, fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
 };
 use libc::{c_int, EIO, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
-use log::warn;
+use log::{error, warn};
 use std::convert::{AsRef, TryInto};
 use std::ffi::OsStr;
 use std::fmt;
+use std::io::IoSlice;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
@@ -29,7 +30,7 @@ use crate::{FileAttr, FileType};
 /// Generic reply callback to send data
 pub trait ReplySender: Send + 'static {
     /// Send data.
-    fn send(&self, data: &[&[u8]]);
+    fn send(&self, data: &[IoSlice<'_>]) -> std::io::Result<()>;
 }
 
 impl fmt::Debug for Box<dyn ReplySender> {
@@ -171,9 +172,12 @@ impl<T: AsBytes> ReplyRaw<T> {
             unique: self.unique,
         };
         let sender = self.sender.take().unwrap();
-        let mut sendbytes = [header.as_bytes()].to_vec();
-        sendbytes.extend(bytes);
-        sender.send(sendbytes.as_ref());
+        let mut sendbytes = [IoSlice::new(header.as_bytes())].to_vec();
+        sendbytes.extend(bytes.iter().map(|s| IoSlice::new(*s)));
+        let res = sender.send(sendbytes.as_ref());
+        if let Err(err) = res {
+            error!("Failed to send FUSE reply: {}", err);
+        }
     }
 
     /// Reply to a request with the given type
@@ -814,6 +818,7 @@ mod test {
     use super::{Reply, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyRaw};
     use super::{ReplyBmap, ReplyCreate, ReplyDirectory, ReplyLock, ReplyStatfs, ReplyWrite};
     use crate::{FileAttr, FileType};
+    use std::io::IoSlice;
     use std::sync::mpsc::{channel, Sender};
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
@@ -853,12 +858,13 @@ mod test {
     }
 
     impl super::ReplySender for AssertSender {
-        fn send(&self, data: &[&[u8]]) {
+        fn send(&self, data: &[IoSlice<'_>]) -> std::io::Result<()> {
             let mut v = vec![];
             for x in data {
                 v.extend_from_slice(x)
             }
             assert_eq!(self.expected, v);
+            Ok(())
         }
     }
 
@@ -1202,8 +1208,9 @@ mod test {
     }
 
     impl super::ReplySender for Sender<()> {
-        fn send(&self, _: &[&[u8]]) {
-            Sender::send(self, ()).unwrap()
+        fn send(&self, _: &[IoSlice<'_>]) -> std::io::Result<()> {
+            Sender::send(self, ()).unwrap();
+            Ok(())
         }
     }
 

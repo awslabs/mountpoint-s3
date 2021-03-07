@@ -18,7 +18,6 @@ pub mod mount_options;
 #[cfg(any(feature = "libfuse", test))]
 use fuse2_sys::fuse_args;
 use libc::{self, c_int, c_void, size_t};
-use log::error;
 use std::io;
 use std::os::unix::prelude::AsRawFd;
 use std::path::Path;
@@ -106,30 +105,20 @@ impl Channel {
 #[derive(Clone, Debug)]
 pub struct ChannelSender(Arc<File>);
 
-impl ChannelSender {
-    /// Send all data in the slice of slice of bytes in a single write (can block).
-    pub fn send(&self, buffer: &[&[u8]]) -> io::Result<()> {
-        let iovecs: Vec<_> = buffer
-            .iter()
-            .map(|d| libc::iovec {
-                iov_base: d.as_ptr() as *mut c_void,
-                iov_len: d.len() as size_t,
-            })
-            .collect();
-        let rc =
-            unsafe { libc::writev(self.0.as_raw_fd(), iovecs.as_ptr(), iovecs.len() as c_int) };
+impl ReplySender for ChannelSender {
+    fn send(&self, bufs: &[io::IoSlice<'_>]) -> io::Result<()> {
+        let rc = unsafe {
+            libc::writev(
+                self.0.as_raw_fd(),
+                bufs.as_ptr() as *const libc::iovec,
+                bufs.len() as c_int,
+            )
+        };
         if rc < 0 {
             Err(io::Error::last_os_error())
         } else {
+            debug_assert_eq!(bufs.iter().map(|b| b.len()).sum::<usize>(), rc as usize);
             Ok(())
-        }
-    }
-}
-
-impl ReplySender for ChannelSender {
-    fn send(&self, data: &[&[u8]]) {
-        if let Err(err) = ChannelSender::send(self, data) {
-            error!("Failed to send FUSE reply: {}", err);
         }
     }
 }
