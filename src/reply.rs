@@ -15,6 +15,7 @@ use crate::ll::fuse_abi::{
 };
 use libc::{c_int, EIO, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
 use log::{error, warn};
+use smallvec::{smallvec, SmallVec};
 use std::convert::{AsRef, TryInto};
 use std::ffi::OsStr;
 use std::fmt;
@@ -174,7 +175,7 @@ impl<T: AsBytes> ReplyRaw<T> {
             unique: self.unique,
         };
         let sender = self.sender.take().unwrap();
-        let mut sendbytes = [IoSlice::new(header.as_bytes())].to_vec();
+        let mut sendbytes: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
         sendbytes.extend(bytes.iter().map(|s| IoSlice::new(*s)));
         let res = sender.send(sendbytes.as_ref());
         if let Err(err) = res {
