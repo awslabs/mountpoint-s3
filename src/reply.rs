@@ -237,8 +237,8 @@ impl Reply for ReplyEmpty {
 
 impl ReplyEmpty {
     /// Reply to a request with nothing
-    pub fn ok(mut self) {
-        self.reply.send(0, &[]);
+    pub fn ok(self) {
+        self.reply.send_ll(&ll::Response::new_empty());
     }
 
     /// Reply to a request with the given error code
