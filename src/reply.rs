@@ -14,7 +14,7 @@ use crate::ll::fuse_abi::{
     fuse_entry_out, fuse_file_lock, fuse_getxattr_out, fuse_ioctl_out, fuse_kstatfs, fuse_lk_out,
     fuse_lseek_out, fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
 };
-use libc::{c_int, EIO, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
+use libc::{c_int, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
 use log::{error, warn};
 use smallvec::{smallvec, SmallVec};
 use std::convert::{AsRef, TryInto};
@@ -202,8 +202,10 @@ impl<T: AsBytes> ReplyRaw<T> {
     }
 
     /// Reply to a request with the given error code
-    pub fn error(mut self, err: c_int) {
-        self.send(err, &[]);
+    pub fn error(self, err: c_int) {
+        self.send_ll(&ll::Response::new_error(
+            ll::Errno::from_i32(err).expect("Errno must not be 0"),
+        ));
     }
 }
 
@@ -214,7 +216,7 @@ impl<T: AsBytes> Drop for ReplyRaw<T> {
                 "Reply not sent for operation {}, replying with I/O error",
                 self.unique.0
             );
-            self.send(EIO, &[]);
+            self.send_ll_mut(&ll::Response::new_error(ll::Errno::EIO));
         }
     }
 }

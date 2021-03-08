@@ -1,7 +1,7 @@
 use std::{convert::TryInto, io::IoSlice, mem::size_of};
 
-use super::fuse_abi as abi;
 use super::RequestId;
+use super::{fuse_abi as abi, Errno};
 use smallvec::{smallvec, SmallVec};
 use zerocopy::AsBytes;
 
@@ -54,10 +54,15 @@ impl Response {
     pub(crate) fn new_empty() -> Self {
         Self::Error(0)
     }
+    pub(crate) fn new_error(error: Errno) -> Self {
+        Self::Error(error.into())
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroI32;
+
     use super::*;
 
     #[test]
@@ -67,6 +72,18 @@ mod test {
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             vec![
                 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+                0x00, 0x00,
+            ],
+        );
+    }
+
+    #[test]
+    fn reply_error() {
+        let r = Response::new_error(Errno(NonZeroI32::new(66).unwrap()));
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            vec![
+                0x10, 0x00, 0x00, 0x00, 0xbe, 0xff, 0xff, 0xff, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
                 0x00, 0x00,
             ],
         );

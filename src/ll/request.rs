@@ -3,8 +3,8 @@
 //! A request represents information about a filesystem operation the kernel driver wants us to
 //! perform.
 
-use super::fuse_abi as abi;
 use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
+use super::{fuse_abi as abi, Errno, Response};
 use std::{convert::TryFrom, fmt::Display};
 use std::{error, fmt, mem};
 
@@ -172,6 +172,11 @@ pub trait Request {
 
     /// Returns the PID of the process that triggered this request.
     fn pid(&self) -> u32;
+
+    /// Create an error response for this Request
+    fn reply_err(&self, errno: Errno) -> Response {
+        Response::new_error(errno)
+    }
 }
 
 macro_rules! impl_request {

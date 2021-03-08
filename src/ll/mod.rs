@@ -5,7 +5,7 @@ pub mod fuse_abi;
 mod reply;
 mod request;
 
-use std::time::SystemTime;
+use std::{convert::TryInto, num::NonZeroI32, time::SystemTime};
 
 pub use reply::Response;
 pub use request::{AnyRequest, Operation, Request, RequestError, RequestId, Version};
@@ -18,6 +18,36 @@ pub enum TimeOrNow {
     SpecificTime(SystemTime),
     /// Current time
     Now,
+}
+
+/// Represents an error code to be returned to the caller
+#[derive(Debug)]
+pub struct Errno(pub NonZeroI32);
+impl Errno {
+    pub const EIO: Errno = Errno(unsafe { NonZeroI32::new_unchecked(libc::EIO) });
+    pub fn from_i32(err: i32) -> Option<Errno> {
+        err.try_into().ok().map(Errno)
+    }
+}
+impl From<std::io::Error> for Errno {
+    fn from(err: std::io::Error) -> Self {
+        let errno = err.raw_os_error().unwrap_or(0);
+        match errno.try_into() {
+            Ok(i) => Errno(i),
+            Err(_) => Errno::EIO,
+        }
+    }
+}
+impl From<std::io::ErrorKind> for Errno {
+    fn from(x: std::io::ErrorKind) -> Self {
+        let err: std::io::Error = x.into();
+        err.into()
+    }
+}
+impl From<Errno> for i32 {
+    fn from(x: Errno) -> Self {
+        x.0.into()
+    }
 }
 
 #[cfg(test)]
