@@ -2,11 +2,13 @@
 
 mod argument;
 pub mod fuse_abi;
+mod reply;
 mod request;
 
 use std::time::SystemTime;
 
-pub use request::{AnyRequest, Operation, Request, RequestError, Version};
+pub use reply::Response;
+pub use request::{AnyRequest, Operation, Request, RequestError, RequestId, Version};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// Possible input arguments for atime & mtime, which can either be set to a specified time,

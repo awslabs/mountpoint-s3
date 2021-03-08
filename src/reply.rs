@@ -6,6 +6,7 @@
 //! data without cloning the data. A reply *must always* be used (by calling either ok() or
 //! error() exactly once).
 
+use crate::ll;
 #[cfg(target_os = "macos")]
 use crate::ll::fuse_abi::fuse_getxtimes_out;
 use crate::ll::fuse_abi::{
@@ -142,7 +143,7 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
 #[derive(Debug)]
 pub(crate) struct ReplyRaw<T: AsBytes> {
     /// Unique id of the request to reply to
-    unique: u64,
+    unique: ll::RequestId,
     /// Closure to call for sending the reply
     sender: Option<Box<dyn ReplySender>>,
     /// Marker for being able to have T on this struct (which enforces
@@ -154,7 +155,7 @@ impl<T: AsBytes> Reply for ReplyRaw<T> {
     fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyRaw<T> {
         let sender = Box::new(sender);
         ReplyRaw {
-            unique,
+            unique: ll::RequestId(unique),
             sender: Some(sender),
             marker: PhantomData,
         }
@@ -172,7 +173,7 @@ impl<T: AsBytes> ReplyRaw<T> {
                 .try_into()
                 .expect("Data too big"),
             error: -err,
-            unique: self.unique,
+            unique: self.unique.into(),
         };
         let sender = self.sender.take().unwrap();
         let mut sendbytes: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
@@ -181,6 +182,18 @@ impl<T: AsBytes> ReplyRaw<T> {
         if let Err(err) = res {
             error!("Failed to send FUSE reply: {}", err);
         }
+    }
+
+    fn send_ll_mut(&mut self, response: &ll::Response) {
+        assert!(self.sender.is_some());
+        let sender = self.sender.take().unwrap();
+        let res = response.with_iovec(self.unique, |iov| sender.send(iov));
+        if let Err(err) = res {
+            error!("Failed to send FUSE reply: {}", err);
+        }
+    }
+    fn send_ll(mut self, response: &ll::Response) {
+        self.send_ll_mut(response)
     }
 
     /// Reply to a request with the given type
@@ -199,7 +212,7 @@ impl<T: AsBytes> Drop for ReplyRaw<T> {
         if self.sender.is_some() {
             warn!(
                 "Reply not sent for operation {}, replying with I/O error",
-                self.unique
+                self.unique.0
             );
             self.send(EIO, &[]);
         }
