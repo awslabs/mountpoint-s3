@@ -57,6 +57,13 @@ impl Response {
     pub(crate) fn new_error(error: Errno) -> Self {
         Self::Error(error.into())
     }
+    pub(crate) fn new_data<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Self {
+        Self::Data(if data.as_ref().len() <= INLINE_DATA_THRESHOLD {
+            data.as_ref().into()
+        } else {
+            data.into().into()
+        })
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +92,18 @@ mod test {
             vec![
                 0x10, 0x00, 0x00, 0x00, 0xbe, 0xff, 0xff, 0xff, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
                 0x00, 0x00,
+            ],
+        );
+    }
+
+    #[test]
+    fn reply_data() {
+        let r = Response::new_data([0xde, 0xad, 0xbe, 0xef].as_ref());
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            vec![
+                0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+                0x00, 0x00, 0xde, 0xad, 0xbe, 0xef,
             ],
         );
     }

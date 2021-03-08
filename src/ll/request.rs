@@ -223,6 +223,8 @@ mod op {
     use std::{
         ffi::OsStr,
         fmt::Display,
+        os::unix::prelude::OsStrExt,
+        path::Path,
         time::{Duration, SystemTime},
     };
 
@@ -397,6 +399,12 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(ReadLink<'_>);
+    impl<'a> ReadLink<'a> {
+        #[allow(dead_code)]
+        pub fn reply(self, target: &Path) -> Response {
+            Response::new_data(target.as_os_str().as_bytes())
+        }
+    }
 
     #[derive(Debug)]
     pub struct SymLink<'a> {
@@ -585,6 +593,10 @@ mod op {
             return 0;
             #[cfg(feature = "abi-7-9")]
             self.arg.flags
+        }
+        #[allow(dead_code)]
+        pub fn reply<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Response {
+            Response::new_data(data)
         }
     }
 

@@ -267,8 +267,8 @@ impl Reply for ReplyData {
 
 impl ReplyData {
     /// Reply to a request with the given data
-    pub fn data(mut self, data: &[u8]) {
-        self.reply.send(0, &[data]);
+    pub fn data(self, data: &[u8]) {
+        self.reply.send_ll(&ll::Response::new_data(data));
     }
 
     /// Reply to a request with the given error code
