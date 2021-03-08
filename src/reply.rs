@@ -165,9 +165,11 @@ impl<T: AsBytes> ReplyRaw<T> {
     /// only once (the `ok` and `error` methods ensure this by consuming `self`)
     fn send(&mut self, err: c_int, bytes: &[&[u8]]) {
         assert!(self.sender.is_some());
-        let len = bytes.iter().fold(0, |l, b| l + b.len());
+        let len: usize = bytes.iter().map(|b| b.len()).sum();
         let header = fuse_out_header {
-            len: (mem::size_of::<fuse_out_header>() + len) as u32,
+            len: (mem::size_of::<fuse_out_header>() + len)
+                .try_into()
+                .expect("Data too big"),
             error: -err,
             unique: self.unique,
         };
