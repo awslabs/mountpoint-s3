@@ -31,16 +31,19 @@ use super::*;
 pub struct Mount {
     mountpoint: CString,
     auto_unmount_socket: Option<UnixStream>,
+    fuse_device: Arc<File>,
 }
 impl Mount {
-    pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(File, Mount)> {
+    pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mountpoint = mountpoint.canonicalize()?;
         let (file, sock) = fuse_mount_pure(mountpoint.as_os_str(), options)?;
+        let file = Arc::new(file);
         Ok((
-            file,
+            file.clone(),
             Mount {
                 mountpoint: CString::new(mountpoint.as_os_str().as_bytes())?,
                 auto_unmount_socket: sock,
+                fuse_device: file,
             },
         ))
     }
@@ -49,6 +52,12 @@ impl Mount {
 impl Drop for Mount {
     fn drop(&mut self) {
         use std::io::ErrorKind::PermissionDenied;
+        if !is_mounted(&self.fuse_device) {
+            // If the filesystem has already been unmounted, avoid unmounting it again.
+            // Unmounting it a second time could cause a race with a newly mounted filesystem
+            // living at the same mountpoint
+            return;
+        }
         if let Some(sock) = mem::take(&mut self.auto_unmount_socket) {
             drop(sock);
             // fusermount in auto-unmount mode, no more work to do.

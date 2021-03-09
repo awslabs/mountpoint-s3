@@ -71,7 +71,7 @@ impl Channel {
     #[cfg(not(feature = "libfuse"))]
     pub fn new2(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Channel, Mount)> {
         let (file, mount) = fuse_pure::Mount::new(mountpoint, options)?;
-        Ok((Channel(Arc::new(file)), mount))
+        Ok((Channel(file), mount))
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
@@ -157,6 +157,37 @@ fn libc_umount(mnt: &CStr) -> c_int {
 #[inline]
 fn libc_umount(mnt: &CStr) -> c_int {
     unsafe { libc::umount(mnt.as_ptr()) }
+}
+
+/// Warning: This will return true if the filesystem has been detached (lazy unmounted), but not
+/// yet destroyed by the kernel.
+#[cfg(not(feature = "libfuse"))]
+fn is_mounted(fuse_device: &File) -> bool {
+    use libc::{poll, pollfd};
+    let mut poll_result = pollfd {
+        fd: fuse_device.as_raw_fd(),
+        events: 0,
+        revents: 0,
+    };
+    loop {
+        let res = unsafe { poll(&mut poll_result, 1, 0) };
+        break match res {
+            0 => true,
+            1 => (poll_result.revents & libc::POLLERR) != 0,
+            -1 => {
+                let err = io::Error::last_os_error();
+                if err.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                } else {
+                    // This should never happen. The fd is guaranteed good as `File` owns it.
+                    // According to man poll ENOMEM is the only error code unhandled, so we panic
+                    // consistent with rust's usual ENOMEM behaviour.
+                    panic!("Poll failed with error {}", err)
+                }
+            }
+            _ => unreachable!(),
+        };
+    }
 }
 
 #[cfg(test)]
