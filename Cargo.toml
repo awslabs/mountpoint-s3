@@ -33,6 +33,7 @@ clap = "2.32"
 bincode = "1.3.1"
 serde = {version = "1.0.102", features=["std", "derive"]}
 futures-await-test = "0.3.0"
+tempfile = "3"
 
 [build-dependencies]
 pkg-config = {version = "0.3.14", optional = true }

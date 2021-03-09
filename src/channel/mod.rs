@@ -64,7 +64,7 @@ impl Channel {
     #[cfg(feature = "libfuse")]
     pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<(Channel, Mount)> {
         let mountpoint = mountpoint.canonicalize()?;
-        let (file, mount) = Mount::new(CString::new(mountpoint.as_os_str().as_bytes())?, options)?;
+        let (file, mount) = Mount::new(&mountpoint, options)?;
         Ok((Channel(Arc::new(file)), mount))
     }
 
@@ -161,7 +161,7 @@ fn libc_umount(mnt: &CStr) -> c_int {
 
 /// Warning: This will return true if the filesystem has been detached (lazy unmounted), but not
 /// yet destroyed by the kernel.
-#[cfg(not(feature = "libfuse"))]
+#[cfg(any(test, not(feature = "libfuse")))]
 fn is_mounted(fuse_device: &File) -> bool {
     use libc::{poll, pollfd};
     let mut poll_result = pollfd {
@@ -192,7 +192,7 @@ fn is_mounted(fuse_device: &File) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::with_fuse_args;
+    use super::*;
     use std::ffi::{CStr, OsStr};
 
     #[test]
@@ -212,5 +212,34 @@ mod test {
                 b"bar"
             );
         });
+    }
+    fn cmd_mount() -> String {
+        std::str::from_utf8(
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg("mount | grep fuse")
+                .output()
+                .unwrap()
+                .stdout
+                .as_ref(),
+        )
+        .unwrap()
+        .to_owned()
+    }
+
+    #[test]
+    fn mount_unmount() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (file, mount) = Mount::new(&tmp.path(), &[]).unwrap();
+        let mnt = cmd_mount();
+        eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
+        assert!(mnt.contains(&*tmp.path().to_string_lossy()));
+        assert!(is_mounted(&file));
+        drop(mount);
+        let mnt = cmd_mount();
+        eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
+        assert!(!mnt.contains(&*tmp.path().to_string_lossy()));
+        // Filesystem may have been lazy unmounted, so we can't assert this:
+        // assert!(!is_mounted(&file));
     }
 }

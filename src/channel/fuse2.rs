@@ -8,7 +8,8 @@ pub struct Mount {
     mountpoint: CString,
 }
 impl Mount {
-    pub fn new(mountpoint: CString, options: &[&OsStr]) -> io::Result<(File, Mount)> {
+    pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<(File, Mount)> {
+        let mountpoint = CString::new(mountpoint.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
             let fd = unsafe { fuse_mount_compat25(mountpoint.as_ptr(), args) };
             if fd < 0 {
