@@ -64,6 +64,21 @@ impl Response {
             data.into().into()
         })
     }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn new_xtimes(bkuptime: SystemTime, crtime: SystemTime) -> Self {
+        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
+        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime);
+        let r = abi::fuse_getxtimes_out {
+            bkuptime: bkuptime_secs as u64,
+            crtime: crtime_secs as u64,
+            bkuptimensec: bkuptime_nanos,
+            crtimensec: crtime_nanos,
+        };
+        Self::from_struct(&r)
+    }
+    fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
+        Self::new_data(data.as_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +123,21 @@ mod test {
         );
     }
 
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn reply_xtimes() {
+        let expected = vec![
+            0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+            0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
+        ];
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
+        let r = Response::new_xtimes(time, time);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
     fn ioslice_to_vec<'a>(s: &[IoSlice<'a>]) -> Vec<u8> {
         let mut v = Vec::with_capacity(s.iter().map(|x| x.len()).sum());
         for x in s {

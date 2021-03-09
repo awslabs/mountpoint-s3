@@ -368,14 +368,8 @@ impl Reply for ReplyXTimes {
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
     pub fn xtimes(self, bkuptime: SystemTime, crtime: SystemTime) {
-        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
-        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime);
-        self.reply.ok(&fuse_getxtimes_out {
-            bkuptime: bkuptime_secs as u64,
-            crtime: crtime_secs as u64,
-            bkuptimensec: bkuptime_nanos,
-            crtimensec: crtime_nanos,
-        });
+        self.reply
+            .send_ll(&ll::Response::new_xtimes(bkuptime, crtime))
     }
 
     /// Reply to a request with the given error code

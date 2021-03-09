@@ -1244,6 +1244,13 @@ mod op {
     }
     #[cfg(target_os = "macos")]
     impl_request!(GetXTimes<'a>);
+    #[cfg(target_os = "macos")]
+    impl<'a> GetXTimes<'a> {
+        #[allow(dead_code)]
+        pub fn reply(&self, bkuptime: SystemTime, crtime: SystemTime) -> Response {
+            Response::new_xtimes(bkuptime, crtime)
+        }
+    }
     // API TODO: Consider rename2(RENAME_EXCHANGE)
     #[cfg(target_os = "macos")]
     #[derive(Debug)]
