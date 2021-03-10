@@ -28,7 +28,7 @@ pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
 
 /// Size of the buffer for reading a request from the kernel. Since the kernel may send
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
+pub(in crate) const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 /// The session data structure
 #[derive(Debug)]
