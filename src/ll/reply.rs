@@ -100,6 +100,10 @@ impl Response {
         let r = abi::fuse_bmap_out { block };
         Self::from_struct(&r)
     }
+    pub(crate) fn new_xattr_size(size: u32) -> Self {
+        let r = abi::fuse_getxattr_out { size, padding: 0 };
+        Self::from_struct(&r)
+    }
 
     fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
         Self::Data(data.as_bytes().into())
@@ -208,6 +212,33 @@ mod test {
             expected
         );
     }
+
+    #[test]
+    fn reply_xattr_size() {
+        let expected = vec![
+            0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,
+            0x00, 0x00, 0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let r = Response::new_xattr_size(0x12345678);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
+    fn reply_xattr_data() {
+        let expected = vec![
+            0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00,
+            0x00, 0x00, 0x11, 0x22, 0x33, 0x44,
+        ];
+        let r = Response::new_data([0x11, 0x22, 0x33, 0x44].as_ref());
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
     fn ioslice_to_vec<'a>(s: &[IoSlice<'a>]) -> Vec<u8> {
         let mut v = Vec::with_capacity(s.iter().map(|x| x.len()).sum());
         for x in s {

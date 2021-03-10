@@ -342,7 +342,7 @@ impl<'a> Request<'a> {
                     self,
                     self.request.nodeid().into(),
                     x.name(),
-                    x.size(),
+                    x.size_u32(),
                     self.reply(),
                 );
             }

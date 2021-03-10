@@ -773,12 +773,12 @@ impl Reply for ReplyXattr {
 impl ReplyXattr {
     /// Reply to a request with the size of the xattr.
     pub fn size(self, size: u32) {
-        self.reply.ok(&fuse_getxattr_out { size, padding: 0 });
+        self.reply.send_ll(&ll::Response::new_xattr_size(size))
     }
 
     /// Reply to a request with the data in the xattr.
-    pub fn data(mut self, data: &[u8]) {
-        self.reply.send(0, &[data]);
+    pub fn data(self, data: &[u8]) {
+        self.reply.send_ll(&ll::Response::new_data(data))
     }
 
     /// Reply to a request with the given error code.

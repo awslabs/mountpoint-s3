@@ -211,7 +211,7 @@ macro_rules! impl_request {
 }
 
 mod op {
-    use crate::ll::Response;
+    use crate::ll::{Errno, Response};
 
     use super::{
         super::{argument::ArgumentIterator, TimeOrNow},
@@ -221,8 +221,10 @@ mod op {
         abi::consts::*, abi::*, FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId,
     };
     use std::{
+        convert::TryInto,
         ffi::OsStr,
         fmt::Display,
+        num::NonZeroU32,
         os::unix::prelude::OsStrExt,
         path::Path,
         time::{Duration, SystemTime},
@@ -742,12 +744,57 @@ mod op {
         name: &'a OsStr,
     }
     impl_request!(GetXAttr<'a>);
+
+    /// Type for [GetXAttrSizeEnum::GetSize].
+    ///
+    /// Represents a request from the user to get the size of the data stored in the XAttr.
+    #[derive(Debug)]
+    pub struct GetXAttrSize();
+    impl GetXAttrSize {
+        #[allow(dead_code)]
+        pub fn reply(&self, size: u32) -> Response {
+            match size {
+                0 => Response::new_empty(),
+                _ => Response::new_xattr_size(size),
+            }
+        }
+    }
+    #[derive(Debug)]
+    /// Return type for [GetXAttr::size].
+    pub enum GetXAttrSizeEnum {
+        GetSize(GetXAttrSize),
+        Size(NonZeroU32),
+    }
     impl<'a> GetXAttr<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
         }
-        pub fn size(&self) -> u32 {
+        pub fn size(&self) -> GetXAttrSizeEnum {
+            let s: Result<NonZeroU32, _> = self.arg.size.try_into();
+            match s {
+                Ok(s) => GetXAttrSizeEnum::Size(s),
+                Err(_) => GetXAttrSizeEnum::GetSize(GetXAttrSize()),
+            }
+        }
+        pub(crate) fn size_u32(&self) -> u32 {
             self.arg.size
+        }
+        #[allow(dead_code)]
+        pub fn reply(&self, data: &[u8]) -> Response {
+            let data_len: u32 = data
+                .len()
+                .try_into()
+                .expect("Too much data to fit in an XAttr");
+            match self.size() {
+                GetXAttrSizeEnum::GetSize(s) => s.reply(data_len),
+                GetXAttrSizeEnum::Size(s) => {
+                    if data_len > s.into() {
+                        Response::new_error(Errno::from_i32(libc::ERANGE).unwrap())
+                    } else {
+                        Response::new_data(data)
+                    }
+                }
+            }
         }
     }
     #[derive(Debug)]
@@ -1674,7 +1721,9 @@ impl<'a> fmt::Display for Operation<'a> {
                 x.value().len(),
                 x.flags()
             ),
-            Operation::GetXAttr(x) => write!(f, "GETXATTR name {:?}, size {}", x.name(), x.size()),
+            Operation::GetXAttr(x) => {
+                write!(f, "GETXATTR name {:?}, size {:?}", x.name(), x.size())
+            }
             Operation::ListXAttr(x) => write!(f, "LISTXATTR size {}", x.size()),
             Operation::RemoveXAttr(x) => write!(f, "REMOVEXATTR name {:?}", x.name()),
             Operation::Flush(x) => write!(
