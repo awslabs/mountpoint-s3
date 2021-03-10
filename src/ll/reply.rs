@@ -96,6 +96,10 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+    pub(crate) fn new_bmap(block: u64) -> Self {
+        let r = abi::fuse_bmap_out { block };
+        Self::from_struct(&r)
+    }
 
     fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
         Self::Data(data.as_bytes().into())
@@ -186,6 +190,19 @@ mod test {
             typ: 0x33,
             pid: 0x44,
         });
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
+    fn reply_bmap() {
+        let expected = vec![
+            0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+            0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let r = Response::new_bmap(0x1234);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected

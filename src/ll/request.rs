@@ -1009,6 +1009,10 @@ mod op {
         pub fn block(&self) -> u64 {
             self.arg.block
         }
+        #[allow(dead_code)]
+        pub fn reply(&self, block: u64) -> Response {
+            Response::new_bmap(block)
+        }
     }
     #[derive(Debug)]
     pub struct Destroy<'a> {

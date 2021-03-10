@@ -581,7 +581,7 @@ impl Reply for ReplyBmap {
 impl ReplyBmap {
     /// Reply to a request with the given open result
     pub fn bmap(self, block: u64) {
-        self.reply.ok(&fuse_bmap_out { block });
+        self.reply.send_ll(&ll::Response::new_bmap(block))
     }
 
     /// Reply to a request with the given error code
