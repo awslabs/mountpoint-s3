@@ -1,7 +1,7 @@
 use std::{convert::TryInto, io::IoSlice, mem::size_of};
 
-use super::RequestId;
 use super::{fuse_abi as abi, Errno, FileHandle};
+use super::{Lock, RequestId};
 use smallvec::{smallvec, SmallVec};
 use zerocopy::AsBytes;
 
@@ -85,6 +85,17 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+    pub(crate) fn new_lock(lock: &Lock) -> Self {
+        let r = abi::fuse_lk_out {
+            lk: abi::fuse_file_lock {
+                start: lock.range.0,
+                end: lock.range.1,
+                typ: lock.typ,
+                pid: lock.pid,
+            },
+        };
+        Self::from_struct(&r)
+    }
 
     fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
         Self::Data(data.as_bytes().into())
@@ -157,6 +168,24 @@ mod test {
             0x00, 0x00, 0x00, 0x00,
         ];
         let r = Response::new_open(FileHandle(0x1122), 0x33);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
+    fn reply_lock() {
+        let expected = vec![
+            0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+            0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00,
+        ];
+        let r = Response::new_lock(&Lock {
+            range: (0x11, 0x22),
+            typ: 0x33,
+            pid: 0x44,
+        });
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected

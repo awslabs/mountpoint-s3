@@ -906,6 +906,10 @@ mod op {
         pub fn lock_owner(&self) -> LockOwner {
             LockOwner(self.arg.owner)
         }
+        #[allow(dead_code)]
+        pub fn reply(&self, lock: &Lock) -> Response {
+            Response::new_lock(lock)
+        }
     }
     #[derive(Debug)]
     pub struct SetLk<'a> {

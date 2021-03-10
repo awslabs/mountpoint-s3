@@ -11,8 +11,8 @@ use crate::ll;
 use crate::ll::fuse_abi::fuse_getxtimes_out;
 use crate::ll::fuse_abi::{
     fuse_attr, fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus,
-    fuse_entry_out, fuse_file_lock, fuse_getxattr_out, fuse_ioctl_out, fuse_kstatfs, fuse_lk_out,
-    fuse_lseek_out, fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
+    fuse_entry_out, fuse_getxattr_out, fuse_ioctl_out, fuse_kstatfs, fuse_lk_out, fuse_lseek_out,
+    fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
 };
 use libc::{c_int, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
 use log::{error, warn};
@@ -549,14 +549,11 @@ impl Reply for ReplyLock {
 impl ReplyLock {
     /// Reply to a request with the given open result
     pub fn locked(self, start: u64, end: u64, typ: i32, pid: u32) {
-        self.reply.ok(&fuse_lk_out {
-            lk: fuse_file_lock {
-                start,
-                end,
-                typ,
-                pid,
-            },
-        });
+        self.reply.send_ll(&ll::Response::new_lock(&ll::Lock {
+            range: (start, end),
+            typ,
+            pid,
+        }))
     }
 
     /// Reply to a request with the given error code
