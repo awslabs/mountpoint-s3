@@ -397,11 +397,8 @@ impl Reply for ReplyOpen {
 impl ReplyOpen {
     /// Reply to a request with the given open result
     pub fn opened(self, fh: u64, flags: u32) {
-        self.reply.ok(&fuse_open_out {
-            fh,
-            open_flags: flags,
-            padding: 0,
-        });
+        self.reply
+            .send_ll(&ll::Response::new_open(ll::FileHandle(fh), flags))
     }
 
     /// Reply to a request with the given error code

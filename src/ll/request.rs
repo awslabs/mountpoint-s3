@@ -559,6 +559,10 @@ mod op {
         pub fn flags(&self) -> i32 {
             self.arg.flags
         }
+        #[allow(dead_code)]
+        pub fn reply(&self, fh: FileHandle, flags: u32) -> Response {
+            Response::new_open(fh, flags)
+        }
     }
 
     #[derive(Debug)]

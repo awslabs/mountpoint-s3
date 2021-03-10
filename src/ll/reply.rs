@@ -1,7 +1,7 @@
 use std::{convert::TryInto, io::IoSlice, mem::size_of};
 
 use super::RequestId;
-use super::{fuse_abi as abi, Errno};
+use super::{fuse_abi as abi, Errno, FileHandle};
 use smallvec::{smallvec, SmallVec};
 use zerocopy::AsBytes;
 
@@ -76,8 +76,18 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+    // TODO: Could flags be more strongly typed?
+    pub(crate) fn new_open(fh: FileHandle, flags: u32) -> Self {
+        let r = abi::fuse_open_out {
+            fh: fh.into(),
+            open_flags: flags,
+            padding: 0,
+        };
+        Self::from_struct(&r)
+    }
+
     fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
-        Self::new_data(data.as_bytes())
+        Self::Data(data.as_bytes().into())
     }
 }
 
@@ -133,6 +143,20 @@ mod test {
         ];
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
         let r = Response::new_xtimes(time, time);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
+    fn reply_open() {
+        let expected = vec![
+            0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+            0x00, 0x00, 0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        let r = Response::new_open(FileHandle(0x1122), 0x33);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
