@@ -1338,7 +1338,7 @@ impl<'a> fmt::Display for Operation<'a> {
             #[cfg(feature = "abi-7-11")]
             Operation::Poll(x) => write!(f, "POLL fh {:?}", x.file_handle()),
             #[cfg(feature = "abi-7-15")]
-            Operation::NotifyReply(x) => write!(f, "NOTIFYREPLY"),
+            Operation::NotifyReply(_x) => write!(f, "NOTIFYREPLY"),
             #[cfg(feature = "abi-7-16")]
             Operation::BatchForget(x) => write!(f, "BATCHFORGET nodes {:?}", x.nodes()),
             #[cfg(feature = "abi-7-19")]
@@ -1384,7 +1384,7 @@ impl<'a> fmt::Display for Operation<'a> {
             ),
 
             #[cfg(feature = "abi-7-12")]
-            Operation::CuseInit(x) => write!(f, "CUSE_INIT"),
+            Operation::CuseInit(_x) => write!(f, "CUSE_INIT"),
         }
     }
 }
