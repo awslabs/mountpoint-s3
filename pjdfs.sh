@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 
-set -ex
+set -eux
+
+
+if [ $TEST_TARGET == "TOKIO" ]; then
+  EXTRA_FEATURES=",async_tokio"
+  EXAMPLE_NAME="simple_async"
+elif [ $TEST_TARGET == "SYNC" ]; then
+  EXTRA_FEATURES=""
+  EXAMPLE_NAME="simple"
+else
+  echo "Invalid/unsupported test target type of $TEST_TARGET"
+  exit 1
+fi
+
+cd /code/fuser
+
+cargo build --release --examples --features $BUILD_FEATURES$EXTRA_FEATURES
+
+cp target/release/examples/$EXAMPLE_NAME /bin/fuser
+
 
 exit_handler() {
     exit "$PJDFS_EXIT_STATUS"

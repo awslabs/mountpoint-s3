@@ -22,6 +22,7 @@ cd /code/fuser
 cargo build --release --examples --features=abi-7-28
 
 cp target/release/examples/simple /bin/fuser
-
+export TEST_TARGET="$1"
+shift 
 cd /code/fuser
 exec ./xfstests.sh "$@"
