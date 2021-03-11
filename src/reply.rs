@@ -74,7 +74,7 @@ fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 
 /// Returns a fuse_attr from FileAttr
 #[cfg(target_os = "macos")]
-fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+pub(in crate) fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
     let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
     let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
     let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
@@ -107,7 +107,7 @@ fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
 
 /// Returns a fuse_attr from FileAttr
 #[cfg(not(target_os = "macos"))]
-fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+pub(in crate) fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
     let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
     let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
     let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);

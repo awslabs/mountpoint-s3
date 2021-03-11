@@ -76,68 +76,6 @@ fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
         | perm as u32
 }
 
-/// Returns a fuse_attr from FileAttr
-#[cfg(target_os = "macos")]
-fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
-    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
-    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
-    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
-    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime);
-
-    fuse_attr {
-        ino: attr.ino,
-        size: attr.size,
-        blocks: attr.blocks,
-        atime: atime_secs,
-        mtime: mtime_secs,
-        ctime: ctime_secs,
-        crtime: crtime_secs as u64,
-        atimensec: atime_nanos,
-        mtimensec: mtime_nanos,
-        ctimensec: ctime_nanos,
-        crtimensec: crtime_nanos,
-        mode: mode_from_kind_and_perm(attr.kind, attr.perm),
-        nlink: attr.nlink,
-        uid: attr.uid,
-        gid: attr.gid,
-        rdev: attr.rdev,
-        flags: attr.flags,
-        #[cfg(feature = "abi-7-9")]
-        blksize: attr.blksize,
-        #[cfg(feature = "abi-7-9")]
-        padding: attr.padding,
-    }
-}
-
-/// Returns a fuse_attr from FileAttr
-#[cfg(not(target_os = "macos"))]
-fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
-    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
-    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
-    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
-
-    fuse_attr {
-        ino: attr.ino,
-        size: attr.size,
-        blocks: attr.blocks,
-        atime: atime_secs,
-        mtime: mtime_secs,
-        ctime: ctime_secs,
-        atimensec: atime_nanos,
-        mtimensec: mtime_nanos,
-        ctimensec: ctime_nanos,
-        mode: mode_from_kind_and_perm(attr.kind, attr.perm),
-        nlink: attr.nlink,
-        uid: attr.uid,
-        gid: attr.gid,
-        rdev: attr.rdev,
-        #[cfg(feature = "abi-7-9")]
-        blksize: attr.blksize,
-        #[cfg(feature = "abi-7-9")]
-        padding: attr.padding,
-    }
-}
-
 ///
 /// Raw reply
 ///
@@ -287,7 +225,7 @@ impl ReplyEntry {
                 attr_valid: ttl.as_secs(),
                 entry_valid_nsec: ttl.subsec_nanos(),
                 attr_valid_nsec: ttl.subsec_nanos(),
-                attr: fuse_attr_from_attr(attr),
+                attr: crate::reply::fuse_attr_from_attr(attr),
             })
             .await;
     }
@@ -322,7 +260,7 @@ impl ReplyAttr {
                 attr_valid: ttl.as_secs(),
                 attr_valid_nsec: ttl.subsec_nanos(),
                 dummy: 0,
-                attr: fuse_attr_from_attr(attr),
+                attr: crate::reply::fuse_attr_from_attr(attr),
             })
             .await
     }
@@ -524,7 +462,7 @@ impl ReplyCreate {
                     attr_valid: ttl.as_secs(),
                     entry_valid_nsec: ttl.subsec_nanos(),
                     attr_valid_nsec: ttl.subsec_nanos(),
-                    attr: fuse_attr_from_attr(attr),
+                    attr: crate::reply::fuse_attr_from_attr(attr),
                 },
                 fuse_open_out {
                     fh,
@@ -744,7 +682,7 @@ impl ReplyDirectoryPlus {
                 attr_valid: ttl.as_secs(),
                 entry_valid_nsec: ttl.subsec_nanos(),
                 attr_valid_nsec: ttl.subsec_nanos(),
-                attr: fuse_attr_from_attr(attr),
+                attr: crate::reply::fuse_attr_from_attr(attr),
             },
             dirent: fuse_dirent {
                 ino,
