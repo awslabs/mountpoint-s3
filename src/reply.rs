@@ -44,7 +44,7 @@ pub trait Reply {
     fn new<S: ReplySender>(unique: u64, sender: S) -> Self;
 }
 
-fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
+pub(in crate) fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
     // Convert to signed 64-bit time with epoch at 0
     match system_time.duration_since(UNIX_EPOCH) {
         Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
@@ -59,7 +59,7 @@ fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
 // But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(trivial_numeric_casts)]
 /// Returns the mode for a given file kind and permission
-fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
+pub(in crate) fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
     (match kind {
         FileType::NamedPipe => S_IFIFO,
         FileType::CharDevice => S_IFCHR,

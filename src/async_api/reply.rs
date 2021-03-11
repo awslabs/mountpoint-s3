@@ -48,34 +48,6 @@ pub trait Reply {
     fn new(unique: u64, sender: Arc<dyn ReplySender>) -> Self;
 }
 
-fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
-    // Convert to signed 64-bit time with epoch at 0
-    match system_time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
-        Err(before_epoch_error) => (
-            -(before_epoch_error.duration().as_secs() as i64),
-            before_epoch_error.duration().subsec_nanos(),
-        ),
-    }
-}
-
-// Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
-// But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
-#[allow(trivial_numeric_casts)]
-/// Returns the mode for a given file kind and permission
-fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
-    (match kind {
-        FileType::NamedPipe => S_IFIFO,
-        FileType::CharDevice => S_IFCHR,
-        FileType::BlockDevice => S_IFBLK,
-        FileType::Directory => S_IFDIR,
-        FileType::RegularFile => S_IFREG,
-        FileType::Symlink => S_IFLNK,
-        FileType::Socket => S_IFSOCK,
-    }) as u32
-        | perm as u32
-}
-
 ///
 /// Raw reply
 ///
@@ -293,8 +265,8 @@ impl Reply for ReplyXTimes {
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
     pub async fn xtimes(self, bkuptime: SystemTime, crtime: SystemTime) {
-        let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
-        let (crtime_secs, crtime_nanos) = time_from_system_time(&crtime);
+        let (bkuptime_secs, bkuptime_nanos) = crate::reply::time_from_system_time(&bkuptime);
+        let (crtime_secs, crtime_nanos) = crate::reply::time_from_system_time(&crtime);
         self.reply
             .ok(&fuse_getxtimes_out {
                 bkuptime: bkuptime_secs as u64,
@@ -617,7 +589,7 @@ impl ReplyDirectory {
             ino,
             off: offset,
             namelen: name.len().try_into().expect("Name too long"),
-            typ: mode_from_kind_and_perm(kind, 0) >> 12,
+            typ: crate::reply::mode_from_kind_and_perm(kind, 0) >> 12,
         };
         self.data.extend_from_slice(header.as_bytes());
         self.data.extend_from_slice(name);
@@ -688,7 +660,7 @@ impl ReplyDirectoryPlus {
                 ino,
                 off: offset,
                 namelen: name.len().try_into().expect("Name too long"),
-                typ: mode_from_kind_and_perm(attr.kind, 0) >> 12,
+                typ: crate::reply::mode_from_kind_and_perm(attr.kind, 0) >> 12,
             },
         };
         self.data.extend_from_slice(direntplus.as_bytes());
