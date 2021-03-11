@@ -709,7 +709,7 @@ impl Reply for ReplyLseek {
 impl ReplyLseek {
     /// Reply to a request with seeked offset
     pub fn offset(self, offset: i64) {
-        self.reply.ok(&fuse_lseek_out { offset });
+        self.reply.send_ll(&ll::Response::new_lseek(offset))
     }
 
     /// Reply to a request with the given error code

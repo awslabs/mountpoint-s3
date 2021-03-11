@@ -1327,6 +1327,10 @@ mod op {
         pub fn whence(&self) -> i32 {
             self.arg.whence
         }
+        #[allow(dead_code)]
+        pub fn reply(&self, offset: i64) -> Response {
+            Response::new_lseek(offset)
+        }
     }
     #[derive(Debug, Clone, Copy)]
     pub struct CopyFileRangeFile {

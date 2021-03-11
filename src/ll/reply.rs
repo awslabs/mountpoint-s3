@@ -166,6 +166,10 @@ impl Response {
         let r = abi::fuse_getxattr_out { size, padding: 0 };
         Self::from_struct(&r)
     }
+    pub(crate) fn new_lseek(offset: i64) -> Self {
+        let r = abi::fuse_lseek_out { offset };
+        Self::from_struct(&r)
+    }
 
     fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
         Self::Data(data.as_bytes().into())
