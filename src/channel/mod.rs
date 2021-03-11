@@ -133,31 +133,32 @@ impl ReplySender for ChannelSender {
 }
 
 #[cfg(not(feature = "libfuse3"))]
-#[cfg(any(
-    target_os = "macos",
-    target_os = "freebsd",
-    target_os = "dragonfly",
-    target_os = "openbsd",
-    target_os = "bitrig",
-    target_os = "netbsd"
-))]
 #[inline]
-fn libc_umount(mnt: &CStr) -> c_int {
-    unsafe { libc::unmount(mnt.as_ptr(), 0) }
-}
+fn libc_umount(mnt: &CStr) -> std::io::Result<()> {
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "bitrig",
+        target_os = "netbsd"
+    ))]
+    let r = unsafe { libc::unmount(mnt.as_ptr(), 0) };
 
-#[cfg(not(feature = "libfuse3"))]
-#[cfg(not(any(
-    target_os = "macos",
-    target_os = "freebsd",
-    target_os = "dragonfly",
-    target_os = "openbsd",
-    target_os = "bitrig",
-    target_os = "netbsd"
-)))]
-#[inline]
-fn libc_umount(mnt: &CStr) -> c_int {
-    unsafe { libc::umount(mnt.as_ptr()) }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "bitrig",
+        target_os = "netbsd"
+    )))]
+    let r = unsafe { libc::umount(mnt.as_ptr()) };
+    if r < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 /// Warning: This will return true if the filesystem has been detached (lazy unmounted), but not

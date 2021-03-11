@@ -1,4 +1,5 @@
 use fuse2_sys::*;
+use log::warn;
 use std::{fs::File, os::unix::prelude::FromRawFd};
 
 use super::*;
@@ -30,21 +31,24 @@ impl Drop for Mount {
         // no indication of the error available to the caller. So we call unmount
         // directly, which is what osxfuse does anyway, since we already converted
         // to the real path when we first mounted.
-        let rc = super::libc_umount(&self.mountpoint);
-        if rc < 0 && io::Error::last_os_error().kind() == PermissionDenied {
+        if let Err(err) = super::libc_umount(&self.mountpoint) {
             // Linux always returns EPERM for non-root users.  We have to let the
             // library go through the setuid-root "fusermount -u" to unmount.
-            #[cfg(not(any(
-                target_os = "macos",
-                target_os = "freebsd",
-                target_os = "dragonfly",
-                target_os = "openbsd",
-                target_os = "bitrig",
-                target_os = "netbsd"
-            )))]
-            unsafe {
-                fuse_unmount_compat22(self.mountpoint.as_ptr());
+            if err.kind() == PermissionDenied {
+                #[cfg(not(any(
+                    target_os = "macos",
+                    target_os = "freebsd",
+                    target_os = "dragonfly",
+                    target_os = "openbsd",
+                    target_os = "bitrig",
+                    target_os = "netbsd"
+                )))]
+                unsafe {
+                    fuse_unmount_compat22(self.mountpoint.as_ptr());
+                    return;
+                }
             }
+            warn!("umount failed with {:?}", err);
         }
     }
 }
