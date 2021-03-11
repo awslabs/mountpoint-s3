@@ -128,6 +128,13 @@ impl Response {
         let r = abi::fuse_bmap_out { block };
         Self::from_struct(&r)
     }
+    pub(crate) fn new_write(written: u32) -> Self {
+        let r = abi::fuse_write_out {
+            size: written,
+            padding: 0,
+        };
+        Self::from_struct(&r)
+    }
     pub(crate) fn new_xattr_size(size: u32) -> Self {
         let r = abi::fuse_getxattr_out { size, padding: 0 };
         Self::from_struct(&r)
@@ -349,6 +356,19 @@ mod test {
             0x00, 0x00, 0x00, 0x00,
         ];
         let r = Response::new_open(FileHandle(0x1122), 0x33);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
+    fn reply_write() {
+        let expected = vec![
+            0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+            0x00, 0x00, 0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let r = Response::new_write(0x1122);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected

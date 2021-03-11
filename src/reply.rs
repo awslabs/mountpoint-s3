@@ -340,7 +340,7 @@ impl Reply for ReplyWrite {
 impl ReplyWrite {
     /// Reply to a request with the given open result
     pub fn written(self, size: u32) {
-        self.reply.ok(&fuse_write_out { size, padding: 0 });
+        self.reply.send_ll(&ll::Response::new_write(size))
     }
 
     /// Reply to a request with the given error code

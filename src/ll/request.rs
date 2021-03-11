@@ -707,6 +707,10 @@ mod op {
             #[cfg(not(feature = "abi-7-9"))]
             0
         }
+        #[allow(dead_code)]
+        pub fn reply(&self, written: u32) -> Response {
+            Response::new_write(written)
+        }
     }
     #[derive(Debug)]
     pub struct StatFs<'a> {
