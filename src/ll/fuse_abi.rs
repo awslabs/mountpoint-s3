@@ -80,7 +80,7 @@ pub const FUSE_KERNEL_MINOR_VERSION: u32 = 31;
 pub const FUSE_ROOT_ID: u64 = 1;
 
 #[repr(C)]
-#[derive(Debug, AsBytes)]
+#[derive(Debug, AsBytes, Clone, Copy)]
 pub struct fuse_attr {
     pub ino: u64,
     pub size: u64,

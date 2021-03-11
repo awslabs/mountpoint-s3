@@ -214,7 +214,7 @@ mod op {
     use crate::ll::{Errno, Response};
 
     use super::{
-        super::{argument::ArgumentIterator, TimeOrNow},
+        super::{argument::ArgumentIterator, reply::Attr, Generation, TimeOrNow},
         Request,
     };
     use super::{
@@ -238,6 +238,17 @@ mod op {
     impl<'a> Lookup<'a> {
         pub fn name(&self) -> &'a OsStr {
             self.name
+        }
+        #[allow(dead_code)]
+        pub fn reply(
+            &self,
+            ino: INodeNo,
+            generation: Generation,
+            attr: &Attr,
+            attr_timeout: Duration,
+            entry_timeout: Duration,
+        ) -> Response {
+            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
     #[derive(Debug)]
@@ -422,6 +433,17 @@ mod op {
         pub fn link(&self) -> &'a OsStr {
             self.link
         }
+        #[allow(dead_code)]
+        pub fn reply(
+            &self,
+            ino: INodeNo,
+            generation: Generation,
+            attr: &Attr,
+            attr_timeout: Duration,
+            entry_timeout: Duration,
+        ) -> Response {
+            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
+        }
     }
     #[derive(Debug)]
     pub struct MkNod<'a> {
@@ -446,6 +468,17 @@ mod op {
         pub fn rdev(&self) -> u32 {
             self.arg.rdev
         }
+        #[allow(dead_code)]
+        pub fn reply(
+            &self,
+            ino: INodeNo,
+            generation: Generation,
+            attr: &Attr,
+            attr_timeout: Duration,
+            entry_timeout: Duration,
+        ) -> Response {
+            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
+        }
     }
     #[derive(Debug)]
     pub struct MkDir<'a> {
@@ -466,6 +499,17 @@ mod op {
             return 0;
             #[cfg(feature = "abi-7-12")]
             self.arg.umask
+        }
+        #[allow(dead_code)]
+        pub fn reply(
+            &self,
+            ino: INodeNo,
+            generation: Generation,
+            attr: &Attr,
+            attr_timeout: Duration,
+            entry_timeout: Duration,
+        ) -> Response {
+            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
     #[derive(Debug)]
@@ -548,6 +592,17 @@ mod op {
                 dir: self.nodeid(),
                 name: self.name,
             }
+        }
+        #[allow(dead_code)]
+        pub fn reply(
+            &self,
+            ino: INodeNo,
+            generation: Generation,
+            attr: &Attr,
+            attr_timeout: Duration,
+            entry_timeout: Duration,
+        ) -> Response {
+            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
 

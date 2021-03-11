@@ -2,14 +2,14 @@
 
 mod argument;
 pub mod fuse_abi;
-mod reply;
+pub(crate) mod reply;
 mod request;
 
 use std::{convert::TryInto, num::NonZeroI32, time::SystemTime};
 
 pub use reply::Response;
 pub use request::{
-    AnyRequest, FileHandle, Lock, Operation, Request, RequestError, RequestId, Version,
+    AnyRequest, FileHandle, INodeNo, Lock, Operation, Request, RequestError, RequestId, Version,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -49,6 +49,21 @@ impl From<std::io::ErrorKind> for Errno {
 impl From<Errno> for i32 {
     fn from(x: Errno) -> Self {
         x.0.into()
+    }
+}
+
+/// A newtype for generation numbers
+///
+/// If the file system will be exported over NFS, the (ino, generation) pairs
+/// need to be unique over the file system's lifetime (rather than just the
+/// mount time). So if the file system reuses an inode after it has been
+/// deleted, it must assign a new, previously unused generation number to the
+/// inode at the same time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Generation(pub u64);
+impl From<Generation> for u64 {
+    fn from(fh: Generation) -> Self {
+        fh.0
     }
 }
 

@@ -6,15 +6,18 @@
 //! data without cloning the data. A reply *must always* be used (by calling either ok() or
 //! error() exactly once).
 
-use crate::ll;
 #[cfg(target_os = "macos")]
 use crate::ll::fuse_abi::fuse_getxtimes_out;
 use crate::ll::fuse_abi::{
-    fuse_attr, fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus,
-    fuse_entry_out, fuse_getxattr_out, fuse_ioctl_out, fuse_kstatfs, fuse_lk_out, fuse_lseek_out,
-    fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
+    fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus, fuse_entry_out,
+    fuse_getxattr_out, fuse_ioctl_out, fuse_kstatfs, fuse_lk_out, fuse_lseek_out, fuse_open_out,
+    fuse_out_header, fuse_statfs_out, fuse_write_out,
 };
-use libc::{c_int, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO, S_IFLNK, S_IFREG, S_IFSOCK};
+use crate::ll::{
+    self,
+    reply::{fuse_attr_from_attr, mode_from_kind_and_perm},
+};
+use libc::c_int;
 use log::{error, warn};
 use smallvec::{smallvec, SmallVec};
 use std::convert::{AsRef, TryInto};
@@ -24,8 +27,11 @@ use std::io::IoSlice;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use zerocopy::AsBytes;
+
+#[cfg(target_os = "macos")]
+use std::time::SystemTime;
 
 use crate::{FileAttr, FileType};
 
@@ -45,96 +51,6 @@ impl fmt::Debug for Box<dyn ReplySender> {
 pub trait Reply {
     /// Create a new reply for the given request
     fn new<S: ReplySender>(unique: u64, sender: S) -> Self;
-}
-
-fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
-    // Convert to signed 64-bit time with epoch at 0
-    match system_time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
-        Err(before_epoch_error) => (
-            -(before_epoch_error.duration().as_secs() as i64),
-            before_epoch_error.duration().subsec_nanos(),
-        ),
-    }
-}
-
-// Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
-// But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
-#[allow(trivial_numeric_casts)]
-/// Returns the mode for a given file kind and permission
-fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
-    (match kind {
-        FileType::NamedPipe => S_IFIFO,
-        FileType::CharDevice => S_IFCHR,
-        FileType::BlockDevice => S_IFBLK,
-        FileType::Directory => S_IFDIR,
-        FileType::RegularFile => S_IFREG,
-        FileType::Symlink => S_IFLNK,
-        FileType::Socket => S_IFSOCK,
-    }) as u32
-        | perm as u32
-}
-
-/// Returns a fuse_attr from FileAttr
-#[cfg(target_os = "macos")]
-fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
-    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
-    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
-    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
-    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime);
-
-    fuse_attr {
-        ino: attr.ino,
-        size: attr.size,
-        blocks: attr.blocks,
-        atime: atime_secs,
-        mtime: mtime_secs,
-        ctime: ctime_secs,
-        crtime: crtime_secs as u64,
-        atimensec: atime_nanos,
-        mtimensec: mtime_nanos,
-        ctimensec: ctime_nanos,
-        crtimensec: crtime_nanos,
-        mode: mode_from_kind_and_perm(attr.kind, attr.perm),
-        nlink: attr.nlink,
-        uid: attr.uid,
-        gid: attr.gid,
-        rdev: attr.rdev,
-        flags: attr.flags,
-        #[cfg(feature = "abi-7-9")]
-        blksize: attr.blksize,
-        #[cfg(feature = "abi-7-9")]
-        padding: attr.padding,
-    }
-}
-
-/// Returns a fuse_attr from FileAttr
-#[cfg(not(target_os = "macos"))]
-fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
-    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
-    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
-    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
-
-    fuse_attr {
-        ino: attr.ino,
-        size: attr.size,
-        blocks: attr.blocks,
-        atime: atime_secs,
-        mtime: mtime_secs,
-        ctime: ctime_secs,
-        atimensec: atime_nanos,
-        mtimensec: mtime_nanos,
-        ctimensec: ctime_nanos,
-        mode: mode_from_kind_and_perm(attr.kind, attr.perm),
-        nlink: attr.nlink,
-        uid: attr.uid,
-        gid: attr.gid,
-        rdev: attr.rdev,
-        #[cfg(feature = "abi-7-9")]
-        blksize: attr.blksize,
-        #[cfg(feature = "abi-7-9")]
-        padding: attr.padding,
-    }
 }
 
 ///
@@ -296,15 +212,13 @@ impl Reply for ReplyEntry {
 impl ReplyEntry {
     /// Reply to a request with the given entry
     pub fn entry(self, ttl: &Duration, attr: &FileAttr, generation: u64) {
-        self.reply.ok(&fuse_entry_out {
-            nodeid: attr.ino,
-            generation,
-            entry_valid: ttl.as_secs(),
-            attr_valid: ttl.as_secs(),
-            entry_valid_nsec: ttl.subsec_nanos(),
-            attr_valid_nsec: ttl.subsec_nanos(),
-            attr: fuse_attr_from_attr(attr),
-        });
+        self.reply.send_ll(&ll::Response::new_entry(
+            ll::INodeNo(attr.ino),
+            ll::Generation(generation),
+            &attr.into(),
+            *ttl,
+            *ttl,
+        ));
     }
 
     /// Reply to a request with the given error code

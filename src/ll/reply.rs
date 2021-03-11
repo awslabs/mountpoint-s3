@@ -1,6 +1,13 @@
-use std::{convert::TryInto, io::IoSlice, mem::size_of};
+use std::{
+    convert::TryInto,
+    io::IoSlice,
+    mem::size_of,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use super::{fuse_abi as abi, Errno, FileHandle};
+use crate::FileType;
+
+use super::{fuse_abi as abi, Errno, FileHandle, Generation, INodeNo};
 use super::{Lock, RequestId};
 use smallvec::{smallvec, SmallVec};
 use zerocopy::AsBytes;
@@ -64,6 +71,24 @@ impl Response {
             data.into().into()
         })
     }
+    pub(crate) fn new_entry(
+        ino: INodeNo,
+        generation: Generation,
+        attr: &Attr,
+        attr_ttl: Duration,
+        entry_ttl: Duration,
+    ) -> Self {
+        let d = abi::fuse_entry_out {
+            nodeid: ino.into(),
+            generation: generation.into(),
+            entry_valid: entry_ttl.as_secs(),
+            attr_valid: attr_ttl.as_secs(),
+            entry_valid_nsec: entry_ttl.subsec_nanos(),
+            attr_valid_nsec: attr_ttl.subsec_nanos(),
+            attr: attr.attr,
+        };
+        Self::from_struct(d.as_bytes())
+    }
     #[cfg(target_os = "macos")]
     pub(crate) fn new_xtimes(bkuptime: SystemTime, crtime: SystemTime) -> Self {
         let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
@@ -110,6 +135,88 @@ impl Response {
     }
 }
 
+pub(crate) fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
+    // Convert to signed 64-bit time with epoch at 0
+    match system_time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
+        Err(before_epoch_error) => (
+            -(before_epoch_error.duration().as_secs() as i64),
+            before_epoch_error.duration().subsec_nanos(),
+        ),
+    }
+}
+// Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
+// But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
+#[allow(trivial_numeric_casts)]
+/// Returns the mode for a given file kind and permission
+pub(crate) fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
+    (match kind {
+        FileType::NamedPipe => libc::S_IFIFO,
+        FileType::CharDevice => libc::S_IFCHR,
+        FileType::BlockDevice => libc::S_IFBLK,
+        FileType::Directory => libc::S_IFDIR,
+        FileType::RegularFile => libc::S_IFREG,
+        FileType::Symlink => libc::S_IFLNK,
+        FileType::Socket => libc::S_IFSOCK,
+    }) as u32
+        | perm as u32
+}
+/// Returns a fuse_attr from FileAttr
+pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
+    let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
+    let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
+    let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
+    #[cfg(target_os = "macos")]
+    let (crtime_secs, crtime_nanos) = time_from_system_time(&attr.crtime);
+
+    abi::fuse_attr {
+        ino: attr.ino,
+        size: attr.size,
+        blocks: attr.blocks,
+        atime: atime_secs,
+        mtime: mtime_secs,
+        ctime: ctime_secs,
+        #[cfg(target_os = "macos")]
+        crtime: crtime_secs as u64,
+        atimensec: atime_nanos,
+        mtimensec: mtime_nanos,
+        ctimensec: ctime_nanos,
+        #[cfg(target_os = "macos")]
+        crtimensec: crtime_nanos,
+        mode: mode_from_kind_and_perm(attr.kind, attr.perm),
+        nlink: attr.nlink,
+        uid: attr.uid,
+        gid: attr.gid,
+        rdev: attr.rdev,
+        #[cfg(target_os = "macos")]
+        flags: attr.flags,
+        #[cfg(feature = "abi-7-9")]
+        blksize: attr.blksize,
+        #[cfg(feature = "abi-7-9")]
+        padding: attr.padding,
+    }
+}
+
+// TODO: Add methods for creating this without making a `FileAttr` first.
+#[derive(Debug, Clone, Copy)]
+pub struct Attr {
+    pub(crate) attr: abi::fuse_attr,
+}
+impl From<&crate::FileAttr> for Attr {
+    fn from(attr: &crate::FileAttr) -> Self {
+        Self {
+            attr: fuse_attr_from_attr(attr),
+        }
+    }
+}
+impl From<crate::FileAttr> for Attr {
+    fn from(attr: crate::FileAttr) -> Self {
+        Self {
+            attr: fuse_attr_from_attr(&attr),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::num::NonZeroI32;
@@ -149,6 +256,69 @@ mod test {
                 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
                 0x00, 0x00, 0xde, 0xad, 0xbe, 0xef,
             ],
+        );
+    }
+
+    #[test]
+    fn reply_entry() {
+        let mut expected = if cfg!(target_os = "macos") {
+            vec![
+                0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+                0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x65, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x65, 0x87,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00,
+                0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56,
+                0x00, 0x00, 0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00,
+                0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00, 0x00,
+            ]
+        } else {
+            vec![
+                0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+                0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x65, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x65, 0x87,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00,
+                0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
+                0x78, 0x56, 0x00, 0x00, 0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00, 0x66, 0x00,
+                0x00, 0x00, 0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00,
+            ]
+        };
+
+        if cfg!(feature = "abi-7-9") {
+            expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00]);
+        }
+        expected[0] = (expected.len()) as u8;
+
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
+        let ttl = Duration::new(0x8765, 0x4321);
+        let attr = crate::FileAttr {
+            ino: 0x11,
+            size: 0x22,
+            blocks: 0x33,
+            atime: time,
+            mtime: time,
+            ctime: time,
+            crtime: time,
+            kind: FileType::RegularFile,
+            perm: 0o644,
+            nlink: 0x55,
+            uid: 0x66,
+            gid: 0x77,
+            rdev: 0x88,
+            flags: 0x99,
+            blksize: 0xbb,
+            padding: 0xcc,
+        };
+        let r = Response::new_entry(INodeNo(0x11), Generation(0xaa), &attr.into(), ttl, ttl);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
         );
     }
 
