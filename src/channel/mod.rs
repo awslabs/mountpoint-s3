@@ -195,7 +195,10 @@ fn is_mounted(fuse_device: &File) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::ffi::{CStr, OsStr};
+    use std::{
+        ffi::{CStr, OsStr},
+        mem::ManuallyDrop,
+    };
 
     #[test]
     fn fuse_args() {
@@ -231,7 +234,10 @@ mod test {
 
     #[test]
     fn mount_unmount() {
-        let tmp = tempfile::tempdir().unwrap();
+        // We use ManuallyDrop here to leak the directory on test failure.  We don't
+        // want to try and clean up the directory if it's a mountpoint otherwise we'll
+        // deadlock.
+        let tmp = ManuallyDrop::new(tempfile::tempdir().unwrap());
         let (file, mount) = Mount::new(&tmp.path(), &[]).unwrap();
         let mnt = cmd_mount();
         eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
@@ -240,7 +246,15 @@ mod test {
         drop(mount);
         let mnt = cmd_mount();
         eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
-        assert!(!mnt.contains(&*tmp.path().to_string_lossy()));
+
+        let detached = !mnt.contains(&*tmp.path().to_string_lossy());
+        assert!(detached);
+
+        if detached {
+            // We've detached successfully, it's safe to clean up:
+            std::mem::ManuallyDrop::<_>::into_inner(tmp);
+        }
+
         // Filesystem may have been lazy unmounted, so we can't assert this:
         // assert!(!is_mounted(&file));
     }
