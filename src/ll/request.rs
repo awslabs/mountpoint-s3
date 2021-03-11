@@ -262,6 +262,11 @@ mod op {
         pub fn nlookup(&self) -> u64 {
             self.arg.nlookup
         }
+        #[allow(dead_code)]
+        pub fn reply(self) -> Response {
+            // No Reply
+            Response::new_no_reply()
+        }
     }
     #[derive(Debug)]
     pub struct GetAttr<'a> {
@@ -1192,6 +1197,11 @@ mod op {
         /// TODO: Don't return fuse_forget_one, this should be private
         pub fn nodes(&self) -> &'a [fuse_forget_one] {
             self.nodes
+        }
+        #[allow(dead_code)]
+        pub fn reply(self) -> Response {
+            // No Reply
+            Response::new_no_reply()
         }
     }
 

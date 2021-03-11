@@ -58,6 +58,9 @@ impl Response {
     }
 
     // Constructors
+    pub(crate) fn new_no_reply() -> Self {
+        Self::NoReply
+    }
     pub(crate) fn new_empty() -> Self {
         Self::Error(0)
     }
