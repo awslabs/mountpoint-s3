@@ -10,8 +10,8 @@
 use crate::ll::fuse_abi::fuse_getxtimes_out;
 use crate::ll::fuse_abi::{
     fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus, fuse_entry_out,
-    fuse_getxattr_out, fuse_ioctl_out, fuse_kstatfs, fuse_lk_out, fuse_lseek_out, fuse_open_out,
-    fuse_out_header, fuse_statfs_out, fuse_write_out,
+    fuse_getxattr_out, fuse_ioctl_out, fuse_lk_out, fuse_lseek_out, fuse_open_out, fuse_out_header,
+    fuse_statfs_out, fuse_write_out,
 };
 use crate::ll::{
     self,
@@ -379,20 +379,9 @@ impl ReplyStatfs {
         namelen: u32,
         frsize: u32,
     ) {
-        self.reply.ok(&fuse_statfs_out {
-            st: fuse_kstatfs {
-                blocks,
-                bfree,
-                bavail,
-                files,
-                ffree,
-                bsize,
-                namelen,
-                frsize,
-                padding: 0,
-                spare: [0; 6],
-            },
-        });
+        self.reply.send_ll(&ll::Response::new_statfs(
+            blocks, bfree, bavail, files, ffree, bsize, namelen, frsize,
+        ))
     }
 
     /// Reply to a request with the given error code

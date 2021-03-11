@@ -717,6 +717,22 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(StatFs<'_>);
+    impl<'a> StatFs<'a> {
+        #[allow(dead_code, clippy::too_many_arguments)]
+        pub fn reply(
+            &self,
+            blocks: u64,
+            bfree: u64,
+            bavail: u64,
+            files: u64,
+            ffree: u64,
+            bsize: u32,
+            namelen: u32,
+            frsize: u32,
+        ) -> Response {
+            Response::new_statfs(blocks, bfree, bavail, files, ffree, bsize, namelen, frsize)
+        }
+    }
 
     #[derive(Debug)]
     pub struct Release<'a> {
