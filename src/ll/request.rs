@@ -211,6 +211,9 @@ macro_rules! impl_request {
 }
 
 mod op {
+    #[cfg(feature = "abi-7-21")]
+    use super::super::reply::{DirEntPlusList, DirEntryPlus};
+
     use crate::ll::{
         reply::{DirEntList, DirEntry},
         Errno, Response,
@@ -1344,6 +1347,37 @@ mod op {
         }
         pub fn size(&self) -> u32 {
             self.arg.size
+        }
+
+        /// Reply pulling directory entries from this iterator.  It will pull until the iterator is
+        /// exhausted or our internal buffer becomes full. This method takes a `Peekable` as it
+        /// needs to "look ahead" to tell if the next entry will fit in the buffer.
+        #[allow(dead_code)]
+        pub fn reply<It: Iterator<Item = DirEntryPlus<T>>, T: AsRef<Path>>(
+            &self,
+            it: &mut Peekable<It>,
+        ) -> Response {
+            let mut l = DirEntPlusList::new(self.size() as usize);
+            l.extend(it);
+            l.into()
+        }
+        /// Creates a builder to reply to this request. This provides more flexibility than
+        /// `reply()` at the cost of a slightly more verbose and harder to use interface.
+        ///
+        /// ```ignore
+        /// fn my_handler(req: &ReadDir) -> Response {
+        ///     let b = req.reply_builder();
+        ///     for i in 0..1000 {
+        ///         if b.push(DirEntry::format!("file-{}", i)) {
+        ///             break
+        ///         }
+        ///     }
+        ///     req.into()
+        /// }
+        /// ```
+        #[allow(dead_code)]
+        pub fn reply_builder(&self) -> DirEntPlusList {
+            DirEntPlusList::new(self.size() as usize)
         }
     }
     #[cfg(feature = "abi-7-23")]

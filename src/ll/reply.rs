@@ -216,7 +216,7 @@ impl Response {
         }
         Self::Data(v)
     }
-    pub(crate) fn new_directory(list: DirEntList) -> Self {
+    fn new_directory(list: EntListBuf) -> Self {
         assert!(list.buf.len() <= list.max_size);
         Self::Data(list.buf)
     }
@@ -316,8 +316,58 @@ impl From<crate::FileAttr> for Attr {
     }
 }
 
+#[derive(Debug)]
+struct EntListBuf {
+    max_size: usize,
+    buf: ResponseBuf,
+}
+impl EntListBuf {
+    fn new(max_size: usize) -> Self {
+        Self {
+            max_size,
+            buf: ResponseBuf::new(),
+        }
+    }
+    fn extend<T, It: Iterator<Item = T>, Push: FnMut(&T) -> bool>(
+        it: &mut Peekable<It>,
+        mut push: Push,
+    ) -> usize {
+        let mut pulled = 0;
+        while let Some(x) = it.peek() {
+            if push(x) {
+                break;
+            } else {
+                pulled += 1;
+                it.next();
+            }
+        }
+        pulled
+    }
+    /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
+    /// A transparent offset value can be provided for each entry. The kernel uses these
+    /// value to request the next entries in further readdir calls
+    #[must_use]
+    fn push(&mut self, ent: [&[u8]; 2]) -> bool {
+        let entlen = ent[0].len() + ent[1].len();
+        let entsize = (entlen + size_of::<u64>() - 1) & !(size_of::<u64>() - 1); // 64bit align
+        if self.buf.len() + entsize > self.max_size {
+            return true;
+        }
+        self.buf.extend_from_slice(ent[0]);
+        self.buf.extend_from_slice(ent[1]);
+        let padlen = entsize - entlen;
+        self.buf.extend_from_slice(&[0u8; 8][..padlen]);
+        false
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct DirEntOffset(pub i64);
+impl From<DirEntOffset> for i64 {
+    fn from(x: DirEntOffset) -> Self {
+        x.0
+    }
+}
 
 #[derive(Debug)]
 pub struct DirEntry<T: AsRef<Path>> {
@@ -338,25 +388,19 @@ impl<T: AsRef<Path>> DirEntry<T> {
     }
 }
 
-/// Used to respond to [ReadDir] requests.
+/// Used to respond to [ReadDirPlus] requests.
 #[derive(Debug)]
-pub struct DirEntList {
-    max_size: usize,
-    buf: ResponseBuf,
-}
+pub struct DirEntList(EntListBuf);
 impl From<DirEntList> for Response {
     fn from(l: DirEntList) -> Self {
-        assert!(l.buf.len() <= l.max_size);
-        Response::new_directory(l)
+        assert!(l.0.buf.len() <= l.0.max_size);
+        Response::new_directory(l.0)
     }
 }
 
 impl DirEntList {
     pub(crate) fn new(max_size: usize) -> Self {
-        Self {
-            max_size,
-            buf: ResponseBuf::new(),
-        }
+        Self(EntListBuf::new(max_size))
     }
     // TODO: What if the only entry is too big for the buffer?
     /// Add entries to the directory reply buffer from this iterator.  Returns the number of
@@ -365,21 +409,7 @@ impl DirEntList {
         &mut self,
         it: &mut Peekable<It>,
     ) -> usize {
-        let mut pulled = 0;
-        loop {
-            match it.peek() {
-                Some(x) => {
-                    if self.push(x) {
-                        break;
-                    } else {
-                        pulled += 1;
-                        it.next();
-                    }
-                }
-                None => break,
-            }
-        }
-        pulled
+        EntListBuf::extend(it, |x| self.push(x))
     }
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
@@ -387,22 +417,97 @@ impl DirEntList {
     #[must_use]
     pub fn push<T: AsRef<Path>>(&mut self, ent: &DirEntry<T>) -> bool {
         let name = ent.name.as_ref().as_os_str().as_bytes();
-        let entlen = size_of::<abi::fuse_dirent>() + name.len();
-        let entsize = (entlen + size_of::<u64>() - 1) & !(size_of::<u64>() - 1); // 64bit align
-        if self.buf.len() + entsize > self.max_size {
-            return true;
-        }
         let header = abi::fuse_dirent {
             ino: ent.ino.into(),
             off: ent.offset.0,
             namelen: name.len().try_into().expect("Name too long"),
             typ: mode_from_kind_and_perm(ent.kind, 0) >> 12,
         };
-        self.buf.extend_from_slice(header.as_bytes());
-        self.buf.extend_from_slice(name);
-        let padlen = entsize - entlen;
-        self.buf.extend_from_slice(&[0u8; 8][..padlen]);
-        false
+        self.0.push([header.as_bytes(), name])
+    }
+}
+
+#[derive(Debug)]
+pub struct DirEntryPlus<T: AsRef<Path>> {
+    ino: INodeNo,
+    generation: Generation,
+    offset: DirEntOffset,
+    name: T,
+    entry_valid: Duration,
+    attr: Attr,
+    attr_valid: Duration,
+}
+
+impl<T: AsRef<Path>> DirEntryPlus<T> {
+    pub fn new(
+        ino: INodeNo,
+        generation: Generation,
+        offset: DirEntOffset,
+        name: T,
+        entry_valid: Duration,
+        attr: Attr,
+        attr_valid: Duration,
+    ) -> Self {
+        Self {
+            ino,
+            generation,
+            offset,
+            name,
+            entry_valid,
+            attr,
+            attr_valid,
+        }
+    }
+}
+
+/// Used to respond to [ReadDir] requests.
+#[derive(Debug)]
+pub struct DirEntPlusList(EntListBuf);
+impl From<DirEntPlusList> for Response {
+    fn from(l: DirEntPlusList) -> Self {
+        assert!(l.0.buf.len() <= l.0.max_size);
+        Response::new_directory(l.0)
+    }
+}
+
+impl DirEntPlusList {
+    pub(crate) fn new(max_size: usize) -> Self {
+        Self(EntListBuf::new(max_size))
+    }
+    // TODO: What if the only entry is too big for the buffer?
+    /// Add entries to the directory reply buffer from this iterator.  Returns the number of
+    /// entries it pulled.
+    #[allow(dead_code)]
+    pub fn extend<It: Iterator<Item = DirEntryPlus<T>>, T: AsRef<Path>>(
+        &mut self,
+        it: &mut Peekable<It>,
+    ) -> usize {
+        EntListBuf::extend(it, |x| self.push(x))
+    }
+    /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
+    /// A transparent offset value can be provided for each entry. The kernel uses these
+    /// value to request the next entries in further readdir calls
+    #[must_use]
+    pub fn push<T: AsRef<Path>>(&mut self, x: &DirEntryPlus<T>) -> bool {
+        let name = x.name.as_ref().as_os_str().as_bytes();
+        let header = abi::fuse_direntplus {
+            entry_out: abi::fuse_entry_out {
+                nodeid: x.attr.attr.ino,
+                generation: x.generation.into(),
+                entry_valid: x.entry_valid.as_secs(),
+                attr_valid: x.attr_valid.as_secs(),
+                entry_valid_nsec: x.entry_valid.subsec_nanos(),
+                attr_valid_nsec: x.attr_valid.subsec_nanos(),
+                attr: x.attr.attr,
+            },
+            dirent: abi::fuse_dirent {
+                ino: x.attr.attr.ino,
+                off: x.offset.into(),
+                namelen: name.len().try_into().expect("Name too long"),
+                typ: x.attr.attr.mode >> 12,
+            },
+        };
+        self.0.push([header.as_bytes(), name])
     }
 }
 

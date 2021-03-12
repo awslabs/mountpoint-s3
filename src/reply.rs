@@ -10,13 +10,14 @@
 use crate::ll::fuse_abi::fuse_getxtimes_out;
 use crate::ll::{
     self,
-    reply::{fuse_attr_from_attr, mode_from_kind_and_perm},
+    reply::{DirEntPlusList, DirEntryPlus},
+    Generation,
 };
 use crate::ll::{
     fuse_abi::{
-        fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus,
-        fuse_entry_out, fuse_getxattr_out, fuse_ioctl_out, fuse_lk_out, fuse_lseek_out,
-        fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
+        fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_entry_out, fuse_getxattr_out,
+        fuse_ioctl_out, fuse_lk_out, fuse_lseek_out, fuse_open_out, fuse_out_header,
+        fuse_statfs_out, fuse_write_out,
     },
     reply::{DirEntList, DirEntOffset, DirEntry},
     INodeNo,
@@ -30,7 +31,6 @@ use std::fmt;
 use std::io::IoSlice;
 use std::marker::PhantomData;
 use std::mem;
-use std::os::unix::ffi::OsStrExt;
 use std::time::Duration;
 use zerocopy::AsBytes;
 
@@ -562,7 +562,7 @@ impl ReplyDirectory {
 #[derive(Debug)]
 pub struct ReplyDirectoryPlus {
     reply: ReplyRaw<()>,
-    data: Vec<u8>,
+    buf: DirEntPlusList,
 }
 
 impl ReplyDirectoryPlus {
@@ -570,7 +570,7 @@ impl ReplyDirectoryPlus {
     pub fn new<S: ReplySender>(unique: u64, sender: S, size: usize) -> ReplyDirectoryPlus {
         ReplyDirectoryPlus {
             reply: Reply::new(unique, sender),
-            data: Vec::with_capacity(size),
+            buf: DirEntPlusList::new(size),
         }
     }
 
@@ -586,39 +586,21 @@ impl ReplyDirectoryPlus {
         attr: &FileAttr,
         generation: u64,
     ) -> bool {
-        let name = name.as_ref().as_bytes();
-        let entlen = mem::size_of::<fuse_direntplus>() + name.len();
-        let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
-        let padlen = entsize - entlen;
-        if self.data.len() + entsize > self.data.capacity() {
-            return true;
-        }
-        let direntplus = fuse_direntplus {
-            entry_out: fuse_entry_out {
-                nodeid: attr.ino,
-                generation,
-                entry_valid: ttl.as_secs(),
-                attr_valid: ttl.as_secs(),
-                entry_valid_nsec: ttl.subsec_nanos(),
-                attr_valid_nsec: ttl.subsec_nanos(),
-                attr: fuse_attr_from_attr(attr),
-            },
-            dirent: fuse_dirent {
-                ino,
-                off: offset,
-                namelen: name.len().try_into().expect("Name too long"),
-                typ: mode_from_kind_and_perm(attr.kind, 0) >> 12,
-            },
-        };
-        self.data.extend_from_slice(direntplus.as_bytes());
-        self.data.extend_from_slice(name);
-        self.data.extend_from_slice(&b"\0\0\0\0\0\0\0\0"[..padlen]);
-        false
+        let name = name.as_ref();
+        self.buf.push(&DirEntryPlus::new(
+            INodeNo(ino),
+            Generation(generation),
+            DirEntOffset(offset),
+            name,
+            *ttl,
+            attr.into(),
+            *ttl,
+        ))
     }
 
     /// Reply to a request with the filled directory buffer
-    pub fn ok(mut self) {
-        self.reply.send(0, &[&self.data]);
+    pub fn ok(self) {
+        self.reply.send_ll(&self.buf.into());
     }
 
     /// Reply to a request with the given error code
