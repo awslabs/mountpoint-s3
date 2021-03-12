@@ -273,6 +273,12 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(GetAttr<'_>);
+    impl<'a> GetAttr<'a> {
+        #[allow(dead_code)]
+        pub fn reply(self, ttl: &Duration, attr: &Attr) -> Response {
+            Response::new_attr(ttl, attr)
+        }
+    }
 
     #[derive(Debug)]
     pub struct SetAttr<'a> {
@@ -388,6 +394,12 @@ mod op {
             }
             #[cfg(not(target_os = "macos"))]
             None
+        }
+
+        // TODO: Why does *set*attr want to have an attr response?
+        #[allow(dead_code)]
+        pub fn reply(self, ttl: &Duration, attr: &Attr) -> Response {
+            Response::new_attr(ttl, attr)
         }
     }
     impl<'a> Display for SetAttr<'a> {

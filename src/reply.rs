@@ -246,12 +246,8 @@ impl Reply for ReplyAttr {
 impl ReplyAttr {
     /// Reply to a request with the given attribute
     pub fn attr(self, ttl: &Duration, attr: &FileAttr) {
-        self.reply.ok(&fuse_attr_out {
-            attr_valid: ttl.as_secs(),
-            attr_valid_nsec: ttl.subsec_nanos(),
-            dummy: 0,
-            attr: fuse_attr_from_attr(attr),
-        });
+        self.reply
+            .send_ll(&ll::Response::new_attr(ttl, &attr.into()));
     }
 
     /// Reply to a request with the given error code
