@@ -244,8 +244,8 @@ mod op {
         name: &'a OsStr,
     }
     impl<'a> Lookup<'a> {
-        pub fn name(&self) -> &'a OsStr {
-            self.name
+        pub fn name(&self) -> &'a Path {
+            self.name.as_ref()
         }
         #[allow(dead_code)]
         pub fn reply(
@@ -447,15 +447,15 @@ mod op {
     #[derive(Debug)]
     pub struct SymLink<'a> {
         header: &'a fuse_in_header,
-        target: &'a OsStr,
-        link: &'a OsStr,
+        target: &'a Path,
+        link: &'a Path,
     }
     impl_request!(SymLink<'_>);
     impl<'a> SymLink<'a> {
-        pub fn target(&self) -> &'a OsStr {
+        pub fn target(&self) -> &'a Path {
             self.target
         }
-        pub fn link(&self) -> &'a OsStr {
+        pub fn link(&self) -> &'a Path {
             self.link
         }
         #[allow(dead_code)]
@@ -474,11 +474,11 @@ mod op {
     pub struct MkNod<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_mknod_in,
-        name: &'a OsStr,
+        name: &'a Path,
     }
     impl_request!(MkNod<'_>);
     impl<'a> MkNod<'a> {
-        pub fn name(&self) -> &'a OsStr {
+        pub fn name(&self) -> &'a Path {
             self.name
         }
         pub fn mode(&self) -> u32 {
@@ -509,11 +509,11 @@ mod op {
     pub struct MkDir<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_mkdir_in,
-        name: &'a OsStr,
+        name: &'a Path,
     }
     impl_request!(MkDir<'_>);
     impl<'a> MkDir<'a> {
-        pub fn name(&self) -> &'a OsStr {
+        pub fn name(&self) -> &'a Path {
             self.name
         }
         pub fn mode(&self) -> u32 {
@@ -540,11 +540,11 @@ mod op {
     #[derive(Debug)]
     pub struct Unlink<'a> {
         header: &'a fuse_in_header,
-        name: &'a OsStr,
+        name: &'a Path,
     }
     impl_request!(Unlink<'_>);
     impl<'a> Unlink<'a> {
-        pub fn name(&self) -> &'a OsStr {
+        pub fn name(&self) -> &'a Path {
             self.name
         }
         #[allow(dead_code)]
@@ -555,11 +555,11 @@ mod op {
     #[derive(Debug)]
     pub struct RmDir<'a> {
         header: &'a fuse_in_header,
-        pub name: &'a OsStr,
+        pub name: &'a Path,
     }
     impl_request!(RmDir<'_>);
     impl<'a> RmDir<'a> {
-        pub fn name(&self) -> &'a OsStr {
+        pub fn name(&self) -> &'a Path {
             self.name
         }
         #[allow(dead_code)]
@@ -570,14 +570,14 @@ mod op {
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
     pub struct FilenameInDir<'a> {
         pub dir: INodeNo,
-        pub name: &'a OsStr,
+        pub name: &'a Path,
     }
     #[derive(Debug)]
     pub struct Rename<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_rename_in,
-        name: &'a OsStr,
-        newname: &'a OsStr,
+        name: &'a Path,
+        newname: &'a Path,
     }
     impl_request!(Rename<'_>);
     impl<'a> Rename<'a> {
@@ -603,7 +603,7 @@ mod op {
     pub struct Link<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_link_in,
-        name: &'a OsStr,
+        name: &'a Path,
     }
     impl_request!(Link<'_>);
     impl<'a> Link<'a> {
@@ -1160,11 +1160,11 @@ mod op {
     pub struct Create<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_create_in,
-        name: &'a OsStr,
+        name: &'a Path,
     }
     impl_request!(Create<'a>);
     impl<'a> Create<'a> {
-        pub fn name(&self) -> &'a OsStr {
+        pub fn name(&self) -> &'a Path {
             self.name
         }
         pub fn mode(&self) -> u32 {
@@ -1403,8 +1403,8 @@ mod op {
     pub struct Rename2<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_rename2_in,
-        name: &'a OsStr,
-        newname: &'a OsStr,
+        name: &'a Path,
+        newname: &'a Path,
         old_parent: INodeNo,
     }
     #[cfg(feature = "abi-7-23")]
@@ -1533,8 +1533,8 @@ mod op {
     pub struct Exchange<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_exchange_in,
-        oldname: &'a OsStr,
-        newname: &'a OsStr,
+        oldname: &'a Path,
+        newname: &'a Path,
     }
     #[cfg(target_os = "macos")]
     impl_request!(Exchange<'a>);
@@ -1595,37 +1595,37 @@ mod op {
             fuse_opcode::FUSE_READLINK => Operation::ReadLink(ReadLink { header }),
             fuse_opcode::FUSE_SYMLINK => Operation::SymLink(SymLink {
                 header,
-                target: data.fetch_str()?,
-                link: data.fetch_str()?,
+                target: data.fetch_str()?.as_ref(),
+                link: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_MKNOD => Operation::MkNod(MkNod {
                 header,
                 arg: data.fetch()?,
-                name: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_MKDIR => Operation::MkDir(MkDir {
                 header,
                 arg: data.fetch()?,
-                name: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_UNLINK => Operation::Unlink(Unlink {
                 header,
-                name: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_RMDIR => Operation::RmDir(RmDir {
                 header,
-                name: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_RENAME => Operation::Rename(Rename {
                 header,
                 arg: data.fetch()?,
-                name: data.fetch_str()?,
-                newname: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
+                newname: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_LINK => Operation::Link(Link {
                 header,
                 arg: data.fetch()?,
-                name: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_OPEN => Operation::Open(Open {
                 header,
@@ -1719,7 +1719,7 @@ mod op {
             fuse_opcode::FUSE_CREATE => Operation::Create(Create {
                 header,
                 arg: data.fetch()?,
-                name: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_INTERRUPT => Operation::Interrupt(Interrupt {
                 header,
@@ -1767,8 +1767,8 @@ mod op {
             fuse_opcode::FUSE_RENAME2 => Operation::Rename2(Rename2 {
                 header,
                 arg: data.fetch()?,
-                name: data.fetch_str()?,
-                newname: data.fetch_str()?,
+                name: data.fetch_str()?.as_ref(),
+                newname: data.fetch_str()?.as_ref(),
                 old_parent: INodeNo(header.nodeid),
             }),
             #[cfg(feature = "abi-7-24")]
@@ -1793,8 +1793,8 @@ mod op {
             fuse_opcode::FUSE_EXCHANGE => Operation::Exchange(Exchange {
                 header,
                 arg: data.fetch()?,
-                oldname: data.fetch_str()?,
-                newname: data.fetch_str()?,
+                oldname: data.fetch_str()?.as_ref(),
+                newname: data.fetch_str()?.as_ref(),
             }),
 
             #[cfg(feature = "abi-7-12")]

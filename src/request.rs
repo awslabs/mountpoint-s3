@@ -137,8 +137,12 @@ impl<'a> Request<'a> {
             }
 
             ll::Operation::Lookup(x) => {
-                se.filesystem
-                    .lookup(self, self.request.nodeid().into(), &x.name(), self.reply());
+                se.filesystem.lookup(
+                    self,
+                    self.request.nodeid().into(),
+                    &x.name().as_ref(),
+                    self.reply(),
+                );
             }
             ll::Operation::Forget(x) => {
                 se.filesystem
@@ -175,7 +179,7 @@ impl<'a> Request<'a> {
                 se.filesystem.mknod(
                     self,
                     self.request.nodeid().into(),
-                    &x.name(),
+                    x.name().as_ref(),
                     x.mode(),
                     x.umask(),
                     x.rdev(),
@@ -186,25 +190,33 @@ impl<'a> Request<'a> {
                 se.filesystem.mkdir(
                     self,
                     self.request.nodeid().into(),
-                    x.name(),
+                    x.name().as_ref(),
                     x.mode(),
                     x.umask(),
                     self.reply(),
                 );
             }
             ll::Operation::Unlink(x) => {
-                se.filesystem
-                    .unlink(self, self.request.nodeid().into(), x.name(), self.reply());
+                se.filesystem.unlink(
+                    self,
+                    self.request.nodeid().into(),
+                    x.name().as_ref(),
+                    self.reply(),
+                );
             }
             ll::Operation::RmDir(x) => {
-                se.filesystem
-                    .rmdir(self, self.request.nodeid().into(), x.name(), self.reply());
+                se.filesystem.rmdir(
+                    self,
+                    self.request.nodeid().into(),
+                    x.name().as_ref(),
+                    self.reply(),
+                );
             }
             ll::Operation::SymLink(x) => {
                 se.filesystem.symlink(
                     self,
                     self.request.nodeid().into(),
-                    x.target(),
+                    x.target().as_ref(),
                     &Path::new(x.link()),
                     self.reply(),
                 );
@@ -213,9 +225,9 @@ impl<'a> Request<'a> {
                 se.filesystem.rename(
                     self,
                     self.request.nodeid().into(),
-                    x.from().name,
+                    x.from().name.as_ref(),
                     x.to().dir.into(),
-                    x.to().name,
+                    x.to().name.as_ref(),
                     0,
                     self.reply(),
                 );
@@ -225,7 +237,7 @@ impl<'a> Request<'a> {
                     self,
                     x.inode_no().into(),
                     self.request.nodeid().into(),
-                    x.to().name,
+                    x.to().name.as_ref(),
                     self.reply(),
                 );
             }
@@ -366,7 +378,7 @@ impl<'a> Request<'a> {
                 se.filesystem.create(
                     self,
                     self.request.nodeid().into(),
-                    x.name(),
+                    x.name().as_ref(),
                     x.mode(),
                     x.umask(),
                     x.flags(),
@@ -486,9 +498,9 @@ impl<'a> Request<'a> {
                 se.filesystem.rename(
                     self,
                     x.from().dir.into(),
-                    x.from().name,
+                    x.from().name.as_ref(),
                     x.to().dir.into(),
-                    x.to().name,
+                    x.to().name.as_ref(),
                     x.flags(),
                     self.reply(),
                 );
@@ -534,9 +546,9 @@ impl<'a> Request<'a> {
                 se.filesystem.exchange(
                     self,
                     x.from().dir.into(),
-                    x.from().name,
+                    x.from().name.as_ref(),
                     x.to().dir.into(),
-                    x.to().name,
+                    x.to().name.as_ref(),
                     x.options(),
                     self.reply(),
                 );
