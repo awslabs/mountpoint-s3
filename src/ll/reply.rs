@@ -1,7 +1,10 @@
 use std::{
     convert::TryInto,
     io::IoSlice,
+    iter::Peekable,
     mem::size_of,
+    os::unix::prelude::OsStrExt,
+    path::Path,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,14 +16,14 @@ use smallvec::{smallvec, SmallVec};
 use zerocopy::AsBytes;
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
+type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
 
 #[derive(Debug)]
 pub enum Response {
     #[allow(dead_code)]
     NoReply,
     Error(i32),
-    #[allow(dead_code)]
-    Data(SmallVec<[u8; INLINE_DATA_THRESHOLD]>),
+    Data(ResponseBuf),
 }
 
 #[must_use]
@@ -171,6 +174,36 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+    // TODO: Can flags be more strongly typed?
+    pub(crate) fn new_create(
+        ttl: &Duration,
+        attr: &Attr,
+        generation: Generation,
+        fh: FileHandle,
+        flags: u32,
+    ) -> Self {
+        let r = abi::fuse_create_out(
+            abi::fuse_entry_out {
+                nodeid: attr.attr.ino,
+                generation: generation.into(),
+                entry_valid: ttl.as_secs(),
+                attr_valid: ttl.as_secs(),
+                entry_valid_nsec: ttl.subsec_nanos(),
+                attr_valid_nsec: ttl.subsec_nanos(),
+                attr: attr.attr,
+            },
+            abi::fuse_open_out {
+                fh: fh.into(),
+                open_flags: flags,
+                padding: 0,
+            },
+        );
+        Self::from_struct(&r)
+    }
+    pub(crate) fn new_directory(list: DirEntList) -> Self {
+        assert!(list.buf.len() <= list.max_size);
+        Self::Data(list.buf)
+    }
     pub(crate) fn new_xattr_size(size: u32) -> Self {
         let r = abi::fuse_getxattr_out { size, padding: 0 };
         Self::from_struct(&r)
@@ -264,6 +297,96 @@ impl From<crate::FileAttr> for Attr {
         Self {
             attr: fuse_attr_from_attr(&attr),
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub struct DirEntOffset(pub i64);
+
+#[derive(Debug)]
+pub struct DirEntry<T: AsRef<Path>> {
+    ino: INodeNo,
+    offset: DirEntOffset,
+    kind: FileType,
+    name: T,
+}
+
+impl<T: AsRef<Path>> DirEntry<T> {
+    pub fn new(ino: INodeNo, offset: DirEntOffset, kind: FileType, name: T) -> DirEntry<T> {
+        DirEntry::<T> {
+            ino,
+            offset,
+            kind,
+            name,
+        }
+    }
+}
+
+/// Used to respond to [ReadDir] requests.
+#[derive(Debug)]
+pub struct DirEntList {
+    max_size: usize,
+    buf: ResponseBuf,
+}
+impl From<DirEntList> for Response {
+    fn from(l: DirEntList) -> Self {
+        assert!(l.buf.len() <= l.max_size);
+        Response::new_directory(l)
+    }
+}
+
+impl DirEntList {
+    pub(crate) fn new(max_size: usize) -> Self {
+        Self {
+            max_size,
+            buf: ResponseBuf::new(),
+        }
+    }
+    // TODO: What if the only entry is too big for the buffer?
+    /// Add entries to the directory reply buffer from this iterator.  Returns the number of
+    /// entries it pulled.
+    pub fn extend<It: Iterator<Item = DirEntry<T>>, T: AsRef<Path>>(
+        &mut self,
+        it: &mut Peekable<It>,
+    ) -> usize {
+        let mut pulled = 0;
+        loop {
+            match it.peek() {
+                Some(x) => {
+                    if self.push(x) {
+                        break;
+                    } else {
+                        pulled += 1;
+                        it.next();
+                    }
+                }
+                None => break,
+            }
+        }
+        pulled
+    }
+    /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
+    /// A transparent offset value can be provided for each entry. The kernel uses these
+    /// value to request the next entries in further readdir calls
+    #[must_use]
+    pub fn push<T: AsRef<Path>>(&mut self, ent: &DirEntry<T>) -> bool {
+        let name = ent.name.as_ref().as_os_str().as_bytes();
+        let entlen = size_of::<abi::fuse_dirent>() + name.len();
+        let entsize = (entlen + size_of::<u64>() - 1) & !(size_of::<u64>() - 1); // 64bit align
+        if self.buf.len() + entsize > self.max_size {
+            return true;
+        }
+        let header = abi::fuse_dirent {
+            ino: ent.ino.into(),
+            off: ent.offset.0,
+            namelen: name.len().try_into().expect("Name too long"),
+            typ: mode_from_kind_and_perm(ent.kind, 0) >> 12,
+        };
+        self.buf.extend_from_slice(header.as_bytes());
+        self.buf.extend_from_slice(name);
+        let padlen = entsize - entlen;
+        self.buf.extend_from_slice(&[0u8; 8][..padlen]);
+        false
     }
 }
 
@@ -494,6 +617,75 @@ mod test {
     }
 
     #[test]
+    fn reply_create() {
+        let mut expected = if cfg!(target_os = "macos") {
+            vec![
+                0xa8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+                0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x65, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x65, 0x87,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00,
+                0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56,
+                0x00, 0x00, 0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00,
+                0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00, 0x00, 0xbb, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            ]
+        } else {
+            vec![
+                0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+                0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x65, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x65, 0x87,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00, 0x21, 0x43, 0x00, 0x00,
+                0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00, 0x78, 0x56, 0x00, 0x00,
+                0x78, 0x56, 0x00, 0x00, 0xa4, 0x81, 0x00, 0x00, 0x55, 0x00, 0x00, 0x00, 0x66, 0x00,
+                0x00, 0x00, 0x77, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00, 0xbb, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            ]
+        };
+
+        if cfg!(feature = "abi-7-9") {
+            let insert_at = expected.len() - 16;
+            expected.splice(
+                insert_at..insert_at,
+                vec![0xdd, 0x00, 0x00, 0x00, 0xee, 0x00, 0x00, 0x00],
+            );
+        }
+        expected[0] = (expected.len()) as u8;
+
+        let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
+        let ttl = Duration::new(0x8765, 0x4321);
+        let attr = crate::FileAttr {
+            ino: 0x11,
+            size: 0x22,
+            blocks: 0x33,
+            atime: time,
+            mtime: time,
+            ctime: time,
+            crtime: time,
+            kind: FileType::RegularFile,
+            perm: 0o644,
+            nlink: 0x55,
+            uid: 0x66,
+            gid: 0x77,
+            rdev: 0x88,
+            flags: 0x99,
+            blksize: 0xdd,
+            padding: 0xee,
+        };
+        let r = Response::new_create(&ttl, &attr.into(), Generation(0xaa), FileHandle(0xbb), 0xcc);
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
     fn reply_lock() {
         let expected = vec![
             0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
@@ -544,6 +736,36 @@ mod test {
             0x00, 0x00, 0x11, 0x22, 0x33, 0x44,
         ];
         let r = Response::new_data([0x11, 0x22, 0x33, 0x44].as_ref());
+        assert_eq!(
+            r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
+            expected
+        );
+    }
+
+    #[test]
+    fn reply_directory() {
+        let expected = vec![
+            0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00,
+            0x00, 0x00, 0xbb, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x68, 0x65,
+            0x6c, 0x6c, 0x6f, 0x00, 0x00, 0x00, 0xdd, 0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00,
+            0x00, 0x00, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x72, 0x73,
+        ];
+        let mut buf = DirEntList::new(4096);
+        assert!(!buf.push(&DirEntry::new(
+            INodeNo(0xaabb),
+            DirEntOffset(1),
+            FileType::Directory,
+            "hello"
+        )));
+        assert!(!buf.push(&DirEntry::new(
+            INodeNo(0xccdd),
+            DirEntOffset(2),
+            FileType::RegularFile,
+            "world.rs"
+        )));
+        let r: Response = buf.into();
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected

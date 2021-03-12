@@ -8,14 +8,18 @@
 
 #[cfg(target_os = "macos")]
 use crate::ll::fuse_abi::fuse_getxtimes_out;
-use crate::ll::fuse_abi::{
-    fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus, fuse_entry_out,
-    fuse_getxattr_out, fuse_ioctl_out, fuse_lk_out, fuse_lseek_out, fuse_open_out, fuse_out_header,
-    fuse_statfs_out, fuse_write_out,
-};
 use crate::ll::{
     self,
     reply::{fuse_attr_from_attr, mode_from_kind_and_perm},
+};
+use crate::ll::{
+    fuse_abi::{
+        fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_dirent, fuse_direntplus,
+        fuse_entry_out, fuse_getxattr_out, fuse_ioctl_out, fuse_lk_out, fuse_lseek_out,
+        fuse_open_out, fuse_out_header, fuse_statfs_out, fuse_write_out,
+    },
+    reply::{DirEntList, DirEntOffset, DirEntry},
+    INodeNo,
 };
 use libc::c_int;
 use log::{error, warn};
@@ -405,22 +409,13 @@ impl Reply for ReplyCreate {
 impl ReplyCreate {
     /// Reply to a request with the given entry
     pub fn created(self, ttl: &Duration, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
-        self.reply.ok(&fuse_create_out(
-            fuse_entry_out {
-                nodeid: attr.ino,
-                generation,
-                entry_valid: ttl.as_secs(),
-                attr_valid: ttl.as_secs(),
-                entry_valid_nsec: ttl.subsec_nanos(),
-                attr_valid_nsec: ttl.subsec_nanos(),
-                attr: fuse_attr_from_attr(attr),
-            },
-            fuse_open_out {
-                fh,
-                open_flags: flags,
-                padding: 0,
-            },
-        ));
+        self.reply.send_ll(&ll::Response::new_create(
+            ttl,
+            &attr.into(),
+            ll::Generation(generation),
+            ll::FileHandle(fh),
+            flags,
+        ))
     }
 
     /// Reply to a request with the given error code
@@ -535,7 +530,7 @@ impl ReplyIoctl {
 #[derive(Debug)]
 pub struct ReplyDirectory {
     reply: ReplyRaw<()>,
-    data: Vec<u8>,
+    data: DirEntList,
 }
 
 impl ReplyDirectory {
@@ -543,7 +538,7 @@ impl ReplyDirectory {
     pub fn new<S: ReplySender>(unique: u64, sender: S, size: usize) -> ReplyDirectory {
         ReplyDirectory {
             reply: Reply::new(unique, sender),
-            data: Vec::with_capacity(size),
+            data: DirEntList::new(size),
         }
     }
 
@@ -552,28 +547,18 @@ impl ReplyDirectory {
     /// value to request the next entries in further readdir calls
     #[must_use]
     pub fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
-        let name = name.as_ref().as_bytes();
-        let entlen = mem::size_of::<fuse_dirent>() + name.len();
-        let entsize = (entlen + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
-        if self.data.len() + entsize > self.data.capacity() {
-            return true;
-        }
-        let header = fuse_dirent {
-            ino,
-            off: offset,
-            namelen: name.len().try_into().expect("Name too long"),
-            typ: mode_from_kind_and_perm(kind, 0) >> 12,
-        };
-        self.data.extend_from_slice(header.as_bytes());
-        self.data.extend_from_slice(name);
-        let padlen = entsize - entlen;
-        self.data.extend_from_slice(&b"\0\0\0\0\0\0\0\0"[..padlen]);
-        false
+        let name = name.as_ref();
+        self.data.push(&DirEntry::new(
+            INodeNo(ino),
+            DirEntOffset(offset),
+            kind,
+            name,
+        ))
     }
 
     /// Reply to a request with the filled directory buffer
-    pub fn ok(mut self) {
-        self.reply.send(0, &[&self.data]);
+    pub fn ok(self) {
+        self.reply.send_ll(&self.data.into());
     }
 
     /// Reply to a request with the given error code

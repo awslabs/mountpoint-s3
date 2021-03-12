@@ -211,7 +211,10 @@ macro_rules! impl_request {
 }
 
 mod op {
-    use crate::ll::{Errno, Response};
+    use crate::ll::{
+        reply::{DirEntList, DirEntry},
+        Errno, Response,
+    };
 
     use super::{
         super::{argument::ArgumentIterator, reply::Attr, Generation, TimeOrNow},
@@ -224,6 +227,7 @@ mod op {
         convert::TryInto,
         ffi::OsStr,
         fmt::Display,
+        iter::Peekable,
         num::NonZeroU32,
         os::unix::prelude::OsStrExt,
         path::Path,
@@ -978,6 +982,37 @@ mod op {
         pub fn size(&self) -> u32 {
             self.arg.size
         }
+
+        /// Reply pulling directory entries from this iterator.  It will pull until the iterator is
+        /// exhausted or our internal buffer becomes full. This method takes a `Peekable` as it
+        /// needs to "look ahead" to tell if the next entry will fit in the buffer.
+        #[allow(dead_code)]
+        pub fn reply<It: Iterator<Item = DirEntry<T>>, T: AsRef<Path>>(
+            &self,
+            it: &mut Peekable<It>,
+        ) -> Response {
+            let mut l = DirEntList::new(self.size() as usize);
+            l.extend(it);
+            l.into()
+        }
+        /// Creates a builder to reply to this request. This provides more flexibility than
+        /// `reply()` at the cost of a slightly more verbose and harder to use interface.
+        ///
+        /// ```ignore
+        /// fn my_handler(req: &ReadDir) -> Response {
+        ///     let b = req.reply_builder();
+        ///     for i in 0..1000 {
+        ///         if b.push(DirEntry::format!("file-{}", i)) {
+        ///             break
+        ///         }
+        ///     }
+        ///     req.into()
+        /// }
+        /// ```
+        #[allow(dead_code)]
+        pub fn reply_builder(&self) -> DirEntList {
+            DirEntList::new(self.size() as usize)
+        }
     }
     #[derive(Debug)]
     pub struct ReleaseDir<'a> {
@@ -1122,6 +1157,18 @@ mod op {
             return 0;
             #[cfg(feature = "abi-7-12")]
             self.arg.umask
+        }
+
+        #[allow(dead_code)]
+        pub fn reply(
+            &self,
+            ttl: &Duration,
+            attr: &Attr,
+            generation: Generation,
+            fh: FileHandle,
+            flags: u32,
+        ) -> Response {
+            Response::new_create(ttl, attr, generation, fh, flags)
         }
     }
     #[derive(Debug)]
