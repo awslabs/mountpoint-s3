@@ -215,7 +215,7 @@ mod op {
     use super::super::reply::{DirEntPlusList, DirEntryPlus};
 
     use crate::ll::{
-        reply::{DirEntList, DirEntry},
+        reply::{DirEntList, DirEntry, ResponseBuf},
         Errno, Response,
     };
 
@@ -906,6 +906,24 @@ mod op {
     impl<'a> ListXAttr<'a> {
         pub fn size(&self) -> u32 {
             self.arg.size
+        }
+        #[allow(dead_code)]
+        pub fn reply<It: Iterator<Item = T>, T: AsRef<OsStr>>(&self, it: It) -> Response {
+            if self.size() == 0 {
+                // Probing to find an appropriate size for the buffer
+                let size: usize = it.map(|x| x.as_ref().len() + 1).sum();
+                Response::new_xattr_size(size.try_into().expect("Too many XAttrs"))
+            } else {
+                let mut b = ResponseBuf::new();
+                for x in it {
+                    b.extend_from_slice(x.as_ref().as_bytes());
+                    b.push(0);
+                    if b.len() > self.size() as usize {
+                        return Response::new_error(Errno::ERANGE);
+                    }
+                }
+                Response::new_data_owned(b)
+            }
         }
     }
     #[derive(Debug)]

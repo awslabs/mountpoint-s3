@@ -27,6 +27,7 @@ pub enum TimeOrNow {
 pub struct Errno(pub NonZeroI32);
 impl Errno {
     pub const EIO: Errno = Errno(unsafe { NonZeroI32::new_unchecked(libc::EIO) });
+    pub const ERANGE: Errno = Errno(unsafe { NonZeroI32::new_unchecked(libc::ERANGE) });
     pub fn from_i32(err: i32) -> Option<Errno> {
         err.try_into().ok().map(Errno)
     }

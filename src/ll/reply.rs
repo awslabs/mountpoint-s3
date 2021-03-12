@@ -16,7 +16,7 @@ use smallvec::{smallvec, SmallVec};
 use zerocopy::AsBytes;
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
-type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
+pub(crate) type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
 
 #[derive(Debug)]
 pub enum Response {
@@ -76,6 +76,9 @@ impl Response {
         } else {
             data.into().into()
         })
+    }
+    pub(crate) fn new_data_owned(data: ResponseBuf) -> Self {
+        Self::Data(data)
     }
     pub(crate) fn new_entry(
         ino: INodeNo,
