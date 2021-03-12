@@ -1821,7 +1821,7 @@ mod tests {
 
     #[cfg(all(target_endian = "little", feature = "abi-7-12"))]
     const MKNOD_REQUEST: AlignedData<[u8; 64]> = AlignedData([
-        0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
+        0x40, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
         0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
         0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
@@ -1869,7 +1869,10 @@ mod tests {
     #[test]
     fn mknod() {
         let req = AnyRequest::try_from(&MKNOD_REQUEST[..]).unwrap();
+        #[cfg(not(feature = "abi-7-12"))]
         assert_eq!(req.header.len, 56);
+        #[cfg(feature = "abi-7-12")]
+        assert_eq!(req.header.len, 64);
         assert_eq!(req.header.opcode, 8);
         assert_eq!(req.unique(), RequestId(0xdead_beef_baad_f00d));
         assert_eq!(req.nodeid(), INodeNo(0x1122_3344_5566_7788));
