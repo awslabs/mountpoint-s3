@@ -200,6 +200,22 @@ impl Response {
         );
         Self::from_struct(&r)
     }
+    // TODO: Are you allowed to send data while result != 0?
+    pub(crate) fn new_ioctl(result: i32, data: &[IoSlice<'_>]) -> Self {
+        let r = abi::fuse_ioctl_out {
+            result,
+            // these fields are only needed for unrestricted ioctls
+            flags: 0,
+            in_iovs: 1,
+            out_iovs: if !data.is_empty() { 1 } else { 0 },
+        };
+        // TODO: Don't copy this data
+        let mut v: ResponseBuf = r.as_bytes().into();
+        for x in data {
+            v.extend_from_slice(x)
+        }
+        Self::Data(v)
+    }
     pub(crate) fn new_directory(list: DirEntList) -> Self {
         assert!(list.buf.len() <= list.max_size);
         Self::Data(list.buf)

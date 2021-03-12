@@ -502,20 +502,9 @@ impl Reply for ReplyIoctl {
 
 impl ReplyIoctl {
     /// Reply to a request with the given open result
-    pub fn ioctl(mut self, result: i32, data: &[u8]) {
-        let header = fuse_ioctl_out {
-            result,
-            // these fields are only needed for unrestricted ioctls
-            flags: 0,
-            in_iovs: 1,
-            out_iovs: if !data.is_empty() { 1 } else { 0 },
-        };
-
-        if !data.is_empty() {
-            self.reply.send(0, &[header.as_bytes(), data]);
-        } else {
-            self.reply.send(0, &[header.as_bytes()]);
-        }
+    pub fn ioctl(self, result: i32, data: &[u8]) {
+        self.reply
+            .send_ll(&ll::Response::new_ioctl(result, &[IoSlice::new(data)]));
     }
 
     /// Reply to a request with the given error code

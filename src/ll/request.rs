@@ -233,6 +233,7 @@ mod op {
         path::Path,
         time::{Duration, SystemTime},
     };
+    use zerocopy::AsBytes;
 
     #[derive(Debug)]
     pub struct Lookup<'a> {
@@ -1236,6 +1237,22 @@ mod op {
         }
         pub fn out_size(&self) -> u32 {
             self.arg.out_size
+        }
+        #[allow(dead_code)]
+        pub fn reply(self, result: i32, data: &[u8]) -> Response {
+            use std::io::IoSlice;
+
+            let header = fuse_ioctl_out {
+                result,
+                // these fields are only needed for unrestricted ioctls
+                flags: 0,
+                in_iovs: 1,
+                out_iovs: if !data.is_empty() { 1 } else { 0 },
+            };
+            Response::new_ioctl(
+                result,
+                &[IoSlice::new(header.as_bytes()), IoSlice::new(data)],
+            )
         }
     }
     #[cfg(feature = "abi-7-11")]
