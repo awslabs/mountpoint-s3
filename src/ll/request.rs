@@ -152,8 +152,7 @@ impl fmt::Display for RequestError {
 }
 
 impl error::Error for RequestError {}
-
-pub trait Request {
+pub trait Request: Sized {
     /// Returns the unique identifier of this request.
     ///
     /// The FUSE kernel driver assigns a unique id to every concurrent request. This allows to
