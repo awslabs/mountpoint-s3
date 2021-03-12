@@ -889,7 +889,7 @@ mod op {
                 GetXAttrSizeEnum::GetSize(s) => s.reply(data_len),
                 GetXAttrSizeEnum::Size(s) => {
                     if data_len > s.into() {
-                        Response::new_error(Errno::from_i32(libc::ERANGE).unwrap())
+                        Response::new_error(Errno::ERANGE)
                     } else {
                         Response::new_data(data)
                     }
@@ -974,6 +974,33 @@ mod op {
         }
         pub fn version(&self) -> super::Version {
             super::Version(self.arg.major, self.arg.minor)
+        }
+
+        pub fn reply(&self, config: &crate::KernelConfig) -> Response {
+            let init = fuse_init_out {
+                major: FUSE_KERNEL_VERSION,
+                minor: FUSE_KERNEL_MINOR_VERSION,
+                max_readahead: config.max_readahead,
+                flags: self.capabilities() & config.requested, // use requested features and reported as capable
+                #[cfg(not(feature = "abi-7-13"))]
+                unused: 0,
+                #[cfg(feature = "abi-7-13")]
+                max_background: config.max_background,
+                #[cfg(feature = "abi-7-13")]
+                congestion_threshold: config.congestion_threshold(),
+                max_write: config.max_write,
+                #[cfg(feature = "abi-7-23")]
+                time_gran: config.time_gran.as_nanos() as u32,
+                #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
+                reserved: [0; 9],
+                #[cfg(feature = "abi-7-28")]
+                max_pages: config.max_pages(),
+                #[cfg(feature = "abi-7-28")]
+                unused2: 0,
+                #[cfg(feature = "abi-7-28")]
+                reserved: [0; 8],
+            };
+            Response::new_data(init.as_bytes())
         }
     }
     #[derive(Debug)]
@@ -1227,6 +1254,11 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(Destroy<'a>);
+    impl<'a> Destroy<'a> {
+        pub fn reply(&self) -> Response {
+            Response::new_empty()
+        }
+    }
 
     #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]

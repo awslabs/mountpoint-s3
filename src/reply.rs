@@ -123,9 +123,8 @@ impl<T: AsBytes> ReplyRaw<T> {
 
     /// Reply to a request with the given error code
     pub fn error(self, err: c_int) {
-        self.send_ll(&ll::Response::new_error(
-            ll::Errno::from_i32(err).expect("Errno must not be 0"),
-        ));
+        assert_ne!(err, 0);
+        self.send_ll(&ll::Response::new_error(ll::Errno::from_i32(err)));
     }
 }
 

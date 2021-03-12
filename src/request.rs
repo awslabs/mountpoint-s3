@@ -5,8 +5,7 @@
 //!
 //! TODO: This module is meant to go away soon in favor of `ll::Request`.
 
-use crate::ll::fuse_abi as abi;
-use libc::{EIO, ENOSYS, EPROTO};
+use crate::ll::{fuse_abi as abi, Errno, Response};
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 #[cfg(feature = "abi-7-28")]
@@ -17,7 +16,7 @@ use crate::channel::ChannelSender;
 use crate::ll::Request as _;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
-use crate::reply::{Reply, ReplyDirectory, ReplyEmpty, ReplyRaw};
+use crate::reply::{Reply, ReplyDirectory, ReplySender};
 use crate::session::Session;
 use crate::Filesystem;
 use crate::{ll, KernelConfig};
@@ -52,23 +51,31 @@ impl<'a> Request<'a> {
     /// request and sends back the returned reply to the kernel
     pub fn dispatch<FS: Filesystem>(&self, se: &mut Session<FS>) {
         debug!("{}", self.request);
-        let op = match self.request.operation() {
-            Ok(x) => x,
-            Err(_) => {
-                self.reply::<ReplyEmpty>().error(libc::ENOSYS);
-                return;
-            }
-        };
+        let unique = self.request.unique();
+
+        let res = match self.dispatch_req(se) {
+            Ok(Some(resp)) => resp,
+            Ok(None) => return,
+            Err(errno) => self.request.reply_err(errno),
+        }
+        .with_iovec(unique, |iov| self.ch.send(iov));
+        if let Err(err) = res {
+            warn!("Request {:?}: Failed to send reply: {}", unique, err)
+        }
+    }
+    fn dispatch_req<FS: Filesystem>(
+        &self,
+        se: &mut Session<FS>,
+    ) -> Result<Option<Response>, Errno> {
+        let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
         match op {
             // Filesystem initialization
             ll::Operation::Init(x) => {
-                let reply: ReplyRaw<abi::fuse_init_out> = self.reply();
                 // We don't support ABI versions before 7.6
                 let v = x.version();
                 if v < ll::Version(7, 6) {
                     error!("Unsupported FUSE ABI version {}", v);
-                    reply.error(EPROTO);
-                    return;
+                    return Err(Errno::EPROTO);
                 }
                 // Remember ABI version supported by kernel
                 se.proto_major = v.major();
@@ -76,64 +83,44 @@ impl<'a> Request<'a> {
 
                 let mut config = KernelConfig::new(x.capabilities(), x.max_readahead());
                 // Call filesystem init method and give it a chance to return an error
-                let res = se.filesystem.init(self, &mut config);
-                if let Err(err) = res {
-                    reply.error(err);
-                    return;
-                }
+                se.filesystem
+                    .init(self, &mut config)
+                    .map_err(Errno::from_i32)?;
+
                 // Reply with our desired version and settings. If the kernel supports a
                 // larger major version, it'll re-send a matching init message. If it
                 // supports only lower major versions, we replied with an error above.
-                let init = abi::fuse_init_out {
-                    major: abi::FUSE_KERNEL_VERSION,
-                    minor: abi::FUSE_KERNEL_MINOR_VERSION,
-                    max_readahead: config.max_readahead,
-                    flags: x.capabilities() & config.requested, // use requested features and reported as capable
-                    #[cfg(not(feature = "abi-7-13"))]
-                    unused: 0,
-                    #[cfg(feature = "abi-7-13")]
-                    max_background: config.max_background,
-                    #[cfg(feature = "abi-7-13")]
-                    congestion_threshold: config.congestion_threshold(),
-                    max_write: config.max_write,
-                    #[cfg(feature = "abi-7-23")]
-                    time_gran: config.time_gran.as_nanos() as u32,
-                    #[cfg(all(feature = "abi-7-23", not(feature = "abi-7-28")))]
-                    reserved: [0; 9],
-                    #[cfg(feature = "abi-7-28")]
-                    max_pages: config.max_pages(),
-                    #[cfg(feature = "abi-7-28")]
-                    unused2: 0,
-                    #[cfg(feature = "abi-7-28")]
-                    reserved: [0; 8],
-                };
                 debug!(
                     "INIT response: ABI {}.{}, flags {:#x}, max readahead {}, max write {}",
-                    init.major, init.minor, init.flags, init.max_readahead, init.max_write
+                    abi::FUSE_KERNEL_VERSION,
+                    abi::FUSE_KERNEL_MINOR_VERSION,
+                    x.capabilities() & config.requested,
+                    config.max_readahead,
+                    config.max_write
                 );
                 se.initialized = true;
-                reply.ok(&init);
+                return Ok(Some(x.reply(&config)));
             }
             // Any operation is invalid before initialization
             _ if !se.initialized => {
                 warn!("Ignoring FUSE operation before init: {}", self.request);
-                self.reply::<ReplyEmpty>().error(EIO);
+                return Err(Errno::EIO);
             }
             // Filesystem destroyed
-            ll::Operation::Destroy(_) => {
+            ll::Operation::Destroy(x) => {
                 se.filesystem.destroy(self);
                 se.destroyed = true;
-                self.reply::<ReplyEmpty>().ok();
+                return Ok(Some(x.reply()));
             }
             // Any operation is invalid after destroy
             _ if se.destroyed => {
                 warn!("Ignoring FUSE operation after destroy: {}", self.request);
-                self.reply::<ReplyEmpty>().error(EIO);
+                return Err(Errno::EIO);
             }
 
             ll::Operation::Interrupt(_) => {
                 // TODO: handle FUSE_INTERRUPT
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+                return Err(Errno::ENOSYS);
             }
 
             ll::Operation::Lookup(x) => {
@@ -439,7 +426,7 @@ impl<'a> Request<'a> {
             #[cfg(feature = "abi-7-11")]
             ll::Operation::IoCtl(x) => {
                 if x.unrestricted() {
-                    self.reply::<ReplyEmpty>().error(ENOSYS);
+                    return Err(Errno::ENOSYS);
                 } else {
                     se.filesystem.ioctl(
                         self,
@@ -456,12 +443,12 @@ impl<'a> Request<'a> {
             #[cfg(feature = "abi-7-11")]
             ll::Operation::Poll(_) => {
                 // TODO: handle FUSE_POLL
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+                return Err(Errno::ENOSYS);
             }
             #[cfg(feature = "abi-7-15")]
             ll::Operation::NotifyReply(_) => {
                 // TODO: handle FUSE_NOTIFY_REPLY
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+                return Err(Errno::ENOSYS);
             }
             #[cfg(feature = "abi-7-16")]
             ll::Operation::BatchForget(x) => {
@@ -557,9 +544,10 @@ impl<'a> Request<'a> {
             #[cfg(feature = "abi-7-12")]
             ll::Operation::CuseInit(_) => {
                 // TODO: handle CUSE_INIT
-                self.reply::<ReplyEmpty>().error(ENOSYS);
+                return Err(Errno::ENOSYS);
             }
         }
+        Ok(None)
     }
 
     /// Create a reply object for this request that can be passed to the filesystem
