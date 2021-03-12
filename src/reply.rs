@@ -6,33 +6,22 @@
 //! data without cloning the data. A reply *must always* be used (by calling either ok() or
 //! error() exactly once).
 
-#[cfg(target_os = "macos")]
-use crate::ll::fuse_abi::fuse_getxtimes_out;
 use crate::ll::{
     self,
     reply::{DirEntPlusList, DirEntryPlus},
     Generation,
 };
 use crate::ll::{
-    fuse_abi::{
-        fuse_attr_out, fuse_bmap_out, fuse_create_out, fuse_entry_out, fuse_getxattr_out,
-        fuse_ioctl_out, fuse_lk_out, fuse_lseek_out, fuse_open_out, fuse_out_header,
-        fuse_statfs_out, fuse_write_out,
-    },
     reply::{DirEntList, DirEntOffset, DirEntry},
     INodeNo,
 };
 use libc::c_int;
 use log::{error, warn};
-use smallvec::{smallvec, SmallVec};
-use std::convert::{AsRef, TryInto};
+use std::convert::AsRef;
 use std::ffi::OsStr;
 use std::fmt;
 use std::io::IoSlice;
-use std::marker::PhantomData;
-use std::mem;
 use std::time::Duration;
-use zerocopy::AsBytes;
 
 #[cfg(target_os = "macos")]
 use std::time::SystemTime;
@@ -61,49 +50,26 @@ pub trait Reply {
 /// Raw reply
 ///
 #[derive(Debug)]
-pub(crate) struct ReplyRaw<T: AsBytes> {
+pub(crate) struct ReplyRaw {
     /// Unique id of the request to reply to
     unique: ll::RequestId,
     /// Closure to call for sending the reply
     sender: Option<Box<dyn ReplySender>>,
-    /// Marker for being able to have T on this struct (which enforces
-    /// reply types to send the correct type of data)
-    marker: PhantomData<T>,
 }
 
-impl<T: AsBytes> Reply for ReplyRaw<T> {
-    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyRaw<T> {
+impl Reply for ReplyRaw {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyRaw {
         let sender = Box::new(sender);
         ReplyRaw {
             unique: ll::RequestId(unique),
             sender: Some(sender),
-            marker: PhantomData,
         }
     }
 }
 
-impl<T: AsBytes> ReplyRaw<T> {
+impl ReplyRaw {
     /// Reply to a request with the given error code and data. Must be called
     /// only once (the `ok` and `error` methods ensure this by consuming `self`)
-    fn send(&mut self, err: c_int, bytes: &[&[u8]]) {
-        assert!(self.sender.is_some());
-        let len: usize = bytes.iter().map(|b| b.len()).sum();
-        let header = fuse_out_header {
-            len: (mem::size_of::<fuse_out_header>() + len)
-                .try_into()
-                .expect("Data too big"),
-            error: -err,
-            unique: self.unique.into(),
-        };
-        let sender = self.sender.take().unwrap();
-        let mut sendbytes: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
-        sendbytes.extend(bytes.iter().map(|s| IoSlice::new(*s)));
-        let res = sender.send(sendbytes.as_ref());
-        if let Err(err) = res {
-            error!("Failed to send FUSE reply: {}", err);
-        }
-    }
-
     fn send_ll_mut(&mut self, response: &ll::Response) {
         assert!(self.sender.is_some());
         let sender = self.sender.take().unwrap();
@@ -116,11 +82,6 @@ impl<T: AsBytes> ReplyRaw<T> {
         self.send_ll_mut(response)
     }
 
-    /// Reply to a request with the given type
-    pub fn ok(mut self, data: &T) {
-        self.send(0, &[data.as_bytes()])
-    }
-
     /// Reply to a request with the given error code
     pub fn error(self, err: c_int) {
         assert_ne!(err, 0);
@@ -128,7 +89,7 @@ impl<T: AsBytes> ReplyRaw<T> {
     }
 }
 
-impl<T: AsBytes> Drop for ReplyRaw<T> {
+impl Drop for ReplyRaw {
     fn drop(&mut self) {
         if self.sender.is_some() {
             warn!(
@@ -145,7 +106,7 @@ impl<T: AsBytes> Drop for ReplyRaw<T> {
 ///
 #[derive(Debug)]
 pub struct ReplyEmpty {
-    reply: ReplyRaw<()>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyEmpty {
@@ -173,7 +134,7 @@ impl ReplyEmpty {
 ///
 #[derive(Debug)]
 pub struct ReplyData {
-    reply: ReplyRaw<()>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyData {
@@ -201,7 +162,7 @@ impl ReplyData {
 ///
 #[derive(Debug)]
 pub struct ReplyEntry {
-    reply: ReplyRaw<fuse_entry_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyEntry {
@@ -235,7 +196,7 @@ impl ReplyEntry {
 ///
 #[derive(Debug)]
 pub struct ReplyAttr {
-    reply: ReplyRaw<fuse_attr_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyAttr {
@@ -265,7 +226,7 @@ impl ReplyAttr {
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
 pub struct ReplyXTimes {
-    reply: ReplyRaw<fuse_getxtimes_out>,
+    reply: ReplyRaw,
 }
 
 #[cfg(target_os = "macos")]
@@ -296,7 +257,7 @@ impl ReplyXTimes {
 ///
 #[derive(Debug)]
 pub struct ReplyOpen {
-    reply: ReplyRaw<fuse_open_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyOpen {
@@ -325,7 +286,7 @@ impl ReplyOpen {
 ///
 #[derive(Debug)]
 pub struct ReplyWrite {
-    reply: ReplyRaw<fuse_write_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyWrite {
@@ -353,7 +314,7 @@ impl ReplyWrite {
 ///
 #[derive(Debug)]
 pub struct ReplyStatfs {
-    reply: ReplyRaw<fuse_statfs_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyStatfs {
@@ -394,7 +355,7 @@ impl ReplyStatfs {
 ///
 #[derive(Debug)]
 pub struct ReplyCreate {
-    reply: ReplyRaw<fuse_create_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyCreate {
@@ -428,7 +389,7 @@ impl ReplyCreate {
 ///
 #[derive(Debug)]
 pub struct ReplyLock {
-    reply: ReplyRaw<fuse_lk_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyLock {
@@ -460,7 +421,7 @@ impl ReplyLock {
 ///
 #[derive(Debug)]
 pub struct ReplyBmap {
-    reply: ReplyRaw<fuse_bmap_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyBmap {
@@ -488,7 +449,7 @@ impl ReplyBmap {
 ///
 #[derive(Debug)]
 pub struct ReplyIoctl {
-    reply: ReplyRaw<fuse_ioctl_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyIoctl {
@@ -517,7 +478,7 @@ impl ReplyIoctl {
 ///
 #[derive(Debug)]
 pub struct ReplyDirectory {
-    reply: ReplyRaw<()>,
+    reply: ReplyRaw,
     data: DirEntList,
 }
 
@@ -560,7 +521,7 @@ impl ReplyDirectory {
 ///
 #[derive(Debug)]
 pub struct ReplyDirectoryPlus {
-    reply: ReplyRaw<()>,
+    reply: ReplyRaw,
     buf: DirEntPlusList,
 }
 
@@ -613,7 +574,7 @@ impl ReplyDirectoryPlus {
 ///
 #[derive(Debug)]
 pub struct ReplyXattr {
-    reply: ReplyRaw<fuse_getxattr_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyXattr {
@@ -646,7 +607,7 @@ impl ReplyXattr {
 ///
 #[derive(Debug)]
 pub struct ReplyLseek {
-    reply: ReplyRaw<fuse_lseek_out>,
+    reply: ReplyRaw,
 }
 
 impl Reply for ReplyLseek {
@@ -671,17 +632,13 @@ impl ReplyLseek {
 
 #[cfg(test)]
 mod test {
-    use super::AsBytes;
-    #[cfg(target_os = "macos")]
-    use super::ReplyXTimes;
-    use super::ReplyXattr;
-    use super::{Reply, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyRaw};
-    use super::{ReplyBmap, ReplyCreate, ReplyDirectory, ReplyLock, ReplyStatfs, ReplyWrite};
+    use super::*;
     use crate::{FileAttr, FileType};
     use std::io::IoSlice;
     use std::sync::mpsc::{channel, Sender};
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
+    use zerocopy::AsBytes;
 
     #[allow(dead_code)]
     #[derive(Debug, AsBytes)]
@@ -741,8 +698,8 @@ mod test {
                 0x00, 0x00, 0x12, 0x34, 0x78, 0x56,
             ],
         };
-        let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, sender);
-        reply.ok(&data);
+        let reply: ReplyRaw = Reply::new(0xdeadbeef, sender);
+        reply.send_ll(&ll::Response::new_data(data.as_bytes()));
     }
 
     #[test]
@@ -753,7 +710,7 @@ mod test {
                 0x00, 0x00,
             ],
         };
-        let reply: ReplyRaw<Data> = Reply::new(0xdeadbeef, sender);
+        let reply: ReplyRaw = Reply::new(0xdeadbeef, sender);
         reply.error(66);
     }
 
