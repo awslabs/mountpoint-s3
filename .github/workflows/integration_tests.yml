@@ -9,9 +9,7 @@ jobs:
     strategy:
       matrix:
         test_group: [mount_tests, pjdfs_tests_fuse2, pjdfs_tests_fuse3, pjdfs_tests_pure]
-        test_target: [ "SYNC" ]
-    env:
-      TEST_TARGET: "${{ matrix.test_target }}"
+
     steps:
       - uses: actions/checkout@v2
       - name: Install packages
@@ -46,9 +44,6 @@ jobs:
     strategy:
       matrix:
         test_group: ["generic/0*", "generic/1*", "generic/2*", "generic/3*", "generic/4*", "generic/5*", "generic/6*"]
-        test_target: [ "SYNC" ]
-    env:
-      TEST_TARGET: "${{ matrix.test_target }}"
     steps:
       - uses: actions/checkout@v2
       - name: Setup cache location
@@ -74,6 +69,6 @@ jobs:
           -v "$HOME/docker_data/docker-xfstests:/code/xfstests"
           -v "$GITHUB_WORKSPACE/logs:/code/logs"
           fuser:xfstests
-          bash -c "/code/fuser/.github/scripts/xfs_inside_docker_tests.sh ${{matrix.test_target}} ${{matrix.test_group}}"
+          bash -c "/code/fuser/.github/scripts/xfs_inside_docker_tests.sh ${{matrix.test_group}}"
       - name: Fix permissions
         run: sudo chown -R $USER ~/docker_data
