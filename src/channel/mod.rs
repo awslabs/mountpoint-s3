@@ -22,12 +22,12 @@ use log::error;
 use std::io;
 use std::os::unix::prelude::AsRawFd;
 use std::path::Path;
-use std::{ffi::CStr, fs::File, sync::Arc};
 #[cfg(any(feature = "libfuse", test))]
 use std::{
     ffi::{CString, OsStr},
     os::unix::ffi::OsStrExt,
 };
+use std::{fs::File, sync::Arc};
 
 use crate::reply::ReplySender;
 #[cfg(not(feature = "libfuse"))]
@@ -36,7 +36,7 @@ use crate::MountOption;
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 #[cfg(any(feature = "libfuse", test))]
-pub(in crate) fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T {
+fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T {
     let mut args = vec![CString::new("rust-fuse").unwrap()];
     args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap()));
     let argptrs: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
@@ -53,6 +53,8 @@ pub use fuse2::Mount;
 pub use fuse3::Mount;
 #[cfg(not(feature = "libfuse"))]
 pub use fuse_pure::Mount;
+#[cfg(not(feature = "libfuse3"))]
+use std::ffi::CStr;
 
 /// A raw communication channel to the FUSE kernel driver
 #[derive(Debug)]

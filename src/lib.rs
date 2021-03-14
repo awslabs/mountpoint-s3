@@ -40,8 +40,6 @@ use std::cmp::max;
 #[cfg(feature = "abi-7-13")]
 use std::cmp::min;
 
-#[cfg(feature = "async_api")]
-pub mod async_api;
 mod channel;
 mod ll;
 mod reply;

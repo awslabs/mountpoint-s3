@@ -44,7 +44,7 @@ pub trait Reply {
     fn new<S: ReplySender>(unique: u64, sender: S) -> Self;
 }
 
-pub(in crate) fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
+fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
     // Convert to signed 64-bit time with epoch at 0
     match system_time.duration_since(UNIX_EPOCH) {
         Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
@@ -59,7 +59,7 @@ pub(in crate) fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
 // But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(trivial_numeric_casts)]
 /// Returns the mode for a given file kind and permission
-pub(in crate) fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
+fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
     (match kind {
         FileType::NamedPipe => S_IFIFO,
         FileType::CharDevice => S_IFCHR,
@@ -74,7 +74,7 @@ pub(in crate) fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 
 /// Returns a fuse_attr from FileAttr
 #[cfg(target_os = "macos")]
-pub(in crate) fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
     let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
     let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
     let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);
@@ -107,7 +107,7 @@ pub(in crate) fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
 
 /// Returns a fuse_attr from FileAttr
 #[cfg(not(target_os = "macos"))]
-pub(in crate) fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
+fn fuse_attr_from_attr(attr: &FileAttr) -> fuse_attr {
     let (atime_secs, atime_nanos) = time_from_system_time(&attr.atime);
     let (mtime_secs, mtime_nanos) = time_from_system_time(&attr.mtime);
     let (ctime_secs, ctime_nanos) = time_from_system_time(&attr.ctime);

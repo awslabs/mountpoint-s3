@@ -9,7 +9,7 @@ jobs:
     strategy:
       matrix:
         libfuse: [libfuse-dev, libfuse3-dev]
-        features: [ '', 'abi-7-19', "async_impl" ]
+        features: [ '', 'abi-7-19' ]
 
     steps:
       - uses: actions/checkout@v2
