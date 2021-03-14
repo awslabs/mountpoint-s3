@@ -22,7 +22,6 @@ cd /code/fuser
 cargo build --release --examples --features=abi-7-28
 
 cp target/release/examples/simple /bin/fuser
-# First arg will be the sub type to run, e.g. SYNC
 export TEST_TARGET="$1"
 shift 
 cd /code/fuser
