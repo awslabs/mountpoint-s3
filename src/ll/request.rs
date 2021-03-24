@@ -1050,6 +1050,10 @@ mod op {
         pub fn flags(&self) -> i32 {
             self.arg.flags
         }
+        #[allow(dead_code)]
+        pub fn reply(&self, fh: FileHandle, flags: u32) -> Response {
+            Response::new_open(fh, flags)
+        }
     }
     #[derive(Debug)]
     pub struct ReadDir<'a> {
@@ -1217,6 +1221,10 @@ mod op {
     impl<'a> Access<'a> {
         pub fn mask(&self) -> i32 {
             self.arg.mask
+        }
+        #[allow(dead_code)]
+        pub fn reply(&self) -> Response {
+            Response::new_empty()
         }
     }
     #[derive(Debug)]
@@ -1418,6 +1426,9 @@ mod op {
         pub fn mode(&self) -> i32 {
             self.arg.mode
         }
+        pub fn reply(&self) -> Response {
+            Response::new_empty()
+        }
     }
     #[cfg(feature = "abi-7-21")]
     #[derive(Debug)]
@@ -1568,6 +1579,10 @@ mod op {
         // API TODO: Return a specific flags type
         pub fn flags(&self) -> u64 {
             self.arg.flags
+        }
+        #[allow(dead_code)]
+        pub fn reply(&self, written: u32) -> Response {
+            Response::new_write(written)
         }
     }
     #[cfg(target_os = "macos")]
