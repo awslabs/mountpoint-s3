@@ -94,6 +94,7 @@ dependencies = [
  "env_logger",
  "libc",
  "log",
+ "memchr",
  "page_size",
  "pkg-config",
  "serde",

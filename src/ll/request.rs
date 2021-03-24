@@ -5,7 +5,8 @@
 
 use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
 use super::{fuse_abi as abi, Errno, Response};
-use std::{convert::TryFrom, fmt::Display};
+use memchr;
+use std::{convert::TryFrom, fmt::Display, os::unix::prelude::OsStrExt, path::Path};
 use std::{error, fmt, mem};
 
 use super::argument::ArgumentIterator;
@@ -133,6 +134,23 @@ impl Display for Version {
     }
 }
 
+/// Represents a filename in a directory
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FilenameInDir<'a> {
+    /// The Inode number of the directory
+    pub dir: INodeNo,
+    /// Name of the file. This refers to a name directly in this directory, rather than any
+    /// subdirectory so is guaranteed not to contain '\0' or '/'.  It may be literally "." or ".."
+    /// however.
+    pub name: &'a Path,
+}
+impl<'a> FilenameInDir<'a> {
+    pub fn new(dir: INodeNo, name: &'a Path) -> Self {
+        assert!(memchr::memchr2(b'/', b'\0', name.as_os_str().as_bytes()).is_none());
+        Self { dir, name }
+    }
+}
+
 impl fmt::Display for RequestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -220,7 +238,7 @@ mod op {
 
     use super::{
         super::{argument::ArgumentIterator, reply::Attr, Generation, TimeOrNow},
-        Request,
+        FilenameInDir, Request,
     };
     use super::{
         abi::consts::*, abi::*, FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId,
@@ -245,6 +263,10 @@ mod op {
     impl<'a> Lookup<'a> {
         pub fn name(&self) -> &'a Path {
             self.name.as_ref()
+        }
+        #[allow(dead_code)]
+        pub fn path(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.name.as_ref())
         }
         #[allow(dead_code)]
         pub fn reply(
@@ -451,6 +473,10 @@ mod op {
     }
     impl_request!(SymLink<'_>);
     impl<'a> SymLink<'a> {
+        #[allow(dead_code)]
+        pub fn dest(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.link)
+        }
         pub fn target(&self) -> &'a Path {
             self.target
         }
@@ -479,6 +505,10 @@ mod op {
     impl<'a> MkNod<'a> {
         pub fn name(&self) -> &'a Path {
             self.name
+        }
+        #[allow(dead_code)]
+        pub fn dest(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.name())
         }
         pub fn mode(&self) -> u32 {
             self.arg.mode
@@ -515,6 +545,10 @@ mod op {
         pub fn name(&self) -> &'a Path {
             self.name
         }
+        #[allow(dead_code)]
+        pub fn dest(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.name())
+        }
         pub fn mode(&self) -> u32 {
             self.arg.mode
         }
@@ -543,6 +577,10 @@ mod op {
     }
     impl_request!(Unlink<'_>);
     impl<'a> Unlink<'a> {
+        #[allow(dead_code)]
+        pub fn path(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.name)
+        }
         pub fn name(&self) -> &'a Path {
             self.name
         }
@@ -558,6 +596,10 @@ mod op {
     }
     impl_request!(RmDir<'_>);
     impl<'a> RmDir<'a> {
+        #[allow(dead_code)]
+        pub fn path(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.name)
+        }
         pub fn name(&self) -> &'a Path {
             self.name
         }
@@ -565,11 +607,6 @@ mod op {
         pub fn reply(&self) -> Response {
             Response::new_empty()
         }
-    }
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct FilenameInDir<'a> {
-        pub dir: INodeNo,
-        pub name: &'a Path,
     }
     #[derive(Debug)]
     pub struct Rename<'a> {
@@ -580,13 +617,13 @@ mod op {
     }
     impl_request!(Rename<'_>);
     impl<'a> Rename<'a> {
-        pub fn from(&self) -> FilenameInDir<'a> {
+        pub fn src(&self) -> FilenameInDir<'a> {
             FilenameInDir::<'a> {
                 dir: self.nodeid(),
                 name: self.name,
             }
         }
-        pub fn to(&self) -> FilenameInDir<'a> {
+        pub fn dest(&self) -> FilenameInDir<'a> {
             FilenameInDir::<'a> {
                 dir: INodeNo(self.arg.newdir),
                 name: self.newname,
@@ -611,7 +648,7 @@ mod op {
         pub fn inode_no(&self) -> INodeNo {
             INodeNo(self.arg.oldnodeid)
         }
-        pub fn to(&self) -> FilenameInDir<'a> {
+        pub fn dest(&self) -> FilenameInDir<'a> {
             FilenameInDir::<'a> {
                 dir: self.nodeid(),
                 name: self.name,
@@ -1190,6 +1227,10 @@ mod op {
     }
     impl_request!(Create<'a>);
     impl<'a> Create<'a> {
+        #[allow(dead_code)]
+        pub fn dest(&self) -> FilenameInDir<'a> {
+            FilenameInDir::new(self.nodeid(), self.name)
+        }
         pub fn name(&self) -> &'a Path {
             self.name
         }
@@ -1507,14 +1548,14 @@ mod op {
     impl_request!(CopyFileRange<'a>);
     #[cfg(feature = "abi-7-28")]
     impl<'a> CopyFileRange<'a> {
-        pub fn input(&self) -> CopyFileRangeFile {
+        pub fn src(&self) -> CopyFileRangeFile {
             CopyFileRangeFile {
                 inode: self.nodeid(),
                 file_handle: FileHandle(self.arg.fh_in),
                 offset: self.arg.off_in,
             }
         }
-        pub fn output(&self) -> CopyFileRangeFile {
+        pub fn dest(&self) -> CopyFileRangeFile {
             CopyFileRangeFile {
                 inode: INodeNo(self.arg.nodeid_out),
                 file_handle: FileHandle(self.arg.fh_out),
@@ -1929,8 +1970,8 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::MkDir(x) => write!(f, "MKDIR name {:?}, mode {:#05o}", x.name(), x.mode()),
             Operation::Unlink(x) => write!(f, "UNLINK name {:?}", x.name()),
             Operation::RmDir(x) => write!(f, "RMDIR name {:?}", x.name),
-            Operation::Rename(x) => write!(f, "RENAME from {:?}, to {:?}", x.from(), x.to()),
-            Operation::Link(x) => write!(f, "LINK ino {:?}, to {:?}", x.inode_no(), x.to()),
+            Operation::Rename(x) => write!(f, "RENAME src {:?}, dest {:?}", x.src(), x.dest()),
+            Operation::Link(x) => write!(f, "LINK ino {:?}, dest {:?}", x.inode_no(), x.dest()),
             Operation::Open(x) => write!(f, "OPEN flags {:#x}", x.flags()),
             Operation::Read(x) => write!(
                 f,
@@ -2076,9 +2117,9 @@ impl<'a> fmt::Display for Operation<'a> {
             #[cfg(feature = "abi-7-28")]
             Operation::CopyFileRange(x) => write!(
                 f,
-                "COPY_FILE_RANGE input {:?}, output {:?}, len {}",
-                x.input(),
-                x.output(),
+                "COPY_FILE_RANGE src {:?}, dest {:?}, len {}",
+                x.src(),
+                x.dest(),
                 x.len()
             ),
 

@@ -212,9 +212,9 @@ impl<'a> Request<'a> {
                 se.filesystem.rename(
                     self,
                     self.request.nodeid().into(),
-                    x.from().name.as_ref(),
-                    x.to().dir.into(),
-                    x.to().name.as_ref(),
+                    x.src().name.as_ref(),
+                    x.dest().dir.into(),
+                    x.dest().name.as_ref(),
                     0,
                     self.reply(),
                 );
@@ -224,7 +224,7 @@ impl<'a> Request<'a> {
                     self,
                     x.inode_no().into(),
                     self.request.nodeid().into(),
-                    x.to().name.as_ref(),
+                    x.dest().name.as_ref(),
                     self.reply(),
                 );
             }
@@ -505,7 +505,7 @@ impl<'a> Request<'a> {
             }
             #[cfg(feature = "abi-7-28")]
             ll::Operation::CopyFileRange(x) => {
-                let (i, o) = (x.input(), x.output());
+                let (i, o) = (x.src(), x.dest());
                 se.filesystem.copy_file_range(
                     self,
                     i.inode.into(),
