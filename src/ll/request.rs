@@ -1611,7 +1611,7 @@ mod op {
         let mut data = ArgumentIterator::new(data);
         Some(match opcode {
             fuse_opcode::FUSE_LOOKUP => Operation::Lookup(Lookup {
-                header: header,
+                header,
                 name: data.fetch_str()?,
             }),
             fuse_opcode::FUSE_FORGET => Operation::Forget(Forget {
