@@ -6,8 +6,7 @@
 #![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 
-use super::mount_options::MountOption;
-use super::mount_options::{option_group, option_to_flag, option_to_string, MountOptionGroup};
+use super::mount_options::{option_to_string, MountOption};
 use libc::c_int;
 use log::{debug, error};
 use std::ffi::{CStr, CString, OsStr};
@@ -416,4 +415,75 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
     }
 
     Ok(Some(file))
+}
+
+#[derive(PartialEq)]
+pub enum MountOptionGroup {
+    KernelOption,
+    KernelFlag,
+    Fusermount,
+}
+
+pub fn option_group(option: &MountOption) -> MountOptionGroup {
+    match option {
+        MountOption::FSName(_) => MountOptionGroup::Fusermount,
+        MountOption::Subtype(_) => MountOptionGroup::Fusermount,
+        MountOption::CUSTOM(_) => MountOptionGroup::KernelOption,
+        MountOption::AutoUnmount => MountOptionGroup::Fusermount,
+        MountOption::AllowOther => MountOptionGroup::KernelOption,
+        MountOption::Dev => MountOptionGroup::KernelFlag,
+        MountOption::NoDev => MountOptionGroup::KernelFlag,
+        MountOption::Suid => MountOptionGroup::KernelFlag,
+        MountOption::NoSuid => MountOptionGroup::KernelFlag,
+        MountOption::RO => MountOptionGroup::KernelFlag,
+        MountOption::RW => MountOptionGroup::KernelFlag,
+        MountOption::Exec => MountOptionGroup::KernelFlag,
+        MountOption::NoExec => MountOptionGroup::KernelFlag,
+        MountOption::Atime => MountOptionGroup::KernelFlag,
+        MountOption::NoAtime => MountOptionGroup::KernelFlag,
+        MountOption::DirSync => MountOptionGroup::KernelFlag,
+        MountOption::Sync => MountOptionGroup::KernelFlag,
+        MountOption::Async => MountOptionGroup::KernelFlag,
+        MountOption::AllowRoot => MountOptionGroup::KernelOption,
+        MountOption::DefaultPermissions => MountOptionGroup::KernelOption,
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn option_to_flag(option: &MountOption) -> libc::c_ulong {
+    match option {
+        MountOption::Dev => 0, // There is no option for dev. It's the absence of NoDev
+        MountOption::NoDev => libc::MS_NODEV,
+        MountOption::Suid => 0,
+        MountOption::NoSuid => libc::MS_NOSUID,
+        MountOption::RW => 0,
+        MountOption::RO => libc::MS_RDONLY,
+        MountOption::Exec => 0,
+        MountOption::NoExec => libc::MS_NOEXEC,
+        MountOption::Atime => 0,
+        MountOption::NoAtime => libc::MS_NOATIME,
+        MountOption::Async => 0,
+        MountOption::Sync => libc::MS_SYNCHRONOUS,
+        MountOption::DirSync => libc::MS_DIRSYNC,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn option_to_flag(option: &MountOption) -> libc::c_int {
+    match option {
+        MountOption::Dev => 0, // There is no option for dev. It's the absence of NoDev
+        MountOption::NoDev => libc::MNT_NODEV,
+        MountOption::Suid => 0,
+        MountOption::NoSuid => libc::MNT_NOSUID,
+        MountOption::RW => 0,
+        MountOption::RO => libc::MNT_RDONLY,
+        MountOption::Exec => 0,
+        MountOption::NoExec => libc::MNT_NOEXEC,
+        MountOption::Atime => 0,
+        MountOption::NoAtime => libc::MNT_NOATIME,
+        MountOption::Async => 0,
+        MountOption::Sync => libc::MNT_SYNCHRONOUS,
+        _ => unreachable!(),
+    }
 }
