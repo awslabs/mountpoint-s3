@@ -7,8 +7,6 @@
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::info;
-#[cfg(feature = "libfuse")]
-use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
@@ -18,7 +16,6 @@ use crate::channel::{self, Channel};
 use crate::ll::fuse_abi as abi;
 use crate::request::Request;
 use crate::Filesystem;
-#[cfg(not(feature = "libfuse"))]
 use crate::MountOption;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
@@ -53,31 +50,13 @@ pub struct Session<FS: Filesystem> {
 
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
-    #[cfg(feature = "libfuse")]
-    pub fn new(filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
-        info!("Mounting {}", mountpoint.display());
-        let (ch, mount) = Channel::new(mountpoint, options)?;
-        Ok(Session {
-            filesystem,
-            ch,
-            mount: Some(mount),
-            mountpoint: mountpoint.to_owned(),
-            proto_major: 0,
-            proto_minor: 0,
-            initialized: false,
-            destroyed: false,
-        })
-    }
-
-    /// Create a new session by mounting the given filesystem to the given mountpoint
-    #[cfg(not(feature = "libfuse"))]
-    pub fn new2(
+    pub fn new(
         filesystem: FS,
         mountpoint: &Path,
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        let (ch, mount) = Channel::new2(mountpoint, options)?;
+        let (ch, mount) = Channel::new(mountpoint, options)?;
         Ok(Session {
             filesystem,
             ch,

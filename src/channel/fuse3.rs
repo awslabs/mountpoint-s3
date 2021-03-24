@@ -11,7 +11,7 @@ pub struct Mount {
     fuse_session: *mut c_void,
 }
 impl Mount {
-    pub fn new(mnt: &Path, options: &[&OsStr]) -> io::Result<(File, Mount)> {
+    pub fn new(mnt: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mnt = CString::new(mnt.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
             let fuse_session = unsafe { fuse_session_new(args, ptr::null(), 0, ptr::null_mut()) };
@@ -34,7 +34,7 @@ impl Mount {
                 return Err(io::Error::last_os_error());
             }
             let file = unsafe { File::from_raw_fd(fd) };
-            Ok((file, mount))
+            Ok((Arc::new(file), mount))
         })
     }
 }

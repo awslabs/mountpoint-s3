@@ -18,26 +18,28 @@ pub mod mount_options;
 #[cfg(any(feature = "libfuse", test))]
 use fuse2_sys::fuse_args;
 use libc::{self, c_int, c_void, size_t};
+use mount_options::option_to_string;
 use std::io;
 use std::os::unix::prelude::AsRawFd;
 use std::path::Path;
 #[cfg(any(feature = "libfuse", test))]
-use std::{
-    ffi::{CString, OsStr},
-    os::unix::ffi::OsStrExt,
-};
+use std::{ffi::CString, os::unix::ffi::OsStrExt};
 use std::{fs::File, sync::Arc};
 
 use crate::reply::ReplySender;
-#[cfg(not(feature = "libfuse"))]
 use crate::MountOption;
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 #[cfg(any(feature = "libfuse", test))]
-fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[&OsStr], f: F) -> T {
+fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) -> T {
     let mut args = vec![CString::new("rust-fuse").unwrap()];
-    args.extend(options.iter().map(|s| CString::new(s.as_bytes()).unwrap()));
+    for x in options {
+        args.extend_from_slice(&[
+            CString::new("-o").unwrap(),
+            CString::new(option_to_string(x)).unwrap(),
+        ]);
+    }
     let argptrs: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
     f(&fuse_args {
         argc: argptrs.len() as i32,
@@ -63,16 +65,8 @@ impl Channel {
     /// Create a new communication channel to the kernel driver by mounting the
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel.
-    #[cfg(feature = "libfuse")]
-    pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<(Channel, Mount)> {
-        let mountpoint = mountpoint.canonicalize()?;
-        let (file, mount) = Mount::new(&mountpoint, options)?;
-        Ok((Channel(Arc::new(file)), mount))
-    }
-
-    #[cfg(not(feature = "libfuse"))]
-    pub fn new2(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Channel, Mount)> {
-        let (file, mount) = fuse_pure::Mount::new(mountpoint, options)?;
+    pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Channel, Mount)> {
+        let (file, mount) = Mount::new(mountpoint, options)?;
         Ok((Channel(file), mount))
     }
 
@@ -186,28 +180,26 @@ fn is_mounted(fuse_device: &File) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{
-        ffi::{CStr, OsStr},
-        mem::ManuallyDrop,
-    };
+    use std::{ffi::CStr, mem::ManuallyDrop};
 
     #[test]
     fn fuse_args() {
-        with_fuse_args(&[OsStr::new("foo"), OsStr::new("bar")], |args| {
-            assert_eq!(args.argc, 3);
-            assert_eq!(
-                unsafe { CStr::from_ptr(*args.argv.offset(0)).to_bytes() },
-                b"rust-fuse"
-            );
-            assert_eq!(
-                unsafe { CStr::from_ptr(*args.argv.offset(1)).to_bytes() },
-                b"foo"
-            );
-            assert_eq!(
-                unsafe { CStr::from_ptr(*args.argv.offset(2)).to_bytes() },
-                b"bar"
-            );
-        });
+        with_fuse_args(
+            &[
+                MountOption::CUSTOM("foo".into()),
+                MountOption::CUSTOM("bar".into()),
+            ],
+            |args| {
+                let v: Vec<_> = (0..args.argc)
+                    .map(|n| unsafe {
+                        CStr::from_ptr(*args.argv.offset(n as isize))
+                            .to_str()
+                            .unwrap()
+                    })
+                    .collect();
+                assert_eq!(*v, ["rust-fuse", "-o", "foo", "-o", "bar"]);
+            },
+        );
     }
     fn cmd_mount() -> String {
         std::str::from_utf8(

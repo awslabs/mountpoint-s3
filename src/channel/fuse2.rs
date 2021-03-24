@@ -9,14 +9,15 @@ pub struct Mount {
     mountpoint: CString,
 }
 impl Mount {
-    pub fn new(mountpoint: &Path, options: &[&OsStr]) -> io::Result<(File, Mount)> {
+    pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mountpoint = CString::new(mountpoint.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
             let fd = unsafe { fuse_mount_compat25(mountpoint.as_ptr(), args) };
             if fd < 0 {
                 Err(io::Error::last_os_error())
             } else {
-                Ok((unsafe { File::from_raw_fd(fd) }, Mount { mountpoint }))
+                let file = unsafe { File::from_raw_fd(fd) };
+                Ok((Arc::new(file), Mount { mountpoint }))
             }
         })
     }
