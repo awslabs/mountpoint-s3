@@ -6,6 +6,7 @@
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
+use channel::mount_options::parse_options_from_args;
 use libc::{c_int, ENOSYS};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
@@ -844,13 +845,13 @@ pub trait Filesystem {
 ///
 /// Note that you need to lead each option with a separate `"-o"` string. See
 /// `examples/hello.rs`.
-#[cfg(feature = "libfuse")]
 pub fn mount<FS: Filesystem, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,
     options: &[&OsStr],
 ) -> io::Result<()> {
-    Session::new(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
+    let options = parse_options_from_args(options)?;
+    mount2(filesystem, mountpoint, options.as_ref())
 }
 
 /// Mount the given filesystem to the given mountpoint. This function will
