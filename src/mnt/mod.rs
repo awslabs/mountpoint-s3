@@ -17,17 +17,16 @@ pub mod mount_options;
 
 #[cfg(any(feature = "libfuse", test))]
 use fuse2_sys::fuse_args;
-use libc::{self, c_int, c_void, size_t};
+use libc;
 use mount_options::option_to_string;
-use std::io;
-use std::os::unix::prelude::AsRawFd;
-use std::path::Path;
+#[cfg(any(test, not(feature = "libfuse")))]
+use std::fs::File;
+use std::sync::Arc;
 #[cfg(any(feature = "libfuse", test))]
 use std::{ffi::CString, os::unix::ffi::OsStrExt};
-use std::{fs::File, sync::Arc};
+use std::{io, path::Path};
 
-use crate::reply::ReplySender;
-use crate::MountOption;
+use mount_options::MountOption;
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
@@ -56,66 +55,6 @@ pub use fuse3::Mount;
 pub use fuse_pure::Mount;
 #[cfg(not(feature = "libfuse3"))]
 use std::ffi::CStr;
-
-/// A raw communication channel to the FUSE kernel driver
-#[derive(Debug)]
-pub struct Channel(Arc<File>);
-
-impl Channel {
-    /// Create a new communication channel to the kernel driver by mounting the
-    /// given path. The kernel driver will delegate filesystem operations of
-    /// the given path to the channel.
-    pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Channel, Mount)> {
-        let (file, mount) = Mount::new(mountpoint, options)?;
-        Ok((Channel(file), mount))
-    }
-
-    /// Receives data up to the capacity of the given buffer (can block).
-    pub fn receive(&self, buffer: &mut [u8]) -> io::Result<usize> {
-        let rc = unsafe {
-            libc::read(
-                self.0.as_raw_fd(),
-                buffer.as_ptr() as *mut c_void,
-                buffer.len() as size_t,
-            )
-        };
-        if rc < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(rc as usize)
-        }
-    }
-
-    /// Returns a sender object for this channel. The sender object can be
-    /// used to send to the channel. Multiple sender objects can be used
-    /// and they can safely be sent to other threads.
-    pub fn sender(&self) -> ChannelSender {
-        // Since write/writev syscalls are threadsafe, we can simply create
-        // a sender by using the same file and use it in other threads.
-        ChannelSender(self.0.clone())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ChannelSender(Arc<File>);
-
-impl ReplySender for ChannelSender {
-    fn send(&self, bufs: &[io::IoSlice<'_>]) -> io::Result<()> {
-        let rc = unsafe {
-            libc::writev(
-                self.0.as_raw_fd(),
-                bufs.as_ptr() as *const libc::iovec,
-                bufs.len() as c_int,
-            )
-        };
-        if rc < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            debug_assert_eq!(bufs.iter().map(|b| b.len()).sum::<usize>(), rc as usize);
-            Ok(())
-        }
-    }
-}
 
 #[cfg(not(feature = "libfuse3"))]
 #[inline]
@@ -151,6 +90,8 @@ fn libc_umount(mnt: &CStr) -> std::io::Result<()> {
 #[cfg(any(test, not(feature = "libfuse")))]
 fn is_mounted(fuse_device: &File) -> bool {
     use libc::{poll, pollfd};
+    use std::os::unix::prelude::AsRawFd;
+
     let mut poll_result = pollfd {
         fd: fuse_device.as_raw_fd(),
         events: 0,

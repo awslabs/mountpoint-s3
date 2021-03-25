@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
-use crate::channel::{self, Channel};
 use crate::ll::fuse_abi as abi;
 use crate::request::Request;
 use crate::Filesystem;
 use crate::MountOption;
+use crate::{channel::Channel, mnt::Mount};
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
@@ -35,7 +35,7 @@ pub struct Session<FS: Filesystem> {
     /// Communication channel to the kernel driver
     ch: Channel,
     /// Handle to the mount.  Dropping this unmounts.
-    mount: Option<super::channel::Mount>,
+    mount: Option<Mount>,
     /// Mount point
     mountpoint: PathBuf,
     /// FUSE protocol major version
@@ -56,7 +56,8 @@ impl<FS: Filesystem> Session<FS> {
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        let (ch, mount) = Channel::new(mountpoint, options)?;
+        let (file, mount) = Mount::new(mountpoint, options)?;
+        let ch = Channel::new(file);
         Ok(Session {
             filesystem,
             ch,
@@ -147,7 +148,7 @@ pub struct BackgroundSession {
     /// Thread guard of the background session
     pub guard: JoinHandle<io::Result<()>>,
     /// Ensures the filesystem is unmounted when the session ends
-    _mount: channel::Mount,
+    _mount: Mount,
 }
 
 impl BackgroundSession {

@@ -6,8 +6,8 @@
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
-use channel::mount_options::parse_options_from_args;
 use libc::{c_int, ENOSYS};
+use mnt::mount_options::parse_options_from_args;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
@@ -18,12 +18,12 @@ use std::time::Duration;
 use std::time::SystemTime;
 use std::{convert::AsRef, io::ErrorKind};
 
-use crate::channel::mount_options::check_option_conflicts;
 use crate::ll::fuse_abi::consts::*;
 pub use crate::ll::fuse_abi::FUSE_ROOT_ID;
 pub use crate::ll::{fuse_abi::consts, TimeOrNow};
+use crate::mnt::mount_options::check_option_conflicts;
 use crate::session::MAX_WRITE_SIZE;
-pub use channel::mount_options::MountOption;
+pub use mnt::mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
@@ -41,6 +41,7 @@ use std::cmp::min;
 
 mod channel;
 mod ll;
+mod mnt;
 mod reply;
 mod request;
 mod session;

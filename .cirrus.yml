@@ -18,6 +18,6 @@ task:
     - cargo doc --all --no-deps --features=abi-7-21
   test_script:
     - . $HOME/.cargo/env
-    - cargo test --all --all-targets -- --skip=channel::test::mount_unmount
-    - cargo test --all --all-targets --features=abi-7-21 -- --skip=channel::test::mount_unmount
+    - cargo test --all --all-targets -- --skip=mnt::test::mount_unmount
+    - cargo test --all --all-targets --features=abi-7-21 -- --skip=mnt::test::mount_unmount
   before_cache_script: rm -rf $CARGO_HOME/registry/index
