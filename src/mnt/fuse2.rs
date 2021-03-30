@@ -1,8 +1,13 @@
-use fuse2_sys::*;
+use super::{fuse2_sys::*, with_fuse_args, MountOption};
 use log::warn;
-use std::{fs::File, os::unix::prelude::FromRawFd};
-
-use super::*;
+use std::{
+    ffi::CString,
+    fs::File,
+    io,
+    os::unix::prelude::{FromRawFd, OsStrExt},
+    path::Path,
+    sync::Arc,
+};
 
 #[derive(Debug)]
 pub struct Mount {

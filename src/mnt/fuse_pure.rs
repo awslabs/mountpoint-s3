@@ -6,6 +6,7 @@
 #![warn(missing_debug_implementations)]
 #![allow(missing_docs)]
 
+use super::is_mounted;
 use super::mount_options::{option_to_string, MountOption};
 use libc::c_int;
 use log::{debug, error};
@@ -17,14 +18,14 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::{mem, ptr};
 
 const FUSERMOUNT_BIN: &str = "fusermount";
 const FUSERMOUNT3_BIN: &str = "fusermount3";
 const FUSERMOUNT_COMM_ENV: &str = "_FUSE_COMMFD";
-
-use super::*;
 
 #[derive(Debug)]
 pub struct Mount {

@@ -17,14 +17,10 @@ pub mod mount_options;
 
 #[cfg(any(feature = "libfuse", test))]
 use fuse2_sys::fuse_args;
-use libc;
 use mount_options::option_to_string;
 #[cfg(any(test, not(feature = "libfuse")))]
 use std::fs::File;
-use std::sync::Arc;
-#[cfg(any(feature = "libfuse", test))]
-use std::{ffi::CString, os::unix::ffi::OsStrExt};
-use std::{io, path::Path};
+use std::io;
 
 use mount_options::MountOption;
 
@@ -32,6 +28,8 @@ use mount_options::MountOption;
 /// (which contains an argc count and an argv pointer)
 #[cfg(any(feature = "libfuse", test))]
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) -> T {
+    use std::ffi::CString;
+
     let mut args = vec![CString::new("rust-fuse").unwrap()];
     for x in options {
         args.extend_from_slice(&[
@@ -58,7 +56,7 @@ use std::ffi::CStr;
 
 #[cfg(not(feature = "libfuse3"))]
 #[inline]
-fn libc_umount(mnt: &CStr) -> std::io::Result<()> {
+fn libc_umount(mnt: &CStr) -> io::Result<()> {
     #[cfg(any(
         target_os = "macos",
         target_os = "freebsd",

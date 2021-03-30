@@ -2,9 +2,16 @@ use super::fuse3_sys::{
     fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
-use super::*;
-use std::os::unix::prelude::FromRawFd;
-use std::ptr;
+use super::{with_fuse_args, MountOption};
+use std::{
+    ffi::{c_void, CString},
+    fs::File,
+    io,
+    os::unix::{ffi::OsStrExt, io::FromRawFd},
+    path::Path,
+    ptr,
+    sync::Arc,
+};
 
 #[derive(Debug)]
 pub struct Mount {
