@@ -260,6 +260,7 @@ mod op {
         header: &'a fuse_in_header,
         name: &'a OsStr,
     }
+    impl_request!(Lookup<'_>);
     impl<'a> Lookup<'a> {
         pub fn name(&self) -> &'a Path {
             self.name.as_ref()
