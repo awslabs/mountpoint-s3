@@ -812,7 +812,7 @@ mod op {
             self.arg.flags
         }
         #[allow(dead_code)]
-        pub fn reply<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Response {
+        pub fn reply<T: AsRef<[u8]> + Into<Vec<u8>>>(&self, data: T) -> Response {
             Response::new_data(data)
         }
     }
