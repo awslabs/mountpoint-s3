@@ -182,7 +182,7 @@ pub struct FilenameInDir<'a> {
     pub name: &'a Path,
 }
 impl<'a> FilenameInDir<'a> {
-    pub fn new(dir: INodeNo, name: &'a Path) -> Self {
+    pub(crate) fn new(dir: INodeNo, name: &'a Path) -> Self {
         assert!(memchr::memchr2(b'/', b'\0', name.as_os_str().as_bytes()).is_none());
         Self { dir, name }
     }
