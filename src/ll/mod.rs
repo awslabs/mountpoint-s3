@@ -126,92 +126,20 @@ impl Errno {
     pub const ENOMSG: Errno = errno!(libc::ENOMSG);
     /// Identifier removed
     pub const EIDRM: Errno = errno!(libc::EIDRM);
-    /// Channel number out of range
-    pub const ECHRNG: Errno = errno!(libc::ECHRNG);
-    /// Level 2 not synchronised
-    pub const EL2NSYNC: Errno = errno!(libc::EL2NSYNC);
-    /// Level 3 halted
-    pub const EL3HLT: Errno = errno!(libc::EL3HLT);
-    /// Level 3 reset
-    pub const EL3RST: Errno = errno!(libc::EL3RST);
-    /// Link number out of range
-    pub const ELNRNG: Errno = errno!(libc::ELNRNG);
-    /// Protocol driver not attached
-    pub const EUNATCH: Errno = errno!(libc::EUNATCH);
-    /// No CSI structure available
-    pub const ENOCSI: Errno = errno!(libc::ENOCSI);
-    /// Level 2 halted
-    pub const EL2HLT: Errno = errno!(libc::EL2HLT);
-    /// Invalid exchange
-    pub const EBADE: Errno = errno!(libc::EBADE);
-    /// Invalid request descriptor
-    pub const EBADR: Errno = errno!(libc::EBADR);
-    /// Exchange full
-    pub const EXFULL: Errno = errno!(libc::EXFULL);
-    /// No anode
-    pub const ENOANO: Errno = errno!(libc::ENOANO);
-    /// Invalid request code
-    pub const EBADRQC: Errno = errno!(libc::EBADRQC);
-    /// Invalid slot
-    pub const EBADSLT: Errno = errno!(libc::EBADSLT);
-    /// Resource deadlock avoided
-    pub const EDEADLOCK: Errno = errno!(libc::EDEADLOCK);
-    /// Bad font file format
-    pub const EBFONT: Errno = errno!(libc::EBFONT);
-    /// Device not a stream
-    pub const ENOSTR: Errno = errno!(libc::ENOSTR);
-    /// No data available
-    pub const ENODATA: Errno = errno!(libc::ENODATA);
-    /// Timer expired
-    pub const ETIME: Errno = errno!(libc::ETIME);
-    /// Out of streams resources
-    pub const ENOSR: Errno = errno!(libc::ENOSR);
-    /// Machine is not on the network
-    pub const ENONET: Errno = errno!(libc::ENONET);
-    /// Package not installed
-    pub const ENOPKG: Errno = errno!(libc::ENOPKG);
     /// Object is remote
     pub const EREMOTE: Errno = errno!(libc::EREMOTE);
     /// Link has been severed
     pub const ENOLINK: Errno = errno!(libc::ENOLINK);
-    /// Advertise error
-    pub const EADV: Errno = errno!(libc::EADV);
-    /// Srmount error
-    pub const ESRMNT: Errno = errno!(libc::ESRMNT);
-    /// Communication error on send
-    pub const ECOMM: Errno = errno!(libc::ECOMM);
     /// Protocol error
     pub const EPROTO: Errno = errno!(libc::EPROTO);
     /// Multihop attempted
     pub const EMULTIHOP: Errno = errno!(libc::EMULTIHOP);
-    /// RFS specific error
-    pub const EDOTDOT: Errno = errno!(libc::EDOTDOT);
     /// Bad message
     pub const EBADMSG: Errno = errno!(libc::EBADMSG);
     /// Value too large for defined data type
     pub const EOVERFLOW: Errno = errno!(libc::EOVERFLOW);
-    /// Name not unique on network
-    pub const ENOTUNIQ: Errno = errno!(libc::ENOTUNIQ);
-    /// File descriptor in bad state
-    pub const EBADFD: Errno = errno!(libc::EBADFD);
-    /// Remote address changed
-    pub const EREMCHG: Errno = errno!(libc::EREMCHG);
-    /// Can not access a needed shared library
-    pub const ELIBACC: Errno = errno!(libc::ELIBACC);
-    /// Accessing a corrupted shared library
-    pub const ELIBBAD: Errno = errno!(libc::ELIBBAD);
-    /// .lib section in a.out corrupted
-    pub const ELIBSCN: Errno = errno!(libc::ELIBSCN);
-    /// Attempting to link in too many shared libraries
-    pub const ELIBMAX: Errno = errno!(libc::ELIBMAX);
-    /// Cannot exec a shared library directly
-    pub const ELIBEXEC: Errno = errno!(libc::ELIBEXEC);
     /// Invalid or incomplete multibyte or wide character
     pub const EILSEQ: Errno = errno!(libc::EILSEQ);
-    /// Interrupted system call should be restarted
-    pub const ERESTART: Errno = errno!(libc::ERESTART);
-    /// Streams pipe error
-    pub const ESTRPIPE: Errno = errno!(libc::ESTRPIPE);
     /// Too many users
     pub const EUSERS: Errno = errno!(libc::EUSERS);
     /// Socket operation on non-socket
@@ -272,42 +200,23 @@ impl Errno {
     pub const EINPROGRESS: Errno = errno!(libc::EINPROGRESS);
     /// Stale file handle
     pub const ESTALE: Errno = errno!(libc::ESTALE);
-    /// Structure needs cleaning
-    pub const EUCLEAN: Errno = errno!(libc::EUCLEAN);
-    /// Not a XENIX named type file
-    pub const ENOTNAM: Errno = errno!(libc::ENOTNAM);
-    /// No XENIX semaphores available
-    pub const ENAVAIL: Errno = errno!(libc::ENAVAIL);
-    /// Is a named type file
-    pub const EISNAM: Errno = errno!(libc::EISNAM);
-    /// Remote I/O error
-    pub const EREMOTEIO: Errno = errno!(libc::EREMOTEIO);
     /// Disk quota exceeded
     pub const EDQUOT: Errno = errno!(libc::EDQUOT);
-    /// No medium found
-    pub const ENOMEDIUM: Errno = errno!(libc::ENOMEDIUM);
-    /// Wrong medium type
-    pub const EMEDIUMTYPE: Errno = errno!(libc::EMEDIUMTYPE);
     /// Operation cancelled
     pub const ECANCELED: Errno = errno!(libc::ECANCELED);
-    /// Required key not available
-    pub const ENOKEY: Errno = errno!(libc::ENOKEY);
-    /// Key has expired
-    pub const EKEYEXPIRED: Errno = errno!(libc::EKEYEXPIRED);
-    /// Key has been revoked
-    pub const EKEYREVOKED: Errno = errno!(libc::EKEYREVOKED);
-    /// Key was rejected by service
-    pub const EKEYREJECTED: Errno = errno!(libc::EKEYREJECTED);
     /// Owner died
     pub const EOWNERDEAD: Errno = errno!(libc::EOWNERDEAD);
     /// State not recoverable
     pub const ENOTRECOVERABLE: Errno = errno!(libc::ENOTRECOVERABLE);
-    /// Operation not possible due to RF-kill
-    pub const ERFKILL: Errno = errno!(libc::ERFKILL);
-    /// Memory page has hardware error
-    pub const EHWPOISON: Errno = errno!(libc::EHWPOISON);
     /// Operation not supported
     pub const ENOTSUP: Errno = errno!(libc::ENOTSUP);
+
+    /// No data available
+    #[cfg(target_os = "linux")]
+    pub const ENODATA: Errno = errno!(libc::ENODATA);
+    /// Attribute not found
+    #[cfg(not(target_os = "linux"))]
+    pub const ENOATTR: Errno = errno!(libc::ENOATTR);
 
     /// Use this as an error return from getxattr/removexattr to indicate that the xattr doesn't
     /// exist.  This resolves to the appropriate platform specific error code.
