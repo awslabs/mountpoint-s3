@@ -172,7 +172,7 @@ impl Display for Version {
 }
 
 /// Represents a filename in a directory
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct FilenameInDir<'a> {
     /// The Inode number of the directory
     pub dir: INodeNo,
