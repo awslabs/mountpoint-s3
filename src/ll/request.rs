@@ -6,6 +6,8 @@
 use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
 use super::{fuse_abi as abi, Errno, Response};
 use memchr;
+#[cfg(feature = "serializable")]
+use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Display, os::unix::prelude::OsStrExt, path::Path};
 use std::{error, fmt, mem};
 
@@ -35,6 +37,7 @@ pub enum RequestError {
 /// important to handle this for any requests that may block indefinitely, like
 /// [SetLkW].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct RequestId(pub u64);
 impl From<RequestId> for u64 {
     fn from(fh: RequestId) -> Self {
@@ -66,6 +69,7 @@ impl From<RequestId> for u64 {
 /// not all [u64]s are valid [INodeNo]s, but the reverse is true.  So to produce
 /// a [INodeNo] from a [u64] we must be explicit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct INodeNo(pub u64);
 impl From<INodeNo> for u64 {
     fn from(fh: INodeNo) -> Self {
@@ -109,6 +113,7 @@ impl From<INodeNo> for u64 {
 /// not all u64s are valid FileHandles, but the reverse is true.  So to produce
 /// a FileHandle from a u64 we must be explicit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct FileHandle(pub u64);
 
 impl From<FileHandle> for u64 {
@@ -127,6 +132,7 @@ impl From<FileHandle> for u64 {
 /// because all LockOwners are valid [u64]s, but not vice-versa.  So to produce
 /// a [LockOwner] from a [u64] we must be explicit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct LockOwner(pub u64);
 
 impl From<LockOwner> for u64 {
@@ -156,6 +162,7 @@ impl Lock {
 
 /// A newtype for ABI version
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct Version(pub u32, pub u32);
 impl Version {
     pub fn major(&self) -> u32 {
