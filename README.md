@@ -67,16 +67,8 @@ Installer packages can be downloaded from the [FUSE for macOS homepage][FUSE for
 
 #### To install using Homebrew
 
-**Note:** only needed if you prefer to run the opensource version 3.x, for version 4.x (binary only but needed for e.g. M1 macs) use the link mentioned above.
-
 ```sh
-brew cask install osxfuse
-```
-
-To install `pkg-config` (required for building only):
-
-```sh
-brew install pkg-config
+brew install macfuse
 ```
 
 #### To install using Nix
