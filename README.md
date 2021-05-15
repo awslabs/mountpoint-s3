@@ -103,7 +103,7 @@ Put this in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fuser = "0.4"
+fuser = "0.7"
 ```
 
 To create a new filesystem, implement the trait `fuser::Filesystem`. See the [documentation] for details or the `examples` directory for some basic examples.
