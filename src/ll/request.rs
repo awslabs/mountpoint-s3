@@ -5,7 +5,6 @@
 
 use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
 use super::{fuse_abi as abi, Errno, Response};
-use memchr;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Display, os::unix::prelude::OsStrExt, path::Path};

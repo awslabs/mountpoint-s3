@@ -896,7 +896,7 @@ mod test {
         );
     }
 
-    fn ioslice_to_vec<'a>(s: &[IoSlice<'a>]) -> Vec<u8> {
+    fn ioslice_to_vec(s: &[IoSlice<'_>]) -> Vec<u8> {
         let mut v = Vec::with_capacity(s.iter().map(|x| x.len()).sum());
         for x in s {
             v.extend_from_slice(x);

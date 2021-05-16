@@ -162,13 +162,13 @@ pub(crate) fn parse_options_from_args(args: &[&OsStr]) -> io::Result<Vec<MountOp
     loop {
         let opt = match it.next() {
             None => break,
-            Some(&"-o") => *it.next().ok_or(err(
-                "Error parsing args: Expected option, reached end of args".to_owned(),
-            ))?,
+            Some(&"-o") => *it.next().ok_or_else(|| {
+                err("Error parsing args: Expected option, reached end of args".to_owned())
+            })?,
             Some(x) if x.starts_with("-o") => &x[2..],
             Some(x) => return Err(err(format!("Error parsing args: expected -o, got {}", x))),
         };
-        for x in opt.split(",") {
+        for x in opt.split(',') {
             out.push(MountOption::from_str(x))
         }
     }
@@ -224,7 +224,7 @@ mod test {
         assert_eq!(parse_options_from_args(&[]).unwrap(), &[]);
 
         let o: Vec<_> = "-o suid -o ro,nodev,noexec -osync"
-            .split(" ")
+            .split(' ')
             .map(OsStr::new)
             .collect();
         let out = parse_options_from_args(o.as_ref()).unwrap();

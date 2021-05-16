@@ -17,17 +17,19 @@ pub mod mount_options;
 
 #[cfg(any(feature = "libfuse", test))]
 use fuse2_sys::fuse_args;
-use mount_options::option_to_string;
 #[cfg(any(test, not(feature = "libfuse")))]
 use std::fs::File;
+#[cfg(any(test, not(feature = "libfuse3")))]
 use std::io;
 
+#[cfg(any(feature = "libfuse", test))]
 use mount_options::MountOption;
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
 #[cfg(any(feature = "libfuse", test))]
 fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) -> T {
+    use mount_options::option_to_string;
     use std::ffi::CString;
 
     let mut args = vec![CString::new("rust-fuse").unwrap()];
