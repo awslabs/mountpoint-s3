@@ -25,7 +25,6 @@ const HELLO_DIR_ATTR: FileAttr = FileAttr {
     rdev: 0,
     flags: 0,
     blksize: 512,
-    padding: 0,
 };
 
 const HELLO_TXT_CONTENT: &str = "Hello World!\n";
@@ -46,7 +45,6 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
     rdev: 0,
     flags: 0,
     blksize: 512,
-    padding: 0,
 };
 
 struct HelloFS;

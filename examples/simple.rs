@@ -212,7 +212,6 @@ impl From<InodeAttributes> for fuser::FileAttr {
             gid: attrs.gid,
             rdev: 0,
             blksize: BLOCK_SIZE as u32,
-            padding: 0,
             flags: 0,
         }
     }

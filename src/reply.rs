@@ -770,7 +770,7 @@ mod test {
         };
 
         if cfg!(feature = "abi-7-9") {
-            expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00]);
+            expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         }
         expected[0] = (expected.len()) as u8;
 
@@ -794,7 +794,6 @@ mod test {
             rdev: 0x88,
             flags: 0x99,
             blksize: 0xbb,
-            padding: 0xcc,
         };
         reply.entry(&ttl, &attr, 0xaa);
     }
@@ -828,7 +827,7 @@ mod test {
         };
 
         if cfg!(feature = "abi-7-9") {
-            expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00]);
+            expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         }
         expected[0] = expected.len() as u8;
 
@@ -852,7 +851,6 @@ mod test {
             rdev: 0x88,
             flags: 0x99,
             blksize: 0xbb,
-            padding: 0xcc,
         };
         reply.attr(&ttl, &attr);
     }
@@ -951,7 +949,7 @@ mod test {
             let insert_at = expected.len() - 16;
             expected.splice(
                 insert_at..insert_at,
-                vec![0xdd, 0x00, 0x00, 0x00, 0xee, 0x00, 0x00, 0x00],
+                vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
             );
         }
         expected[0] = (expected.len()) as u8;
@@ -976,7 +974,6 @@ mod test {
             rdev: 0x88,
             flags: 0x99,
             blksize: 0xdd,
-            padding: 0xee,
         };
         reply.created(&ttl, &attr, 0xaa, 0xbb, 0xcc);
     }
