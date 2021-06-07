@@ -558,28 +558,24 @@ impl<'a> Request<'a> {
 
     /// Returns the unique identifier of this request
     #[inline]
-    #[allow(dead_code)]
     pub fn unique(&self) -> u64 {
         self.request.unique().into()
     }
 
     /// Returns the uid of this request
     #[inline]
-    #[allow(dead_code)]
     pub fn uid(&self) -> u32 {
         self.request.uid()
     }
 
     /// Returns the gid of this request
     #[inline]
-    #[allow(dead_code)]
     pub fn gid(&self) -> u32 {
         self.request.gid()
     }
 
     /// Returns the pid of this request
     #[inline]
-    #[allow(dead_code)]
     pub fn pid(&self) -> u32 {
         self.request.pid()
     }

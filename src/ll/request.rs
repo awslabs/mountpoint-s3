@@ -7,7 +7,7 @@ use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
 use super::{fuse_abi as abi, Errno, Response};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
-use std::{convert::TryFrom, fmt::Display, os::unix::prelude::OsStrExt, path::Path};
+use std::{convert::TryFrom, fmt::Display, path::Path};
 use std::{error, fmt, mem};
 
 use super::argument::ArgumentIterator;
@@ -187,12 +187,6 @@ pub struct FilenameInDir<'a> {
     /// however.
     pub name: &'a Path,
 }
-impl<'a> FilenameInDir<'a> {
-    pub(crate) fn new(dir: INodeNo, name: &'a Path) -> Self {
-        assert!(memchr::memchr2(b'/', b'\0', name.as_os_str().as_bytes()).is_none());
-        Self { dir, name }
-    }
-}
 
 impl fmt::Display for RequestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -271,16 +265,10 @@ macro_rules! impl_request {
 }
 
 mod op {
-    #[cfg(feature = "abi-7-21")]
-    use super::super::reply::{DirEntPlusList, DirEntryPlus};
-
-    use crate::ll::{
-        reply::{DirEntList, DirEntry, ResponseBuf},
-        Errno, Response,
-    };
+    use crate::ll::Response;
 
     use super::{
-        super::{argument::ArgumentIterator, reply::Attr, Generation, TimeOrNow},
+        super::{argument::ArgumentIterator, TimeOrNow},
         FilenameInDir, Request,
     };
     use super::{
@@ -290,9 +278,7 @@ mod op {
         convert::TryInto,
         ffi::OsStr,
         fmt::Display,
-        iter::Peekable,
         num::NonZeroU32,
-        os::unix::prelude::OsStrExt,
         path::Path,
         time::{Duration, SystemTime},
     };
@@ -312,21 +298,6 @@ mod op {
     impl<'a> Lookup<'a> {
         pub fn name(&self) -> &'a Path {
             self.name.as_ref()
-        }
-        #[allow(dead_code)]
-        pub fn path(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.name.as_ref())
-        }
-        #[allow(dead_code)]
-        pub fn reply(
-            &self,
-            ino: INodeNo,
-            generation: Generation,
-            attr: &Attr,
-            attr_timeout: Duration,
-            entry_timeout: Duration,
-        ) -> Response {
-            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
     /// Forget about an inode.
@@ -352,11 +323,6 @@ mod op {
         pub fn nlookup(&self) -> u64 {
             self.arg.nlookup
         }
-        #[allow(dead_code)]
-        pub fn reply(self) -> Response {
-            // No Reply
-            Response::new_no_reply()
-        }
     }
 
     /// Get file attributes.
@@ -365,12 +331,6 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(GetAttr<'_>);
-    impl<'a> GetAttr<'a> {
-        #[allow(dead_code)]
-        pub fn reply(self, ttl: &Duration, attr: &Attr) -> Response {
-            Response::new_attr(ttl, attr)
-        }
-    }
 
     /// Set file attributes.
     #[derive(Debug)]
@@ -494,10 +454,6 @@ mod op {
         }
 
         // TODO: Why does *set*attr want to have an attr response?
-        #[allow(dead_code)]
-        pub fn reply(self, ttl: &Duration, attr: &Attr) -> Response {
-            Response::new_attr(ttl, attr)
-        }
     }
     impl<'a> Display for SetAttr<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -528,12 +484,6 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(ReadLink<'_>);
-    impl<'a> ReadLink<'a> {
-        #[allow(dead_code)]
-        pub fn reply(self, target: &Path) -> Response {
-            Response::new_data(target.as_os_str().as_bytes())
-        }
-    }
 
     /// Create a symbolic link.
     #[derive(Debug)]
@@ -544,26 +494,11 @@ mod op {
     }
     impl_request!(SymLink<'_>);
     impl<'a> SymLink<'a> {
-        #[allow(dead_code)]
-        pub fn dest(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.link)
-        }
         pub fn target(&self) -> &'a Path {
             self.target
         }
         pub fn link(&self) -> &'a Path {
             self.link
-        }
-        #[allow(dead_code)]
-        pub fn reply(
-            &self,
-            ino: INodeNo,
-            generation: Generation,
-            attr: &Attr,
-            attr_timeout: Duration,
-            entry_timeout: Duration,
-        ) -> Response {
-            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
 
@@ -580,10 +515,6 @@ mod op {
         pub fn name(&self) -> &'a Path {
             self.name
         }
-        #[allow(dead_code)]
-        pub fn dest(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.name())
-        }
         pub fn mode(&self) -> u32 {
             self.arg.mode
         }
@@ -595,17 +526,6 @@ mod op {
         }
         pub fn rdev(&self) -> u32 {
             self.arg.rdev
-        }
-        #[allow(dead_code)]
-        pub fn reply(
-            &self,
-            ino: INodeNo,
-            generation: Generation,
-            attr: &Attr,
-            attr_timeout: Duration,
-            entry_timeout: Duration,
-        ) -> Response {
-            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
 
@@ -621,10 +541,6 @@ mod op {
         pub fn name(&self) -> &'a Path {
             self.name
         }
-        #[allow(dead_code)]
-        pub fn dest(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.name())
-        }
         pub fn mode(&self) -> u32 {
             self.arg.mode
         }
@@ -633,17 +549,6 @@ mod op {
             return 0;
             #[cfg(feature = "abi-7-12")]
             self.arg.umask
-        }
-        #[allow(dead_code)]
-        pub fn reply(
-            &self,
-            ino: INodeNo,
-            generation: Generation,
-            attr: &Attr,
-            attr_timeout: Duration,
-            entry_timeout: Duration,
-        ) -> Response {
-            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
         }
     }
 
@@ -655,16 +560,8 @@ mod op {
     }
     impl_request!(Unlink<'_>);
     impl<'a> Unlink<'a> {
-        #[allow(dead_code)]
-        pub fn path(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.name)
-        }
         pub fn name(&self) -> &'a Path {
             self.name
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
 
@@ -676,16 +573,8 @@ mod op {
     }
     impl_request!(RmDir<'_>);
     impl<'a> RmDir<'a> {
-        #[allow(dead_code)]
-        pub fn path(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.name)
-        }
         pub fn name(&self) -> &'a Path {
             self.name
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
 
@@ -711,10 +600,6 @@ mod op {
                 name: self.newname,
             }
         }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Create a hard link.
@@ -737,17 +622,6 @@ mod op {
                 name: self.name,
             }
         }
-        #[allow(dead_code)]
-        pub fn reply(
-            &self,
-            ino: INodeNo,
-            generation: Generation,
-            attr: &Attr,
-            attr_timeout: Duration,
-            entry_timeout: Duration,
-        ) -> Response {
-            Response::new_entry(ino, generation, attr, attr_timeout, entry_timeout)
-        }
     }
 
     /// Open a file.
@@ -768,10 +642,6 @@ mod op {
     impl<'a> Open<'a> {
         pub fn flags(&self) -> i32 {
             self.arg.flags
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self, fh: FileHandle, flags: u32) -> Response {
-            Response::new_open(fh, flags)
         }
     }
 
@@ -816,10 +686,6 @@ mod op {
             return 0;
             #[cfg(feature = "abi-7-9")]
             self.arg.flags
-        }
-        #[allow(dead_code)]
-        pub fn reply<T: AsRef<[u8]> + Into<Vec<u8>>>(&self, data: T) -> Response {
-            Response::new_data(data)
         }
     }
 
@@ -874,10 +740,6 @@ mod op {
             #[cfg(not(feature = "abi-7-9"))]
             0
         }
-        #[allow(dead_code)]
-        pub fn reply(&self, written: u32) -> Response {
-            Response::new_write(written)
-        }
     }
 
     /// Get file system statistics.
@@ -886,22 +748,6 @@ mod op {
         header: &'a fuse_in_header,
     }
     impl_request!(StatFs<'_>);
-    impl<'a> StatFs<'a> {
-        #[allow(dead_code, clippy::too_many_arguments)]
-        pub fn reply(
-            &self,
-            blocks: u64,
-            bfree: u64,
-            bavail: u64,
-            files: u64,
-            ffree: u64,
-            bsize: u32,
-            namelen: u32,
-            frsize: u32,
-        ) -> Response {
-            Response::new_statfs(blocks, bfree, bavail, files, ffree, bsize, namelen, frsize)
-        }
-    }
 
     /// Release an open file.
     ///
@@ -939,10 +785,6 @@ mod op {
                 None
             }
         }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Synchronize file contents.
@@ -960,10 +802,6 @@ mod op {
         /// If set only the user data should be flushed, not the meta data.
         pub fn fdatasync(&self) -> bool {
             self.arg.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
 
@@ -995,10 +833,6 @@ mod op {
             #[cfg(not(target_os = "macos"))]
             0
         }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Get an extended attribute.
@@ -1018,15 +852,7 @@ mod op {
     /// Represents a request from the user to get the size of the data stored in the XAttr.
     #[derive(Debug)]
     pub struct GetXAttrSize();
-    impl GetXAttrSize {
-        #[allow(dead_code)]
-        pub fn reply(&self, size: u32) -> Response {
-            match size {
-                0 => Response::new_empty(),
-                _ => Response::new_xattr_size(size),
-            }
-        }
-    }
+
     #[derive(Debug)]
     /// Return type for [GetXAttr::size].
     pub enum GetXAttrSizeEnum {
@@ -1058,23 +884,6 @@ mod op {
         pub(crate) fn size_u32(&self) -> u32 {
             self.arg.size
         }
-        #[allow(dead_code)]
-        pub fn reply(&self, data: &[u8]) -> Response {
-            let data_len: u32 = data
-                .len()
-                .try_into()
-                .expect("Too much data to fit in an XAttr");
-            match self.size() {
-                GetXAttrSizeEnum::GetSize(s) => s.reply(data_len),
-                GetXAttrSizeEnum::Size(s) => {
-                    if data_len > s.into() {
-                        Response::new_error(Errno::ERANGE)
-                    } else {
-                        Response::new_data(data)
-                    }
-                }
-            }
-        }
     }
 
     /// List extended attribute names.
@@ -1093,24 +902,6 @@ mod op {
         pub fn size(&self) -> u32 {
             self.arg.size
         }
-        #[allow(dead_code)]
-        pub fn reply<It: Iterator<Item = T>, T: AsRef<OsStr>>(&self, it: It) -> Response {
-            if self.size() == 0 {
-                // Probing to find an appropriate size for the buffer
-                let size: usize = it.map(|x| x.as_ref().len() + 1).sum();
-                Response::new_xattr_size(size.try_into().expect("Too many XAttrs"))
-            } else {
-                let mut b = ResponseBuf::new();
-                for x in it {
-                    b.extend_from_slice(x.as_ref().as_bytes());
-                    b.push(0);
-                    if b.len() > self.size() as usize {
-                        return Response::new_error(Errno::ERANGE);
-                    }
-                }
-                Response::new_data_owned(b)
-            }
-        }
     }
 
     /// Remove an extended attribute.
@@ -1127,12 +918,6 @@ mod op {
         /// Name of the XAttr to remove
         pub fn name(&self) -> &'a OsStr {
             self.name
-        }
-
-        /// Returns a [Response] indicating that the XAttr was removed
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
 
@@ -1160,10 +945,6 @@ mod op {
         }
         pub fn lock_owner(&self) -> LockOwner {
             LockOwner(self.arg.lock_owner)
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
 
@@ -1233,10 +1014,6 @@ mod op {
         pub fn flags(&self) -> i32 {
             self.arg.flags
         }
-        #[allow(dead_code)]
-        pub fn reply(&self, fh: FileHandle, flags: u32) -> Response {
-            Response::new_open(fh, flags)
-        }
     }
 
     /// Read directory.
@@ -1256,37 +1033,6 @@ mod op {
         }
         pub fn size(&self) -> u32 {
             self.arg.size
-        }
-
-        /// Reply pulling directory entries from this iterator.  It will pull until the iterator is
-        /// exhausted or our internal buffer becomes full. This method takes a `Peekable` as it
-        /// needs to "look ahead" to tell if the next entry will fit in the buffer.
-        #[allow(dead_code)]
-        pub fn reply<It: Iterator<Item = DirEntry<T>>, T: AsRef<Path>>(
-            &self,
-            it: &mut Peekable<It>,
-        ) -> Response {
-            let mut l = DirEntList::new(self.size() as usize);
-            l.extend(it);
-            l.into()
-        }
-        /// Creates a builder to reply to this request. This provides more flexibility than
-        /// `reply()` at the cost of a slightly more verbose and harder to use interface.
-        ///
-        /// ```ignore
-        /// fn my_handler(req: &ReadDir) -> Response {
-        ///     let b = req.reply_builder();
-        ///     for i in 0..1000 {
-        ///         if b.push(DirEntry::format!("file-{}", i)) {
-        ///             break
-        ///         }
-        ///     }
-        ///     req.into()
-        /// }
-        /// ```
-        #[allow(dead_code)]
-        pub fn reply_builder(&self) -> DirEntList {
-            DirEntList::new(self.size() as usize)
         }
     }
 
@@ -1321,10 +1067,6 @@ mod op {
         pub fn flags(&self) -> i32 {
             self.arg.flags
         }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Synchronize directory contents.
@@ -1342,10 +1084,6 @@ mod op {
         /// If set, then only the directory contents should be flushed, not the meta data.
         pub fn fdatasync(&self) -> bool {
             self.arg.fsync_flags & consts::FUSE_FSYNC_FDATASYNC != 0
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
 
@@ -1366,10 +1104,6 @@ mod op {
         }
         pub fn lock_owner(&self) -> LockOwner {
             LockOwner(self.arg.owner)
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self, lock: &Lock) -> Response {
-            Response::new_lock(lock)
         }
     }
 
@@ -1397,10 +1131,6 @@ mod op {
         }
         pub fn lock_owner(&self) -> LockOwner {
             LockOwner(self.arg.owner)
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
         }
     }
     #[derive(Debug)]
@@ -1436,10 +1166,6 @@ mod op {
         pub fn mask(&self) -> i32 {
             self.arg.mask
         }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Create and open a file.
@@ -1461,10 +1187,6 @@ mod op {
     }
     impl_request!(Create<'a>);
     impl<'a> Create<'a> {
-        #[allow(dead_code)]
-        pub fn dest(&self) -> FilenameInDir<'a> {
-            FilenameInDir::new(self.nodeid(), self.name)
-        }
         pub fn name(&self) -> &'a Path {
             self.name
         }
@@ -1480,18 +1202,6 @@ mod op {
             return 0;
             #[cfg(feature = "abi-7-12")]
             self.arg.umask
-        }
-
-        #[allow(dead_code)]
-        pub fn reply(
-            &self,
-            ttl: &Duration,
-            attr: &Attr,
-            generation: Generation,
-            fh: FileHandle,
-            flags: u32,
-        ) -> Response {
-            Response::new_create(ttl, attr, generation, fh, flags)
         }
     }
 
@@ -1560,10 +1270,6 @@ mod op {
         pub fn block(&self) -> u64 {
             self.arg.block
         }
-        #[allow(dead_code)]
-        pub fn reply(&self, block: u64) -> Response {
-            Response::new_bmap(block)
-        }
     }
 
     #[derive(Debug)]
@@ -1610,22 +1316,6 @@ mod op {
         pub fn out_size(&self) -> u32 {
             self.arg.out_size
         }
-        #[allow(dead_code)]
-        pub fn reply(self, result: i32, data: &[u8]) -> Response {
-            use std::io::IoSlice;
-
-            let header = fuse_ioctl_out {
-                result,
-                // these fields are only needed for unrestricted ioctls
-                flags: 0,
-                in_iovs: 1,
-                out_iovs: if !data.is_empty() { 1 } else { 0 },
-            };
-            Response::new_ioctl(
-                result,
-                &[IoSlice::new(header.as_bytes()), IoSlice::new(data)],
-            )
-        }
     }
 
     /// Poll.  TODO: currently unsupported by fuser
@@ -1671,11 +1361,6 @@ mod op {
         pub fn nodes(&self) -> &'a [fuse_forget_one] {
             self.nodes
         }
-        #[allow(dead_code)]
-        pub fn reply(self) -> Response {
-            // No Reply
-            Response::new_no_reply()
-        }
     }
 
     /// Preallocate or deallocate space to a file
@@ -1705,9 +1390,6 @@ mod op {
         pub fn mode(&self) -> i32 {
             self.arg.mode
         }
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Read directory.
@@ -1732,37 +1414,6 @@ mod op {
         }
         pub fn size(&self) -> u32 {
             self.arg.size
-        }
-
-        /// Reply pulling directory entries from this iterator.  It will pull until the iterator is
-        /// exhausted or our internal buffer becomes full. This method takes a `Peekable` as it
-        /// needs to "look ahead" to tell if the next entry will fit in the buffer.
-        #[allow(dead_code)]
-        pub fn reply<It: Iterator<Item = DirEntryPlus<T>>, T: AsRef<Path>>(
-            &self,
-            it: &mut Peekable<It>,
-        ) -> Response {
-            let mut l = DirEntPlusList::new(self.size() as usize);
-            l.extend(it);
-            l.into()
-        }
-        /// Creates a builder to reply to this request. This provides more flexibility than
-        /// `reply()` at the cost of a slightly more verbose and harder to use interface.
-        ///
-        /// ```ignore
-        /// fn my_handler(req: &ReadDir) -> Response {
-        ///     let b = req.reply_builder();
-        ///     for i in 0..1000 {
-        ///         if b.push(DirEntry::format!("file-{}", i)) {
-        ///             break
-        ///         }
-        ///     }
-        ///     req.into()
-        /// }
-        /// ```
-        #[allow(dead_code)]
-        pub fn reply_builder(&self) -> DirEntPlusList {
-            DirEntPlusList::new(self.size() as usize)
         }
     }
 
@@ -1803,10 +1454,6 @@ mod op {
         pub fn flags(&self) -> u32 {
             self.arg.flags
         }
-        #[allow(dead_code)]
-        pub fn reply(&self) -> Response {
-            Response::new_empty()
-        }
     }
 
     /// Reposition read/write file offset
@@ -1832,10 +1479,6 @@ mod op {
         /// TODO: Make this return an enum
         pub fn whence(&self) -> i32 {
             self.arg.whence
-        }
-        #[allow(dead_code)]
-        pub fn reply(&self, offset: i64) -> Response {
-            Response::new_lseek(offset)
         }
     }
 
@@ -1881,12 +1524,6 @@ mod op {
         pub fn flags(&self) -> u64 {
             self.arg.flags
         }
-
-        /// Reply with the total number of bytes written
-        #[allow(dead_code)]
-        pub fn reply(&self, written: u32) -> Response {
-            Response::new_write(written)
-        }
     }
 
     /// MacOS only: Rename the volume. Set `fuse_init_out.flags` during init to
@@ -1915,13 +1552,6 @@ mod op {
     }
     #[cfg(target_os = "macos")]
     impl_request!(GetXTimes<'a>);
-    #[cfg(target_os = "macos")]
-    impl<'a> GetXTimes<'a> {
-        #[allow(dead_code)]
-        pub fn reply(&self, bkuptime: SystemTime, crtime: SystemTime) -> Response {
-            Response::new_xtimes(bkuptime, crtime)
-        }
-    }
     // API TODO: Consider rename2(RENAME_EXCHANGE)
     /// macOS only (undocumented)
     #[cfg(target_os = "macos")]

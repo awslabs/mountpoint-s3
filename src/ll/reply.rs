@@ -1,7 +1,6 @@
 use std::{
     convert::TryInto,
     io::IoSlice,
-    iter::Peekable,
     mem::size_of,
     os::unix::prelude::OsStrExt,
     path::Path,
@@ -20,8 +19,6 @@ pub(crate) type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
 
 #[derive(Debug)]
 pub enum Response {
-    #[allow(dead_code)]
-    NoReply,
     Error(i32),
     Data(ResponseBuf),
 }
@@ -34,9 +31,6 @@ impl Response {
         f: F,
     ) -> T {
         let datalen = match &self {
-            Response::NoReply => {
-                return f(&[]);
-            }
             Response::Error(_) => 0,
             Response::Data(v) => v.len(),
         };
@@ -53,7 +47,6 @@ impl Response {
         };
         let mut v: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
         match &self {
-            Response::NoReply => unreachable!(),
             Response::Error(_) => {}
             Response::Data(d) => v.push(IoSlice::new(d.as_ref())),
         }
@@ -61,15 +54,14 @@ impl Response {
     }
 
     // Constructors
-    pub(crate) fn new_no_reply() -> Self {
-        Self::NoReply
-    }
     pub(crate) fn new_empty() -> Self {
         Self::Error(0)
     }
+
     pub(crate) fn new_error(error: Errno) -> Self {
         Self::Error(error.into())
     }
+
     pub(crate) fn new_data<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Self {
         Self::Data(if data.as_ref().len() <= INLINE_DATA_THRESHOLD {
             data.as_ref().into()
@@ -77,9 +69,7 @@ impl Response {
             data.into().into()
         })
     }
-    pub(crate) fn new_data_owned(data: ResponseBuf) -> Self {
-        Self::Data(data)
-    }
+
     pub(crate) fn new_entry(
         ino: INodeNo,
         generation: Generation,
@@ -98,6 +88,7 @@ impl Response {
         };
         Self::from_struct(d.as_bytes())
     }
+
     pub(crate) fn new_attr(ttl: &Duration, attr: &Attr) -> Self {
         let r = abi::fuse_attr_out {
             attr_valid: ttl.as_secs(),
@@ -107,6 +98,7 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+
     #[cfg(target_os = "macos")]
     pub(crate) fn new_xtimes(bkuptime: SystemTime, crtime: SystemTime) -> Self {
         let (bkuptime_secs, bkuptime_nanos) = time_from_system_time(&bkuptime);
@@ -119,6 +111,7 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+
     // TODO: Could flags be more strongly typed?
     pub(crate) fn new_open(fh: FileHandle, flags: u32) -> Self {
         let r = abi::fuse_open_out {
@@ -128,6 +121,7 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+
     pub(crate) fn new_lock(lock: &Lock) -> Self {
         let r = abi::fuse_lk_out {
             lk: abi::fuse_file_lock {
@@ -139,10 +133,12 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+
     pub(crate) fn new_bmap(block: u64) -> Self {
         let r = abi::fuse_bmap_out { block };
         Self::from_struct(&r)
     }
+
     pub(crate) fn new_write(written: u32) -> Self {
         let r = abi::fuse_write_out {
             size: written,
@@ -150,6 +146,7 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_statfs(
         blocks: u64,
@@ -177,6 +174,7 @@ impl Response {
         };
         Self::from_struct(&r)
     }
+
     // TODO: Can flags be more strongly typed?
     pub(crate) fn new_create(
         ttl: &Duration,
@@ -203,6 +201,7 @@ impl Response {
         );
         Self::from_struct(&r)
     }
+
     // TODO: Are you allowed to send data while result != 0?
     pub(crate) fn new_ioctl(result: i32, data: &[IoSlice<'_>]) -> Self {
         let r = abi::fuse_ioctl_out {
@@ -219,14 +218,17 @@ impl Response {
         }
         Self::Data(v)
     }
+
     fn new_directory(list: EntListBuf) -> Self {
         assert!(list.buf.len() <= list.max_size);
         Self::Data(list.buf)
     }
+
     pub(crate) fn new_xattr_size(size: u32) -> Self {
         let r = abi::fuse_getxattr_out { size, padding: 0 };
         Self::from_struct(&r)
     }
+
     pub(crate) fn new_lseek(offset: i64) -> Self {
         let r = abi::fuse_lseek_out { offset };
         Self::from_struct(&r)
@@ -331,21 +333,7 @@ impl EntListBuf {
             buf: ResponseBuf::new(),
         }
     }
-    fn extend<T, It: Iterator<Item = T>, Push: FnMut(&T) -> bool>(
-        it: &mut Peekable<It>,
-        mut push: Push,
-    ) -> usize {
-        let mut pulled = 0;
-        while let Some(x) = it.peek() {
-            if push(x) {
-                break;
-            } else {
-                pulled += 1;
-                it.next();
-            }
-        }
-        pulled
-    }
+
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
     /// value to request the next entries in further readdir calls
@@ -404,15 +392,6 @@ impl From<DirEntList> for Response {
 impl DirEntList {
     pub(crate) fn new(max_size: usize) -> Self {
         Self(EntListBuf::new(max_size))
-    }
-    // TODO: What if the only entry is too big for the buffer?
-    /// Add entries to the directory reply buffer from this iterator.  Returns the number of
-    /// entries it pulled.
-    pub fn extend<It: Iterator<Item = DirEntry<T>>, T: AsRef<Path>>(
-        &mut self,
-        it: &mut Peekable<It>,
-    ) -> usize {
-        EntListBuf::extend(it, |x| self.push(x))
     }
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these
@@ -476,16 +455,6 @@ impl From<DirEntPlusList> for Response {
 impl DirEntPlusList {
     pub(crate) fn new(max_size: usize) -> Self {
         Self(EntListBuf::new(max_size))
-    }
-    // TODO: What if the only entry is too big for the buffer?
-    /// Add entries to the directory reply buffer from this iterator.  Returns the number of
-    /// entries it pulled.
-    #[allow(dead_code)]
-    pub fn extend<It: Iterator<Item = DirEntryPlus<T>>, T: AsRef<Path>>(
-        &mut self,
-        it: &mut Peekable<It>,
-    ) -> usize {
-        EntListBuf::extend(it, |x| self.push(x))
     }
     /// Add an entry to the directory reply buffer. Returns true if the buffer is full.
     /// A transparent offset value can be provided for each entry. The kernel uses these

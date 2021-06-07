@@ -640,7 +640,6 @@ mod test {
     use std::time::{Duration, UNIX_EPOCH};
     use zerocopy::AsBytes;
 
-    #[allow(dead_code)]
     #[derive(Debug, AsBytes)]
     #[repr(C)]
     struct Data {
