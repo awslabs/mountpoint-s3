@@ -110,7 +110,7 @@ To create a new filesystem, implement the trait `fuser::Filesystem`. See the [do
 
 ## To Do
 
-There's still a lot of stuff to be done. Feel free to contribute. See the [list of issues][issues] on GitHub and search the source files for comments containing "`TODO`" or "`FIXME`" to see what's still missing.
+Most features of libfuse up to 3.10.3 are implemented. Feel free to contribute. See the [list of issues][issues] on GitHub and search the source files for comments containing "`TODO`" or "`FIXME`" to see what's still missing.
 
 ## Compatibility
 
