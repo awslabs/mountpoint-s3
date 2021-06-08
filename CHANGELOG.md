@@ -1,6 +1,10 @@
 # FUSE for Rust - Changelog
 
 ## 0.8.0 - UNRELEASED
+* Deprecate `mount()`
+* Remove `FileAttr.padding`. This field was added by mistake, and does nothing
+* Fix crash when receiving an unknown FUSE operation type
+* Minor performance optimizations
 
 ## 0.7.0 - 2021-01-10
 * Support building with MacFuse 4.x on OSX
