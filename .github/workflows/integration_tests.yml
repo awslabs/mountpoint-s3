@@ -39,6 +39,7 @@ jobs:
 
       - name: Run tests
         run: INTERACTIVE="" make ${{ matrix.test_group }}
+
   xfs_integration_tests:
     runs-on: ubuntu-20.04
     strategy:
