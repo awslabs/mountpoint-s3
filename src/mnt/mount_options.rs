@@ -12,6 +12,7 @@ pub enum MountOption {
     /// Set the filesystem subtype in mtab
     Subtype(String),
     /// Allows passing an option which is not otherwise supported in these enums
+    #[allow(clippy::upper_case_acronyms)]
     CUSTOM(String),
 
     /* Parameterless options */

@@ -60,10 +60,10 @@ impl From<FileKind> for fuser::FileType {
 
 #[derive(Debug)]
 enum XattrNamespace {
-    SECURITY,
-    SYSTEM,
-    TRUSTED,
-    USER,
+    Security,
+    System,
+    Trusted,
+    User,
 }
 
 fn parse_xattr_namespace(key: &[u8]) -> Result<XattrNamespace, c_int> {
@@ -72,7 +72,7 @@ fn parse_xattr_namespace(key: &[u8]) -> Result<XattrNamespace, c_int> {
         return Err(libc::ENOTSUP);
     }
     if key[..user.len()].eq(user) {
-        return Ok(XattrNamespace::USER);
+        return Ok(XattrNamespace::User);
     }
 
     let system = b"system.";
@@ -80,7 +80,7 @@ fn parse_xattr_namespace(key: &[u8]) -> Result<XattrNamespace, c_int> {
         return Err(libc::ENOTSUP);
     }
     if key[..system.len()].eq(system) {
-        return Ok(XattrNamespace::SYSTEM);
+        return Ok(XattrNamespace::System);
     }
 
     let trusted = b"trusted.";
@@ -88,7 +88,7 @@ fn parse_xattr_namespace(key: &[u8]) -> Result<XattrNamespace, c_int> {
         return Err(libc::ENOTSUP);
     }
     if key[..trusted.len()].eq(trusted) {
-        return Ok(XattrNamespace::TRUSTED);
+        return Ok(XattrNamespace::Trusted);
     }
 
     let security = b"security";
@@ -96,7 +96,7 @@ fn parse_xattr_namespace(key: &[u8]) -> Result<XattrNamespace, c_int> {
         return Err(libc::ENOTSUP);
     }
     if key[..security.len()].eq(security) {
-        return Ok(XattrNamespace::SECURITY);
+        return Ok(XattrNamespace::Security);
     }
 
     return Err(libc::ENOTSUP);
@@ -109,17 +109,17 @@ fn xattr_access_check(
     request: &Request<'_>,
 ) -> Result<(), c_int> {
     match parse_xattr_namespace(key)? {
-        XattrNamespace::SECURITY => {
+        XattrNamespace::Security => {
             if access_mask != libc::R_OK && request.uid() != 0 {
                 return Err(libc::EPERM);
             }
         }
-        XattrNamespace::TRUSTED => {
+        XattrNamespace::Trusted => {
             if request.uid() != 0 {
                 return Err(libc::EPERM);
             }
         }
-        XattrNamespace::SYSTEM => {
+        XattrNamespace::System => {
             if key.eq(b"system.posix_acl_access") {
                 if !check_access(
                     inode_attrs.uid,
@@ -135,7 +135,7 @@ fn xattr_access_check(
                 return Err(libc::EPERM);
             }
         }
-        XattrNamespace::USER => {
+        XattrNamespace::User => {
             if !check_access(
                 inode_attrs.uid,
                 inode_attrs.gid,
