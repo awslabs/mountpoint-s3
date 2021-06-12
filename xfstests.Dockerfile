@@ -7,7 +7,7 @@ RUN adduser --disabled-password --gecos '' fsgqa
 
 RUN echo 'user_allow_other' >> /etc/fuse.conf
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.47.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.51.0
 
 ENV PATH=/root/.cargo/bin:$PATH
 

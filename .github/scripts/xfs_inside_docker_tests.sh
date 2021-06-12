@@ -4,7 +4,7 @@ set -e
 
 # Check for rustup installed
 if [ ! -f ~/.rustup/settings.toml ]; then
- curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.47.0
+ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.51.0
 fi
 export PATH=/root/.cargo/bin:$PATH
 

@@ -12,7 +12,7 @@ RUN echo 'user_allow_other' >> /etc/fuse.conf
 RUN mkdir -p /code/pjdfstest && cd /code && git clone https://github.com/fleetfs/pjdfstest && cd pjdfstest \
   && git checkout d3beed6f5f15c204a8af3df2f518241931a42e94 && autoreconf -ifs && ./configure && make pjdfstest
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.47.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.51.0
 
 ENV PATH=/root/.cargo/bin:$PATH
 ARG BUILD_FEATURES
