@@ -34,6 +34,9 @@ echo "generic/484" >> xfs_excludes.txt
 # Writes directly to scratch block dev
 echo "generic/062" >> xfs_excludes.txt
 
+# TODO: looks like it requires character file support
+echo "generic/078" >> xfs_excludes.txt
+
 # TODO: takes > 10min
 echo "generic/069" >> xfs_excludes.txt
 
