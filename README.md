@@ -114,7 +114,7 @@ Most features of libfuse up to 3.10.3 are implemented. Feel free to contribute. 
 
 ## Compatibility
 
-Developed and tested on Linux. Tested under [Linux][FUSE for Linux], [macOS][FUSE for macOS] (up to ABI 7.19) and [FreeBSD][FUSE for FreeBSD] using stable, beta and nightly [Rust] versions (see [Travis CI] for details).
+Developed and tested on Linux. Tested under [Linux][FUSE for Linux], [macOS][FUSE for macOS] (up to ABI 7.19) and [FreeBSD][FUSE for FreeBSD] using stable [Rust] (see CI for details).
 
 ## Contribution
 
@@ -127,7 +127,6 @@ Fork, hack, submit pull request. Make sure to make it useful for the target audi
 [FUSE-Rust]: https://github.com/cberner/fuser
 [issues]: https://github.com/cberner/fuser/issues
 [Documentation]: https://docs.rs/fuser
-[Travis CI]: https://travis-ci.com/cberner/fuser
 
 [FUSE for Linux]: https://github.com/libfuse/libfuse/
 [FUSE for macOS]: https://osxfuse.github.io
