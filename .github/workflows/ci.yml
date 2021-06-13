@@ -30,6 +30,9 @@ jobs:
           cargo doc --all --no-deps --features=${{ matrix.features }}
   ci:
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        test_group: [pre, mount_tests, pjdfs_tests, xfstests]
 
     steps:
       - uses: actions/checkout@v2
@@ -63,4 +66,4 @@ jobs:
         run: cargo install --force cargo-deny --locked
 
       - name: Run tests
-        run: INTERACTIVE="" make pre
+        run: INTERACTIVE="" make ${{ matrix.test_group }}
