@@ -1,4 +1,6 @@
-FROM ubuntu:18.04
+FROM ubuntu:20.04
+
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && apt install -y git build-essential autoconf curl cmake libfuse-dev pkg-config fuse bc libtool \
   uuid-dev xfslibs-dev libattr1-dev libacl1-dev libaio-dev attr acl quota bsdmainutils dbench psmisc
@@ -12,7 +14,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 ENV PATH=/root/.cargo/bin:$PATH
 
 RUN mkdir -p /code && cd /code && git clone https://github.com/fleetfs/fuse-xfstests && cd fuse-xfstests \
-  && git checkout 0166199783962f0d988dfc5fbfea6aba4ac9143f && make
+  && git checkout 8742a45f4034e0da15a12f41293c73978a292bd6 && make
 
 ADD . /code/fuser/
 

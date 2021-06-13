@@ -55,6 +55,7 @@ echo "generic/401" >> xfs_excludes.txt
 
 # TODO: requires fifo support
 echo "generic/423" >> xfs_excludes.txt
+echo "generic/434" >> xfs_excludes.txt
 
 # TODO: requires ulimit support for limiting file size
 echo "generic/394" >> xfs_excludes.txt
@@ -78,6 +79,9 @@ echo "generic/444" >> xfs_excludes.txt
 echo "generic/294" >> xfs_excludes.txt
 echo "generic/306" >> xfs_excludes.txt
 echo "generic/452" >> xfs_excludes.txt
+
+# TODO: figure this one out
+echo "generic/097" >> xfs_excludes.txt
 
 # TODO: requires atime support
 echo "generic/003" >> xfs_excludes.txt
@@ -111,13 +115,6 @@ echo "generic/070" >> xfs_excludes.txt
 # TODO: very slow. Passes, but takes 20min
 echo "generic/438" >> xfs_excludes.txt
 
-# TODO: requires newer (> 4.9.0) version of xfs_io. Otherwise these will infinite loop
-echo "generic/430" >> xfs_excludes.txt
-echo "generic/431" >> xfs_excludes.txt
-echo "generic/432" >> xfs_excludes.txt
-echo "generic/433" >> xfs_excludes.txt
-echo "generic/434" >> xfs_excludes.txt
-
 # TODO: seems to crash host
 echo "generic/476" >> xfs_excludes.txt
 
@@ -127,6 +124,14 @@ echo "generic/391" >> xfs_excludes.txt
 echo "generic/426" >> xfs_excludes.txt
 echo "generic/467" >> xfs_excludes.txt
 echo "generic/477" >> xfs_excludes.txt
+
+# TODO: figure these out
+echo "generic/519" >> xfs_excludes.txt
+echo "generic/531" >> xfs_excludes.txt
+echo "generic/551" >> xfs_excludes.txt
+echo "generic/564" >> xfs_excludes.txt
+echo "generic/565" >> xfs_excludes.txt
+
 
 FUSER_EXTRA_MOUNT_OPTIONS="" TEST_DEV="$TEST_DATA_DIR" TEST_DIR="$TEST_DIR" SCRATCH_DEV="$SCRATCH_DATA_DIR" SCRATCH_MNT="$SCRATCH_DIR" \
 ./check-fuser -E xfs_excludes.txt "$@" \
