@@ -25,9 +25,6 @@ cd /code/fuse-xfstests
 # TODO: requires flock
 echo "generic/478" >> xfs_excludes.txt
 
-# TODO: requires RENAME_EXCHANGE
-echo "generic/025" >> xfs_excludes.txt
-
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
 echo "generic/484" >> xfs_excludes.txt
 

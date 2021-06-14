@@ -981,7 +981,7 @@ impl Filesystem for SimpleFS {
         name: &OsStr,
         new_parent: u64,
         new_name: &OsStr,
-        _flags: u32,
+        flags: u32,
         reply: ReplyEmpty,
     ) {
         let mut inode_attrs = match self.lookup_name(parent, name) {
@@ -1053,6 +1053,56 @@ impl Filesystem for SimpleFS {
                     return;
                 }
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        if flags & libc::RENAME_EXCHANGE as u32 != 0 {
+            let mut new_inode_attrs = match self.lookup_name(new_parent, new_name) {
+                Ok(attrs) => attrs,
+                Err(error_code) => {
+                    reply.error(error_code);
+                    return;
+                }
+            };
+
+            let mut entries = self.get_directory_content(new_parent).unwrap();
+            entries.insert(
+                new_name.as_bytes().to_vec(),
+                (inode_attrs.inode, inode_attrs.kind),
+            );
+            self.write_directory_content(new_parent, entries);
+
+            let mut entries = self.get_directory_content(parent).unwrap();
+            entries.insert(
+                name.as_bytes().to_vec(),
+                (new_inode_attrs.inode, new_inode_attrs.kind),
+            );
+            self.write_directory_content(parent, entries);
+
+            parent_attrs.last_metadata_changed = time_now();
+            parent_attrs.last_modified = time_now();
+            self.write_inode(&parent_attrs);
+            new_parent_attrs.last_metadata_changed = time_now();
+            new_parent_attrs.last_modified = time_now();
+            self.write_inode(&new_parent_attrs);
+            inode_attrs.last_metadata_changed = time_now();
+            self.write_inode(&inode_attrs);
+            new_inode_attrs.last_metadata_changed = time_now();
+            self.write_inode(&new_inode_attrs);
+
+            if inode_attrs.kind == FileKind::Directory {
+                let mut entries = self.get_directory_content(inode_attrs.inode).unwrap();
+                entries.insert(b"..".to_vec(), (new_parent, FileKind::Directory));
+                self.write_directory_content(inode_attrs.inode, entries);
+            }
+            if new_inode_attrs.kind == FileKind::Directory {
+                let mut entries = self.get_directory_content(new_inode_attrs.inode).unwrap();
+                entries.insert(b"..".to_vec(), (parent, FileKind::Directory));
+                self.write_directory_content(new_inode_attrs.inode, entries);
+            }
+
+            reply.ok();
+            return;
         }
 
         // Only overwrite an existing directory if it's empty
