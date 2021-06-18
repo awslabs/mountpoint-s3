@@ -1,6 +1,9 @@
 # FUSE for Rust - Changelog
 
-## 0.8.0 - UNRELEASED
+## 0.9.0 - UNRELEASED
+* Ensure that `Filesystem::destroy` is always called
+
+## 0.8.0 - 2021-06-11
 * Deprecate `mount()`
 * Remove `FileAttr.padding`. This field was added by mistake, and does nothing
 * Fix crash when receiving an unknown FUSE operation type
