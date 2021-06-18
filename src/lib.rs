@@ -292,7 +292,7 @@ pub trait Filesystem {
 
     /// Clean up filesystem.
     /// Called on filesystem exit.
-    fn destroy(&mut self, _req: &Request<'_>) {}
+    fn destroy(&mut self, _req: Option<&Request<'_>>) {}
 
     /// Look up a directory entry by name and get its attributes.
     fn lookup(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, reply: ReplyEntry) {

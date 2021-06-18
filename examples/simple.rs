@@ -451,7 +451,7 @@ impl Filesystem for SimpleFS {
         Ok(())
     }
 
-    fn destroy(&mut self, _req: &Request) {}
+    fn destroy(&mut self, _req: Option<&Request>) {}
 
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if name.len() > MAX_NAME_LENGTH as usize {

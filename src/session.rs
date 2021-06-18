@@ -113,6 +113,7 @@ impl<FS: Filesystem> Session<FS> {
         }
         Ok(())
     }
+
     /// Unmount the filesystem
     pub fn unmount(&mut self) {
         drop(std::mem::take(&mut self.mount));
@@ -137,6 +138,10 @@ impl<FS: 'static + Filesystem + Send> Session<FS> {
 
 impl<FS: Filesystem> Drop for Session<FS> {
     fn drop(&mut self) {
+        if !self.destroyed {
+            self.filesystem.destroy(None);
+            self.destroyed = true;
+        }
         info!("Unmounted {}", self.mountpoint().display());
     }
 }
