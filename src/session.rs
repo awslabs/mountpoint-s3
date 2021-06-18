@@ -139,7 +139,7 @@ impl<FS: 'static + Filesystem + Send> Session<FS> {
 impl<FS: Filesystem> Drop for Session<FS> {
     fn drop(&mut self) {
         if !self.destroyed {
-            self.filesystem.destroy(None);
+            self.filesystem.destroy();
             self.destroyed = true;
         }
         info!("Unmounted {}", self.mountpoint().display());

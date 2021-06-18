@@ -2,6 +2,7 @@
 
 ## 0.9.0 - UNRELEASED
 * Ensure that `Filesystem::destroy` is always called
+* Remove request parameter to `Filesystem::destroy`
 
 ## 0.8.0 - 2021-06-11
 * Deprecate `mount()`

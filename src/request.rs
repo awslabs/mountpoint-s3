@@ -109,7 +109,7 @@ impl<'a> Request<'a> {
             }
             // Filesystem destroyed
             ll::Operation::Destroy(x) => {
-                se.filesystem.destroy(Some(self));
+                se.filesystem.destroy();
                 se.destroyed = true;
                 return Ok(Some(x.reply()));
             }
