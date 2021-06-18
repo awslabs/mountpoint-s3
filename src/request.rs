@@ -34,7 +34,7 @@ pub struct Request<'a> {
 
 impl<'a> Request<'a> {
     /// Create a new request from the given data
-    pub fn new(ch: ChannelSender, data: &'a [u8]) -> Option<Request<'a>> {
+    pub(crate) fn new(ch: ChannelSender, data: &'a [u8]) -> Option<Request<'a>> {
         let request = match ll::AnyRequest::try_from(data) {
             Ok(request) => request,
             Err(err) => {
@@ -49,7 +49,7 @@ impl<'a> Request<'a> {
     /// Dispatch request to the given filesystem.
     /// This calls the appropriate filesystem operation method for the
     /// request and sends back the returned reply to the kernel
-    pub fn dispatch<FS: Filesystem>(&self, se: &mut Session<FS>) {
+    pub(crate) fn dispatch<FS: Filesystem>(&self, se: &mut Session<FS>) {
         debug!("{}", self.request);
         let unique = self.request.unique();
 
@@ -63,6 +63,7 @@ impl<'a> Request<'a> {
             warn!("Request {:?}: Failed to send reply: {}", unique, err)
         }
     }
+
     fn dispatch_req<FS: Filesystem>(
         &self,
         se: &mut Session<FS>,
