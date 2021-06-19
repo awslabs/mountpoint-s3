@@ -119,12 +119,16 @@ echo "generic/426" >> xfs_excludes.txt
 echo "generic/467" >> xfs_excludes.txt
 echo "generic/477" >> xfs_excludes.txt
 
-# TODO: figure these out
+# TODO: permission failure invoking FIBMAP
 echo "generic/519" >> xfs_excludes.txt
+
+# TODO: Tries to create 50k+ files, which OOMs
 echo "generic/531" >> xfs_excludes.txt
 
-# TODO: figure these out
+# Test requires mounting a loopback device
 echo "generic/564" >> xfs_excludes.txt
+
+# TODO: figure this out
 echo "generic/565" >> xfs_excludes.txt
 
 
