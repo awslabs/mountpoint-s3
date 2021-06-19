@@ -3,7 +3,7 @@ INTERACTIVE ?= i
 
 
 build: pre
-	cargo build
+	cargo build --examples
 
 pre:
 	cargo fmt --all -- --check
