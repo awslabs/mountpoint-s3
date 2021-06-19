@@ -77,9 +77,6 @@ echo "generic/294" >> xfs_excludes.txt
 echo "generic/306" >> xfs_excludes.txt
 echo "generic/452" >> xfs_excludes.txt
 
-# TODO: figure this one out
-echo "generic/097" >> xfs_excludes.txt
-
 # TODO: requires atime support
 echo "generic/003" >> xfs_excludes.txt
 echo "generic/192" >> xfs_excludes.txt
