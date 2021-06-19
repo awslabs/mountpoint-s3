@@ -128,9 +128,6 @@ echo "generic/531" >> xfs_excludes.txt
 # Test requires mounting a loopback device
 echo "generic/564" >> xfs_excludes.txt
 
-# TODO: figure this out
-echo "generic/565" >> xfs_excludes.txt
-
 
 FUSER_EXTRA_MOUNT_OPTIONS="" TEST_DEV="$TEST_DATA_DIR" TEST_DIR="$TEST_DIR" SCRATCH_DEV="$SCRATCH_DATA_DIR" SCRATCH_MNT="$SCRATCH_DIR" \
 ./check-fuser -E xfs_excludes.txt "$@" \
