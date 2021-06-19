@@ -1444,11 +1444,11 @@ impl Filesystem for SimpleFS {
         warn!("statfs() implementation is a stub");
         // TODO: real implementation of this
         reply.statfs(
-            10,
-            10,
-            10,
+            10_000,
+            10_000,
+            10_000,
             1,
-            10,
+            10_000,
             BLOCK_SIZE as u32,
             MAX_NAME_LENGTH,
             BLOCK_SIZE as u32,

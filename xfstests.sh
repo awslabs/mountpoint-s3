@@ -122,7 +122,8 @@ echo "generic/477" >> xfs_excludes.txt
 # TODO: figure these out
 echo "generic/519" >> xfs_excludes.txt
 echo "generic/531" >> xfs_excludes.txt
-echo "generic/551" >> xfs_excludes.txt
+
+# TODO: figure these out
 echo "generic/564" >> xfs_excludes.txt
 echo "generic/565" >> xfs_excludes.txt
 
