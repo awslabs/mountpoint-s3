@@ -28,7 +28,7 @@ pjdfs_tests_fuse2:
 	 -v "$(shell pwd)/logs:/code/logs" fuser:pjdfs bash -c "cd /code/fuser && ./pjdfs.sh"
 
 pjdfs_tests_fuse3:
-	docker build --build-arg BUILD_FEATURES='--features=abi-7-21' -t fuser:pjdfs -f pjdfs.Dockerfile .
+	docker build --build-arg BUILD_FEATURES='--features=abi-7-31' -t fuser:pjdfs -f pjdfs.Dockerfile .
 	# Additional permissions are needed to be able to mount FUSE
 	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 -v "$(shell pwd)/logs:/code/logs" fuser:pjdfs bash -c "cd /code/fuser && ./pjdfs.sh"

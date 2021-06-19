@@ -2,12 +2,18 @@
 
 use clap::{crate_version, App, Arg};
 use fuser::consts::FOPEN_DIRECT_IO;
+#[cfg(feature = "abi-7-26")]
+use fuser::consts::FUSE_HANDLE_KILLPRIV;
+#[cfg(feature = "abi-7-31")]
+use fuser::consts::FUSE_WRITE_KILL_PRIV;
 use fuser::TimeOrNow::Now;
 use fuser::{
     Filesystem, KernelConfig, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
     ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
     FUSE_ROOT_ID,
 };
+#[cfg(feature = "abi-7-26")]
+use log::info;
 use log::LevelFilter;
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
@@ -19,6 +25,7 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::raw::c_int;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
+#[cfg(target_os = "linux")]
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -100,6 +107,22 @@ fn parse_xattr_namespace(key: &[u8]) -> Result<XattrNamespace, c_int> {
     }
 
     return Err(libc::ENOTSUP);
+}
+
+fn clear_suid_sgid(attr: &mut InodeAttributes) {
+    attr.mode &= !libc::S_ISUID as u16;
+    // SGID is only suppose to be cleared if XGRP is set
+    if attr.mode & libc::S_IXGRP as u16 != 0 {
+        attr.mode &= !libc::S_ISGID as u16;
+    }
+}
+
+fn creation_gid(parent: &InodeAttributes, gid: u32) -> u32 {
+    if parent.mode & libc::S_ISGID as u16 != 0 {
+        return parent.gid;
+    }
+
+    gid
 }
 
 fn xattr_access_check(
@@ -223,14 +246,40 @@ struct SimpleFS {
     data_dir: String,
     next_file_handle: AtomicU64,
     direct_io: bool,
+    suid_support: bool,
 }
 
 impl SimpleFS {
-    fn new(data_dir: String, direct_io: bool) -> SimpleFS {
-        SimpleFS {
-            data_dir,
-            next_file_handle: AtomicU64::new(1),
-            direct_io,
+    fn new(
+        data_dir: String,
+        direct_io: bool,
+        #[allow(unused_variables)] suid_support: bool,
+    ) -> SimpleFS {
+        #[cfg(feature = "abi-7-26")]
+        {
+            SimpleFS {
+                data_dir,
+                next_file_handle: AtomicU64::new(1),
+                direct_io,
+                suid_support,
+            }
+        }
+        #[cfg(not(feature = "abi-7-26"))]
+        {
+            SimpleFS {
+                data_dir,
+                next_file_handle: AtomicU64::new(1),
+                direct_io,
+                suid_support: false,
+            }
+        }
+    }
+
+    fn creation_mode(&self, mode: u32) -> u16 {
+        if !self.suid_support {
+            (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16
+        } else {
+            mode as u16
         }
     }
 
@@ -373,6 +422,9 @@ impl SimpleFS {
         attrs.last_metadata_changed = time_now();
         attrs.last_modified = time_now();
 
+        // Clear SETUID & SETGID on truncate
+        clear_suid_sgid(&mut attrs);
+
         self.write_inode(&attrs);
 
         Ok(attrs)
@@ -424,7 +476,14 @@ impl SimpleFS {
 }
 
 impl Filesystem for SimpleFS {
-    fn init(&mut self, _req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
+    fn init(
+        &mut self,
+        _req: &Request,
+        #[allow(unused_variables)] config: &mut KernelConfig,
+    ) -> Result<(), c_int> {
+        #[cfg(feature = "abi-7-26")]
+        config.add_capabilities(FUSE_HANDLE_KILLPRIV).unwrap();
+
         fs::create_dir_all(Path::new(&self.data_dir).join("inodes")).unwrap();
         fs::create_dir_all(Path::new(&self.data_dir).join("contents")).unwrap();
         if self.get_inode(FUSE_ROOT_ID).is_err() {
@@ -516,7 +575,16 @@ impl Filesystem for SimpleFS {
                 reply.error(libc::EPERM);
                 return;
             }
-            attrs.mode = mode as u16;
+            if req.uid() != 0
+                && req.gid() != attrs.gid
+                && !get_groups(req.pid()).contains(&attrs.gid)
+            {
+                // If SGID is set and the file belongs to a group that the caller is not part of
+                // then the SGID bit is suppose to be cleared during chmod
+                attrs.mode = (mode & !libc::S_ISGID as u32) as u16;
+            } else {
+                attrs.mode = mode as u16;
+            }
             attrs.last_metadata_changed = time_now();
             self.write_inode(&attrs);
             reply.attr(&Duration::new(0, 0), &attrs.into());
@@ -547,11 +615,22 @@ impl Filesystem for SimpleFS {
                 return;
             }
 
+            if attrs.mode & (libc::S_IXUSR | libc::S_IXGRP | libc::S_IXOTH) as u16 != 0 {
+                // SUID & SGID are suppose to be cleared when chown'ing an executable file
+                clear_suid_sgid(&mut attrs);
+            }
+
             if let Some(uid) = uid {
                 attrs.uid = uid;
+                // Clear SETUID on owner change
+                attrs.mode &= !libc::S_ISUID as u16;
             }
             if let Some(gid) = gid {
                 attrs.gid = gid;
+                // Clear SETGID unless user is root
+                if req.uid() != 0 {
+                    attrs.mode &= !libc::S_ISGID as u16;
+                }
             }
             attrs.last_metadata_changed = time_now();
             self.write_inode(&attrs);
@@ -664,7 +743,7 @@ impl Filesystem for SimpleFS {
         req: &Request,
         parent: u64,
         name: &OsStr,
-        mode: u32,
+        mut mode: u32,
         _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
@@ -709,6 +788,10 @@ impl Filesystem for SimpleFS {
         parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
+        if req.uid() != 0 {
+            mode &= !(libc::S_ISUID | libc::S_ISGID) as u32;
+        }
+
         let inode = self.allocate_next_inode();
         let attrs = InodeAttributes {
             inode,
@@ -718,11 +801,10 @@ impl Filesystem for SimpleFS {
             last_modified: time_now(),
             last_metadata_changed: time_now(),
             kind: as_file_kind(mode),
-            // TODO: suid/sgid not supported
-            mode: (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16,
+            mode: self.creation_mode(mode),
             hardlinks: 1,
             uid: req.uid(),
-            gid: req.gid(),
+            gid: creation_gid(&parent_attrs, req.gid()),
             xattrs: Default::default(),
         };
         self.write_inode(&attrs);
@@ -748,7 +830,7 @@ impl Filesystem for SimpleFS {
         req: &Request,
         parent: u64,
         name: &OsStr,
-        mode: u32,
+        mut mode: u32,
         _umask: u32,
         reply: ReplyEntry,
     ) {
@@ -781,6 +863,13 @@ impl Filesystem for SimpleFS {
         parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
+        if req.uid() != 0 {
+            mode &= !(libc::S_ISUID | libc::S_ISGID) as u32;
+        }
+        if parent_attrs.mode & libc::S_ISGID as u16 != 0 {
+            mode |= libc::S_ISGID as u32;
+        }
+
         let inode = self.allocate_next_inode();
         let attrs = InodeAttributes {
             inode,
@@ -790,11 +879,10 @@ impl Filesystem for SimpleFS {
             last_modified: time_now(),
             last_metadata_changed: time_now(),
             kind: FileKind::Directory,
-            // TODO: suid/sgid not supported
-            mode: (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16,
+            mode: self.creation_mode(mode),
             hardlinks: 2, // Directories start with link count of 2, since they have a self link
             uid: req.uid(),
-            gid: req.gid(),
+            gid: creation_gid(&parent_attrs, req.gid()),
             xattrs: Default::default(),
         };
         self.write_inode(&attrs);
@@ -938,6 +1026,29 @@ impl Filesystem for SimpleFS {
         reply: ReplyEntry,
     ) {
         debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
+        let mut parent_attrs = match self.get_inode(parent) {
+            Ok(attrs) => attrs,
+            Err(error_code) => {
+                reply.error(error_code);
+                return;
+            }
+        };
+
+        if !check_access(
+            parent_attrs.uid,
+            parent_attrs.gid,
+            parent_attrs.mode,
+            req.uid(),
+            req.gid(),
+            libc::W_OK,
+        ) {
+            reply.error(libc::EACCES);
+            return;
+        }
+        parent_attrs.last_modified = time_now();
+        parent_attrs.last_metadata_changed = time_now();
+        self.write_inode(&parent_attrs);
+
         let inode = self.allocate_next_inode();
         let attrs = InodeAttributes {
             inode,
@@ -950,7 +1061,7 @@ impl Filesystem for SimpleFS {
             mode: 0o777,
             hardlinks: 1,
             uid: req.uid(),
-            gid: req.gid(),
+            gid: creation_gid(&parent_attrs, req.gid()),
             xattrs: Default::default(),
         };
 
@@ -1300,7 +1411,7 @@ impl Filesystem for SimpleFS {
         offset: i64,
         data: &[u8],
         _write_flags: u32,
-        _flags: i32,
+        #[allow(unused_variables)] flags: i32,
         _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
@@ -1322,6 +1433,13 @@ impl Filesystem for SimpleFS {
             if data.len() + offset as usize > attrs.size as usize {
                 attrs.size = (data.len() + offset as usize) as u64;
             }
+            // #[cfg(feature = "abi-7-31")]
+            // if flags & FUSE_WRITE_KILL_PRIV as i32 != 0 {
+            //     clear_suid_sgid(&mut attrs);
+            // }
+            // XXX: In theory we should only need to do this when WRITE_KILL_PRIV is set for 7.31+
+            // However, xfstests fail in that case
+            clear_suid_sgid(&mut attrs);
             self.write_inode(&attrs);
 
             reply.written(data.len() as u32);
@@ -1574,7 +1692,7 @@ impl Filesystem for SimpleFS {
         req: &Request,
         parent: u64,
         name: &OsStr,
-        mode: u32,
+        mut mode: u32,
         _umask: u32,
         flags: i32,
         reply: ReplyCreate,
@@ -1619,6 +1737,10 @@ impl Filesystem for SimpleFS {
         parent_attrs.last_metadata_changed = time_now();
         self.write_inode(&parent_attrs);
 
+        if req.uid() != 0 {
+            mode &= !(libc::S_ISUID | libc::S_ISGID) as u32;
+        }
+
         let inode = self.allocate_next_inode();
         let attrs = InodeAttributes {
             inode,
@@ -1628,11 +1750,10 @@ impl Filesystem for SimpleFS {
             last_modified: time_now(),
             last_metadata_changed: time_now(),
             kind: as_file_kind(mode),
-            // TODO: suid/sgid not supported
-            mode: (mode & !(libc::S_ISUID | libc::S_ISGID) as u32) as u16,
+            mode: self.creation_mode(mode),
             hardlinks: 1,
             uid: req.uid(),
-            gid: req.gid(),
+            gid: creation_gid(&parent_attrs, req.gid()),
             xattrs: Default::default(),
         };
         self.write_inode(&attrs);
@@ -1856,6 +1977,11 @@ fn main() {
                 .help("Run a filesystem check"),
         )
         .arg(
+            Arg::with_name("suid")
+                .long("suid")
+                .help("Enable setuid support when run as root"),
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
@@ -1876,10 +2002,21 @@ fn main() {
         .filter_level(log_level)
         .init();
 
-    let mut options = vec![
-        MountOption::FSName("fuser".to_string()),
-        MountOption::AutoUnmount,
-    ];
+    let mut options = vec![MountOption::FSName("fuser".to_string())];
+
+    #[cfg(feature = "abi-7-26")]
+    {
+        if matches.is_present("suid") {
+            info!("setuid bit support enabled");
+            options.push(MountOption::Suid);
+        } else {
+            options.push(MountOption::AutoUnmount);
+        }
+    }
+    #[cfg(not(feature = "abi-7-26"))]
+    {
+        options.push(MountOption::AutoUnmount);
+    }
     if let Ok(enabled) = fuse_allow_other_enabled() {
         if enabled {
             options.push(MountOption::AllowOther);
@@ -1896,7 +2033,11 @@ fn main() {
         .to_string();
 
     fuser::mount2(
-        SimpleFS::new(data_dir, matches.is_present("direct-io")),
+        SimpleFS::new(
+            data_dir,
+            matches.is_present("direct-io"),
+            matches.is_present("suid"),
+        ),
         mountpoint,
         &options,
     )

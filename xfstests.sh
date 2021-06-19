@@ -64,13 +64,7 @@ echo "generic/504" >> xfs_excludes.txt
 # Some information about it linked from here: https://stackoverflow.com/questions/29569408/documentation-of-posix-acl-access-and-friends
 echo "generic/099" >> xfs_excludes.txt
 echo "generic/105" >> xfs_excludes.txt
-
-# TODO: requires proper suid-bit support
-echo "generic/193" >> xfs_excludes.txt
-echo "generic/314" >> xfs_excludes.txt
-echo "generic/355" >> xfs_excludes.txt
 echo "generic/375" >> xfs_excludes.txt
-echo "generic/444" >> xfs_excludes.txt
 
 # TODO: requires support for mounting read-only
 echo "generic/294" >> xfs_excludes.txt
@@ -91,6 +85,7 @@ echo "generic/317" >> xfs_excludes.txt
 
 # TODO: requires more complete ACL support
 echo "generic/319" >> xfs_excludes.txt
+echo "generic/444" >> xfs_excludes.txt
 
 # TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
 echo "generic/089" >> xfs_excludes.txt

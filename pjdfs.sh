@@ -13,7 +13,7 @@ export RUST_BACKTRACE=1
 DATA_DIR=$(mktemp --directory)
 DIR=$(mktemp --directory)
 
-fuser -vvv --data-dir $DATA_DIR --mount-point $DIR > /code/logs/mount.log 2>&1 &
+fuser -vvv --suid --data-dir $DATA_DIR --mount-point $DIR > /code/logs/mount.log 2>&1 &
 FUSE_PID=$!
 sleep 0.5
 
