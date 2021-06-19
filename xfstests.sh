@@ -22,7 +22,7 @@ DIR=/var/tmp/fuse-xfstests/check-fuser
 mkdir -p $DIR
 cd /code/fuse-xfstests
 
-# TODO: requires flock
+# requires OFD & POSIX locks. OFD locks are not supported by fuse
 echo "generic/478" >> xfs_excludes.txt
 
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
@@ -57,7 +57,7 @@ echo "generic/434" >> xfs_excludes.txt
 # TODO: requires ulimit support for limiting file size
 echo "generic/394" >> xfs_excludes.txt
 
-# TODO: requires lock support
+# requires BSD lock support, and checks /proc/locks. fuse locks don't seem to show up in /proc/locks
 echo "generic/504" >> xfs_excludes.txt
 
 # TODO: requires support for system.posix_acl_access xattr sync'ing to file permissions
