@@ -1,9 +1,9 @@
+use clap::{crate_version, App, Arg};
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
 use libc::ENOENT;
-use std::env;
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -114,13 +114,34 @@ impl Filesystem for HelloFS {
 }
 
 fn main() {
+    let matches = App::new("hello")
+        .version(crate_version!())
+        .author("Christopher Berner")
+        .arg(
+            Arg::with_name("MOUNT_POINT")
+                .required(true)
+                .index(1)
+                .help("Act as a client, and mount FUSE at given path"),
+        )
+        .arg(
+            Arg::with_name("auto_unmount")
+                .long("auto_unmount")
+                .help("Automatically unmount on process exit"),
+        )
+        .arg(
+            Arg::with_name("allow-root")
+                .long("allow-root")
+                .help("Allow root user to access filesystem"),
+        )
+        .get_matches();
     env_logger::init();
-    let mountpoint = env::args_os().nth(1).unwrap();
+    let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
-    if let Some(auto_unmount) = env::args_os().nth(2) {
-        if auto_unmount.eq("--auto_unmount") {
-            options.push(MountOption::AutoUnmount);
-        }
+    if matches.is_present("auto_unmount") {
+        options.push(MountOption::AutoUnmount);
+    }
+    if matches.is_present("allow-root") {
+        options.push(MountOption::AllowRoot);
     }
     fuser::mount2(HelloFS, mountpoint, &options).unwrap();
 }

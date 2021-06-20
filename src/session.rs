@@ -31,21 +31,25 @@ const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 #[derive(Debug)]
 pub struct Session<FS: Filesystem> {
     /// Filesystem operation implementations
-    pub filesystem: FS,
+    pub(crate) filesystem: FS,
     /// Communication channel to the kernel driver
     ch: Channel,
     /// Handle to the mount.  Dropping this unmounts.
     mount: Option<Mount>,
     /// Mount point
     mountpoint: PathBuf,
+    /// Whether to restrict access to root + owner
+    pub(crate) allow_root: bool,
+    /// User that launched the fuser process
+    pub(crate) session_owner: u32,
     /// FUSE protocol major version
-    pub proto_major: u32,
+    pub(crate) proto_major: u32,
     /// FUSE protocol minor version
-    pub proto_minor: u32,
+    pub(crate) proto_minor: u32,
     /// True if the filesystem is initialized (init operation done)
-    pub initialized: bool,
+    pub(crate) initialized: bool,
     /// True if the filesystem was destroyed (destroy operation done)
-    pub destroyed: bool,
+    pub(crate) destroyed: bool,
 }
 
 impl<FS: Filesystem> Session<FS> {
@@ -63,6 +67,8 @@ impl<FS: Filesystem> Session<FS> {
             ch,
             mount: Some(mount),
             mountpoint: mountpoint.to_owned(),
+            allow_root: options.contains(&MountOption::AllowRoot),
+            session_owner: unsafe { libc::geteuid() },
             proto_major: 0,
             proto_minor: 0,
             initialized: false,

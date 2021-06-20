@@ -14,6 +14,47 @@ NC="\e[39m"
 GREEN="\e[32m"
 RED="\e[31m"
 
+function run_allow_root_test {
+  useradd fusertest1
+  useradd fusertest2
+  DIR=$(su fusertest1 -c "mktemp --directory")
+  cargo build --example hello --features libfuse,abi-7-30 > /dev/null 2>&1
+  su fusertest1 -c "target/debug/examples/hello $DIR --allow-root" &
+  FUSE_PID=$!
+  sleep 2
+
+  echo "mounting at $DIR"
+  # Make sure FUSE was successfully mounted
+  mount | grep hello || exit 1
+
+  if [[ $(su root -c "cat ${DIR}/hello.txt") = "Hello World!" ]]; then
+      echo -e "$GREEN OK root can read $NC"
+  else
+      echo -e "$RED FAILED root can't read $NC"
+      export TEST_EXIT_STATUS=1
+      exit 1
+  fi
+
+  if [[ $(su fusertest1 -c "cat ${DIR}/hello.txt") = "Hello World!" ]]; then
+      echo -e "$GREEN OK owner can read $NC"
+  else
+      echo -e "$RED FAILED owner can't read $NC"
+      export TEST_EXIT_STATUS=1
+      exit 1
+  fi
+
+  if [[ $(su fusertest2 -c "cat ${DIR}/hello.txt") = "Hello World!" ]]; then
+      echo -e "$RED FAILED other user can read $NC"
+      export TEST_EXIT_STATUS=1
+      exit 1
+  else
+      echo -e "$GREEN OK other user can't read $NC"
+  fi
+
+  kill $FUSE_PID
+  wait $FUSE_PID
+}
+
 function run_test {
   DIR=$(mktemp --directory)
   cargo build --example hello $1 > /dev/null 2>&1
@@ -67,5 +108,7 @@ echo 'user_allow_other' >> /etc/fuse.conf
 
 run_test --features=libfuse,abi-7-30 'with libfuse3'
 run_test --features=libfuse,abi-7-30 'with libfuse3' --auto_unmount
+
+run_allow_root_test
 
 export TEST_EXIT_STATUS=0

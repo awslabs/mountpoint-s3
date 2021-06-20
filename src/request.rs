@@ -59,6 +59,7 @@ impl<'a> Request<'a> {
             Err(errno) => self.request.reply_err(errno),
         }
         .with_iovec(unique, |iov| self.ch.send(iov));
+
         if let Err(err) = res {
             warn!("Request {:?}: Failed to send reply: {}", unique, err)
         }
@@ -69,6 +70,46 @@ impl<'a> Request<'a> {
         se: &mut Session<FS>,
     ) -> Result<Option<Response>, Errno> {
         let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
+        // Implement allow_root
+        if se.allow_root && self.request.uid() != se.session_owner && self.request.uid() != 0 {
+            #[cfg(feature = "abi-7-21")]
+            {
+                match op {
+                    // Only allow operations that the kernel may issue without a uid set
+                    ll::Operation::Init(_)
+                    | ll::Operation::Destroy(_)
+                    | ll::Operation::Read(_)
+                    | ll::Operation::ReadDir(_)
+                    | ll::Operation::ReadDirPlus(_)
+                    | ll::Operation::Write(_)
+                    | ll::Operation::FSync(_)
+                    | ll::Operation::FSyncDir(_)
+                    | ll::Operation::Release(_)
+                    | ll::Operation::ReleaseDir(_) => {}
+                    _ => {
+                        return Err(Errno::EACCES);
+                    }
+                }
+            }
+            #[cfg(not(feature = "abi-7-21"))]
+            {
+                match op {
+                    // Only allow operations that the kernel may issue without a uid set
+                    ll::Operation::Init(_)
+                    | ll::Operation::Destroy(_)
+                    | ll::Operation::Read(_)
+                    | ll::Operation::ReadDir(_)
+                    | ll::Operation::Write(_)
+                    | ll::Operation::FSync(_)
+                    | ll::Operation::FSyncDir(_)
+                    | ll::Operation::Release(_)
+                    | ll::Operation::ReleaseDir(_) => {}
+                    _ => {
+                        return Err(Errno::EACCES);
+                    }
+                }
+            }
+        }
         match op {
             // Filesystem initialization
             ll::Operation::Init(x) => {

@@ -132,7 +132,9 @@ pub fn option_to_string(option: &MountOption) -> String {
         MountOption::CUSTOM(value) => value.to_string(),
         MountOption::AutoUnmount => "auto_unmount".to_string(),
         MountOption::AllowOther => "allow_other".to_string(),
-        MountOption::AllowRoot => "allow_root".to_string(),
+        // AllowRoot is implemented by allowing everyone access and then restricting to
+        // root + owner within fuser
+        MountOption::AllowRoot => "allow_other".to_string(),
         MountOption::DefaultPermissions => "default_permissions".to_string(),
         MountOption::Dev => "dev".to_string(),
         MountOption::NoDev => "nodev".to_string(),
@@ -195,7 +197,6 @@ mod test {
             Subtype("Bloo".to_owned()),
             CUSTOM("bongos".to_owned()),
             AllowOther,
-            AllowRoot,
             AutoUnmount,
             DefaultPermissions,
             Dev,
