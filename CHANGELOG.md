@@ -1,10 +1,10 @@
 # FUSE for Rust - Changelog
 
 ## 0.9.0 - UNRELEASED
-* Ensure that `Filesystem::destroy` is always called
-* Remove request parameter to `Filesystem::destroy`
-* Fix `MountOption::AllowRoot`. Previously using it resulted in a crash.
-* Fix `MountOption::AutoUnmount` to work when `AllowRoot` and `AllowOther` are both not set
+* Ensure that `Filesystem::destroy` is always called, when the filesystem is unmounted
+* Remove request parameter from `Filesystem::destroy`.
+* Fix `MountOption::AllowRoot`. Previously, using it resulted in a crash.
+* Fix `MountOption::AutoUnmount` so that it works when `AllowRoot` and `AllowOther` are both not set.
 
 ## 0.8.0 - 2021-06-11
 * Deprecate `mount()`
