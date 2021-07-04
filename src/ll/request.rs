@@ -2121,13 +2121,13 @@ impl<'a> fmt::Display for AnyRequest<'a> {
         if let Ok(op) = self.operation() {
             write!(
                 f,
-                "FUSE({:4}) ino {:#018x} {}",
+                "FUSE({:3}) ino {:#018x} {}",
                 self.header.unique, self.header.nodeid, op
             )
         } else {
             write!(
                 f,
-                "FUSE({:4}) ino {:#018x}",
+                "FUSE({:3}) ino {:#018x}",
                 self.header.unique, self.header.nodeid
             )
         }
