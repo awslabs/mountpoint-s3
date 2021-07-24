@@ -1744,7 +1744,7 @@ impl Filesystem for SimpleFS {
         let inode = self.allocate_next_inode();
         let attrs = InodeAttributes {
             inode,
-            open_file_handles: 0,
+            open_file_handles: 1,
             size: 0,
             last_accessed: time_now(),
             last_modified: time_now(),

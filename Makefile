@@ -43,6 +43,8 @@ mount_tests:
 	docker build -t fuser:mount_tests -f mount_tests.Dockerfile .
 	# Additional permissions are needed to be able to mount FUSE
 	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
+	 fuser:mount_tests bash -c "cd /code/fuser && bash ./simplefs_tests.sh"
+	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 fuser:mount_tests bash -c "cd /code/fuser && bash ./mount_tests.sh"
 
 test: pre mount_tests pjdfs_tests xfstests
