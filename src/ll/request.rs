@@ -1774,12 +1774,14 @@ mod op {
                 arg: data.fetch_all(),
             }),
             #[cfg(feature = "abi-7-16")]
-            // TODO: parse the nodes
-            fuse_opcode::FUSE_BATCH_FORGET => Operation::BatchForget(BatchForget {
-                header,
-                arg: data.fetch()?,
-                nodes: &[],
-            }),
+            fuse_opcode::FUSE_BATCH_FORGET => {
+                let arg = data.fetch()?;
+                Operation::BatchForget(BatchForget {
+                    header,
+                    arg,
+                    nodes: data.fetch_slice(arg.count as usize)?,
+                })
+            },
             #[cfg(feature = "abi-7-19")]
             fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate(FAllocate {
                 header,
