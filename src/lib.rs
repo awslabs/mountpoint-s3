@@ -38,6 +38,8 @@ pub use session::{BackgroundSession, Session};
 use std::cmp::max;
 #[cfg(feature = "abi-7-13")]
 use std::cmp::min;
+#[cfg(feature = "abi-7-16")]
+pub use ll::fuse_abi::fuse_forget_one;
 
 mod channel;
 mod ll;
