@@ -3,6 +3,8 @@
 ## 0.9.0 - UNRELEASED
 * Ensure that `Filesystem::destroy` is always called, when the filesystem is unmounted
 * Remove request parameter from `Filesystem::destroy`.
+* Make `fuse_forget_one` public, so that `Filesystem::batch_forget` can be implemented by users.
+* Fix `batch_forget`. Previously, it always received an empty list of inodes.
 * Fix `MountOption::AllowRoot`. Previously, using it resulted in a crash.
 * Fix `MountOption::AutoUnmount` so that it works when `AllowRoot` and `AllowOther` are both not set.
 * Make log messages more verbose (now includes the operation)
