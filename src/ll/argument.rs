@@ -53,8 +53,8 @@ impl<'a> ArgumentIterator<'a> {
     /// Fetch a slice of typed of arguments. Returns `None` if there's not enough data left.
     #[cfg(feature = "abi-7-16")]
     pub fn fetch_slice<T: zerocopy::FromBytes>(&mut self, count: usize) -> Option<&'a [T]> {
-       match zerocopy::LayoutVerified::<_, [T]>::new_slice_from_prefix(self.data, count) {
-           None => {
+        match zerocopy::LayoutVerified::<_, [T]>::new_slice_from_prefix(self.data, count) {
+            None => {
                 if self.data.as_ptr() as usize % core::mem::align_of::<T>() != 0 {
                     // Panic on alignment errors as this is under the control
                     // of the programmer, we can still return None for size
@@ -64,12 +64,12 @@ impl<'a> ArgumentIterator<'a> {
                 } else {
                     None
                 }
-           }
-           Some((x, rest)) => {
-               self.data = rest;
-               Some(x.into_slice())
-           }
-       }
+            }
+            Some((x, rest)) => {
+                self.data = rest;
+                Some(x.into_slice())
+            }
+        }
     }
 
     /// Fetch a (zero-terminated) string (can be non-utf8). Returns `None` if there's not enough

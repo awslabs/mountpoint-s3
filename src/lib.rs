@@ -23,6 +23,8 @@ pub use crate::ll::fuse_abi::FUSE_ROOT_ID;
 pub use crate::ll::{fuse_abi::consts, TimeOrNow};
 use crate::mnt::mount_options::check_option_conflicts;
 use crate::session::MAX_WRITE_SIZE;
+#[cfg(feature = "abi-7-16")]
+pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
@@ -38,8 +40,6 @@ pub use session::{BackgroundSession, Session};
 use std::cmp::max;
 #[cfg(feature = "abi-7-13")]
 use std::cmp::min;
-#[cfg(feature = "abi-7-16")]
-pub use ll::fuse_abi::fuse_forget_one;
 
 mod channel;
 mod ll;
@@ -313,7 +313,7 @@ pub trait Filesystem {
     /// Like forget, but take multiple forget requests at once for performance. The default
     /// implementation will fallback to forget.
     #[cfg(feature = "abi-7-16")]
-    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[ll::fuse_abi::fuse_forget_one]) {
+    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_forget_one]) {
         for node in nodes {
             self.forget(req, node.nodeid, node.nlookup);
         }

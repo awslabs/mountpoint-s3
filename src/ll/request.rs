@@ -1781,7 +1781,7 @@ mod op {
                     arg,
                     nodes: data.fetch_slice(arg.count as usize)?,
                 })
-            },
+            }
             #[cfg(feature = "abi-7-19")]
             fuse_opcode::FUSE_FALLOCATE => Operation::FAllocate(FAllocate {
                 header,
