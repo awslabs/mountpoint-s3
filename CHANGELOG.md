@@ -1,6 +1,8 @@
 # FUSE for Rust - Changelog
 
-## 0.9.0 - UNRELEASED
+## 0.10.0 - UNRELEASED
+
+## 0.9.0 - 2021-08-31
 * Ensure that `Filesystem::destroy` is always called, when the filesystem is unmounted
 * Remove request parameter from `Filesystem::destroy`.
 * Make `fuse_forget_one` public, so that `Filesystem::batch_forget` can be implemented by users.
