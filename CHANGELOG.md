@@ -2,6 +2,9 @@
 
 ## 0.10.0 - UNRELEASED
 
+## 0.9.1 - 2021-09-07
+* `forget` and `batch_forget` no longer require that `AllowRoot` be set
+
 ## 0.9.0 - 2021-08-31
 * Ensure that `Filesystem::destroy` is always called, when the filesystem is unmounted
 * Remove request parameter from `Filesystem::destroy`.
