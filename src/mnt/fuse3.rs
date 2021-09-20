@@ -2,7 +2,7 @@ use super::fuse3_sys::{
     fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
-use super::{with_fuse_args, MountOption};
+use super::{ensure_last_os_error, with_fuse_args, MountOption};
 use std::{
     ffi::{c_void, CString},
     fs::File,
@@ -28,7 +28,7 @@ impl Mount {
             let mount = Mount { fuse_session };
             let result = unsafe { fuse_session_mount(mount.fuse_session, mnt.as_ptr()) };
             if result != 0 {
-                return Err(io::Error::last_os_error());
+                return Err(ensure_last_os_error());
             }
             let fd = unsafe { fuse_session_fd(mount.fuse_session) };
             if fd < 0 {

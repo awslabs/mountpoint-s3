@@ -19,7 +19,6 @@ pub mod mount_options;
 use fuse2_sys::fuse_args;
 #[cfg(any(test, not(feature = "libfuse")))]
 use std::fs::File;
-#[cfg(any(test, not(feature = "libfuse3")))]
 use std::io;
 
 #[cfg(any(feature = "libfuse", test))]
@@ -115,6 +114,15 @@ fn is_mounted(fuse_device: &File) -> bool {
             }
             _ => unreachable!(),
         };
+    }
+}
+
+/// Ensures that an os error is never 0/Success
+fn ensure_last_os_error() -> io::Error {
+    let err = io::Error::last_os_error();
+    match err.raw_os_error() {
+        Some(0) => io::Error::new(io::ErrorKind::Other, "Unspecified Error"),
+        _ => err,
     }
 }
 
