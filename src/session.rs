@@ -6,7 +6,7 @@
 //! for filesystem operations under its mount point.
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use log::{info,warn};
+use log::{info, warn};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
