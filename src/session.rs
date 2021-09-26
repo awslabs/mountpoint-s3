@@ -6,7 +6,7 @@
 //! for filesystem operations under its mount point.
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use log::info;
+use log::{info,warn};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
@@ -75,6 +75,7 @@ impl<FS: Filesystem> Session<FS> {
             && !(options.contains(&MountOption::AllowRoot)
                 || options.contains(&MountOption::AllowOther))
         {
+            warn!("Given auto_unmount without allow_root or allow_other; adding allow_other");
             let mut modified_options = options.to_vec();
             modified_options.push(MountOption::AllowOther);
             Mount::new(mountpoint, &modified_options)?

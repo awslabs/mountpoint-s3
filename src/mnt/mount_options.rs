@@ -22,6 +22,8 @@ pub enum MountOption {
     /// Allow the root user to access this filesystem, in addition to the user who mounted it
     AllowRoot,
     /// Automatically unmount when the mounting process exits
+    /// 
+    /// `AutoUnmount` requires `AllowOther` or `AllowRoot`. If `AutoUnmount` is set and neither `Allow...` is set, then `AllowOther` will be automatically added to the options. If the FUSE configuration doesn't permit `AllowOther`, this will cause an `EFAULT` error and mounting will fail.
     AutoUnmount,
     /// Enable permission checking in the kernel
     DefaultPermissions,
