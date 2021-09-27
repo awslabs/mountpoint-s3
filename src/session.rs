@@ -75,7 +75,7 @@ impl<FS: Filesystem> Session<FS> {
             && !(options.contains(&MountOption::AllowRoot)
                 || options.contains(&MountOption::AllowOther))
         {
-            warn!("Given auto_unmount without allow_root or allow_other; adding allow_other");
+            warn!("Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling");
             let mut modified_options = options.to_vec();
             modified_options.push(MountOption::AllowOther);
             Mount::new(mountpoint, &modified_options)?

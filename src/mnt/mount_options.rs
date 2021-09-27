@@ -23,7 +23,7 @@ pub enum MountOption {
     AllowRoot,
     /// Automatically unmount when the mounting process exits
     ///
-    /// `AutoUnmount` requires `AllowOther` or `AllowRoot`. If `AutoUnmount` is set and neither `Allow...` is set, then `AllowOther` will be automatically added to the options. If the FUSE configuration doesn't permit `AllowOther`, this will cause an `EFAULT` error and mounting will fail.
+    /// `AutoUnmount` requires `AllowOther` or `AllowRoot`. If `AutoUnmount` is set and neither `Allow...` is set, the FUSE configuration must permit `allow_other`, otherwise mounting will fail.
     AutoUnmount,
     /// Enable permission checking in the kernel
     DefaultPermissions,
