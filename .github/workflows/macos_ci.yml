@@ -4,7 +4,7 @@ on:
   pull_request:
 jobs:
   ci-macos:
-    runs-on: macos-latest
+    runs-on: macos-10.15
     env:
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
     steps:
