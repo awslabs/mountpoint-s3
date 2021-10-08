@@ -7,6 +7,7 @@
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
 use libc::{c_int, ENOSYS};
+use log::{debug, warn};
 use mnt::mount_options::parse_options_from_args;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,6 @@ use crate::mnt::mount_options::check_option_conflicts;
 use crate::session::MAX_WRITE_SIZE;
 #[cfg(feature = "abi-7-16")]
 pub use ll::fuse_abi::fuse_forget_one;
-use log::{debug, warn};
 pub use mnt::mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
@@ -350,7 +350,8 @@ pub trait Filesystem {
         reply: ReplyAttr,
     ) {
         debug!(
-            "[Not Implemented] setattr(ino: {:#x?}, mode: {:?}, uid: {:?}, gid: {:?}, size: {:?}, fh: {:?}, flags: {:?})",
+            "[Not Implemented] setattr(ino: {:#x?}, mode: {:?}, uid: {:?}, \
+            gid: {:?}, size: {:?}, fh: {:?}, flags: {:?})",
             ino, mode, uid, gid, size, fh, flags
         );
         reply.error(ENOSYS);
@@ -375,7 +376,8 @@ pub trait Filesystem {
         reply: ReplyEntry,
     ) {
         debug!(
-            "[Not Implemented] mknod(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?}, rdev: {})",
+            "[Not Implemented] mknod(parent: {:#x?}, name: {:?}, mode: {}, \
+            umask: {:#x?}, rdev: {})",
             parent, name, mode, umask, rdev
         );
         reply.error(ENOSYS);
@@ -399,7 +401,11 @@ pub trait Filesystem {
     }
 
     /// Remove a file.
-    fn unlink(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
+    fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!(
+            "[Not Implemented] unlink(parent: {:#x?}, name: {:?})",
+            parent, name,
+        );
         reply.error(ENOSYS);
     }
 
@@ -440,7 +446,8 @@ pub trait Filesystem {
         reply: ReplyEmpty,
     ) {
         debug!(
-            "[Not Implemented] rename(parent: {:#x?}, name: {:?}, newparent: {:#x?}, newname: {:?}, flags: {})",
+            "[Not Implemented] rename(parent: {:#x?}, name: {:?}, newparent: {:#x?}, \
+            newname: {:?}, flags: {})",
             parent, name, newparent, newname, flags,
         );
         reply.error(ENOSYS);
@@ -496,7 +503,8 @@ pub trait Filesystem {
         reply: ReplyData,
     ) {
         warn!(
-            "[Not Implemented] read(ino: {:#x?}, fh: {}, offset: {}, size: {}, flags: {:#x?}, lock_owner: {:?})",
+            "[Not Implemented] read(ino: {:#x?}, fh: {}, offset: {}, size: {}, \
+            flags: {:#x?}, lock_owner: {:?})",
             ino, fh, offset, size, flags, lock_owner
         );
         reply.error(ENOSYS);
@@ -520,15 +528,22 @@ pub trait Filesystem {
         ino: u64,
         fh: u64,
         offset: i64,
-        _data: &[u8],
+        data: &[u8],
         write_flags: u32,
         flags: i32,
         lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
         debug!(
-            "[Not Implemented] write(ino: {:#x?}, fh: {}, offset: {}, write_flags: {:#x?}, flags: {:#x?}, lock_owner: {:?})",
-            ino, fh, offset, write_flags, flags, lock_owner
+            "[Not Implemented] write(ino: {:#x?}, fh: {}, offset: {}, data.len(): {}, \
+            write_flags: {:#x?}, flags: {:#x?}, lock_owner: {:?})",
+            ino,
+            fh,
+            offset,
+            data.len(),
+            write_flags,
+            flags,
+            lock_owner
         );
         reply.error(ENOSYS);
     }
@@ -761,7 +776,8 @@ pub trait Filesystem {
         reply: ReplyCreate,
     ) {
         debug!(
-            "[Not Implemented] create(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?}, flags: {:#x?})",
+            "[Not Implemented] create(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?}, \
+            flags: {:#x?})",
             parent, name, mode, umask, flags
         );
         reply.error(ENOSYS);
@@ -781,7 +797,8 @@ pub trait Filesystem {
         reply: ReplyLock,
     ) {
         debug!(
-            "[Not Implemented] getlk(ino: {:#x?}, fh: {}, lock_owner: {}, start: {}, end: {}, typ: {}, pid: {})",
+            "[Not Implemented] getlk(ino: {:#x?}, fh: {}, lock_owner: {}, start: {}, \
+            end: {}, typ: {}, pid: {})",
             ino, fh, lock_owner, start, end, typ, pid
         );
         reply.error(ENOSYS);
@@ -808,7 +825,8 @@ pub trait Filesystem {
         reply: ReplyEmpty,
     ) {
         debug!(
-            "[Not Implemented] setlk(ino: {:#x?}, fh: {}, lock_owner: {}, start: {}, end: {}, typ: {}, pid: {}, sleep: {})",
+            "[Not Implemented] setlk(ino: {:#x?}, fh: {}, lock_owner: {}, start: {}, \
+            end: {}, typ: {}, pid: {}, sleep: {})",
             ino, fh, lock_owner, start, end, typ, pid, sleep
         );
         reply.error(ENOSYS);
@@ -833,13 +851,19 @@ pub trait Filesystem {
         fh: u64,
         flags: u32,
         cmd: u32,
-        _in_data: &[u8],
+        in_data: &[u8],
         out_size: u32,
         reply: ReplyIoctl,
     ) {
         debug!(
-            "[Not Implemented] ioctl(ino: {:#x?}, fh: {}, flags: {}, cmd: {}, out_size: {})",
-            ino, fh, flags, cmd, out_size,
+            "[Not Implemented] ioctl(ino: {:#x?}, fh: {}, flags: {}, cmd: {}, \
+            in_data.len(): {}, out_size: {})",
+            ino,
+            fh,
+            flags,
+            cmd,
+            in_data.len(),
+            out_size,
         );
         reply.error(ENOSYS);
     }
@@ -856,7 +880,8 @@ pub trait Filesystem {
         reply: ReplyEmpty,
     ) {
         debug!(
-            "[Not Implemented] fallocate(ino: {:#x?}, fh: {}, offset: {}, length: {}, mode: {})",
+            "[Not Implemented] fallocate(ino: {:#x?}, fh: {}, offset: {}, \
+            length: {}, mode: {})",
             ino, fh, offset, length, mode
         );
         reply.error(ENOSYS);
@@ -894,7 +919,9 @@ pub trait Filesystem {
         reply: ReplyWrite,
     ) {
         debug!(
-            "[Not Implemented] copy_file_range(ino_in: {:#x?}, fh_in: {}, offset_in: {}, ino_out: {:#x?}, fh_out: {}, offset_out: {}, len: {}, flags: {})",
+            "[Not Implemented] copy_file_range(ino_in: {:#x?}, fh_in: {}, \
+            offset_in: {}, ino_out: {:#x?}, fh_out: {}, offset_out: {}, \
+            len: {}, flags: {})",
             ino_in, fh_in, offset_in, ino_out, fh_out, offset_out, len, flags
         );
         reply.error(ENOSYS);
@@ -920,7 +947,9 @@ pub trait Filesystem {
         options: u64,
         reply: ReplyEmpty,
     ) {
-        debug!("[Not Implemented] exchange(parent: {:#x?}, name: {:?}, newparent: {:#x?}, newname: {:?}, options: {})",
+        debug!(
+            "[Not Implemented] exchange(parent: {:#x?}, name: {:?}, newparent: {:#x?}, \
+            newname: {:?}, options: {})",
             parent, name, newparent, newname, options
         );
         reply.error(ENOSYS);
