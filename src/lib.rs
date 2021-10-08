@@ -25,6 +25,7 @@ use crate::mnt::mount_options::check_option_conflicts;
 use crate::session::MAX_WRITE_SIZE;
 #[cfg(feature = "abi-7-16")]
 pub use ll::fuse_abi::fuse_forget_one;
+use log::{debug, warn};
 pub use mnt::mount_options::MountOption;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
@@ -297,7 +298,11 @@ pub trait Filesystem {
     fn destroy(&mut self) {}
 
     /// Look up a directory entry by name and get its attributes.
-    fn lookup(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        warn!(
+            "[Not Implemented] lookup(parent: {:#x?}, name {:?})",
+            parent, name
+        );
         reply.error(ENOSYS);
     }
 
@@ -320,7 +325,8 @@ pub trait Filesystem {
     }
 
     /// Get file attributes.
-    fn getattr(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyAttr) {
+    fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
+        warn!("[Not Implemented] getattr(ino: {:#x?})", ino);
         reply.error(ENOSYS);
     }
 
@@ -328,26 +334,31 @@ pub trait Filesystem {
     fn setattr(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _mode: Option<u32>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
-        _size: Option<u64>,
+        ino: u64,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        size: Option<u64>,
         _atime: Option<TimeOrNow>,
         _mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
-        _fh: Option<u64>,
+        fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
-        _flags: Option<u32>,
+        flags: Option<u32>,
         reply: ReplyAttr,
     ) {
+        debug!(
+            "[Not Implemented] setattr(ino: {:#x?}, mode: {:?}, uid: {:?}, gid: {:?}, size: {:?}, fh: {:?}, flags: {:?})",
+            ino, mode, uid, gid, size, fh, flags
+        );
         reply.error(ENOSYS);
     }
 
     /// Read symbolic link.
-    fn readlink(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyData) {
+    fn readlink(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyData) {
+        debug!("[Not Implemented] readlink(ino: {:#x?})", ino);
         reply.error(ENOSYS);
     }
 
@@ -356,13 +367,17 @@ pub trait Filesystem {
     fn mknod(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _umask: u32,
-        _rdev: u32,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
         reply: ReplyEntry,
     ) {
+        debug!(
+            "[Not Implemented] mknod(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?}, rdev: {})",
+            parent, name, mode, umask, rdev
+        );
         reply.error(ENOSYS);
     }
 
@@ -370,12 +385,16 @@ pub trait Filesystem {
     fn mkdir(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _umask: u32,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
         reply: ReplyEntry,
     ) {
+        debug!(
+            "[Not Implemented] mkdir(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?})",
+            parent, name, mode, umask
+        );
         reply.error(ENOSYS);
     }
 
@@ -385,7 +404,11 @@ pub trait Filesystem {
     }
 
     /// Remove a directory.
-    fn rmdir(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
+    fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!(
+            "[Not Implemented] rmdir(parent: {:#x?}, name: {:?})",
+            parent, name,
+        );
         reply.error(ENOSYS);
     }
 
@@ -393,11 +416,15 @@ pub trait Filesystem {
     fn symlink(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _link: &Path,
+        parent: u64,
+        name: &OsStr,
+        link: &Path,
         reply: ReplyEntry,
     ) {
+        debug!(
+            "[Not Implemented] symlink(parent: {:#x?}, name: {:?}, link: {:?})",
+            parent, name, link,
+        );
         reply.error(ENOSYS);
     }
 
@@ -405,13 +432,17 @@ pub trait Filesystem {
     fn rename(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _newparent: u64,
-        _newname: &OsStr,
-        _flags: u32,
+        parent: u64,
+        name: &OsStr,
+        newparent: u64,
+        newname: &OsStr,
+        flags: u32,
         reply: ReplyEmpty,
     ) {
+        debug!(
+            "[Not Implemented] rename(parent: {:#x?}, name: {:?}, newparent: {:#x?}, newname: {:?}, flags: {})",
+            parent, name, newparent, newname, flags,
+        );
         reply.error(ENOSYS);
     }
 
@@ -419,11 +450,15 @@ pub trait Filesystem {
     fn link(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _newparent: u64,
-        _newname: &OsStr,
+        ino: u64,
+        newparent: u64,
+        newname: &OsStr,
         reply: ReplyEntry,
     ) {
+        debug!(
+            "[Not Implemented] link(ino: {:#x?}, newparent: {:#x?}, newname: {:?})",
+            ino, newparent, newname
+        );
         reply.error(ENOSYS);
     }
 
@@ -452,14 +487,18 @@ pub trait Filesystem {
     fn read(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
-        _size: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        size: u32,
+        flags: i32,
+        lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
+        warn!(
+            "[Not Implemented] read(ino: {:#x?}, fh: {}, offset: {}, size: {}, flags: {:#x?}, lock_owner: {:?})",
+            ino, fh, offset, size, flags, lock_owner
+        );
         reply.error(ENOSYS);
     }
 
@@ -478,15 +517,19 @@ pub trait Filesystem {
     fn write(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
+        ino: u64,
+        fh: u64,
+        offset: i64,
         _data: &[u8],
-        _write_flags: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        write_flags: u32,
+        flags: i32,
+        lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
+        debug!(
+            "[Not Implemented] write(ino: {:#x?}, fh: {}, offset: {}, write_flags: {:#x?}, flags: {:#x?}, lock_owner: {:?})",
+            ino, fh, offset, write_flags, flags, lock_owner
+        );
         reply.error(ENOSYS);
     }
 
@@ -500,14 +543,11 @@ pub trait Filesystem {
     /// is not forced to flush pending writes. One reason to flush data, is if the
     /// filesystem wants to return write errors. If the filesystem supports file locking
     /// operations (setlk, getlk) it should remove all locks belonging to 'lock_owner'.
-    fn flush(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        reply: ReplyEmpty,
-    ) {
+    fn flush(&mut self, _req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+        debug!(
+            "[Not Implemented] flush(ino: {:#x?}, fh: {}, lock_owner: {:?})",
+            ino, fh, lock_owner
+        );
         reply.error(ENOSYS);
     }
 
@@ -535,14 +575,11 @@ pub trait Filesystem {
     /// Synchronize file contents.
     /// If the datasync parameter is non-zero, then only the user data should be flushed,
     /// not the meta data.
-    fn fsync(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
-        reply: ReplyEmpty,
-    ) {
+    fn fsync(&mut self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+        debug!(
+            "[Not Implemented] fsync(ino: {:#x?}, fh: {}, datasync: {})",
+            ino, fh, datasync
+        );
         reply.error(ENOSYS);
     }
 
@@ -565,11 +602,15 @@ pub trait Filesystem {
     fn readdir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
+        ino: u64,
+        fh: u64,
+        offset: i64,
         reply: ReplyDirectory,
     ) {
+        warn!(
+            "[Not Implemented] readdir(ino: {:#x?}, fh: {}, offset: {})",
+            ino, fh, offset
+        );
         reply.error(ENOSYS);
     }
 
@@ -581,11 +622,15 @@ pub trait Filesystem {
     fn readdirplus(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
+        ino: u64,
+        fh: u64,
+        offset: i64,
         reply: ReplyDirectoryPlus,
     ) {
+        debug!(
+            "[Not Implemented] readdirplus(ino: {:#x?}, fh: {}, offset: {})",
+            ino, fh, offset
+        );
         reply.error(ENOSYS);
     }
 
@@ -611,11 +656,15 @@ pub trait Filesystem {
     fn fsyncdir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
+        ino: u64,
+        fh: u64,
+        datasync: bool,
         reply: ReplyEmpty,
     ) {
+        debug!(
+            "[Not Implemented] fsyncdir(ino: {:#x?}, fh: {}, datasync: {})",
+            ino, fh, datasync
+        );
         reply.error(ENOSYS);
     }
 
@@ -628,13 +677,17 @@ pub trait Filesystem {
     fn setxattr(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _name: &OsStr,
+        ino: u64,
+        name: &OsStr,
         _value: &[u8],
-        _flags: i32,
-        _position: u32,
+        flags: i32,
+        position: u32,
         reply: ReplyEmpty,
     ) {
+        debug!(
+            "[Not Implemented] setxattr(ino: {:#x?}, name: {:?}, flags: {:#x?}, position: {})",
+            ino, name, flags, position
+        );
         reply.error(ENOSYS);
     }
 
@@ -645,11 +698,15 @@ pub trait Filesystem {
     fn getxattr(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _name: &OsStr,
-        _size: u32,
+        ino: u64,
+        name: &OsStr,
+        size: u32,
         reply: ReplyXattr,
     ) {
+        debug!(
+            "[Not Implemented] getxattr(ino: {:#x?}, name: {:?}, size: {})",
+            ino, name, size
+        );
         reply.error(ENOSYS);
     }
 
@@ -657,12 +714,20 @@ pub trait Filesystem {
     /// If `size` is 0, the size of the value should be sent with `reply.size()`.
     /// If `size` is not 0, and the value fits, send it with `reply.data()`, or
     /// `reply.error(ERANGE)` if it doesn't.
-    fn listxattr(&mut self, _req: &Request<'_>, _ino: u64, _size: u32, reply: ReplyXattr) {
+    fn listxattr(&mut self, _req: &Request<'_>, ino: u64, size: u32, reply: ReplyXattr) {
+        debug!(
+            "[Not Implemented] listxattr(ino: {:#x?}, size: {})",
+            ino, size
+        );
         reply.error(ENOSYS);
     }
 
     /// Remove an extended attribute.
-    fn removexattr(&mut self, _req: &Request<'_>, _ino: u64, _name: &OsStr, reply: ReplyEmpty) {
+    fn removexattr(&mut self, _req: &Request<'_>, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!(
+            "[Not Implemented] removexattr(ino: {:#x?}, name: {:?})",
+            ino, name
+        );
         reply.error(ENOSYS);
     }
 
@@ -670,7 +735,8 @@ pub trait Filesystem {
     /// This will be called for the access() system call. If the 'default_permissions'
     /// mount option is given, this method is not called. This method is not called
     /// under Linux kernel versions 2.4.x
-    fn access(&mut self, _req: &Request<'_>, _ino: u64, _mask: i32, reply: ReplyEmpty) {
+    fn access(&mut self, _req: &Request<'_>, ino: u64, mask: i32, reply: ReplyEmpty) {
+        debug!("[Not Implemented] access(ino: {:#x?}, mask: {})", ino, mask);
         reply.error(ENOSYS);
     }
 
@@ -687,13 +753,17 @@ pub trait Filesystem {
     fn create(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _umask: u32,
-        _flags: i32,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        flags: i32,
         reply: ReplyCreate,
     ) {
+        debug!(
+            "[Not Implemented] create(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?}, flags: {:#x?})",
+            parent, name, mode, umask, flags
+        );
         reply.error(ENOSYS);
     }
 
@@ -701,15 +771,19 @@ pub trait Filesystem {
     fn getlk(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        _start: u64,
-        _end: u64,
-        _typ: i32,
-        _pid: u32,
+        ino: u64,
+        fh: u64,
+        lock_owner: u64,
+        start: u64,
+        end: u64,
+        typ: i32,
+        pid: u32,
         reply: ReplyLock,
     ) {
+        debug!(
+            "[Not Implemented] getlk(ino: {:#x?}, fh: {}, lock_owner: {}, start: {}, end: {}, typ: {}, pid: {})",
+            ino, fh, lock_owner, start, end, typ, pid
+        );
         reply.error(ENOSYS);
     }
 
@@ -723,30 +797,31 @@ pub trait Filesystem {
     fn setlk(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        _start: u64,
-        _end: u64,
-        _typ: i32,
-        _pid: u32,
-        _sleep: bool,
+        ino: u64,
+        fh: u64,
+        lock_owner: u64,
+        start: u64,
+        end: u64,
+        typ: i32,
+        pid: u32,
+        sleep: bool,
         reply: ReplyEmpty,
     ) {
+        debug!(
+            "[Not Implemented] setlk(ino: {:#x?}, fh: {}, lock_owner: {}, start: {}, end: {}, typ: {}, pid: {}, sleep: {})",
+            ino, fh, lock_owner, start, end, typ, pid, sleep
+        );
         reply.error(ENOSYS);
     }
 
     /// Map block index within file to block index within device.
     /// Note: This makes sense only for block device backed filesystems mounted
     /// with the 'blkdev' option
-    fn bmap(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _blocksize: u32,
-        _idx: u64,
-        reply: ReplyBmap,
-    ) {
+    fn bmap(&mut self, _req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
+        debug!(
+            "[Not Implemented] bmap(ino: {:#x?}, blocksize: {}, idx: {})",
+            ino, blocksize, idx,
+        );
         reply.error(ENOSYS);
     }
 
@@ -754,14 +829,18 @@ pub trait Filesystem {
     fn ioctl(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _flags: u32,
-        _cmd: u32,
+        ino: u64,
+        fh: u64,
+        flags: u32,
+        cmd: u32,
         _in_data: &[u8],
-        _out_size: u32,
+        out_size: u32,
         reply: ReplyIoctl,
     ) {
+        debug!(
+            "[Not Implemented] ioctl(ino: {:#x?}, fh: {}, flags: {}, cmd: {}, out_size: {})",
+            ino, fh, flags, cmd, out_size,
+        );
         reply.error(ENOSYS);
     }
 
@@ -769,13 +848,17 @@ pub trait Filesystem {
     fn fallocate(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
-        _length: i64,
-        _mode: i32,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        length: i64,
+        mode: i32,
         reply: ReplyEmpty,
     ) {
+        debug!(
+            "[Not Implemented] fallocate(ino: {:#x?}, fh: {}, offset: {}, length: {}, mode: {})",
+            ino, fh, offset, length, mode
+        );
         reply.error(ENOSYS);
     }
 
@@ -783,12 +866,16 @@ pub trait Filesystem {
     fn lseek(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
-        _whence: i32,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        whence: i32,
         reply: ReplyLseek,
     ) {
+        debug!(
+            "[Not Implemented] lseek(ino: {:#x?}, fh: {}, offset: {}, whence: {})",
+            ino, fh, offset, whence
+        );
         reply.error(ENOSYS);
     }
 
@@ -796,23 +883,28 @@ pub trait Filesystem {
     fn copy_file_range(
         &mut self,
         _req: &Request<'_>,
-        _ino_in: u64,
-        _fh_in: u64,
-        _offset_in: i64,
-        _ino_out: u64,
-        _fh_out: u64,
-        _offset_out: i64,
-        _len: u64,
-        _flags: u32,
+        ino_in: u64,
+        fh_in: u64,
+        offset_in: i64,
+        ino_out: u64,
+        fh_out: u64,
+        offset_out: i64,
+        len: u64,
+        flags: u32,
         reply: ReplyWrite,
     ) {
+        debug!(
+            "[Not Implemented] copy_file_range(ino_in: {:#x?}, fh_in: {}, offset_in: {}, ino_out: {:#x?}, fh_out: {}, offset_out: {}, len: {}, flags: {})",
+            ino_in, fh_in, offset_in, ino_out, fh_out, offset_out, len, flags
+        );
         reply.error(ENOSYS);
     }
 
     /// macOS only: Rename the volume. Set fuse_init_out.flags during init to
     /// FUSE_VOL_RENAME to enable
     #[cfg(target_os = "macos")]
-    fn setvolname(&mut self, _req: &Request<'_>, _name: &OsStr, reply: ReplyEmpty) {
+    fn setvolname(&mut self, _req: &Request<'_>, name: &OsStr, reply: ReplyEmpty) {
+        debug!("[Not Implemented] setvolname(name: {:?})", name);
         reply.error(ENOSYS);
     }
 
@@ -821,20 +913,24 @@ pub trait Filesystem {
     fn exchange(
         &mut self,
         _req: &Request<'_>,
-        _parent: u64,
-        _name: &OsStr,
-        _newparent: u64,
-        _newname: &OsStr,
-        _options: u64,
+        parent: u64,
+        name: &OsStr,
+        newparent: u64,
+        newname: &OsStr,
+        options: u64,
         reply: ReplyEmpty,
     ) {
+        debug!("[Not Implemented] exchange(parent: {:#x?}, name: {:?}, newparent: {:#x?}, newname: {:?}, options: {})",
+            parent, name, newparent, newname, options
+        );
         reply.error(ENOSYS);
     }
 
     /// macOS only: Query extended times (bkuptime and crtime). Set fuse_init_out.flags
     /// during init to FUSE_XTIMES to enable
     #[cfg(target_os = "macos")]
-    fn getxtimes(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyXTimes) {
+    fn getxtimes(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyXTimes) {
+        debug!("[Not Implemented] getxtimes(ino: {:#x?})", ino);
         reply.error(ENOSYS);
     }
 }
