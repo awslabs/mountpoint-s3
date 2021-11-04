@@ -149,8 +149,8 @@ fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
     };
     let cmsg_buffer_len = unsafe { libc::CMSG_SPACE(mem::size_of::<c_int>() as libc::c_uint) };
     let mut cmsg_buffer = vec![0u8; cmsg_buffer_len as usize];
-    let mut message;
-    #[cfg(target_os = "linux")]
+    let mut message : libc::msghdr;
+    #[cfg(all(target_os = "linux", not(target_env = "musl")))]
     {
         message = libc::msghdr {
             msg_name: ptr::null_mut(),
@@ -161,6 +161,17 @@ fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
             msg_controllen: cmsg_buffer.len(),
             msg_flags: 0,
         };
+    }
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
+    {
+        message = unsafe{std::mem::MaybeUninit::zeroed().assume_init()};
+        message.msg_name = ptr::null_mut();
+        message.msg_namelen = 0;
+        message.msg_iov = &mut io_vec;
+        message.msg_iovlen = 1;
+        message.msg_control = (&mut cmsg_buffer).as_mut_ptr() as *mut libc::c_void;
+        message.msg_controllen = cmsg_buffer.len() as u32;
+        message.msg_flags = 0;
     }
     #[cfg(target_os = "macos")]
     {
