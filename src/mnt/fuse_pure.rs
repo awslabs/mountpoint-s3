@@ -254,7 +254,20 @@ fn fuse_mount_fusermount(
 
     drop(child_socket); // close socket in parent
 
-    let file = receive_fusermount_message(&receive_socket)?;
+    let file = match receive_fusermount_message(&receive_socket) {
+        Ok(f) => f,
+        Err(err) => {
+            // Drop receive socket, since fusermount has exited with an error
+            drop(receive_socket);
+            let output = fusermount_child.wait_with_output().unwrap();
+            let stderr_string = String::from_utf8_lossy(&output.stderr).to_string();
+            return if stderr_string.contains("only allowed if 'user_allow_other' is set") {
+                Err(io::Error::new(ErrorKind::PermissionDenied, stderr_string))
+            } else {
+                Err(io::Error::new(ErrorKind::Other, stderr_string))
+            };
+        }
+    };
     let mut receive_socket = Some(receive_socket);
 
     if !options.contains(&MountOption::AutoUnmount) {

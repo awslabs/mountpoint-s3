@@ -55,6 +55,37 @@ function run_allow_root_test {
   wait $FUSE_PID
 }
 
+function test_no_user_allow_other {
+  sed -i '/user_allow_other/d' /etc/fuse.conf
+
+  useradd fusertestnoallow
+  DIR=$(su fusertestnoallow -c "mktemp --directory")
+  DATA_DIR=$(su fusertestnoallow -c "mktemp --directory")
+  cargo build --example simple $1 > /dev/null 2>&1
+  su fusertestnoallow -c "target/debug/examples/simple -vvv --data-dir $DATA_DIR --mount-point $DIR"
+  exitCode=$?
+  if [[ $exitCode -eq 2 ]]; then
+      echo -e "$GREEN OK Detected lack of user_allow_other: $2 $NC"
+    else
+      echo -e "$RED FAILED Did not detect lack of user_allow_other: $2 $NC"
+      export TEST_EXIT_STATUS=1
+      exit 1
+  fi
+
+  # Make sure the FUSE mount did not mount
+  if [[ $(mount | grep hello) ]]; then
+      umount $DIR
+      echo -e "$RED FAILED Mount exists: $2 $NC"
+      export TEST_EXIT_STATUS=1
+      exit 1
+  else
+      echo -e "$GREEN OK Mount does not exist: $2 $NC"
+  fi
+
+  # Restore fuse.conf
+  echo 'user_allow_other' >> /etc/fuse.conf
+}
+
 function run_test {
   DIR=$(mktemp --directory)
   cargo build --example hello $1 > /dev/null 2>&1
@@ -97,6 +128,7 @@ echo 'user_allow_other' >> /etc/fuse.conf
 
 run_test --no-default-features 'without libfuse, with fusermount'
 run_test --no-default-features 'without libfuse, with fusermount' --auto_unmount
+test_no_user_allow_other --no-default-features 'without libfuse, with fusermount'
 
 apt remove --purge -y fuse
 apt autoremove -y
@@ -105,6 +137,7 @@ echo 'user_allow_other' >> /etc/fuse.conf
 
 run_test --no-default-features 'without libfuse, with fusermount3'
 run_test --no-default-features 'without libfuse, with fusermount3' --auto_unmount
+test_no_user_allow_other --no-default-features 'without libfuse, with fusermount3'
 
 apt remove --purge -y fuse3
 apt autoremove -y

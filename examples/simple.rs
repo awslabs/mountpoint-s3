@@ -14,14 +14,14 @@ use fuser::{
 };
 #[cfg(feature = "abi-7-26")]
 use log::info;
-use log::LevelFilter;
 use log::{debug, warn};
+use log::{error, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::raw::c_int;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
@@ -2032,7 +2032,7 @@ fn main() {
         .unwrap_or_default()
         .to_string();
 
-    fuser::mount2(
+    let result = fuser::mount2(
         SimpleFS::new(
             data_dir,
             matches.is_present("direct-io"),
@@ -2040,6 +2040,13 @@ fn main() {
         ),
         mountpoint,
         &options,
-    )
-    .unwrap();
+    );
+    if let Err(e) = result {
+        // Return a special error code for permission denied, which usually indicates that
+        // "user_allow_other" is missing from /etc/fuse.conf
+        if e.kind() == ErrorKind::PermissionDenied {
+            error!("{}", e.to_string());
+            std::process::exit(2);
+        }
+    }
 }
