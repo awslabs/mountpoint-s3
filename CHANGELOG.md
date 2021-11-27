@@ -1,6 +1,7 @@
 # FUSE for Rust - Changelog
 
 ## 0.10.0 - UNRELEASED
+* Improve error messages
 
 ## 0.9.1 - 2021-09-07
 * `forget` and `batch_forget` no longer require that `AllowRoot` be set
