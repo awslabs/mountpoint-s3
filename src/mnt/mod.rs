@@ -118,6 +118,7 @@ fn is_mounted(fuse_device: &File) -> bool {
 }
 
 /// Ensures that an os error is never 0/Success
+#[cfg(feature = "libfuse3")]
 fn ensure_last_os_error() -> io::Error {
     let err = io::Error::last_os_error();
     match err.raw_os_error() {
@@ -170,7 +171,7 @@ mod test {
         // want to try and clean up the directory if it's a mountpoint otherwise we'll
         // deadlock.
         let tmp = ManuallyDrop::new(tempfile::tempdir().unwrap());
-        let (file, mount) = Mount::new(&tmp.path(), &[]).unwrap();
+        let (file, mount) = Mount::new(tmp.path(), &[]).unwrap();
         let mnt = cmd_mount();
         eprintln!("Our mountpoint: {:?}\nfuse mounts:\n{}", tmp.path(), mnt,);
         assert!(mnt.contains(&*tmp.path().to_string_lossy()));

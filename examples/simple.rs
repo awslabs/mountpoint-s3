@@ -1309,7 +1309,7 @@ impl Filesystem for SimpleFS {
                 return;
             }
         };
-        if let Err(error_code) = self.insert_link(&req, new_parent, new_name, inode, attrs.kind) {
+        if let Err(error_code) = self.insert_link(req, new_parent, new_name, inode, attrs.kind) {
             reply.error(error_code);
         } else {
             attrs.hardlinks += 1;
@@ -1358,11 +1358,10 @@ impl Filesystem for SimpleFS {
                     self.write_inode(&attr);
                     let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                     reply.opened(self.allocate_next_file_handle(read, write), open_flags);
-                    return;
                 } else {
                     reply.error(libc::EACCES);
-                    return;
                 }
+                return;
             }
             Err(error_code) => reply.error(error_code),
         }
@@ -1498,11 +1497,10 @@ impl Filesystem for SimpleFS {
                     self.write_inode(&attr);
                     let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                     reply.opened(self.allocate_next_file_handle(read, write), open_flags);
-                    return;
                 } else {
                     reply.error(libc::EACCES);
-                    return;
                 }
+                return;
             }
             Err(error_code) => reply.error(error_code),
         }
@@ -1616,7 +1614,7 @@ impl Filesystem for SimpleFS {
                 if size == 0 {
                     reply.size(data.len() as u32);
                 } else if data.len() <= size as usize {
-                    reply.data(&data);
+                    reply.data(data);
                 } else {
                     reply.error(libc::ERANGE);
                 }

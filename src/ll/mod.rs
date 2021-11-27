@@ -32,7 +32,7 @@ macro_rules! errno {
             } as usize] = [];
             // Which makes this safe
             NonZeroI32::new_unchecked($x)
-        });
+        })
     };
 }
 

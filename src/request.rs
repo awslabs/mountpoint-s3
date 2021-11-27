@@ -196,7 +196,7 @@ impl<'a> Request<'a> {
                 se.filesystem.lookup(
                     self,
                     self.request.nodeid().into(),
-                    &x.name().as_ref(),
+                    x.name().as_ref(),
                     self.reply(),
                 );
             }
@@ -273,7 +273,7 @@ impl<'a> Request<'a> {
                     self,
                     self.request.nodeid().into(),
                     x.target().as_ref(),
-                    &Path::new(x.link()),
+                    Path::new(x.link()),
                     self.reply(),
                 );
             }

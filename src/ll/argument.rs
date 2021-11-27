@@ -75,7 +75,7 @@ impl<'a> ArgumentIterator<'a> {
     /// Fetch a (zero-terminated) string (can be non-utf8). Returns `None` if there's not enough
     /// data left or no zero-termination could be found.
     pub fn fetch_str(&mut self) -> Option<&'a OsStr> {
-        let len = memchr::memchr(0, &self.data)?;
+        let len = memchr::memchr(0, self.data)?;
         let (out, rest) = self.data.split_at(len);
         self.data = &rest[1..];
         Some(OsStr::from_bytes(out))
