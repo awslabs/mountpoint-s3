@@ -3,7 +3,7 @@ name: Macos CI
 on:
   pull_request:
 jobs:
-  ci-macos:
+  ci-osxfuse:
     runs-on: macos-10.15
     env:
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
@@ -15,6 +15,47 @@ jobs:
       - name: Start fuse
         run: |
           /Library/Filesystems/osxfuse.fs/Contents/Resources/load_osxfuse
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Cache cargo registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build all targets
+        run: cargo build --all --all-targets
+      - name: Build all targets, all features
+        run: cargo build --all --all-targets --all-features
+      - name: Run all tests
+        run: cargo test --all
+      - name: Run all tests, all features
+        run: cargo test --all --all-features
+      - name: Run cargo doc for all features
+        run: cargo doc --all --no-deps --all-features
+      - name: Run macos mount tests
+        run: bash osx_mount_tests.sh
+  ci-macfuse:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-10.15]
+    env:
+      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install packages
+        run: |
+          brew update > /dev/null && brew install --cask macfuse
+      - name: Start fuse
+        run: |
+          /Library/Filesystems/macfuse.fs/Contents/Resources/load_macfuse
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
