@@ -21,11 +21,13 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+          target: x86_64-unknown-linux-musl
 
       - name: Run tests
         run: |
           cargo build --all --all-targets --features=${{ matrix.features }}
           cargo build --all --all-targets --no-default-features
+          cargo build --target=x86_64-unknown-linux-musl --no-default-features
           cargo test --all --features=${{ matrix.features }}
           cargo doc --all --no-deps --features=${{ matrix.features }}
   ci:
