@@ -256,7 +256,7 @@ fn fuse_mount_fusermount(
 
     let file = match receive_fusermount_message(&receive_socket) {
         Ok(f) => f,
-        Err(err) => {
+        Err(_) => {
             // Drop receive socket, since fusermount has exited with an error
             drop(receive_socket);
             let output = fusermount_child.wait_with_output().unwrap();
