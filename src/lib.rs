@@ -6,7 +6,7 @@
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
-use libc::{c_int, ENOSYS};
+use libc::{c_int, ENOSYS, EPERM};
 use log::{debug, warn};
 use mnt::mount_options::parse_options_from_args;
 #[cfg(feature = "serializable")]
@@ -431,7 +431,7 @@ pub trait Filesystem {
             "[Not Implemented] symlink(parent: {:#x?}, name: {:?}, link: {:?})",
             parent, name, link,
         );
-        reply.error(ENOSYS);
+        reply.error(EPERM);
     }
 
     /// Rename a file.
@@ -466,7 +466,7 @@ pub trait Filesystem {
             "[Not Implemented] link(ino: {:#x?}, newparent: {:#x?}, newname: {:?})",
             ino, newparent, newname
         );
-        reply.error(ENOSYS);
+        reply.error(EPERM);
     }
 
     /// Open a file.
