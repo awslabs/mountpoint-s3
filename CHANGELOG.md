@@ -1,6 +1,8 @@
 # FUSE for Rust - Changelog
 
-## 0.10.0 - UNRELEASED
+## 0.11.0 - UNRELEASED
+
+## 0.10.0 - 2022-01-06
 * Improve error messages
 * Support compiling with musl
 * Default `link()` & `symlink()` now return EPERM instead of ENOSYS
