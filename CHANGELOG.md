@@ -2,6 +2,8 @@
 
 ## 0.10.0 - UNRELEASED
 * Improve error messages
+* Support compiling with musl
+* Default `link()` & `symlink()` now return EPERM instead of ENOSYS
 
 ## 0.9.1 - 2021-09-07
 * `forget` and `batch_forget` no longer require that `AllowRoot` be set
