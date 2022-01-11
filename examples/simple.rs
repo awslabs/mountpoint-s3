@@ -1948,7 +1948,7 @@ fn main() {
         .version(crate_version!())
         .author("Christopher Berner")
         .arg(
-            Arg::with_name("data-dir")
+            Arg::new("data-dir")
                 .long("data-dir")
                 .value_name("DIR")
                 .default_value("/tmp/fuser")
@@ -1956,7 +1956,7 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("mount-point")
+            Arg::new("mount-point")
                 .long("mount-point")
                 .value_name("MOUNT_POINT")
                 .default_value("")
@@ -1964,25 +1964,21 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("direct-io")
+            Arg::new("direct-io")
                 .long("direct-io")
                 .requires("mount-point")
                 .help("Mount FUSE with direct IO"),
         )
+        .arg(Arg::new("fsck").long("fsck").help("Run a filesystem check"))
         .arg(
-            Arg::with_name("fsck")
-                .long("fsck")
-                .help("Run a filesystem check"),
-        )
-        .arg(
-            Arg::with_name("suid")
+            Arg::new("suid")
                 .long("suid")
                 .help("Enable setuid support when run as root"),
         )
         .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
+            Arg::new("v")
+                .short('v')
+                .multiple_occurrences(true)
                 .help("Sets the level of verbosity"),
         )
         .get_matches();

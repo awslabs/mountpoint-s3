@@ -24,11 +24,11 @@ users = "0.11.0"
 page_size = "0.4.2"
 serde = {version = "1.0.102", features = ["std", "derive"], optional = true}
 smallvec = "1.6.1"
-zerocopy = "0.5"
+zerocopy = "0.6"
 
 [dev-dependencies]
-env_logger = "0.8"
-clap = "2.32"
+env_logger = "0.9"
+clap = { version = "3.0", features = ["cargo"] }
 bincode = "1.3.1"
 serde = {version = "1.0.102", features=["std", "derive"]}
 tempfile = "3"

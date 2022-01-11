@@ -118,18 +118,18 @@ fn main() {
         .version(crate_version!())
         .author("Christopher Berner")
         .arg(
-            Arg::with_name("MOUNT_POINT")
+            Arg::new("MOUNT_POINT")
                 .required(true)
                 .index(1)
                 .help("Act as a client, and mount FUSE at given path"),
         )
         .arg(
-            Arg::with_name("auto_unmount")
+            Arg::new("auto_unmount")
                 .long("auto_unmount")
                 .help("Automatically unmount on process exit"),
         )
         .arg(
-            Arg::with_name("allow-root")
+            Arg::new("allow-root")
                 .long("allow-root")
                 .help("Allow root user to access filesystem"),
         )
