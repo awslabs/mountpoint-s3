@@ -997,6 +997,7 @@ pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
 /// and therefore returns immediately. The returned handle should be stored
 /// to reference the mounted filesystem. If it's dropped, the filesystem will
 /// be unmounted.
+#[deprecated(note = "use spawn_mount2() instead")]
 pub fn spawn_mount<'a, FS: Filesystem + Send + 'static + 'a, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,
