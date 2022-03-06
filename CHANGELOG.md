@@ -1,6 +1,10 @@
 # FUSE for Rust - Changelog
 
-## 0.11.0 - UNRELEASED
+## 0.12.0 - UNRELEASED
+
+## 0.11.0 - 2022-03-05
+* Add `spawn_mount2()`
+* Deprecate `spawn_mount()`
 
 ## 0.10.0 - 2022-01-06
 * Improve error messages
