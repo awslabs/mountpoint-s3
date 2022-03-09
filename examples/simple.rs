@@ -1,6 +1,6 @@
 #![allow(clippy::needless_return)]
 
-use clap::{crate_version, App, Arg};
+use clap::{crate_version, Arg, Command};
 use fuser::consts::FOPEN_DIRECT_IO;
 #[cfg(feature = "abi-7-26")]
 use fuser::consts::FUSE_HANDLE_KILLPRIV;
@@ -1944,7 +1944,7 @@ fn fuse_allow_other_enabled() -> io::Result<bool> {
 }
 
 fn main() {
-    let matches = App::new("Fuser")
+    let matches = Command::new("Fuser")
         .version(crate_version!())
         .author("Christopher Berner")
         .arg(

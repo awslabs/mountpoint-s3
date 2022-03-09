@@ -1,4 +1,4 @@
-use clap::{crate_version, App, Arg};
+use clap::{crate_version, Arg, Command};
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
@@ -114,7 +114,7 @@ impl Filesystem for HelloFS {
 }
 
 fn main() {
-    let matches = App::new("hello")
+    let matches = Command::new("hello")
         .version(crate_version!())
         .author("Christopher Berner")
         .arg(
