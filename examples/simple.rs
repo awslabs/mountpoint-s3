@@ -1917,16 +1917,19 @@ fn as_file_kind(mut mode: u32) -> FileKind {
 }
 
 fn get_groups(pid: u32) -> Vec<u32> {
-    let path = format!("/proc/{}/task/{}/status", pid, pid);
-    let file = File::open(path).unwrap();
-    for line in BufReader::new(file).lines() {
-        let line = line.unwrap();
-        if line.starts_with("Groups:") {
-            return line["Groups: ".len()..]
-                .split(' ')
-                .filter(|x| !x.trim().is_empty())
-                .map(|x| x.parse::<u32>().unwrap())
-                .collect();
+    #[cfg(not(target_os = "macos"))]
+    {
+        let path = format!("/proc/{}/task/{}/status", pid, pid);
+        let file = File::open(path).unwrap();
+        for line in BufReader::new(file).lines() {
+            let line = line.unwrap();
+            if line.starts_with("Groups:") {
+                return line["Groups: ".len()..]
+                    .split(' ')
+                    .filter(|x| !x.trim().is_empty())
+                    .map(|x| x.parse::<u32>().unwrap())
+                    .collect();
+            }
         }
     }
 
