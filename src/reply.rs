@@ -29,7 +29,7 @@ use std::time::SystemTime;
 use crate::{FileAttr, FileType};
 
 /// Generic reply callback to send data
-pub trait ReplySender: Send + 'static {
+pub trait ReplySender: Send + Sync + Unpin + 'static {
     /// Send data.
     fn send(&self, data: &[IoSlice<'_>]) -> std::io::Result<()>;
 }
@@ -635,7 +635,7 @@ mod test {
     use super::*;
     use crate::{FileAttr, FileType};
     use std::io::IoSlice;
-    use std::sync::mpsc::{channel, Sender};
+    use std::sync::mpsc::{sync_channel, SyncSender};
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
     use zerocopy::AsBytes;
@@ -1020,13 +1020,6 @@ mod test {
         reply.ok();
     }
 
-    impl super::ReplySender for Sender<()> {
-        fn send(&self, _: &[IoSlice<'_>]) -> std::io::Result<()> {
-            Sender::send(self, ()).unwrap();
-            Ok(())
-        }
-    }
-
     #[test]
     fn reply_xattr_size() {
         let sender = AssertSender {
@@ -1051,9 +1044,16 @@ mod test {
         reply.data(&[0x11, 0x22, 0x33, 0x44]);
     }
 
+    impl super::ReplySender for SyncSender<()> {
+        fn send(&self, _: &[IoSlice<'_>]) -> std::io::Result<()> {
+            self.send(()).unwrap();
+            Ok(())
+        }
+    }
+
     #[test]
     fn async_reply() {
-        let (tx, rx) = channel::<()>();
+        let (tx, rx) = sync_channel::<()>(1);
         let reply: ReplyEmpty = Reply::new(0xdeadbeef, tx);
         thread::spawn(move || {
             reply.ok();
