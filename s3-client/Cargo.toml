@@ -1,0 +1,15 @@
+[package]
+name = "s3-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+aws-c-s3-sys = { path = "../aws-c-s3-sys" }
+libc = "0.2.126"
+libc-stdhandle = "0.1.0"
+tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
+
+[dev-dependencies]
+clap = "3.2.12"
+tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }

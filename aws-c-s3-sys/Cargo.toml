@@ -1,0 +1,17 @@
+[package]
+name = "aws-c-s3-sys"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+bindgen = { version = "0.60.1", default-features = false, features = ["runtime"] }
+cc = "1.0.73"
+cmake = "0.1.48"
+
+[dependencies]
+libc = "0.2.126"
+log = "0.4.17"
+smallstr = "0.3.0"

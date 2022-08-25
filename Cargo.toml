@@ -1,7 +1,9 @@
-[package]
-name = "s3-file-connector"
-version = "0.1.0"
-edition = "2021"
-publish = false
+[workspace]
+members = [
+	"aws-c-s3-sys",
+	"s3-client",
+	"s3-file-connector",
+]
 
-[dependencies]
+[profile.release]
+debug = 2
