@@ -2,6 +2,9 @@
 
 ## 0.12.0 - UNRELEASED
 
+## 0.11.1 - 2022-08-24
+* Improve an error message when using libfuse2
+
 ## 0.11.0 - 2022-03-05
 * Add `spawn_mount2()`
 * Deprecate `spawn_mount()`
