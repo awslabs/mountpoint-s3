@@ -265,7 +265,7 @@ fn main() {
         throughput_target_gbps: throughput_target_gbps.map(|t| *t as f64),
         part_size: part_size.map(|t| *t as usize),
     };
-    let client = S3Client::new(config).expect("failed to creeate client");
+    let client = S3Client::new(config).expect("failed to create client");
 
     let session = Session::new(
         FuseSyncFS::new(client, bucket_name, key_name, file_size as usize),

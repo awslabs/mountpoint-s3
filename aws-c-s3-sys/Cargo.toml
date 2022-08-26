@@ -15,3 +15,6 @@ cmake = "0.1.48"
 libc = "0.2.126"
 log = "0.4.17"
 smallstr = "0.3.0"
+
+[lib]
+doctest = false

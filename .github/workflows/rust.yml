@@ -1,0 +1,57 @@
+name: Rust Unit Tests
+
+on:
+  push:
+    branches: [ "main", "ci-test" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  S3_BUCKET_NAME: s3-file-connector-github-test-bucket
+  S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
+        aws-region: us-east-1
+    - name: Put Test Object
+      run: |
+        TMP=$(mktemp)
+        echo "Test object to check bucket exists" > $TMP
+        aws s3api put-object --bucket $S3_BUCKET_NAME --key $S3_BUCKET_TEST_PREFIX/test --body $TMP
+    - name: Checkout our code
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - name: Checkout our version of fuser
+      uses: actions/checkout@v3
+      with:
+        ref: fuser/master
+        path: fuser
+    - name: Set up cargo path override for fuser
+      run: |
+        mkdir -p .cargo
+        echo '[patch."ssh://git@github.com/awslabs/s3-file-connector.git"]' > .cargo/config.toml
+        echo 'fuser = { path = "fuser" }' >> .cargo/config.toml
+        cat .cargo/config.toml
+    - name: Install Fuse
+      run: sudo apt-get install fuse libfuse2 libfuse-dev
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Release build
+      run: cargo build --verbose --release
+    - name: Release tests
+      run: cargo test --verbose --release

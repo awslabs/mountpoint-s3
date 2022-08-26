@@ -1,11 +1,6 @@
-## My Project
+## S3 File Connector
 
-TODO: Fill this README out!
-
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
+CI Status: ![CI Status](https://github.com/awslabs/s3-file-connector/actions/workflows/rust.yml/badge.svg?branch=main)
 
 ## Security
 
@@ -14,4 +9,3 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 ## License
 
 This project is licensed under the Apache-2.0 License.
-
