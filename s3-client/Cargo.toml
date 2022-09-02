@@ -13,6 +13,10 @@ tracing = { version = "0.1.35", default-features = false, features = ["std", "lo
 [dev-dependencies]
 clap = "3.2.12"
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
+tokio = { version = "1.21.0", features = ["full"] }
 
 [lib]
 doctest = false
+
+[features]
+ci-tests = []

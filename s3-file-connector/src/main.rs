@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -78,13 +79,14 @@ fn make_benchmark_file_attr(ino: u64, size: usize) -> FileAttr {
     }
 }
 
+#[async_trait]
 impl Filesystem for FuseSyncFS {
-    fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+    async fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.set_max_readahead(0);
         Ok(())
     }
 
-    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    async fn lookup(&self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 {
             if name.to_str().map(|s| s == self.key).unwrap_or(false) {
                 reply.entry(
@@ -100,7 +102,7 @@ impl Filesystem for FuseSyncFS {
         }
     }
 
-    fn getattr(&self, _req: &Request, ino: u64, reply: ReplyAttr) {
+    async fn getattr(&self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
         if ino == ROOT_INODE {
             reply.attr(&TTL_ZERO, &ROOT_DIR_ATTR);
         } else if ino == FILE_INODE {
@@ -110,14 +112,14 @@ impl Filesystem for FuseSyncFS {
         }
     }
 
-    fn open(&self, _req: &Request<'_>, _ino: u64, _flags: i32, reply: ReplyOpen) {
+    async fn open(&self, _req: &Request<'_>, _ino: u64, _flags: i32, reply: ReplyOpen) {
         let fh = self.next_handle.fetch_add(1, Ordering::SeqCst);
         reply.opened(fh, 0);
     }
 
-    fn read(
+    async fn read(
         &self,
-        _req: &Request,
+        _req: &Request<'_>,
         ino: u64,
         fh: u64,
         offset: i64,
@@ -131,6 +133,7 @@ impl Filesystem for FuseSyncFS {
             if !inflight_reads.contains_key(&fh) {
                 drop(inflight_reads);
                 let mut inflight_reads_mut = self.inflight_reads.write().unwrap();
+                println!("{} {} {}", &self.bucket, &self.key, self.size as u64);
                 let request = StreamingGetObject::new(
                     Arc::clone(&self.client),
                     &self.bucket,
@@ -149,7 +152,14 @@ impl Filesystem for FuseSyncFS {
         }
     }
 
-    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
+    async fn readdir(
+        &self,
+        _req: &Request<'_>,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
         if ino != 1 {
             reply.error(libc::ENOENT);
             return;

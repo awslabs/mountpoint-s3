@@ -1,5 +1,6 @@
 use std::mem::MaybeUninit;
 use std::ptr;
+use std::sync::Arc;
 
 use aws_c_s3_sys::{
     aws_allocator, aws_client_bootstrap, aws_client_bootstrap_new, aws_client_bootstrap_options,
@@ -16,6 +17,7 @@ use crate::crt_init;
 use crate::util::{box_assume_init, PtrExt, StringExt};
 
 mod get;
+mod list_objects_v2;
 
 #[derive(Debug, Clone, Default)]
 pub struct S3ClientConfig {
@@ -32,7 +34,7 @@ pub struct S3Client {
     client_bootstrap: *mut aws_client_bootstrap,
     host_resolver: *mut aws_host_resolver,
     event_loop_group: *mut aws_event_loop_group,
-    signing_config: Box<aws_signing_config_aws>,
+    signing_config: Arc<aws_signing_config_aws>,
     region: String,
     throughput_target_gbps: f64,
 }
@@ -81,7 +83,7 @@ impl S3Client {
         };
 
         let mut signing_config = Box::new(MaybeUninit::uninit());
-        let region = "us-west-2".to_string();
+        let region = "us-east-1".to_string();
         unsafe {
             aws_s3_init_default_signing_config(
                 signing_config.as_mut_ptr(),
@@ -120,7 +122,7 @@ impl S3Client {
             host_resolver,
             event_loop_group,
             credentials_provider: creds_provider,
-            signing_config: box_assume_init(signing_config),
+            signing_config: Arc::new(*box_assume_init(signing_config)),
             region,
             throughput_target_gbps,
         })

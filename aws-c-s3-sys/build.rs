@@ -68,7 +68,12 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         // Use `libc` for primitive C types
         .ctypes_prefix("::libc")
         .raw_line("use libc::*;")
-        .clang_args(&["-I", include_dir.to_str().unwrap()]);
+        .clang_args(&[
+            "-I",
+            include_dir.to_str().unwrap(),
+            "-I",
+            "crt/aws-c-s3/include",
+        ]);
 
     for header in CRT_HEADERS {
         let header_path = include_dir.join("aws").join(header);
@@ -77,6 +82,8 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         }
         builder = builder.header(header_path.to_str().unwrap());
     }
+
+    builder = builder.header("crt/aws-c-s3/include/aws/s3/private/s3_list_objects.h");
 
     builder.generate()
 }

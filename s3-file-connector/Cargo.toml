@@ -11,7 +11,8 @@ s3-client = { path = "../s3-client" }
 clap = "3.2.12"
 ctrlc = "*"
 # we're storing our fuser fork on a separate branch of the same repo for now
-fuser = { version = "~0.11.0", git = "ssh://git@github.com/awslabs/s3-file-connector.git", branch = "fuser/master" }
+fuser = { version = "~0.11.0", git = "ssh://git@github.com/awslabs/s3-file-connector.git", branch = "fuser/async" }
 libc = "0.2.126"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
+async-trait = "0.1.57"
