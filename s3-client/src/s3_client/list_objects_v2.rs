@@ -30,6 +30,7 @@ impl S3Client {
                 signing_config: self.signing_config.clone(),
             });
 
+            // Leak the user_data Box so that it will continue to live after this function returns.
             let user_data = Box::leak(user_data);
 
             let list_objects_params = aws_s3_list_objects_params {
@@ -48,15 +49,11 @@ impl S3Client {
 
             let paginator = aws_s3_initiate_list_objects(self.allocator, &list_objects_params);
 
-            let paginator_result = aws_s3_paginator_continue(paginator, &*self.signing_config);
+            let result = aws_s3_paginator_continue(paginator, &*self.signing_config);
 
-            if paginator_result != 0 {
+            if result != 0 {
                 let mut state = state.lock().unwrap();
-
-                state.result = Some(Err(format!(
-                    "ERROR from aws_s3_paginator_continue: {}",
-                    paginator_result
-                )));
+                state.complete(Err(format!("aws_s3_paginator_continue error: {}", result)));
             }
 
             ListObjectsV2Request { state }
@@ -140,7 +137,12 @@ extern "C" fn on_object_callback(
             size: info.size,
         });
 
-        trace!(?prefix, ?key, size = info.size, "ListObjectsV2 on_object callback");
+        trace!(
+            ?prefix,
+            ?key,
+            size = info.size,
+            "ListObjectsV2 on_object callback"
+        );
 
         true
     }

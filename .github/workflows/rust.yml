@@ -37,7 +37,7 @@ jobs:
     - name: Checkout our version of fuser
       uses: actions/checkout@v3
       with:
-        ref: fuser/master
+        ref: fuser/async
         path: fuser
     - name: Set up cargo path override for fuser
       run: |

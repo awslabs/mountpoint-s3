@@ -9,16 +9,20 @@ pub(crate) trait StringExt {
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor;
 }
 
-impl<S: AsRef<str>> StringExt for S {
+impl<S: AsRef<OsStr>> StringExt for S {
     /// Safety: the user *must not* mutate the bytes pointed at by this cursor
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor {
         aws_byte_cursor {
-            ptr: self.as_ref().as_ptr() as *mut _,
-            len: self.as_ref().len(),
+            ptr: self.as_ref().as_bytes().as_ptr() as *mut _,
+            len: self.as_ref().as_bytes().len(),
         }
     }
 }
 
+/// View an aws_byte_cursor as a reference to an OsStr. Because aws_byte_cursor does not carry a
+/// lifetime, the returned reference can take on any lifetime and it's the caller's responsibility
+/// for ensuring that the cursor will live long enough. Call .to_owned() on the result to create an
+/// owned OsString from the reference.
 pub(crate) unsafe fn byte_cursor_as_osstr<'a>(cursor: aws_byte_cursor) -> &'a OsStr {
     let slice = std::slice::from_raw_parts(cursor.ptr, cursor.len);
     OsStr::from_bytes(slice)
