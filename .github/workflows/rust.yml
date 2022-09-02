@@ -50,8 +50,8 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose -- --show-output
     - name: Release build
       run: cargo build --verbose --release
     - name: Release tests
-      run: cargo test --verbose --release
+      run: cargo test --verbose --release -- --show-output
