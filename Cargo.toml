@@ -3,6 +3,7 @@ members = [
 	"aws-c-s3-sys",
 	"s3-client",
 	"s3-file-connector",
+	"vendor/fuser",
 ]
 
 [profile.release]

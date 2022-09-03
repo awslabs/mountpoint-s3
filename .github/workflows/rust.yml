@@ -2,7 +2,6 @@ name: Rust Unit Tests
 
 on:
   push:
-    branches: [ "main", "ci-test" ]
   pull_request:
     branches: [ "main" ]
 
@@ -34,17 +33,6 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: recursive
-    - name: Checkout our version of fuser
-      uses: actions/checkout@v3
-      with:
-        ref: fuser/async
-        path: fuser
-    - name: Set up cargo path override for fuser
-      run: |
-        mkdir -p .cargo
-        echo '[patch."ssh://git@github.com/awslabs/s3-file-connector.git"]' > .cargo/config.toml
-        echo 'fuser = { path = "fuser" }' >> .cargo/config.toml
-        cat .cargo/config.toml
     - name: Install Fuse
       run: sudo apt-get install fuse libfuse2 libfuse-dev
     - name: Build
