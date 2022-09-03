@@ -5,8 +5,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use aws_c_s3_sys::{
     aws_byte_cursor, aws_http_header, aws_http_message_add_header, aws_http_message_new_request,
     aws_http_message_set_request_method, aws_http_message_set_request_path, aws_http_method_get,
-    aws_s3_client_make_meta_request, aws_s3_meta_request, aws_s3_meta_request_options,
-    aws_s3_meta_request_result, aws_s3_meta_request_type, AWS_OP_SUCCESS,
+    aws_s3_client_make_meta_request, aws_s3_meta_request, aws_s3_meta_request_options, aws_s3_meta_request_result,
+    aws_s3_meta_request_type, AWS_OP_SUCCESS,
 };
 use tracing::{error, trace};
 
@@ -172,8 +172,7 @@ extern "C" fn get_object_finish_callback(
 
     if result.error_code != 0 {
         let error_body = if let Some(error_body) = unsafe { result.error_response_body.as_ref() } {
-            let error_body: &[u8] =
-                unsafe { slice::from_raw_parts(error_body.buffer, error_body.len) };
+            let error_body: &[u8] = unsafe { slice::from_raw_parts(error_body.buffer, error_body.len) };
             let error_body = std::str::from_utf8(error_body).expect("error wasn't UTF-8");
             error_body.to_string()
         } else {

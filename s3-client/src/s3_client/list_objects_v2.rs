@@ -38,9 +38,7 @@ impl S3Client {
                 on_object: Some(on_object_callback),
                 on_list_finished: Some(on_list_finished_callback),
                 user_data: user_data.as_mut() as *mut ListObjectsV2UserData as *mut libc::c_void,
-                continuation_token: continuation_token
-                    .map(|s| s.as_aws_byte_cursor())
-                    .unwrap_or_default(),
+                continuation_token: continuation_token.map(|s| s.as_aws_byte_cursor()).unwrap_or_default(),
             };
 
             let paginator = aws_s3_initiate_list_objects(self.allocator, &list_objects_params);
@@ -78,37 +76,22 @@ struct ListObjectsV2UserData {
 // This struct needs to be Send because we give it to the CRT
 static_assertions::assert_impl_all!(Box<ListObjectsV2UserData>: Send);
 
-extern "C" fn on_object_callback(
-    info: *const aws_s3_object_info,
-    user_data_ptr: *mut libc::c_void,
-) -> bool {
+extern "C" fn on_object_callback(info: *const aws_s3_object_info, user_data_ptr: *mut libc::c_void) -> bool {
     unsafe {
-        let user_data = (user_data_ptr as *mut ListObjectsV2UserData)
-            .as_mut()
-            .unwrap();
+        let user_data = (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap();
 
         let info = info.as_ref().unwrap();
 
         let prefix = byte_cursor_as_osstr(info.prefix);
         let key = byte_cursor_as_osstr(info.key);
 
-        user_data
-            .result
-            .as_mut()
-            .unwrap()
-            .objects
-            .push(S3ObjectInfo {
-                prefix: prefix.to_owned(),
-                key: key.to_owned(),
-                size: info.size,
-            });
+        user_data.result.as_mut().unwrap().objects.push(S3ObjectInfo {
+            prefix: prefix.to_owned(),
+            key: key.to_owned(),
+            size: info.size,
+        });
 
-        trace!(
-            ?prefix,
-            ?key,
-            size = info.size,
-            "ListObjectsV2 on_object callback"
-        );
+        trace!(?prefix, ?key, size = info.size, "ListObjectsV2 on_object callback");
 
         true
     }
@@ -124,11 +107,7 @@ extern "C" fn on_list_finished_callback(
     // Turn the user_data pointer into a box so it will be dropped when this callback is done.
     // If there are more pages to get, then we will call Box::leak on it (again) until
     // all the pages are consumed.
-    let user_data = unsafe {
-        (user_data_ptr as *mut ListObjectsV2UserData)
-            .as_mut()
-            .unwrap()
-    };
+    let user_data = unsafe { (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap() };
 
     if error_code != 0 {
         error!(error_code, "ListObjectsV2 on_list_finished_callback error");
@@ -136,10 +115,7 @@ extern "C" fn on_list_finished_callback(
             .tx
             .take()
             .unwrap()
-            .send(Err(format!(
-                "on_list_finish callback error: {}",
-                error_code
-            )))
+            .send(Err(format!("on_list_finish callback error: {}", error_code)))
             .unwrap();
         return;
     }
@@ -156,8 +132,7 @@ extern "C" fn on_list_finished_callback(
         return;
     }
 
-    let result =
-        unsafe { aws_s3_paginator_continue(paginator, (*user_data.signing_config).as_ref()) };
+    let result = unsafe { aws_s3_paginator_continue(paginator, (*user_data.signing_config).as_ref()) };
 
     if result != 0 {
         error!(result, "ListObjectsV2 aws_s3_paginator_continue failed");

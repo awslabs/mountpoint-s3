@@ -305,9 +305,7 @@ impl StreamingGetObject {
 
         let mut parallel_chunks = self.parallel_chunks.read().unwrap();
 
-        let mut current_chunk = parallel_chunks
-            .front()
-            .expect("cannot read with no chunks left");
+        let mut current_chunk = parallel_chunks.front().expect("cannot read with no chunks left");
         // Check if we're done with the current chunk. If so, push it off the queue and grab the
         // next one instead.
         if current_chunk.finished() {
@@ -346,8 +344,7 @@ impl StreamingGetObject {
         let my_max_connections = max_connections
             .saturating_div(INFLIGHT_REQUEST_TRACKER.load(Ordering::Relaxed))
             .max(PARTS_PER_CHUNK);
-        let my_max_chunks =
-            (my_max_connections + PARTS_PER_CHUNK - 1) * MAX_CHUNKS_MULTIPLIER / PARTS_PER_CHUNK;
+        let my_max_chunks = (my_max_connections + PARTS_PER_CHUNK - 1) * MAX_CHUNKS_MULTIPLIER / PARTS_PER_CHUNK;
 
         while parallel_chunks.len() < my_max_chunks {
             // We'll only spawn a new chunk if there is room in the queue and the current chunk is
@@ -356,8 +353,7 @@ impl StreamingGetObject {
             let first_chunk_nearing_completion = parallel_chunks
                 .front()
                 .map(|chunk| {
-                    chunk.remaining_to_consume()
-                        < chunk.total_chunk_size / PARALLEL_CHUNK_REFILL_FACTOR as u64
+                    chunk.remaining_to_consume() < chunk.total_chunk_size / PARALLEL_CHUNK_REFILL_FACTOR as u64
                 })
                 .unwrap_or(true);
 
@@ -372,8 +368,7 @@ impl StreamingGetObject {
             {
                 let mut parallel_chunks = self.parallel_chunks.write().unwrap();
 
-                let range =
-                    Some(self.next_chunk_offset..self.next_chunk_offset + self.next_chunk_size);
+                let range = Some(self.next_chunk_offset..self.next_chunk_offset + self.next_chunk_size);
                 let chunk = Arc::new(StreamingChunk::new(self.next_chunk_size));
 
                 self.next_chunk_offset += self.next_chunk_size;

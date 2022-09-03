@@ -4,13 +4,12 @@ use std::sync::Arc;
 
 use aws_c_s3_sys::{
     aws_allocator, aws_client_bootstrap, aws_client_bootstrap_new, aws_client_bootstrap_options,
-    aws_client_bootstrap_release, aws_credentials_provider,
-    aws_credentials_provider_chain_default_options, aws_credentials_provider_new_chain_default,
-    aws_credentials_provider_release, aws_default_allocator, aws_event_loop_group,
-    aws_event_loop_group_new_default, aws_event_loop_group_release, aws_host_resolver,
-    aws_host_resolver_default_options, aws_host_resolver_new_default, aws_host_resolver_release,
-    aws_s3_client, aws_s3_client_config, aws_s3_client_new, aws_s3_client_release,
-    aws_s3_init_default_signing_config, aws_signing_config_aws,
+    aws_client_bootstrap_release, aws_credentials_provider, aws_credentials_provider_chain_default_options,
+    aws_credentials_provider_new_chain_default, aws_credentials_provider_release, aws_default_allocator,
+    aws_event_loop_group, aws_event_loop_group_new_default, aws_event_loop_group_release, aws_host_resolver,
+    aws_host_resolver_default_options, aws_host_resolver_new_default, aws_host_resolver_release, aws_s3_client,
+    aws_s3_client_config, aws_s3_client_new, aws_s3_client_release, aws_s3_init_default_signing_config,
+    aws_signing_config_aws,
 };
 
 use crate::crt_init;
@@ -65,16 +64,14 @@ impl S3Client {
 
         // Safety: I think the CRT expects an event loop never to move across threads, so S3Client
         // must not be `Send`
-        let event_loop_group =
-            unsafe { aws_event_loop_group_new_default(allocator, 0, ptr::null()) };
+        let event_loop_group = unsafe { aws_event_loop_group_new_default(allocator, 0, ptr::null()) };
 
         let mut resolver_options = aws_host_resolver_default_options {
             el_group: event_loop_group,
             max_entries: 8,
             ..Default::default()
         };
-        let host_resolver =
-            unsafe { aws_host_resolver_new_default(allocator, &mut resolver_options as *mut _) };
+        let host_resolver = unsafe { aws_host_resolver_new_default(allocator, &mut resolver_options as *mut _) };
 
         let mut bootstrap_options = aws_client_bootstrap_options {
             event_loop_group,
@@ -90,12 +87,8 @@ impl S3Client {
             bootstrap: client_bootstrap,
             ..Default::default()
         };
-        let creds_provider = unsafe {
-            aws_credentials_provider_new_chain_default(
-                allocator,
-                &mut creds_provider_options as *mut _,
-            )
-        };
+        let creds_provider =
+            unsafe { aws_credentials_provider_new_chain_default(allocator, &mut creds_provider_options as *mut _) };
 
         let mut signing_config = Box::new(MaybeUninit::uninit());
         let region = "us-east-1".to_string();
@@ -126,8 +119,7 @@ impl S3Client {
             ..Default::default()
         };
         let s3_client = unsafe {
-            aws_s3_client_new(allocator, &client_config as *const _)
-                .ok_or("failed to create s3 client".to_string())?
+            aws_s3_client_new(allocator, &client_config as *const _).ok_or("failed to create s3 client".to_string())?
         };
 
         Ok(Self {

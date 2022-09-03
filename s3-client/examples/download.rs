@@ -15,9 +15,7 @@ fn init_tracing_subscriber() {
         .with_writer(std::io::stderr)
         .finish();
 
-    subscriber
-        .try_init()
-        .expect("unable to install global subscriber");
+    subscriber.try_init().expect("unable to install global subscriber");
 }
 
 fn main() {

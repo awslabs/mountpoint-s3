@@ -7,8 +7,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use clap::{Arg, Command};
 use fuser::{
-    BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, ReplyAttr,
-    ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, Request, Session,
+    BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, ReplyAttr, ReplyData, ReplyDirectory,
+    ReplyEntry, ReplyOpen, Request, Session,
 };
 use s3_client::{S3Client, S3ClientConfig, StreamingGetObject};
 
@@ -89,11 +89,7 @@ impl Filesystem for FuseSyncFS {
     async fn lookup(&self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 {
             if name.to_str().map(|s| s == self.key).unwrap_or(false) {
-                reply.entry(
-                    &TTL_ZERO,
-                    &make_benchmark_file_attr(FILE_INODE, self.size),
-                    0,
-                );
+                reply.entry(&TTL_ZERO, &make_benchmark_file_attr(FILE_INODE, self.size), 0);
             } else {
                 reply.error(libc::ENOENT);
             }
@@ -134,12 +130,8 @@ impl Filesystem for FuseSyncFS {
                 drop(inflight_reads);
                 let mut inflight_reads_mut = self.inflight_reads.write().unwrap();
                 println!("{} {} {}", &self.bucket, &self.key, self.size as u64);
-                let request = StreamingGetObject::new(
-                    Arc::clone(&self.client),
-                    &self.bucket,
-                    &self.key,
-                    self.size as u64,
-                );
+                let request =
+                    StreamingGetObject::new(Arc::clone(&self.client), &self.bucket, &self.key, self.size as u64);
                 inflight_reads_mut.insert(fh, Mutex::new(request));
                 drop(inflight_reads_mut);
                 inflight_reads = self.inflight_reads.read().unwrap();
@@ -152,23 +144,13 @@ impl Filesystem for FuseSyncFS {
         }
     }
 
-    async fn readdir(
-        &self,
-        _req: &Request<'_>,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
+    async fn readdir(&self, _req: &Request<'_>, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino != 1 {
             reply.error(libc::ENOENT);
             return;
         }
 
-        let mut entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-        ];
+        let mut entries = vec![(1, FileType::Directory, "."), (1, FileType::Directory, "..")];
 
         entries.push((FILE_INODE, FileType::RegularFile, &self.key));
 
@@ -205,11 +187,7 @@ fn main() {
                 .required(true)
                 .help("Act as a client, and mount FUSE at given path"),
         )
-        .arg(
-            Arg::new("BUCKET_NAME")
-                .required(true)
-                .help("Bucket to mount"),
-        )
+        .arg(Arg::new("BUCKET_NAME").required(true).help("Bucket to mount"))
         .arg(Arg::new("KEY_NAME").required(true).help("Key to mount"))
         .arg(
             Arg::new("FILE_SIZE")
@@ -260,10 +238,7 @@ fn main() {
     let part_size = matches.get_one::<u64>("part-size");
     let thread_count = matches.get_one::<u64>("threads");
 
-    let mut options = vec![
-        MountOption::RO,
-        MountOption::FSName("fuse_sync".to_string()),
-    ];
+    let mut options = vec![MountOption::RO, MountOption::FSName("fuse_sync".to_string())];
     if matches.is_present("auto_unmount") {
         options.push(MountOption::AutoUnmount);
     }
