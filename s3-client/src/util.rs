@@ -11,6 +11,7 @@ pub(crate) trait StringExt {
 
 impl<S: AsRef<OsStr>> StringExt for S {
     /// Safety: the user *must not* mutate the bytes pointed at by this cursor
+    /// Also, the user must be careful that the aws_byte_cursor does not outlive self.
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor {
         aws_byte_cursor {
             ptr: self.as_ref().as_bytes().as_ptr() as *mut _,

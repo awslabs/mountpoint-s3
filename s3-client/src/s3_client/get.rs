@@ -21,7 +21,7 @@ impl S3Client {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-        callback: impl FnMut(u64, &[u8]) + 'static,
+        callback: impl FnMut(u64, &[u8]) + Send + 'static,
     ) -> Result<GetObjectRequest, String> {
         // Safety: `aws_http_message_add_header` and `aws_http_message_set_request_path` copy their
         // input strings, so none of the strings we create here need to live beyond this scope
@@ -113,9 +113,12 @@ impl GetObjectRequest {
 
 /// Struct used as the `user_data` pointer for GetObject requests to the CRT
 struct GetObjectRequestUserData {
-    callback: Box<dyn FnMut(u64, &[u8])>,
+    callback: Box<dyn FnMut(u64, &[u8]) + Send>,
     finish_channel: Sender<Result<(), String>>,
 }
+
+// GetObjectRequestUserData needs to be Send because we (logically) send it to the CRT.
+static_assertions::assert_impl_all!(Box<GetObjectRequestUserData>: Send);
 
 /// Invoked from the CRT when a new body part is received for a request
 extern "C" fn get_object_receive_body_callback(

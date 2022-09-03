@@ -5,9 +5,9 @@ use aws_c_s3_sys::{
     aws_s3_initiate_list_objects, aws_s3_list_objects_params, aws_s3_object_info, aws_s3_paginator,
     aws_s3_paginator_continue, aws_s3_paginator_has_more_results,
 };
+use futures::channel::oneshot;
 use std::ffi::OsString;
-use std::sync::{Arc};
-use tokio::sync::oneshot;
+use std::sync::Arc;
 use tracing::{error, trace};
 
 impl S3Client {
@@ -51,9 +51,7 @@ impl S3Client {
                 return Err(format!("aws_s3_paginator_continue error: {}", result));
             }
 
-            let result = rx.await;
-
-            result.expect("oneshot recv error")
+            rx.await.unwrap()
         }
     }
 }
@@ -77,8 +75,8 @@ struct ListObjectsV2UserData {
     tx: Option<oneshot::Sender<Result<ListObjectsResult, String>>>,
 }
 
-// This struct needs to be Send+Sync because we give it to the CRT
-static_assertions::assert_impl_all!(Box<ListObjectsV2UserData>: Send, Sync);
+// This struct needs to be Send because we give it to the CRT
+static_assertions::assert_impl_all!(Box<ListObjectsV2UserData>: Send);
 
 extern "C" fn on_object_callback(
     info: *const aws_s3_object_info,
@@ -94,11 +92,16 @@ extern "C" fn on_object_callback(
         let prefix = byte_cursor_as_osstr(info.prefix);
         let key = byte_cursor_as_osstr(info.key);
 
-        user_data.result.as_mut().unwrap().objects.push(S3ObjectInfo {
-            prefix: prefix.to_owned(),
-            key: key.to_owned(),
-            size: info.size,
-        });
+        user_data
+            .result
+            .as_mut()
+            .unwrap()
+            .objects
+            .push(S3ObjectInfo {
+                prefix: prefix.to_owned(),
+                key: key.to_owned(),
+                size: info.size,
+            });
 
         trace!(
             ?prefix,
@@ -129,17 +132,27 @@ extern "C" fn on_list_finished_callback(
 
     if error_code != 0 {
         error!(error_code, "ListObjectsV2 on_list_finished_callback error");
-        user_data.tx.take().unwrap().send(Err(format!(
-            "on_list_finish callback error: {}",
-            error_code
-        ))).unwrap();
+        user_data
+            .tx
+            .take()
+            .unwrap()
+            .send(Err(format!(
+                "on_list_finish callback error: {}",
+                error_code
+            )))
+            .unwrap();
         return;
     }
 
     let has_more_results: bool = unsafe { aws_s3_paginator_has_more_results(paginator) };
 
     if !has_more_results {
-        user_data.tx.take().unwrap().send(Ok(user_data.result.take().unwrap())).unwrap();
+        user_data
+            .tx
+            .take()
+            .unwrap()
+            .send(Ok(user_data.result.take().unwrap()))
+            .unwrap();
         return;
     }
 

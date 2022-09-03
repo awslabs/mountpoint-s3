@@ -25,6 +25,7 @@ pub struct S3ClientConfig {
     pub part_size: Option<usize>,
 }
 
+/// Wrapper around aws_signing_config_aws to mark it as Send+Sync
 struct AwsSigningConfig {
     inner: aws_signing_config_aws,
 }
