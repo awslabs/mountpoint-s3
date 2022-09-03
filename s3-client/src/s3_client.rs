@@ -25,6 +25,20 @@ pub struct S3ClientConfig {
     pub part_size: Option<usize>,
 }
 
+struct AwsSigningConfig {
+    inner: aws_signing_config_aws,
+}
+
+// TODO is this actually Send+Sync?
+unsafe impl Send for AwsSigningConfig {}
+unsafe impl Sync for AwsSigningConfig {}
+
+impl AsRef<aws_signing_config_aws> for AwsSigningConfig {
+    fn as_ref(&self) -> &aws_signing_config_aws {
+        &self.inner
+    }
+}
+
 // TODO i think event loops are intended to never move across threads, so need to think about
 // synchronization here
 pub struct S3Client {
@@ -34,7 +48,7 @@ pub struct S3Client {
     client_bootstrap: *mut aws_client_bootstrap,
     host_resolver: *mut aws_host_resolver,
     event_loop_group: *mut aws_event_loop_group,
-    signing_config: Arc<aws_signing_config_aws>,
+    signing_config: Arc<AwsSigningConfig>,
     region: String,
     throughput_target_gbps: f64,
 }
@@ -122,7 +136,9 @@ impl S3Client {
             host_resolver,
             event_loop_group,
             credentials_provider: creds_provider,
-            signing_config: Arc::new(*box_assume_init(signing_config)),
+            signing_config: Arc::new(AwsSigningConfig {
+                inner: *box_assume_init(signing_config),
+            }),
             region,
             throughput_target_gbps,
         })

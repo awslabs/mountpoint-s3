@@ -1,37 +1,33 @@
+use crate::s3_client::AwsSigningConfig;
 use crate::util::{byte_cursor_as_osstr, StringExt};
 use crate::S3Client;
 use aws_c_s3_sys::{
     aws_s3_initiate_list_objects, aws_s3_list_objects_params, aws_s3_object_info, aws_s3_paginator,
-    aws_s3_paginator_continue, aws_s3_paginator_has_more_results, aws_signing_config_aws,
+    aws_s3_paginator_continue, aws_s3_paginator_has_more_results,
 };
 use std::ffi::OsString;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::sync::{Arc};
+use tokio::sync::oneshot;
 use tracing::{error, trace};
 
 impl S3Client {
-    pub fn list_objects_v2(
+    pub async fn list_objects_v2(
         &self,
         bucket: &str,
         prefix: &str,
         delimiter: &str,
         continuation_token: Option<&str>,
-    ) -> impl Future<Output = Result<ListObjectsResult, String>> {
+    ) -> Result<ListObjectsResult, String> {
         unsafe {
             let endpoint = format!("s3.{}.amazonaws.com", self.region);
 
-            let state = Arc::new(Mutex::new(Default::default()));
+            let (tx, rx) = oneshot::channel();
 
-            let user_data: Box<ListObjectsV2UserData> = Box::new(ListObjectsV2UserData {
-                state: state.clone(),
-                result: Default::default(),
+            let mut user_data: Box<ListObjectsV2UserData> = Box::new(ListObjectsV2UserData {
+                result: Some(Default::default()),
                 signing_config: self.signing_config.clone(),
+                tx: Some(tx),
             });
-
-            // Leak the user_data Box so that it will continue to live after this function returns.
-            let user_data = Box::leak(user_data);
 
             let list_objects_params = aws_s3_list_objects_params {
                 client: self.s3_client,
@@ -41,7 +37,7 @@ impl S3Client {
                 endpoint: endpoint.as_aws_byte_cursor(),
                 on_object: Some(on_object_callback),
                 on_list_finished: Some(on_list_finished_callback),
-                user_data: user_data as *mut ListObjectsV2UserData as *mut libc::c_void,
+                user_data: user_data.as_mut() as *mut ListObjectsV2UserData as *mut libc::c_void,
                 continuation_token: continuation_token
                     .map(|s| s.as_aws_byte_cursor())
                     .unwrap_or_default(),
@@ -49,14 +45,15 @@ impl S3Client {
 
             let paginator = aws_s3_initiate_list_objects(self.allocator, &list_objects_params);
 
-            let result = aws_s3_paginator_continue(paginator, &*self.signing_config);
+            let result = aws_s3_paginator_continue(paginator, (*self.signing_config).as_ref());
 
             if result != 0 {
-                let mut state = state.lock().unwrap();
-                state.complete(Err(format!("aws_s3_paginator_continue error: {}", result)));
+                return Err(format!("aws_s3_paginator_continue error: {}", result));
             }
 
-            ListObjectsV2Request { state }
+            let result = rx.await;
+
+            result.expect("oneshot recv error")
         }
     }
 }
@@ -73,49 +70,15 @@ pub struct S3ObjectInfo {
     pub size: u64,
 }
 
-/// Shared state between the await-able ListObjectsV2 request and the CRT callbacks
-#[derive(Default)]
-struct ListObjectsV2SharedState {
-    result: Option<Result<ListObjectsResult, String>>,
-    waker: Option<Waker>,
-}
-
-impl ListObjectsV2SharedState {
-    /// Complete the request by setting the result field and waking up the request Future
-    fn complete(&mut self, result: Result<ListObjectsResult, String>) {
-        self.result = Some(result);
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-}
-
-/// Return value from ListObjectsV2, can be await-ed to get the result
-struct ListObjectsV2Request {
-    state: Arc<Mutex<ListObjectsV2SharedState>>,
-}
-
-impl Future for ListObjectsV2Request {
-    type Output = Result<ListObjectsResult, String>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut state = self.state.lock().unwrap();
-
-        if let Some(result) = state.result.take() {
-            Poll::Ready(result)
-        } else {
-            state.waker = Some(cx.waker().clone());
-            Poll::Pending
-        }
-    }
-}
-
 /// Struct used as the `user_data` pointer for ListObjectsV2 requests to the CRT
 struct ListObjectsV2UserData {
-    result: ListObjectsResult,
-    state: Arc<Mutex<ListObjectsV2SharedState>>,
-    signing_config: Arc<aws_signing_config_aws>,
+    result: Option<ListObjectsResult>,
+    signing_config: Arc<AwsSigningConfig>,
+    tx: Option<oneshot::Sender<Result<ListObjectsResult, String>>>,
 }
+
+// This struct needs to be Send+Sync because we give it to the CRT
+static_assertions::assert_impl_all!(Box<ListObjectsV2UserData>: Send, Sync);
 
 extern "C" fn on_object_callback(
     info: *const aws_s3_object_info,
@@ -131,7 +94,7 @@ extern "C" fn on_object_callback(
         let prefix = byte_cursor_as_osstr(info.prefix);
         let key = byte_cursor_as_osstr(info.key);
 
-        user_data.result.objects.push(S3ObjectInfo {
+        user_data.result.as_mut().unwrap().objects.push(S3ObjectInfo {
             prefix: prefix.to_owned(),
             key: key.to_owned(),
             size: info.size,
@@ -158,35 +121,39 @@ extern "C" fn on_list_finished_callback(
     // Turn the user_data pointer into a box so it will be dropped when this callback is done.
     // If there are more pages to get, then we will call Box::leak on it (again) until
     // all the pages are consumed.
-    let user_data = unsafe { Box::from_raw(user_data_ptr as *mut ListObjectsV2UserData) };
-
-    let state_ptr = user_data.state.clone();
-    let mut state = state_ptr.lock().unwrap();
+    let user_data = unsafe {
+        (user_data_ptr as *mut ListObjectsV2UserData)
+            .as_mut()
+            .unwrap()
+    };
 
     if error_code != 0 {
         error!(error_code, "ListObjectsV2 on_list_finished_callback error");
-        state.complete(Err(format!(
+        user_data.tx.take().unwrap().send(Err(format!(
             "on_list_finish callback error: {}",
             error_code
-        )));
+        ))).unwrap();
         return;
     }
 
     let has_more_results: bool = unsafe { aws_s3_paginator_has_more_results(paginator) };
 
     if !has_more_results {
-        state.complete(Ok(user_data.result));
+        user_data.tx.take().unwrap().send(Ok(user_data.result.take().unwrap())).unwrap();
         return;
     }
 
-    let result = unsafe { aws_s3_paginator_continue(paginator, &*user_data.signing_config) };
+    let result =
+        unsafe { aws_s3_paginator_continue(paginator, (*user_data.signing_config).as_ref()) };
 
     if result != 0 {
         error!(result, "ListObjectsV2 aws_s3_paginator_continue failed");
-        state.complete(Err(format!("aws_s3_paginator_continue error: {}", result)));
+        user_data
+            .tx
+            .take()
+            .unwrap()
+            .send(Err(format!("aws_s3_paginator_continue error: {}", result)))
+            .unwrap();
         return;
     }
-
-    // Leak the user_data box again because the callback will fire again
-    Box::leak(user_data);
 }

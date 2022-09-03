@@ -22,7 +22,7 @@ fn get_test_bucket_name() -> String {
 async fn test_list_objects() {
     tracing_subscriber::fmt::init();
 
-    let client = get_test_client();
+    let client: S3Client = get_test_client();
 
     let bucket = get_test_bucket_name();
 
