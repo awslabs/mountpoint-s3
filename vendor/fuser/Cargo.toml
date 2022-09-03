@@ -1,0 +1,70 @@
+[package]
+name = "fuser"
+edition = "2021"
+version = "0.11.0"
+authors = ["Christopher Berner <christopherberner@gmail.com>"]
+description = "Filesystem in Userspace (FUSE) for Rust"
+documentation = "https://docs.rs/fuser"
+homepage = "https://github.com/cberner/fuser"
+repository = "https://github.com/cberner/fuser"
+readme = "README.md"
+keywords = ["fuse", "filesystem", "system", "bindings"]
+categories = ["external-ffi-bindings", "api-bindings", "filesystem", "os::unix-apis"]
+build = "build.rs"
+license = "MIT"
+
+[badges]
+travis-ci = { repository = "cberner/fuser" }
+
+[dependencies]
+async-trait = "0.1.56"
+crossbeam = "*"
+libc = "0.2.51"
+log = "0.4.6"
+memchr = "2"
+users = "0.11.0"
+futures = "0.3.23"
+page_size = "0.4.2"
+serde = { version = "1.0.102", features = ["std", "derive"], optional = true }
+smallvec = "1.6.1"
+tokio = { version = "*", features = ["rt"] }
+zerocopy = "0.6"
+
+[dev-dependencies]
+env_logger = "0.9"
+clap = { version = "3.0", features = ["cargo"] }
+bincode = "1.3.1"
+serde = { version = "1.0.102", features = ["std", "derive"] }
+tempfile = "3"
+tokio = { version = "*", features = ["full"] }
+
+[build-dependencies]
+pkg-config = { version = "0.3.14", optional = true }
+
+[features]
+default = ["libfuse"]
+libfuse = ["pkg-config"]
+serializable = ["serde"]
+abi-7-9 = []
+abi-7-10 = ["abi-7-9"]
+abi-7-11 = ["abi-7-10"]
+abi-7-12 = ["abi-7-11"]
+abi-7-13 = ["abi-7-12"]
+abi-7-14 = ["abi-7-13"]
+abi-7-15 = ["abi-7-14"]
+abi-7-16 = ["abi-7-15"]
+abi-7-17 = ["abi-7-16"]
+abi-7-18 = ["abi-7-17"]
+abi-7-19 = ["abi-7-18"]
+abi-7-20 = ["abi-7-19"]
+abi-7-21 = ["abi-7-20"]
+abi-7-22 = ["abi-7-21"]
+abi-7-23 = ["abi-7-22"]
+abi-7-24 = ["abi-7-23"]
+abi-7-25 = ["abi-7-24"]
+abi-7-26 = ["abi-7-25"]
+abi-7-27 = ["abi-7-26"]
+abi-7-28 = ["abi-7-27"]
+abi-7-29 = ["abi-7-28"]
+abi-7-30 = ["abi-7-29"]
+abi-7-31 = ["abi-7-30"]

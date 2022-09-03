@@ -1,0 +1,14 @@
+freebsd_instance:
+  image_family: freebsd-12-2
+
+task:
+  name: FreeBSD 12.2
+  setup_script:
+    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust
+  build_script:
+    - cargo build --all --all-targets
+  doc_script:
+    - cargo doc --all --no-deps --features=abi-7-21
+  test_script:
+    - cargo test --all --all-targets -- --skip=mnt::test::mount_unmount
+    - cargo test --all --all-targets --features=abi-7-21 -- --skip=mnt::test::mount_unmount

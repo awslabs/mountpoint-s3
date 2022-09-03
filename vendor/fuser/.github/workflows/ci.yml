@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  compile:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        libfuse: [libfuse-dev, libfuse3-dev]
+        features: [ '', 'abi-7-19' ]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install packages
+        run: |
+          sudo apt update
+          sudo apt install -y ${{ matrix.libfuse }} build-essential
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-musl
+
+      - name: Run tests
+        run: |
+          cargo build --all --all-targets --features=${{ matrix.features }}
+          cargo build --all --all-targets --no-default-features
+          cargo build --target=x86_64-unknown-linux-musl --no-default-features
+          cargo test --all --features=${{ matrix.features }}
+          cargo doc --all --no-deps --features=${{ matrix.features }}
+  ci:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        test_group: [pre, mount_tests, pjdfs_tests, xfstests]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install packages
+        run: |
+          sudo apt update
+          sudo apt install -y libfuse-dev libfuse3-dev build-essential
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo build
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-deny
+        run: cargo install --force cargo-deny --locked
+
+      - name: Run tests
+        run: INTERACTIVE="" make ${{ matrix.test_group }}
