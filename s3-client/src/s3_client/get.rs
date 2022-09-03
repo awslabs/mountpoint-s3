@@ -113,6 +113,7 @@ impl GetObjectRequest {
 
 /// Struct used as the `user_data` pointer for GetObject requests to the CRT
 struct GetObjectRequestUserData {
+    #[allow(clippy::type_complexity)]
     callback: Box<dyn FnMut(u64, &[u8]) + Send>,
     finish_channel: Sender<Result<(), String>>,
 }

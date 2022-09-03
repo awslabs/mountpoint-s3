@@ -1,4 +1,4 @@
-name: Rust Unit Tests
+name: Rust Tests
 
 on:
   push:
@@ -6,12 +6,15 @@ on:
     branches: [ "main" ]
 
 env:
+  RUSTFLAGS: -Dwarnings
+  RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket
   S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}
 
 jobs:
   test:
+    name: Tests
     runs-on: ubuntu-22.04
 
     permissions:
@@ -36,7 +39,35 @@ jobs:
         submodules: true
     - name: Install fuse
       run: sudo apt-get install fuse libfuse2 libfuse-dev
-    - name: Build
-      run: cargo build --examples
+    - name: Check all targets
+      run: cargo check --all-targets
     - name: Run tests
       run: cargo test
+
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Install rustfmt
+        run: rustup component add rustfmt
+      - name: Check s3-client
+        run: cargo fmt --manifest-path s3-client/Cargo.toml -- --check
+      - name: Check s3-file-connector
+        run: cargo fmt --manifest-path s3-file-connector/Cargo.toml -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Install fuse
+        run: sudo apt-get install fuse libfuse2 libfuse-dev
+      - name: Run Clippy
+        run: cargo clippy -p s3-client -p aws-s3-fuse --no-deps --all-targets -- -D clippy::all

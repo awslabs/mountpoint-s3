@@ -142,6 +142,5 @@ extern "C" fn on_list_finished_callback(
             .unwrap()
             .send(Err(format!("aws_s3_paginator_continue error: {}", result)))
             .unwrap();
-        return;
     }
 }
