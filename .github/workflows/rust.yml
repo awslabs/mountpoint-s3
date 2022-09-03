@@ -11,7 +11,7 @@ env:
   S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-22.04
 
     permissions:
@@ -19,27 +19,24 @@ jobs:
       contents: read
 
     steps:
-    - name: Configure AWS Credentials
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
         role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
         aws-region: us-east-1
-    - name: Put Test Object
+    # Lifecycle on the bucket cleans these objects up for us
+    - name: Put test object
       run: |
         TMP=$(mktemp)
         echo "Test object to check bucket exists" > $TMP
         aws s3api put-object --bucket $S3_BUCKET_NAME --key $S3_BUCKET_TEST_PREFIX/test --body $TMP
-    - name: Checkout our code
+    - name: Checkout code
       uses: actions/checkout@v3
       with:
-        submodules: recursive
-    - name: Install Fuse
+        submodules: true
+    - name: Install fuse
       run: sudo apt-get install fuse libfuse2 libfuse-dev
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --examples
     - name: Run tests
-      run: cargo test --verbose -- --show-output
-    - name: Release build
-      run: cargo build --verbose --release
-    - name: Release tests
-      run: cargo test --verbose --release -- --show-output
+      run: cargo test
