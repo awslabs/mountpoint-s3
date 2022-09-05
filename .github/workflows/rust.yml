@@ -39,6 +39,8 @@ jobs:
         submodules: true
     - name: Install fuse
       run: sudo apt-get install fuse libfuse2 libfuse-dev
+    - name: Configure fuse
+      run: sudo echo 'user_allow_other' >> /etc/fuse.conf
     - name: Check all targets
       run: cargo check --all-targets
     - name: Run tests
