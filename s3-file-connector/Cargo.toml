@@ -4,11 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 s3-client = { path = "../s3-client" }
-clap = "3.2.12"
+clap = { version = "3.2.12", features = ["derive"] }
 ctrlc = "*"
 fuser = { path = "../vendor/fuser" }
 libc = "0.2.126"
