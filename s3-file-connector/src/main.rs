@@ -73,7 +73,7 @@ fn main() {
     let client = S3Client::new(config).expect("failed to create client");
 
     let session = Session::new(
-        fs::FuseSyncFS::new(client, &args.bucket_name, &args.key_name, args.file_size as usize),
+        fs::S3Filesystem::new(client, &args.bucket_name, &args.key_name, args.file_size as usize),
         &args.mount_point,
         &options,
     )

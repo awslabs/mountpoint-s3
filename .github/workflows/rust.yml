@@ -42,7 +42,7 @@ jobs:
     - name: Check all targets
       run: cargo check --all-targets
     - name: Run tests
-      run: cargo test
+      run: cargo test --features fuse_tests
 
   rustfmt:
     name: rustfmt

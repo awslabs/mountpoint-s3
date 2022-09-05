@@ -6,8 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
 
 use fuser::{
-    FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory,
-    ReplyEntry, ReplyOpen, Request,
+    FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, Request,
 };
 use s3_client::{S3Client, StreamingGetObject};
 
@@ -36,7 +35,7 @@ const ROOT_DIR_ATTR: FileAttr = FileAttr {
 
 const BLOCK_SIZE: u64 = 4096;
 
-pub struct FuseSyncFS {
+pub struct S3Filesystem {
     client: Arc<S3Client>,
     bucket: String,
     key: String,
@@ -45,7 +44,7 @@ pub struct FuseSyncFS {
     next_handle: AtomicU64,
 }
 
-impl FuseSyncFS {
+impl S3Filesystem {
     pub fn new(client: S3Client, bucket: &str, key: &str, size: usize) -> Self {
         Self {
             client: Arc::new(client),
@@ -79,7 +78,7 @@ fn make_benchmark_file_attr(ino: u64, size: usize) -> FileAttr {
 }
 
 #[async_trait]
-impl Filesystem for FuseSyncFS {
+impl Filesystem for S3Filesystem {
     async fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.set_max_readahead(0);
         Ok(())
