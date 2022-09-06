@@ -16,6 +16,9 @@ static_assertions = "1.1.0"
 clap = "3.2.12"
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 tokio = { version = "1.21.0", features = ["rt", "macros"] }
+aws-sdk-s3 = "0.18.0"
+aws-config = "0.48.0"
+bytes = "1.2.1"
 
 [lib]
 doctest = false
