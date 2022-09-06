@@ -15,6 +15,9 @@ async fn test_list_objects() {
     let key = format!("{}/test_list_objects/hello", prefix);
     sdk_client.put_object().bucket(&bucket).key(&key).send().await.unwrap();
 
+    let key = format!("{}/test_list_objects/dir/foo", prefix);
+    sdk_client.put_object().bucket(&bucket).key(&key).send().await.unwrap();
+
     let client: S3Client = get_test_client();
 
     let result = client
@@ -22,6 +25,6 @@ async fn test_list_objects() {
         .await
         .expect("list_objects_v2 failed");
 
-    assert_eq!(result.objects.len(), 2);
     println!("{:?}", result);
+    assert_eq!(result.objects.len(), 2);
 }
