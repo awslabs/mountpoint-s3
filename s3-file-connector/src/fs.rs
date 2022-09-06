@@ -4,6 +4,7 @@ use std::ffi::OsStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
+use tracing::error;
 
 use fuser::{
     FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, Request,
@@ -148,6 +149,15 @@ impl Filesystem for S3Filesystem {
             return;
         }
 
+        let _result = match self.client.list_objects_v2(&self.bucket, "", "/", None).await {
+            Ok(result) => result,
+            Err(err) => {
+                error!(?err, "ListObjectsV2 failed");
+                reply.error(libc::EIO);
+                return;
+            }
+        };
+
         let mut entries = vec![(1, FileType::Directory, "."), (1, FileType::Directory, "..")];
 
         entries.push((FILE_INODE, FileType::RegularFile, &self.key));
@@ -158,6 +168,7 @@ impl Filesystem for S3Filesystem {
                 break;
             }
         }
+
         reply.ok();
     }
 }

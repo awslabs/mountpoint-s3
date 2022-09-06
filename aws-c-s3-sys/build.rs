@@ -47,9 +47,7 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         .derive_default(true)
         // Nicer default translation for `enum`s, but the result isn't FFI-safe so we have to
         // override it for enums we want to send back into C world.
-        .default_enum_style(bindgen::EnumVariation::Rust {
-            non_exhaustive: true,
-        })
+        .default_enum_style(bindgen::EnumVariation::Rust { non_exhaustive: true })
         // Tweak how C ints get mapped to Rust to better match the CRT's interface
         .size_t_is_usize(true)
         .default_macro_constant_type(bindgen::MacroTypeVariation::Signed)
@@ -68,12 +66,7 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         // Use `libc` for primitive C types
         .ctypes_prefix("::libc")
         .raw_line("use libc::*;")
-        .clang_args(&[
-            "-I",
-            include_dir.to_str().unwrap(),
-            "-I",
-            "crt/aws-c-s3/include",
-        ]);
+        .clang_args(&["-I", include_dir.to_str().unwrap(), "-I", "crt/aws-c-s3/include"]);
 
     for header in CRT_HEADERS {
         let header_path = include_dir.join("aws").join(header);
@@ -109,10 +102,7 @@ fn compile_crt_and_bindings() -> PathBuf {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
 
     let additional_libraries = (target_os == "linux").then(|| CRT_CRYPTO_LIBRARIES);
-    let libraries = additional_libraries
-        .into_iter()
-        .flatten()
-        .chain(CRT_LIBRARIES.iter());
+    let libraries = additional_libraries.into_iter().flatten().chain(CRT_LIBRARIES.iter());
 
     for lib in libraries.clone() {
         let lib_source_dir = source_dir.join(lib);
@@ -167,9 +157,7 @@ fn compile_crt_and_bindings() -> PathBuf {
     let include_dir = target_dir.join("include");
     let bindings = generate_bindings(include_dir.as_path()).expect("failed to generate bindings");
     let bindings_path = out_dir.join("bindings.rs");
-    bindings
-        .write_to_file(bindings_path)
-        .expect("failed to write bindings");
+    bindings.write_to_file(bindings_path).expect("failed to write bindings");
 
     include_dir
 }

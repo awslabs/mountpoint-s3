@@ -7,8 +7,8 @@ use std::{slice, str};
 use smallstr::SmallString;
 
 use crate::generated::{
-    aws_allocator, aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger,
-    aws_logger_set, aws_logger_vtable, aws_string, AWS_OP_SUCCESS,
+    aws_allocator, aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set,
+    aws_logger_vtable, aws_string, AWS_OP_SUCCESS,
 };
 
 /// Safety: initialized by `CRT_INIT`. `MaybeUninit::zeroed` isn't const stable :(
@@ -88,11 +88,7 @@ extern "C" fn aws_logger_adapter_get_log_level_fn(
     _subject: aws_log_subject_t,
 ) -> aws_log_level::Type {
     let logger = unsafe { logger.as_ref().unwrap() };
-    let impl_ = unsafe {
-        (logger.p_impl as *const AwsLoggerAdapterImpl)
-            .as_ref()
-            .unwrap()
-    };
+    let impl_ = unsafe { (logger.p_impl as *const AwsLoggerAdapterImpl).as_ref().unwrap() };
     impl_.log_level.load(Ordering::Relaxed)
 }
 
@@ -101,11 +97,7 @@ extern "C" fn aws_logger_adapter_set_log_level_fn(
     log_level: aws_log_level::Type,
 ) -> libc::c_int {
     let logger = unsafe { logger.as_ref().unwrap() };
-    let impl_ = unsafe {
-        (logger.p_impl as *const AwsLoggerAdapterImpl)
-            .as_ref()
-            .unwrap()
-    };
+    let impl_ = unsafe { (logger.p_impl as *const AwsLoggerAdapterImpl).as_ref().unwrap() };
     impl_.log_level.store(log_level, Ordering::Relaxed);
     AWS_OP_SUCCESS
 }
@@ -132,10 +124,7 @@ struct AwsLoggerAdapterImpl {
 
 impl AwsLoggerAdapter {
     fn new(allocator: *mut aws_allocator) -> Result<Self, String> {
-        let initial_level = log::max_level()
-            .to_level()
-            .map(to_aws_log_level)
-            .unwrap_or(0);
+        let initial_level = log::max_level().to_level().map(to_aws_log_level).unwrap_or(0);
 
         let _impl = Box::new(AwsLoggerAdapterImpl {
             log_level: AtomicU32::new(initial_level),
@@ -168,9 +157,7 @@ fn to_aws_log_level(level: log::Level) -> aws_log_level::Type {
 
 fn from_aws_log_level(level: aws_log_level::Type) -> log::Level {
     match level {
-        aws_log_level::AWS_LL_NONE | aws_log_level::AWS_LL_FATAL | aws_log_level::AWS_LL_ERROR => {
-            log::Level::Error
-        }
+        aws_log_level::AWS_LL_NONE | aws_log_level::AWS_LL_FATAL | aws_log_level::AWS_LL_ERROR => log::Level::Error,
         aws_log_level::AWS_LL_WARN => log::Level::Warn,
         aws_log_level::AWS_LL_INFO => log::Level::Info,
         aws_log_level::AWS_LL_DEBUG => log::Level::Debug,
