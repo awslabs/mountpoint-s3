@@ -79,44 +79,36 @@ struct ListObjectsV2UserData {
 // This struct needs to be Send because we give it to the CRT
 static_assertions::assert_impl_all!(Box<ListObjectsV2UserData>: Send, Sync);
 
-extern "C" fn on_object_callback(info: *const aws_s3_object_info, user_data_ptr: *mut libc::c_void) -> bool {
-    unsafe {
-        let user_data = (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap();
+impl ListObjectsV2UserData {
+    /// Finish the callback by transmitting a result back to the caller of list_objects_v2.
+    /// Don't use self after calling this function because the Box backing it will be deallocated.
+    unsafe fn finish_callback(&mut self, result: Result<ListObjectsResult, String>) {
+        let tx = self.tx.take().unwrap();
 
-        let info = info.as_ref().unwrap();
-
-        let prefix = byte_cursor_as_osstr(info.prefix);
-        let key = byte_cursor_as_osstr(info.key);
-
-        user_data.result.as_mut().unwrap().objects.push(S3ObjectInfo {
-            prefix: prefix.to_owned(),
-            key: key.to_owned(),
-            size: info.size,
-        });
-
-        trace!(?prefix, ?key, size = info.size, "ListObjectsV2 on_object callback");
-
-        true
+        tx.send(result).unwrap();
     }
 }
 
-/// Finish the callback by transmitting a result back to the caller of list_objects_v2.
-/// Consumes a box holding the reference to the user data so that it cannot be used again, since
-/// the memory backing the user data will not be free after we transmit on tx.
-///
-/// This is required because Rust says that references must always be valid, or else it's undefined behavior.
-/// This is true even if we don't use the reference after transmitting on tx. So we need to kill the reference first.
-fn finish_callback(user_data: Box<&mut ListObjectsV2UserData>, result: Result<ListObjectsResult, String>) {
-    let tx = user_data.tx.take().unwrap();
+unsafe extern "C" fn on_object_callback(info: *const aws_s3_object_info, user_data_ptr: *mut libc::c_void) -> bool {
+    let user_data = (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap();
 
-    // Explicitly drop this mutable reference: as soon as we transmit on the tx channel, the user data
-    // will be freed.
-    std::mem::drop(user_data);
+    let info = info.as_ref().unwrap();
 
-    tx.send(result).unwrap();
+    let prefix = byte_cursor_as_osstr(info.prefix);
+    let key = byte_cursor_as_osstr(info.key);
+
+    user_data.result.as_mut().unwrap().objects.push(S3ObjectInfo {
+        prefix: prefix.to_owned(),
+        key: key.to_owned(),
+        size: info.size,
+    });
+
+    trace!(?prefix, ?key, size = info.size, "ListObjectsV2 on_object callback");
+
+    true
 }
 
-extern "C" fn on_list_finished_callback(
+unsafe extern "C" fn on_list_finished_callback(
     paginator: *mut aws_s3_paginator,
     error_code: libc::c_int,
     user_data_ptr: *mut libc::c_void,
@@ -125,26 +117,26 @@ extern "C" fn on_list_finished_callback(
 
     // Turn the pointer into a boxed reference. We box the reference so that finish_callback can consume
     // it and avoid us having an invalid reference after we transmit on tx.
-    let user_data = unsafe { Box::new((user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap()) };
+    let user_data = (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap();
 
     if error_code != 0 {
         error!(error_code, "ListObjectsV2 on_list_finished_callback error");
-        finish_callback(user_data, Err(format!("on_list_finish callback error: {}", error_code)));
+        user_data.finish_callback(Err(format!("on_list_finish callback error: {}", error_code)));
         return;
     }
 
-    let has_more_results: bool = unsafe { aws_s3_paginator_has_more_results(paginator) };
+    let has_more_results: bool = aws_s3_paginator_has_more_results(paginator);
 
     if !has_more_results {
         let result = user_data.result.take().unwrap();
-        finish_callback(user_data, Ok(result));
+        user_data.finish_callback(Ok(result));
         return;
     }
 
-    let result = unsafe { aws_s3_paginator_continue(paginator, (*user_data.signing_config).as_ref()) };
+    let result = aws_s3_paginator_continue(paginator, (*user_data.signing_config).as_ref());
 
     if result != 0 {
         error!(result, "ListObjectsV2 aws_s3_paginator_continue failed");
-        finish_callback(user_data, Err(format!("aws_s3_paginator_continue error: {}", result)));
+        user_data.finish_callback(Err(format!("aws_s3_paginator_continue error: {}", result)));
     }
 }
