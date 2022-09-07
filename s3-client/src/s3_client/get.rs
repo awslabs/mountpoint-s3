@@ -26,7 +26,7 @@ impl S3Client {
         // Safety: `aws_http_message_add_header` and `aws_http_message_set_request_path` copy their
         // input strings, so none of the strings we create here need to live beyond this scope
         let message = unsafe {
-            let message = aws_http_message_new_request(self.allocator);
+            let message = aws_http_message_new_request(self.allocator.inner.as_ptr());
 
             let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
             let host_header = aws_http_header {
@@ -81,7 +81,7 @@ impl S3Client {
 
         let request_options = aws_s3_meta_request_options {
             user_data: user_data as *const GetObjectRequestUserData as *mut libc::c_void,
-            signing_config: &*self.signing_config as *const _ as *mut _,
+            signing_config: &*self.signing_config.inner as *const _ as *mut _,
             type_: aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
             message,
             body_callback: Some(get_object_receive_body_callback),
@@ -90,7 +90,7 @@ impl S3Client {
         };
 
         let _meta_request = unsafe {
-            aws_s3_client_make_meta_request(self.s3_client, &request_options as *const _)
+            aws_s3_client_make_meta_request(self.s3_client.inner.as_ptr(), &request_options as *const _)
                 .ok_or("failed to create meta request".to_string())?
         };
 

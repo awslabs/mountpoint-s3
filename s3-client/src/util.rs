@@ -1,6 +1,5 @@
 use aws_c_s3_sys::aws_byte_cursor;
 use std::ffi::OsStr;
-use std::mem::MaybeUninit;
 use std::os::unix::prelude::OsStrExt;
 
 /// Useful to convert from strings to aws_byte_cursors (unsafely, but cursors are roughly like &str
@@ -52,14 +51,4 @@ impl<T> PtrExt for *mut T {
             Ok(self)
         }
     }
-}
-
-/// Convert an initialized `Box<MaybeUninit<T>>` to a `Box<T>`.
-///
-/// This is `Box::assume_init` but not yet stabilized.
-///
-/// Safety: the `MaybeUninit` contents must be fully initialized.
-pub(crate) fn box_assume_init<T>(b: Box<MaybeUninit<T>>) -> Box<T> {
-    let raw = Box::into_raw(b);
-    unsafe { Box::from_raw(raw as *mut T) }
 }

@@ -1,13 +1,12 @@
-use crate::s3_client::AwsSigningConfig;
 use crate::util::{byte_cursor_as_osstr, StringExt};
 use crate::S3Client;
+use aws_c_s3_sys::auth::signing_config::SigningConfig;
 use aws_c_s3_sys::{
     aws_s3_initiate_list_objects, aws_s3_list_objects_params, aws_s3_object_info, aws_s3_paginator,
     aws_s3_paginator_continue, aws_s3_paginator_has_more_results,
 };
 use futures::channel::oneshot;
 use std::ffi::OsString;
-use std::sync::Arc;
 use tracing::{error, trace};
 
 impl S3Client {
@@ -25,7 +24,7 @@ impl S3Client {
         // Warning: don't move this into the unsafe block below, since we need it to live at least
         // until we get a response back on the rx channel. If we drop it before then, the background
         // CRT thread could still be running even though the Box has been freed.
-        let mut user_data: Box<ListObjectsV2UserData> = Box::new(ListObjectsV2UserData {
+        let mut user_data = Box::new(ListObjectsV2UserData {
             result: Some(Default::default()),
             signing_config: self.signing_config.clone(),
             tx: Some(tx),
@@ -33,7 +32,7 @@ impl S3Client {
 
         unsafe {
             let list_objects_params = aws_s3_list_objects_params {
-                client: self.s3_client,
+                client: self.s3_client.inner.as_ptr(),
                 bucket_name: bucket.as_aws_byte_cursor(),
                 prefix: prefix.as_aws_byte_cursor(),
                 delimiter: delimiter.as_aws_byte_cursor(),
@@ -44,9 +43,9 @@ impl S3Client {
                 continuation_token: continuation_token.map(|s| s.as_aws_byte_cursor()).unwrap_or_default(),
             };
 
-            let paginator = aws_s3_initiate_list_objects(self.allocator, &list_objects_params);
+            let paginator = aws_s3_initiate_list_objects(self.allocator.inner.as_ptr(), &list_objects_params);
 
-            let result = aws_s3_paginator_continue(paginator, (*self.signing_config).as_ref());
+            let result = aws_s3_paginator_continue(paginator, &*self.signing_config.inner);
 
             if result != 0 {
                 return Err(format!("aws_s3_paginator_continue error: {}", result));
@@ -72,7 +71,7 @@ pub struct S3ObjectInfo {
 /// Struct used as the `user_data` pointer for ListObjectsV2 requests to the CRT
 struct ListObjectsV2UserData {
     result: Option<ListObjectsResult>,
-    signing_config: Arc<AwsSigningConfig>,
+    signing_config: SigningConfig,
     tx: Option<oneshot::Sender<Result<ListObjectsResult, String>>>,
 }
 
@@ -133,7 +132,7 @@ unsafe extern "C" fn on_list_finished_callback(
         return;
     }
 
-    let result = aws_s3_paginator_continue(paginator, (*user_data.signing_config).as_ref());
+    let result = aws_s3_paginator_continue(paginator, &*user_data.signing_config.inner);
 
     if result != 0 {
         error!(result, "ListObjectsV2 aws_s3_paginator_continue failed");
