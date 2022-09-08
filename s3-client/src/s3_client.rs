@@ -22,12 +22,12 @@ pub struct S3ClientConfig {
 #[allow(unused)]
 pub struct S3Client {
     allocator: Allocator,
-    s3_client: Client,
+    s3_client: Client<'static>,
     credentials_provider: CredentialsProvider,
     client_bootstrap: ClientBootstrap,
     host_resolver: HostResolver,
     event_loop_group: EventLoopGroup,
-    signing_config: SigningConfig,
+    signing_config: SigningConfig<'static>,
     region: String,
     throughput_target_gbps: f64,
 }
@@ -89,6 +89,7 @@ impl S3Client {
             max_active_connections_override: None,
             part_size,
             client_bootstrap: &mut client_bootstrap,
+            signing_config: &signing_config,
         };
 
         let s3_client = Client::new(&mut allocator, &client_config).unwrap();

@@ -27,3 +27,11 @@ impl HostResolver {
         })
     }
 }
+
+impl Drop for HostResolver {
+    fn drop(&mut self) {
+        unsafe {
+            aws_host_resolver_release(self.inner.as_ptr());
+        }
+    }
+}

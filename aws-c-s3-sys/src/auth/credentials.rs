@@ -26,3 +26,11 @@ impl CredentialsProvider {
         })
     }
 }
+
+impl Drop for CredentialsProvider {
+    fn drop(&mut self) {
+        unsafe {
+            aws_credentials_provider_release(self.inner.as_ptr());
+        }
+    }
+}

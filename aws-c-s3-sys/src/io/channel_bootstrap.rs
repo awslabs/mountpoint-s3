@@ -28,3 +28,11 @@ impl ClientBootstrap {
         })
     }
 }
+
+impl Drop for ClientBootstrap {
+    fn drop(&mut self) {
+        unsafe {
+            aws_client_bootstrap_release(self.inner.as_ptr());
+        }
+    }
+}

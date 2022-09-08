@@ -1,11 +1,15 @@
 use crate::generated::*;
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 #[derive(Clone)]
-pub struct SigningConfig {
+pub struct SigningConfig<'user> {
     // TODO: make only visible to this crate
     pub inner: Arc<aws_signing_config_aws>,
+
+    // The signing config holds onto a reference to user data, e.g., the region string.
+    pub(crate) phantom: PhantomData<&'user str>,
 }
 
-unsafe impl Send for SigningConfig {}
-unsafe impl Sync for SigningConfig {}
+// TODO: is this okay?
+unsafe impl<'user> Send for SigningConfig<'user> {}
+unsafe impl<'user> Sync for SigningConfig<'user> {}

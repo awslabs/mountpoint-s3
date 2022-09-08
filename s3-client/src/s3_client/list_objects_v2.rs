@@ -71,7 +71,7 @@ pub struct S3ObjectInfo {
 /// Struct used as the `user_data` pointer for ListObjectsV2 requests to the CRT
 struct ListObjectsV2UserData {
     result: Option<ListObjectsResult>,
-    signing_config: SigningConfig,
+    signing_config: SigningConfig<'static>,
     tx: Option<oneshot::Sender<Result<ListObjectsResult, String>>>,
 }
 
