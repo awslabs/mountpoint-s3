@@ -1,6 +1,6 @@
 use crate::common::allocator::Allocator;
-use crate::generated::*;
 use crate::io::event_loop::EventLoopGroup;
+use aws_c_s3_sys::*;
 use std::ptr::NonNull;
 
 pub struct HostResolverDefaultOptions<'a> {

@@ -1,7 +1,6 @@
-use std::ptr::NonNull;
-
 use crate::common::allocator::Allocator;
-use crate::generated::*;
+use aws_c_s3_sys::*;
+use std::ptr::NonNull;
 
 pub struct EventLoopGroup {
     pub(crate) inner: NonNull<aws_event_loop_group>,

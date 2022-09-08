@@ -1,10 +1,10 @@
-use aws_c_s3_sys::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
-use aws_c_s3_sys::auth::signing_config::SigningConfig;
-use aws_c_s3_sys::common::allocator::Allocator;
-use aws_c_s3_sys::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
-use aws_c_s3_sys::io::event_loop::EventLoopGroup;
-use aws_c_s3_sys::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
-use aws_c_s3_sys::s3::client::{init_default_signing_config, Client, ClientConfig};
+use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
+use aws_crt_s3::auth::signing_config::SigningConfig;
+use aws_crt_s3::common::allocator::Allocator;
+use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
+use aws_crt_s3::io::event_loop::EventLoopGroup;
+use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
+use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig};
 
 use crate::crt_init;
 

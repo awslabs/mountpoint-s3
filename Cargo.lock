@@ -89,6 +89,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-crt-s3"
+version = "0.1.0"
+dependencies = [
+ "aws-c-s3-sys",
+]
+
+[[package]]
 name = "aws-endpoint"
 version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1470,6 +1477,7 @@ version = "0.1.0"
 dependencies = [
  "aws-c-s3-sys",
  "aws-config",
+ "aws-crt-s3",
  "aws-sdk-s3",
  "bytes",
  "clap",

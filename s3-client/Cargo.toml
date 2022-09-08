@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 aws-c-s3-sys = { path = "../aws-c-s3-sys" }
+aws-crt-s3 = { path = "../aws-crt-s3" }
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }

@@ -1,4 +1,4 @@
-use crate::generated::*;
+use aws_c_s3_sys::*;
 use std::ptr::NonNull;
 
 pub struct Allocator {
