@@ -22,12 +22,12 @@ pub struct S3ClientConfig {
 #[allow(unused)]
 pub struct S3Client {
     allocator: Allocator,
-    s3_client: Client<'static>,
+    s3_client: Client,
     credentials_provider: CredentialsProvider,
     client_bootstrap: ClientBootstrap,
     host_resolver: HostResolver,
     event_loop_group: EventLoopGroup,
-    signing_config: SigningConfig<'static>,
+    signing_config: SigningConfig,
     region: String,
     throughput_target_gbps: f64,
 }
@@ -39,7 +39,7 @@ impl S3Client {
         // Safety arguments in this function are mostly pretty boring (singletons, constructors that
         // copy from pointers, etc), so safety annotations only on interesting cases.
 
-        let mut allocator = Allocator::new_default().unwrap();
+        let mut allocator = Allocator::default().unwrap();
 
         let mut event_loop_group = EventLoopGroup::new_default(&mut allocator, 0).unwrap();
 
@@ -64,25 +64,8 @@ impl S3Client {
         let mut creds_provider = CredentialsProvider::new_chain_default(&mut allocator, &creds_options).unwrap();
 
         let signing_config = init_default_signing_config("us-east-1", &mut creds_provider);
-
-        // let mut signing_config = Box::new(MaybeUninit::uninit());
-        // let region = "us-east-1".to_string();
-        // unsafe {
-        //     aws_s3_init_default_signing_config(
-        //         signing_config.as_mut_ptr(),
-        //         // Safety: the `region` string must live as long as this `signing_config` does
-        //         region.as_aws_byte_cursor(),
-        //         creds_provider,
-        //     );
-        //     signing_config
-        //         .assume_init_mut()
-        //         .flags
-        //         .set_use_double_uri_encode(false as u32);
-        // }
-
-        // CRT uses 0 to indicate default values for these configs
-        let throughput_target_gbps = config.throughput_target_gbps.unwrap_or(0.0);
-        let part_size = config.part_size.unwrap_or(0);
+        let throughput_target_gbps = config.throughput_target_gbps;
+        let part_size = config.part_size;
 
         let client_config = ClientConfig {
             throughput_target_gbps,
@@ -94,16 +77,6 @@ impl S3Client {
 
         let s3_client = Client::new(&mut allocator, &client_config).unwrap();
 
-        // let client_config = aws_s3_client_config {
-        //     client_bootstrap,
-        //     // Safety: the `region` string must live as long as this `client` does
-        //     region: unsafe { region.as_aws_byte_cursor() },
-        //     signing_config: signing_config.as_mut_ptr(),
-        //     throughput_target_gbps,
-        //     part_size,
-        //     ..Default::default()
-        // };
-
         Ok(Self {
             allocator,
             s3_client,
@@ -113,7 +86,7 @@ impl S3Client {
             credentials_provider: creds_provider,
             signing_config,
             region: "us-east-1".to_owned(),
-            throughput_target_gbps,
+            throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
         })
     }
 
@@ -121,19 +94,6 @@ impl S3Client {
         self.throughput_target_gbps
     }
 }
-
-// impl Drop for S3Client {
-//     fn drop(&mut self) {
-//         // TODO do we need to abort inflight requests somehow?
-//         unsafe {
-//             aws_s3_client_release(self.s3_client);
-//             aws_credentials_provider_release(self.credentials_provider);
-//             aws_client_bootstrap_release(self.client_bootstrap);
-//             aws_host_resolver_release(self.host_resolver);
-//             aws_event_loop_group_release(self.event_loop_group);
-//         }
-//     }
-// }
 
 // TODO ?
 unsafe impl Send for S3Client {}

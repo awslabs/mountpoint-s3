@@ -28,6 +28,14 @@ impl HostResolver {
     }
 }
 
+impl Clone for HostResolver {
+    fn clone(&self) -> Self {
+        let inner = unsafe { NonNull::new_unchecked(aws_host_resolver_acquire(self.inner.as_ptr())) };
+
+        Self { inner }
+    }
+}
+
 impl Drop for HostResolver {
     fn drop(&mut self) {
         unsafe {

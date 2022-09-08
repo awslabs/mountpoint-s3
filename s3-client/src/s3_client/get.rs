@@ -81,7 +81,7 @@ impl S3Client {
 
         let request_options = aws_s3_meta_request_options {
             user_data: user_data as *const GetObjectRequestUserData as *mut libc::c_void,
-            signing_config: &*self.signing_config.inner as *const _ as *mut _,
+            signing_config: self.signing_config.to_inner_ptr() as *mut _,
             type_: aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
             message,
             body_callback: Some(get_object_receive_body_callback),

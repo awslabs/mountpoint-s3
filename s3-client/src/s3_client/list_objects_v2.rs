@@ -45,7 +45,7 @@ impl S3Client {
 
             let paginator = aws_s3_initiate_list_objects(self.allocator.inner.as_ptr(), &list_objects_params);
 
-            let result = aws_s3_paginator_continue(paginator, &*self.signing_config.inner);
+            let result = aws_s3_paginator_continue(paginator, self.signing_config.to_inner_ptr());
 
             if result != 0 {
                 return Err(format!("aws_s3_paginator_continue error: {}", result));
@@ -71,7 +71,7 @@ pub struct S3ObjectInfo {
 /// Struct used as the `user_data` pointer for ListObjectsV2 requests to the CRT
 struct ListObjectsV2UserData {
     result: Option<ListObjectsResult>,
-    signing_config: SigningConfig<'static>,
+    signing_config: SigningConfig,
     tx: Option<oneshot::Sender<Result<ListObjectsResult, String>>>,
 }
 
@@ -132,7 +132,7 @@ unsafe extern "C" fn on_list_finished_callback(
         return;
     }
 
-    let result = aws_s3_paginator_continue(paginator, &*user_data.signing_config.inner);
+    let result = aws_s3_paginator_continue(paginator, user_data.signing_config.to_inner_ptr());
 
     if result != 0 {
         error!(result, "ListObjectsV2 aws_s3_paginator_continue failed");

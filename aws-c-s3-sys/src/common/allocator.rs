@@ -7,7 +7,8 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub fn new_default() -> Option<Self> {
+    /// The default allocator is a singleton, so this always returns the same allocator
+    pub fn default() -> Option<Self> {
         let inner = unsafe { aws_default_allocator() };
 
         Some(Self {

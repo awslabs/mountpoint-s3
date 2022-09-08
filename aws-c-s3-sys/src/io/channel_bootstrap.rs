@@ -29,6 +29,14 @@ impl ClientBootstrap {
     }
 }
 
+impl Clone for ClientBootstrap {
+    fn clone(&self) -> Self {
+        let inner = unsafe { NonNull::new_unchecked(aws_client_bootstrap_acquire(self.inner.as_ptr())) };
+
+        Self { inner }
+    }
+}
+
 impl Drop for ClientBootstrap {
     fn drop(&mut self) {
         unsafe {
