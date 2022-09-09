@@ -1,5 +1,5 @@
 [package]
-name = "aws-s3-fuse"
+name = "s3-file-connector"
 version = "0.1.0"
 edition = "2021"
 publish = false

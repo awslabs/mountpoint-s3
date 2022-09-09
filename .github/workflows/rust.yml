@@ -56,14 +56,8 @@ jobs:
         uses: actions/checkout@v3
       - name: Install rustfmt
         run: rustup component add rustfmt
-      - name: Check aws-crt-s3-sys
-        run: cargo fmt --manifest-path aws-crt-s3-sys/Cargo.toml -- --check
-      - name: Check aws-crt-s3
-        run: cargo fmt --manifest-path aws-crt-s3/Cargo.toml -- --check
-      - name: Check s3-client
-        run: cargo fmt --manifest-path s3-client/Cargo.toml -- --check
-      - name: Check s3-file-connector
-        run: cargo fmt --manifest-path s3-file-connector/Cargo.toml -- --check
+      - name: Check format
+        run: make fmt-check
 
   clippy:
     name: Clippy
@@ -77,4 +71,4 @@ jobs:
       - name: Install fuse
         run: sudo apt-get install fuse libfuse2 libfuse-dev
       - name: Run Clippy
-        run: cargo clippy -p aws-crt-s3 -p s3-client -p aws-s3-fuse --no-deps --all-targets -- -D clippy::all
+        run: make clippy

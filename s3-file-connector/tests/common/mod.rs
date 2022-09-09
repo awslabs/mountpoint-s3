@@ -1,6 +1,6 @@
-use aws_s3_fuse::fs::S3Filesystem;
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{S3Client, S3ClientConfig};
+use s3_file_connector::fs::S3Filesystem;
 use tempfile::TempDir;
 
 pub fn make_test_session() -> (TempDir, BackgroundSession) {

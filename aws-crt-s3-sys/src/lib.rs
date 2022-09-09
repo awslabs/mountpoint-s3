@@ -4,7 +4,8 @@
     non_snake_case,
     unused,
     rustdoc::broken_intra_doc_links,
-    rustdoc::bare_urls
+    rustdoc::bare_urls,
+    clippy::all
 )]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
