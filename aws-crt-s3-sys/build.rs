@@ -48,6 +48,8 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         // Nicer default translation for `enum`s, but the result isn't FFI-safe so we have to
         // override it for enums we want to send back into C world.
         .default_enum_style(bindgen::EnumVariation::Rust { non_exhaustive: true })
+        // We need to override this enum to be FFI-safe since it's used in callbacks for tasks.
+        .newtype_enum("aws_task_status")
         // Tweak how C ints get mapped to Rust to better match the CRT's interface
         .size_t_is_usize(true)
         .default_macro_constant_type(bindgen::MacroTypeVariation::Signed)
@@ -109,7 +111,10 @@ fn compile_crt_and_bindings() -> PathBuf {
         let lib_build_dir = build_dir.join(lib);
 
         if !lib_source_dir.join("CMakeLists.txt").exists() {
-            panic!("missing library source for {}", lib);
+            panic!(
+                "missing library source for {}, perhaps you need to fetch git submodules",
+                lib
+            );
         }
         println!("cargo:rerun-if-changed={}", lib_source_dir.display());
 

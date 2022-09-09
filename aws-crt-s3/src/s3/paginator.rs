@@ -2,7 +2,7 @@ use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
 pub struct Paginator {
-    inner: NonNull<aws_s3_paginator>,
+    pub(super) inner: NonNull<aws_s3_paginator>,
 }
 
 impl Paginator {
