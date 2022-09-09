@@ -43,9 +43,9 @@ jobs:
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Check all targets
-      run: cargo check --all-targets
+      run: cargo check --all-targets --all-features
     - name: Run tests
-      run: cargo test --features fuse_tests
+      run: cargo test --all-features
 
   rustfmt:
     name: rustfmt

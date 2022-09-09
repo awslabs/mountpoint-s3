@@ -1,3 +1,5 @@
+#![cfg(feature = "s3_tests")]
+
 use aws_sdk_s3 as s3;
 use bytes::Bytes;
 use s3::Region;

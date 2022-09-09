@@ -1,3 +1,5 @@
+#![cfg(feature = "s3_tests")]
+
 mod common;
 use common::*;
 

@@ -27,4 +27,4 @@ bytes = "1.2.1"
 doctest = false
 
 [features]
-ci-tests = []
+s3_tests = []
