@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use clap::Parser;
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{S3Client, S3ClientConfig};
@@ -53,7 +54,7 @@ struct CliArgs {
     pub part_size: Option<u64>,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
 
     let args = CliArgs::parse();
@@ -70,30 +71,32 @@ fn main() {
         throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
         part_size: args.part_size.map(|t| t as usize),
     };
-    let client = S3Client::new(config).expect("failed to create client");
+    let client = S3Client::new(config).context("Failed to create S3 client")?;
 
     let session = Session::new(
         fs::S3Filesystem::new(client, &args.bucket_name, &args.key_name, args.file_size as usize),
         &args.mount_point,
         &options,
     )
-    .unwrap();
+    .context("Failed to create FUSE session")?;
 
     let session = if let Some(thread_count) = args.thread_count {
         BackgroundSession::new_multi_thread(session, thread_count as usize)
     } else {
         BackgroundSession::new(session)
     };
-    let session = session.expect("could not start FUSE session");
+    let session = session.context("Failed to start FUSE session")?;
 
     let (sender, receiver) = std::sync::mpsc::sync_channel(0);
 
     ctrlc::set_handler(move || {
         let _ = sender.send(());
     })
-    .unwrap();
+    .context("Failed to install signal handler")?;
 
     let _ = receiver.recv();
 
     drop(session);
+
+    Ok(())
 }

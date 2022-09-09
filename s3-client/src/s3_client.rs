@@ -5,6 +5,7 @@ use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions}
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig};
+use thiserror::Error;
 
 use crate::crt_init;
 
@@ -33,7 +34,7 @@ pub struct S3Client {
 }
 
 impl S3Client {
-    pub fn new(config: S3ClientConfig) -> Result<Self, String> {
+    pub fn new(config: S3ClientConfig) -> Result<Self, S3ClientError> {
         crt_init();
 
         // Safety arguments in this function are mostly pretty boring (singletons, constructors that
@@ -93,6 +94,12 @@ impl S3Client {
     pub fn throughput_target_gbps(&self) -> f64 {
         self.throughput_target_gbps
     }
+}
+
+#[derive(Error, Debug)]
+pub enum S3ClientError {
+    #[error("unknown S3Client error")]
+    Unknown,
 }
 
 // TODO ?

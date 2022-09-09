@@ -5,14 +5,16 @@ edition = "2021"
 publish = false
 
 [dependencies]
-s3-client = { path = "../s3-client" }
-clap = { version = "3.2.12", features = ["derive"] }
-ctrlc = "*"
 fuser = { path = "../vendor/fuser" }
+s3-client = { path = "../s3-client" }
+
+anyhow = { version = "1.0.64", features = ["backtrace"] }
+async-trait = "0.1.57"
+clap = { version = "3.2.12", features = ["derive"] }
+ctrlc = "3.2.3"
 libc = "0.2.126"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
-async-trait = "0.1.57"
 
 [dev-dependencies]
 tempfile = "3.3.0"
