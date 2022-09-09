@@ -1,5 +1,5 @@
 [package]
-name = "aws-c-s3-sys"
+name = "aws-crt-s3-sys"
 version = "0.1.0"
 edition = "2021"
 publish = false

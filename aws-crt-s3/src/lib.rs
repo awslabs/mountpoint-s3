@@ -1,4 +1,4 @@
-use aws_c_s3_sys::*;
+use aws_crt_s3_sys::*;
 
 pub mod auth;
 pub mod common;

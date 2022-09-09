@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::slice;
 use std::sync::mpsc::{Receiver, Sender};
 
-use aws_c_s3_sys::{
+use aws_crt_s3_sys::{
     aws_byte_cursor, aws_http_header, aws_http_message_add_header, aws_http_message_new_request,
     aws_http_message_set_request_method, aws_http_message_set_request_path, aws_http_method_get,
     aws_s3_client_make_meta_request, aws_s3_meta_request, aws_s3_meta_request_options, aws_s3_meta_request_result,

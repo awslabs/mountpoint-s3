@@ -5,4 +5,4 @@ edition = "2021"
 publish = false
 
 [dependencies]
-aws-c-s3-sys = { path = "../aws-c-s3-sys" }
+aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }

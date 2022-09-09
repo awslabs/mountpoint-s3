@@ -49,18 +49,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
-name = "aws-c-s3-sys"
-version = "0.1.0"
-dependencies = [
- "bindgen",
- "cc",
- "cmake",
- "libc",
- "log",
- "smallstr",
-]
-
-[[package]]
 name = "aws-config"
 version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -92,7 +80,19 @@ dependencies = [
 name = "aws-crt-s3"
 version = "0.1.0"
 dependencies = [
- "aws-c-s3-sys",
+ "aws-crt-s3-sys",
+]
+
+[[package]]
+name = "aws-crt-s3-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "libc",
+ "log",
+ "smallstr",
 ]
 
 [[package]]
@@ -1475,9 +1475,9 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 name = "s3-client"
 version = "0.1.0"
 dependencies = [
- "aws-c-s3-sys",
  "aws-config",
  "aws-crt-s3",
+ "aws-crt-s3-sys",
  "aws-sdk-s3",
  "bytes",
  "clap",

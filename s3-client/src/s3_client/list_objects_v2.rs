@@ -1,10 +1,10 @@
 use crate::util::{byte_cursor_as_osstr, StringExt};
 use crate::S3Client;
-use aws_c_s3_sys::{
+use aws_crt_s3::auth::signing_config::SigningConfig;
+use aws_crt_s3_sys::{
     aws_s3_initiate_list_objects, aws_s3_list_objects_params, aws_s3_object_info, aws_s3_paginator,
     aws_s3_paginator_continue, aws_s3_paginator_has_more_results,
 };
-use aws_crt_s3::auth::signing_config::SigningConfig;
 use futures::channel::oneshot;
 use std::ffi::OsString;
 use tracing::{error, trace};

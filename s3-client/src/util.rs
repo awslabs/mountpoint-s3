@@ -1,4 +1,4 @@
-use aws_c_s3_sys::aws_byte_cursor;
+use aws_crt_s3_sys::aws_byte_cursor;
 use std::ffi::OsStr;
 use std::os::unix::prelude::OsStrExt;
 

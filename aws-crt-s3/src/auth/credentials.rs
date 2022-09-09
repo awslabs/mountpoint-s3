@@ -1,6 +1,6 @@
 use crate::common::allocator::Allocator;
 use crate::io::channel_bootstrap::ClientBootstrap;
-use aws_c_s3_sys::*;
+use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
 pub struct CredentialsProviderChainDefaultOptions<'a> {

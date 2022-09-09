@@ -3,7 +3,7 @@ use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::StringExt;
-use aws_c_s3_sys::*;
+use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 use std::sync::Arc;
 

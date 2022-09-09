@@ -1,7 +1,7 @@
 use crate::common::allocator::Allocator;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::host_resolver::HostResolver;
-use aws_c_s3_sys::*;
+use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
 pub struct ClientBootstrap {

@@ -1,6 +1,6 @@
 use std::sync::Once;
 
-use aws_c_s3_sys::{aws_default_allocator, aws_s3_library_init};
+use aws_crt_s3_sys::{aws_default_allocator, aws_s3_library_init};
 
 mod s3_client;
 mod streaming_get;
@@ -19,7 +19,7 @@ fn crt_init() {
         unsafe {
             let allocator = aws_default_allocator();
             aws_s3_library_init(allocator);
-            aws_c_s3_sys::init_logger_adapter(allocator);
+            aws_crt_s3_sys::init_logger_adapter(allocator);
         }
     })
 }
