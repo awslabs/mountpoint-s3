@@ -12,6 +12,7 @@ env:
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket
   S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}
   S3_REGION: us-east-1
+  RUST_FEATURES: fuse_tests,s3_tests
 
 jobs:
   test:
@@ -43,9 +44,9 @@ jobs:
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Check all targets
-      run: cargo check --all-targets --all-features
+      run: cargo check --all-targets --features $RUST_FEATURES
     - name: Run tests
-      run: cargo test --all-features
+      run: cargo test --features $RUST_FEATURES
 
   rustfmt:
     name: rustfmt
