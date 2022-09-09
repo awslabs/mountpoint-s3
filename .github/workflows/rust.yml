@@ -72,3 +72,13 @@ jobs:
         run: sudo apt-get install fuse libfuse2 libfuse-dev
       - name: Run Clippy
         run: make clippy
+
+  deny:
+    name: Deny
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Run cargo deny
+        uses: EmbarkStudios/cargo-deny-action@v1

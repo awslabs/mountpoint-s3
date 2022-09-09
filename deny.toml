@@ -1,0 +1,41 @@
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "OpenSSL",
+    "Unicode-DFS-2016"
+]
+
+[[licenses.clarify]]
+name = "ring"
+version = ">= 0.13.0, < 0.18.0"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+notice = "deny"
+
+#[[licenses.clarify]]
+# The name of the crate the clarification applies to
+#name = "ring"
+# The optional version constraint for the crate
+#version = "*"
+# The SPDX expression for the license requirements of the crate
+#expression = "MIT AND ISC AND OpenSSL"
+# One or more files in the crate's source used as the "source of truth" for
+# the license expression. If the contents match, the clarification will be used
+# when running the license check, otherwise the clarification will be ignored
+# and the crate will be checked normally, which may produce warnings or errors
+# depending on the rest of your configuration
+#license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    #{ path = "LICENSE", hash = 0xbd0eed23 }
+#]
