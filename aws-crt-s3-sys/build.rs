@@ -122,7 +122,6 @@ fn compile_crt_and_bindings() -> PathBuf {
 
         let mut builder = cmake::Config::new(lib_source_dir);
         builder
-            .profile("RelWithDebInfo")
             .out_dir(lib_build_dir)
             .build_target("install")
             .define("CMAKE_INSTALL_PREFIX", &target_dir)
