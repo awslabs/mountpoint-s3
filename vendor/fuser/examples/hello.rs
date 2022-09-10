@@ -108,8 +108,7 @@ impl Filesystem for HelloFS {
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let matches = Command::new("hello")
         .version(crate_version!())
         .author("Christopher Berner")
@@ -139,5 +138,5 @@ async fn main() {
     if matches.is_present("allow-root") {
         options.push(MountOption::AllowRoot);
     }
-    fuser::mount2(HelloFS, mountpoint, &options).await.unwrap();
+    fuser::mount2(HelloFS, mountpoint, &options).unwrap();
 }

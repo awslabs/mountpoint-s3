@@ -17,9 +17,84 @@ use crate::ll::Request as _;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplySender};
-use crate::session::{Session, SessionACL, aligned_sub_buf, BufferPoolToken};
+use crate::session::{Session, SessionACL};
 use crate::Filesystem;
 use crate::{ll, KernelConfig};
+
+mod request_buffer {
+    use std::mem::MaybeUninit;
+
+    use crate::ll::fuse_abi::fuse_in_header;
+    use crate::session::MAX_WRITE_SIZE;
+
+    /// Size of the buffer for reading a request from the kernel. Since the kernel may send
+    /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
+    const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
+
+    /// This is a copy of the unstable `std::mem::MaybeUninit::slice_assume_init_ref`
+    unsafe fn slice_assume_init_ref<T>(slice: &[MaybeUninit<T>]) -> &[T] {
+        // SAFETY: casting `slice` to a `*const [T]` is safe since the caller guarantees that
+        // `slice` is initialized, and `MaybeUninit` is guaranteed to have the same layout as `T`.
+        // The pointer obtained is valid since it refers to memory owned by `slice` which is a
+        // reference and thus guaranteed to be valid for reads.
+        &*(slice as *const [MaybeUninit<T>] as *const [T])
+    }
+
+    /// This whole thing exists because `Box::new_uninit_slice` is not yet stable.
+    #[derive(Debug)]
+    pub(crate) struct FuseRequestBuffer(*mut [MaybeUninit<u8>]);
+
+    impl FuseRequestBuffer {
+        pub(crate) fn allocate() -> Self {
+            let layout = Self::layout();
+            // Safety: we know the `u8` layout has non-zero size, and we will handle the
+            // uninitialized memory below.
+            let ptr: *mut MaybeUninit<u8> = unsafe { std::alloc::alloc(layout) } as *mut _;
+            let slice = unsafe { std::slice::from_raw_parts_mut(ptr, BUFFER_SIZE) };
+            Self(slice as *mut _)
+        }
+
+        /// Safety: the caller must guarantee that at least `length` bytes of the underlying buffer
+        /// are initialized.
+        pub(crate) unsafe fn assume_init_ref(&self, length: usize) -> &[u8] {
+            let slice = &self[..length];
+            slice_assume_init_ref(slice)
+        }
+
+        const fn layout() -> std::alloc::Layout {
+            unsafe {
+                std::alloc::Layout::from_size_align_unchecked(BUFFER_SIZE, std::mem::align_of::<fuse_in_header>())
+            }
+        }
+    }
+
+    impl std::ops::Deref for FuseRequestBuffer {
+        type Target = [MaybeUninit<u8>];
+
+        fn deref(&self) -> &Self::Target {
+            unsafe { &*self.0 }
+        }
+    }
+
+    impl std::ops::DerefMut for FuseRequestBuffer {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            unsafe { &mut *self.0 }
+        }
+    }
+
+    impl Drop for FuseRequestBuffer {
+        fn drop(&mut self) {
+            // Safety: we're guaranteed to be using the same layout as at construction time
+            unsafe {
+                std::alloc::dealloc(self.0 as *mut u8, Self::layout());
+            }
+        }
+    }
+    unsafe impl Send for FuseRequestBuffer {}
+    unsafe impl Sync for FuseRequestBuffer {}
+}
+
+pub(crate) use request_buffer::FuseRequestBuffer;
 
 /// Request data structure
 #[derive(Debug)]
@@ -30,7 +105,7 @@ pub struct Request<'a> {
     request: ll::AnyRequest<'a>,
     /// Request raw data
     #[allow(unused)]
-    data: BufferPoolToken,
+    data: FuseRequestBuffer,
 }
 
 unsafe fn extend_lifetime<'old, 'new: 'old, T: 'new + ?Sized>(data: &'old T) -> &'new T {
@@ -39,15 +114,11 @@ unsafe fn extend_lifetime<'old, 'new: 'old, T: 'new + ?Sized>(data: &'old T) -> 
 
 impl<'a> Request<'a> {
     /// Create a new request from the given data
-    pub(crate) fn new(ch: ChannelSender, data: BufferPoolToken) -> Option<Request<'a>> {
-        let slice = &data[..];
-        // TODO safety -- basically this can't outlive the `data` because `self.request` gets
-        // dropped first.
+    pub(crate) fn new(ch: ChannelSender, data: FuseRequestBuffer, initialized_size: usize) -> Option<Request<'a>> {
+        let slice = unsafe { data.assume_init_ref(initialized_size) };
+        // Safety: the slice we create here can't outlive its backing storage because `Request`
+        // drops the `request` field before the backing `data`.
         let slice: &'a [u8] = unsafe { extend_lifetime(slice) };
-        let slice = aligned_sub_buf(
-            &slice[..],
-            std::mem::align_of::<abi::fuse_in_header>(),
-        );
         let request = match ll::AnyRequest::try_from(slice) {
             Ok(request) => request,
             Err(err) => {

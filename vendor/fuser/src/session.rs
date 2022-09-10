@@ -13,8 +13,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
-use crate::ll::fuse_abi as abi;
-use crate::request::Request;
+use crate::request::{Request, FuseRequestBuffer};
 use crate::Filesystem;
 use crate::MountOption;
 use crate::{channel::Channel, mnt::Mount};
@@ -23,10 +22,6 @@ use crate::{channel::Channel, mnt::Mount};
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
 /// and 128k on other systems.
 pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
-
-/// Size of the buffer for reading a request from the kernel. Since the kernel may send
-/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum SessionACL {
@@ -121,18 +116,13 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
         FS: 'static,
     {
         let session = self;
-        let buffer_pool = BufferPool::new();
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
-            let mut buffer = buffer_pool.allocate();
-            let buf = aligned_sub_buf_mut(
-                buffer.deref_mut(),
-                std::mem::align_of::<abi::fuse_in_header>(),
-            );
-            match session.ch.receive(buf) {
+            let mut buffer = FuseRequestBuffer::allocate();
+            match session.ch.receive(buffer.deref_mut()) {
                 // TODO figure out the alignment stuff here ... need to chop `buffer` down to `size` + whatever padding came off the front
-                Ok(_size) => match Request::new(session.ch.sender(), buffer) {
+                Ok(size) => match Request::new(session.ch.sender(), buffer, size) {
                     // Dispatch request
                     Some(req) => {
                         let session = std::sync::Arc::clone(&session);
@@ -161,76 +151,6 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
     /// Unmount the filesystem
     pub fn unmount(&mut self) {
         drop(std::mem::take(&mut self.mount));
-    }
-}
-
-struct BufferPool {
-    recv: crossbeam::channel::Receiver<Vec<u8>>,
-    send: crossbeam::channel::Sender<Vec<u8>>,
-}
-
-impl BufferPool {
-    fn new() -> Self {
-        let (send, recv) = crossbeam::channel::unbounded();
-        Self { recv, send }
-    }
-
-    fn allocate(&self) -> BufferPoolToken {
-        let buf = match self.recv.try_recv() {
-            Ok(buf) => buf,
-            Err(crossbeam::channel::TryRecvError::Empty) => vec![0; BUFFER_SIZE],
-            Err(crossbeam::channel::TryRecvError::Disconnected) => unreachable!(),
-        };
-
-        BufferPoolToken {
-            data: Some(buf),
-            returner: self.send.clone(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct BufferPoolToken {
-    data: Option<Vec<u8>>,
-    returner: crossbeam::channel::Sender<Vec<u8>>,
-}
-
-impl std::ops::Deref for BufferPoolToken {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.data.as_ref().unwrap()[..]
-    }
-}
-
-impl std::ops::DerefMut for BufferPoolToken {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data.as_mut().unwrap()[..]
-    }
-}
-
-impl Drop for BufferPoolToken {
-    fn drop(&mut self) {
-        let buf = self.data.take().unwrap();
-        let _ = self.returner.send(buf);
-    }
-}
-
-pub(crate) fn aligned_sub_buf(buf: &[u8], alignment: usize) -> &[u8] {
-    let off = alignment - (buf.as_ptr() as usize) % alignment;
-    if off == alignment {
-        buf
-    } else {
-        &buf[off..]
-    }
-}
-
-pub(crate) fn aligned_sub_buf_mut(buf: &mut [u8], alignment: usize) -> &mut [u8] {
-    let off = alignment - (buf.as_ptr() as usize) % alignment;
-    if off == alignment {
-        buf
-    } else {
-        &mut buf[off..]
     }
 }
 

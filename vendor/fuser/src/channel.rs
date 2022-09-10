@@ -1,3 +1,4 @@
+use std::mem::MaybeUninit;
 use std::{fs::File, io, os::unix::prelude::AsRawFd, sync::Arc};
 
 use libc::{c_int, c_void, size_t};
@@ -17,7 +18,7 @@ impl Channel {
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
-    pub fn receive(&self, buffer: &mut [u8]) -> io::Result<usize> {
+    pub fn receive(&self, buffer: &mut [MaybeUninit<u8>]) -> io::Result<usize> {
         let rc = unsafe {
             libc::read(
                 self.0.as_raw_fd(),

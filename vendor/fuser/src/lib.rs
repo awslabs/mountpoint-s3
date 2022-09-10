@@ -987,20 +987,20 @@ pub trait Filesystem {
 /// Note that you need to lead each option with a separate `"-o"` string. See
 /// `examples/hello.rs`.
 #[deprecated(note = "use mount2() instead")]
-pub async fn mount<FS: Filesystem + Send + Sync + 'static, P: AsRef<Path>>(
+pub fn mount<FS: Filesystem + Send + Sync + 'static, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,
     options: &[&OsStr],
 ) -> io::Result<()> {
     let options = parse_options_from_args(options)?;
-    mount2(filesystem, mountpoint, options.as_ref()).await
+    mount2(filesystem, mountpoint, options.as_ref())
 }
 
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
 ///
 /// NOTE: This will eventually replace mount(), once the API is stable
-pub async fn mount2<FS: Filesystem + Send + Sync + 'static, P: AsRef<Path>>(
+pub fn mount2<FS: Filesystem + Send + Sync + 'static, P: AsRef<Path>>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
