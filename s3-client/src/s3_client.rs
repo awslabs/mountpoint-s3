@@ -8,7 +8,7 @@ use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig};
 use thiserror::Error;
 
 mod get;
-mod list_objects_v2;
+pub(crate) mod list_objects_v2;
 
 #[derive(Debug, Clone, Default)]
 pub struct S3ClientConfig {

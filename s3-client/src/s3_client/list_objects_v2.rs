@@ -76,7 +76,7 @@ pub struct ListObjectsResult {
     pub objects: Vec<S3ObjectInfo>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct S3ObjectInfo {
     pub prefix: OsString,
     pub key: OsString,
@@ -105,7 +105,6 @@ impl ListObjectsV2UserData {
 
 unsafe extern "C" fn on_object_callback(info: *const aws_s3_object_info, user_data_ptr: *mut libc::c_void) -> bool {
     let user_data = (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap();
-
     let info = info.as_ref().unwrap();
 
     let prefix = byte_cursor_as_osstr(info.prefix);

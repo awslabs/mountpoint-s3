@@ -3,6 +3,7 @@ mod streaming_get;
 mod util;
 
 pub use self::s3_client::{S3Client, S3ClientConfig};
+pub use self::s3_client::list_objects_v2::S3ObjectInfo;
 pub use streaming_get::StreamingGetObject;
 
 #[cfg(test)]
