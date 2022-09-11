@@ -6,7 +6,7 @@ use s3::Region;
 use s3_client::S3Client;
 
 pub fn get_test_client() -> S3Client {
-    S3Client::new(Default::default()).expect("could not create test client")
+    S3Client::new(&get_test_region(), Default::default()).expect("could not create test client")
 }
 
 pub fn get_test_bucket_name() -> String {

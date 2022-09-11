@@ -23,13 +23,15 @@ fn main() -> anyhow::Result<()> {
         .arg(Arg::new("bucket").required(true))
         .arg(Arg::new("delimiter").long("--delimiter").default_value(""))
         .arg(Arg::new("prefix").long("--prefix").default_value(""))
+        .arg(Arg::new("region").long("--region").default_value("us-east-1"))
         .get_matches();
 
     let bucket = matches.get_one::<String>("bucket").unwrap();
     let delimiter = matches.get_one::<String>("delimiter").unwrap();
     let prefix = matches.get_one::<String>("prefix").unwrap();
+    let region = matches.get_one::<String>("region").unwrap();
 
-    let client = S3Client::new(Default::default()).expect("couldn't create client");
+    let client = S3Client::new(region, Default::default()).expect("couldn't create client");
 
     let result = futures::executor::block_on(client.list_objects_v2(bucket, prefix, delimiter, None))?;
 

@@ -12,6 +12,10 @@ all:
 release:
 	cargo build --release --all-targets
 
+.PHONY: check
+check:
+	cargo check --all-targets --all-features
+
 .PHONY: test
 test:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \

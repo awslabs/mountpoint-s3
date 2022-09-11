@@ -34,7 +34,7 @@ pub struct S3Client {
 }
 
 impl S3Client {
-    pub fn new(config: S3ClientConfig) -> Result<Self, S3ClientError> {
+    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, S3ClientError> {
         crt_init();
 
         // Safety arguments in this function are mostly pretty boring (singletons, constructors that
@@ -64,7 +64,7 @@ impl S3Client {
 
         let mut creds_provider = CredentialsProvider::new_chain_default(&mut allocator, &creds_options).unwrap();
 
-        let signing_config = init_default_signing_config("us-east-1", &mut creds_provider);
+        let signing_config = init_default_signing_config(region, &mut creds_provider);
         let throughput_target_gbps = config.throughput_target_gbps;
         let part_size = config.part_size;
 
@@ -86,7 +86,7 @@ impl S3Client {
             event_loop_group,
             credentials_provider: creds_provider,
             signing_config,
-            region: "us-east-1".to_owned(),
+            region: region.to_owned(),
             throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
         })
     }

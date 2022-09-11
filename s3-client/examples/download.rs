@@ -25,12 +25,14 @@ fn main() {
         .about("Download a single key from S3")
         .arg(Arg::new("bucket").required(true))
         .arg(Arg::new("key").required(true))
+        .arg(Arg::new("region").long("region").default_value("us-east-1"))
         .get_matches();
 
     let bucket = matches.get_one::<String>("bucket").unwrap();
     let key = matches.get_one::<String>("key").unwrap();
+    let region = matches.get_one::<String>("region").unwrap();
 
-    let client = S3Client::new(Default::default()).expect("couldn't create client");
+    let client = S3Client::new(region, Default::default()).expect("couldn't create client");
 
     let last_offset = Arc::new(Mutex::new(None));
     let last_offset_clone = Arc::clone(&last_offset);

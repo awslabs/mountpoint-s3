@@ -38,6 +38,9 @@ struct CliArgs {
     #[clap(help = "Size of key in bytes")]
     pub file_size: u64,
 
+    #[clap(help = "AWS region of the bucket", default_value = "us-east-1")]
+    pub region: String,
+
     #[clap(long, help = "Automatically unmount on exit")]
     pub auto_unmount: bool,
 
@@ -71,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
         part_size: args.part_size.map(|t| t as usize),
     };
-    let client = S3Client::new(config).context("Failed to create S3 client")?;
+    let client = S3Client::new(&args.region, config).context("Failed to create S3 client")?;
 
     let session = Session::new(
         fs::S3Filesystem::new(client, &args.bucket_name, &args.key_name, args.file_size as usize),

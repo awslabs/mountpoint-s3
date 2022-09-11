@@ -50,6 +50,7 @@ fn main() {
                 .help("Number of times to download")
                 .takes_value(true),
         )
+        .arg(Arg::new("region").long("region").default_value("us-east-1"))
         .get_matches();
 
     let bucket = matches.get_one::<String>("bucket").unwrap();
@@ -69,12 +70,13 @@ fn main() {
     let iterations = matches
         .get_one::<String>("iterations")
         .map(|s| s.parse::<usize>().expect("iterations must be a number"));
+    let region = matches.get_one::<String>("region").unwrap();
 
     let config = S3ClientConfig {
         throughput_target_gbps,
         part_size,
     };
-    let client = Arc::new(S3Client::new(config).expect("couldn't create client"));
+    let client = Arc::new(S3Client::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {
         let received_size = Arc::new(AtomicU64::new(0));

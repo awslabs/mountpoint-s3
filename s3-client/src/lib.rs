@@ -30,6 +30,6 @@ mod tests {
 
     #[test]
     fn smoke() {
-        let _client = S3Client::new(Default::default()).unwrap();
+        let _client = S3Client::new("us-east-1", Default::default()).unwrap();
     }
 }
