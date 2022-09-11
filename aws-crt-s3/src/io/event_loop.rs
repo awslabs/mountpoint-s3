@@ -10,8 +10,10 @@ use futures::task::ArcWake;
 use futures::FutureExt;
 use std::future::Future;
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 pub struct EventLoop {
     pub(crate) inner: NonNull<aws_event_loop>,
@@ -19,8 +21,16 @@ pub struct EventLoop {
     _event_loop_group: EventLoopGroup,
 }
 
+// Safety: Event Loops are safe to send across threads, since they're the main way to schedule things onto other threads.
+// From aws_c_io README
+// > The functions we specify as thread-safe, we do so because those functions are necessary for abiding by the stated threading model.
+// > For example, since scheduling a task is the main function for addressing cross-threaded operations, it has to be thread-safe.
+// From event_loop.h:aws_event_loop_schedule_task_now
+// >  * This function may be called from outside or inside the event loop thread.
+unsafe impl Send for EventLoop {}
+
 impl EventLoop {
-    pub fn schedule_task_now(&mut self, task: Task) {
+    pub fn schedule_task_now(&self, task: Task) {
         unsafe {
             // Safety: we turn the Task into a pointer but don't return it to the caller and
             // immediately schedule it on this event loop.
@@ -28,19 +38,31 @@ impl EventLoop {
         }
     }
 
-    pub fn schedule_task_future(&mut self, task: Task, when: u64) {
+    fn schedule_task_future(&self, task: Task, when: u64) {
         unsafe {
             // Safety: see schedule_task_now
             aws_event_loop_schedule_task_future(self.inner.as_ptr(), task.into_aws_task_ptr(), when);
         }
     }
 
-    pub fn current_clock_time(&mut self) -> u64 {
+    fn current_clock_time(&self) -> u64 {
         unsafe {
             let mut time_nanos: u64 = 0;
             let res = aws_event_loop_current_clock_time(self.inner.as_ptr(), &mut time_nanos);
             assert_eq!(res, AWS_OP_SUCCESS);
             time_nanos
+        }
+    }
+}
+
+/// EventLoops don't destroy anything on Drop, so we are free to duplicate the pointer to it. But we
+/// do need to clone the EventLoopGroup reference so that the group won't be Dropped while this
+/// reference to the EventLoop exists.
+impl Clone for EventLoop {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner,
+            _event_loop_group: self._event_loop_group.clone(),
         }
     }
 }
@@ -86,13 +108,14 @@ impl EventLoopGroup {
     }
 
     /// Get the number of loops in this group.
-    pub fn get_loop_count(&mut self) -> usize {
+    pub fn get_loop_count(&self) -> usize {
         unsafe {
             // Safety: self.inner is always non-null and we're calling a simple getter.
             aws_event_loop_group_get_loop_count(self.inner.as_ptr())
         }
     }
 
+    // Schedule a Future to execute on this event loop group.
     pub fn schedule_future<T: Send + 'static>(
         &self,
         future: impl Future<Output = T> + Send + 'static,
@@ -192,13 +215,85 @@ impl<T: Send + 'static> ArcWake for FutureTask<T> {
         let task = Task::init(
             move |status| {
                 // TODO: handle the Canceled case gracefully
-                assert_eq!(status, TaskStatus::RunReady);
+                assert_eq!(status, TaskStatus::RunReady, "Task canceled");
                 FutureTask::poll(&arc_self);
             },
             "event_loop_future",
         );
 
         el_group.get_next_loop().unwrap().schedule_task_now(task);
+    }
+}
+
+/// EventLoopTimer is a Future that delays for some amount of time.
+/// Internally it schedules the timer on an event loop using schedule_task_future.
+pub struct EventLoopTimer {
+    /// The event loop that the timer task is running on.
+    event_loop: EventLoop,
+    /// How long the timer should run for.
+    duration: Duration,
+    /// Whether the timer has completed already.
+    done: Arc<AtomicBool>,
+    /// Whether the timer task has been scheduled yet.
+    scheduled: Arc<AtomicBool>,
+}
+
+impl EventLoopTimer {
+    /// Create a new EventLoopTimer.
+    /// event_loop is the loop that the timer thread will run on (which doesn't need to be related
+    /// to the event loop the calling thread or future uses).
+    /// duration is how long the timer should delay for. The timer doesn't start until the first
+    /// time it's been polled / awaited upon.
+    pub fn new(event_loop: EventLoop, duration: Duration) -> Self {
+        Self {
+            event_loop,
+            duration,
+            done: Arc::new(AtomicBool::new(false)),
+            scheduled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl Future for EventLoopTimer {
+    type Output = ();
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Check if the timer is already done
+        if self.done.load(Ordering::SeqCst) {
+            return Poll::Ready(());
+        }
+
+        // Check if the timer is scheduled already. If it is, swapping true won't do anything and we
+        // return Pending. If it isn't, this atomically sets scheduled to true and we will schedule
+        // the task now.
+        if self.scheduled.swap(true, Ordering::SeqCst) {
+            return Poll::Pending;
+        }
+
+        let now = self.event_loop.current_clock_time();
+        let nanos: u64 = self
+            .duration
+            .as_nanos()
+            .try_into()
+            .expect("Too many nanoseconds in duration to fit in u64");
+
+        let waker = cx.waker().clone();
+        let done = self.done.clone();
+
+        self.event_loop.schedule_task_future(
+            Task::init(
+                move |status| {
+                    // TODO: handle the Canceled case more gracefully
+                    assert_eq!(status, TaskStatus::RunReady, "Task canceled");
+                    done.store(true, Ordering::SeqCst);
+                    waker.wake()
+                },
+                "event_loop_timer",
+            ),
+            now + nanos,
+        );
+
+        Poll::Pending
     }
 }
 
@@ -225,7 +320,7 @@ mod test {
         let (tx, rx) = channel::bounded::<i32>(NUM_TASKS as usize);
 
         for id in 0..NUM_TASKS {
-            let mut el = el_group.get_next_loop().unwrap();
+            let el = el_group.get_next_loop().unwrap();
 
             let counter = counter.clone();
             let tx = tx.clone();
@@ -264,5 +359,33 @@ mod test {
         });
 
         rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    /// Test the EventLoopTimer with some simple timers.
+    #[test]
+    fn test_timer_future() {
+        let mut allocator = Allocator::default();
+        let el_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
+        let event_loop = el_group.get_next_loop().unwrap();
+
+        // Create two timers, each delaying 1 second. They won't start timing until they're awaited.
+        let timer1 = EventLoopTimer::new(event_loop.clone(), Duration::from_secs(1));
+        let timer2 = EventLoopTimer::new(event_loop.clone(), Duration::from_secs(1));
+
+        let before_nanos = event_loop.current_clock_time();
+
+        // Run a future that awaits both timers.
+        let rx = el_group.schedule_future(async {
+            timer1.await;
+            timer2.await
+        });
+
+        // Wait up to 5s for the future to complete.
+        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        let after_nanos = event_loop.current_clock_time();
+
+        // At least 2 seconds should have passed by the time the future completes.
+        assert!(after_nanos > before_nanos + u64::try_from(Duration::from_secs(2).as_nanos()).unwrap());
     }
 }
