@@ -9,6 +9,5 @@ publish = false
 aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }
 libc = "0.2.132"
 static_assertions = "1.1.0"
-
-[dev-dependencies]
+futures = "0.3.24"
 crossbeam = "0.8.2"

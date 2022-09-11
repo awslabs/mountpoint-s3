@@ -6,7 +6,7 @@ use std::pin::Pin;
 /// Wrapper around aws_task_status. We need to do this (rather than have bindgen generate a
 /// Rust-like enum) since the type has to be FFI-safe in the callbacks later in this file. But the
 /// generated enum is less friendly to use, to we have this wrapper.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TaskStatus {
     RunReady,

@@ -11,9 +11,15 @@ impl Allocator {
     pub fn default() -> Self {
         let inner = unsafe { aws_default_allocator() };
 
-        Self {
-            inner: NonNull::new(inner).expect("CRT default allocator is never null"),
+        let inner = NonNull::new(inner).expect("CRT default allocator is never null");
+
+        unsafe {
+            // TODO: Decide whether this is the right place to call this function. If we fail to
+            // call aws_common_library_init, tests will randomly segfault.
+            super::common_library_init(inner);
         }
+
+        Self { inner }
     }
 }
 
