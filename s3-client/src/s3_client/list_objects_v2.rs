@@ -1,12 +1,14 @@
 use crate::util::{byte_cursor_as_osstr, StringExt};
 use crate::S3Client;
 use aws_crt_s3::auth::signing_config::SigningConfig;
+use aws_crt_s3::common::error::Error;
 use aws_crt_s3_sys::{
-    aws_s3_initiate_list_objects, aws_s3_list_objects_params, aws_s3_object_info, aws_s3_paginator,
+    aws_last_error, aws_s3_initiate_list_objects, aws_s3_list_objects_params, aws_s3_object_info, aws_s3_paginator,
     aws_s3_paginator_continue, aws_s3_paginator_has_more_results,
 };
 use futures::channel::oneshot;
 use std::ffi::OsString;
+use thiserror::Error;
 use tracing::{error, trace};
 
 impl S3Client {
@@ -16,7 +18,7 @@ impl S3Client {
         prefix: &str,
         delimiter: &str,
         continuation_token: Option<&str>,
-    ) -> Result<ListObjectsResult, String> {
+    ) -> Result<ListObjectsResult, ListObjectsError> {
         let (tx, rx) = oneshot::channel();
 
         let endpoint = format!("s3.{}.amazonaws.com", self.region);
@@ -44,16 +46,29 @@ impl S3Client {
             };
 
             let paginator = aws_s3_initiate_list_objects(self.allocator.inner.as_ptr(), &list_objects_params);
+            if paginator.is_null() {
+                return Err(ListObjectsError::InitiateListObjects(aws_last_error().into()));
+            }
 
             let result = aws_s3_paginator_continue(paginator, self.signing_config.to_inner_ptr());
 
             if result != 0 {
-                return Err(format!("aws_s3_paginator_continue error: {}", result));
+                return Err(ListObjectsError::InitiateListObjects(aws_last_error().into()));
             }
         }
 
-        rx.await.unwrap()
+        rx.await.expect("sender must not drop before returning a result")
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ListObjectsError {
+    #[error("failed to initiate ListObjectsV2 request")]
+    InitiateListObjects(Error),
+    #[error("failed to continue paginator")]
+    Paginator(Error),
+    #[error("CRT error")]
+    CRTError(#[from] Error),
 }
 
 #[derive(Default, Debug)]
@@ -72,7 +87,7 @@ pub struct S3ObjectInfo {
 struct ListObjectsV2UserData {
     result: Option<ListObjectsResult>,
     signing_config: SigningConfig,
-    tx: Option<oneshot::Sender<Result<ListObjectsResult, String>>>,
+    tx: Option<oneshot::Sender<Result<ListObjectsResult, ListObjectsError>>>,
 }
 
 // This struct needs to be Send because we give it to the CRT
@@ -81,7 +96,7 @@ static_assertions::assert_impl_all!(Box<ListObjectsV2UserData>: Send, Sync);
 impl ListObjectsV2UserData {
     /// Finish the callback by transmitting a result back to the caller of list_objects_v2.
     /// Don't use self after calling this function because the Box backing it will be deallocated.
-    unsafe fn finish_callback(&mut self, result: Result<ListObjectsResult, String>) {
+    unsafe fn finish_callback(&mut self, result: Result<ListObjectsResult, ListObjectsError>) {
         let tx = self.tx.take().unwrap();
 
         tx.send(result).unwrap();
@@ -102,7 +117,7 @@ unsafe extern "C" fn on_object_callback(info: *const aws_s3_object_info, user_da
         size: info.size,
     });
 
-    trace!(?prefix, ?key, size = info.size, "ListObjectsV2 on_object callback");
+    trace!(request = ?user_data_ptr, ?prefix, ?key, size = info.size, "ListObjectsV2 on_object callback");
 
     true
 }
@@ -112,15 +127,16 @@ unsafe extern "C" fn on_list_finished_callback(
     error_code: libc::c_int,
     user_data_ptr: *mut libc::c_void,
 ) {
-    trace!(error_code, "ListObjectsV2 on_list_finished callback");
+    trace!(request = ?user_data_ptr, "ListObjectsV2 on_list_finished callback");
 
     // Turn the pointer into a boxed reference. We box the reference so that finish_callback can consume
     // it and avoid us having an invalid reference after we transmit on tx.
     let user_data = (user_data_ptr as *mut ListObjectsV2UserData).as_mut().unwrap();
 
     if error_code != 0 {
-        error!(error_code, "ListObjectsV2 on_list_finished_callback error");
-        user_data.finish_callback(Err(format!("on_list_finish callback error: {}", error_code)));
+        let err: Error = error_code.into();
+        error!(request = ?user_data_ptr, error_code, error = %err, "ListObjectsV2 on_list_finished_callback error");
+        user_data.finish_callback(Err(ListObjectsError::CRTError(err)));
         return;
     }
 
@@ -135,7 +151,8 @@ unsafe extern "C" fn on_list_finished_callback(
     let result = aws_s3_paginator_continue(paginator, user_data.signing_config.to_inner_ptr());
 
     if result != 0 {
-        error!(result, "ListObjectsV2 aws_s3_paginator_continue failed");
-        user_data.finish_callback(Err(format!("aws_s3_paginator_continue error: {}", result)));
+        let err: Error = aws_last_error().into();
+        error!(request = ?user_data_ptr, error = %err, "ListObjectsV2 aws_s3_paginator_continue failed");
+        user_data.finish_callback(Err(ListObjectsError::Paginator(err)));
     }
 }

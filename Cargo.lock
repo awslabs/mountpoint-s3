@@ -1481,6 +1481,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 name = "s3-client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "aws-config",
  "aws-crt-s3",
  "aws-crt-s3-sys",
