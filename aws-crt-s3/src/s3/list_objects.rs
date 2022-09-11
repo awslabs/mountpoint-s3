@@ -1,9 +1,10 @@
 #![allow(unused)]
 
 use crate::common::allocator::Allocator;
+use crate::common::error::Error;
 use crate::s3::client::Client;
 use crate::s3::paginator::Paginator;
-use crate::StringExt;
+use crate::{PtrExt, StringExt};
 use aws_crt_s3_sys::*;
 use std::ffi::OsStr;
 use std::ptr::NonNull;
@@ -15,7 +16,7 @@ pub struct ListObjectsParams<'a> {
     delimiter: &'a str,
 }
 
-pub fn initiate_list_objects(allocator: &mut Allocator, params: &ListObjectsParams) -> Option<Paginator> {
+pub fn initiate_list_objects(allocator: &mut Allocator, params: &ListObjectsParams) -> Result<Paginator, Error> {
     // Safety: aws_s3_initiate_list_objects makes copies of the strings we pass in here
     let inner = unsafe {
         let inner_params = aws_s3_list_objects_params {
@@ -25,10 +26,8 @@ pub fn initiate_list_objects(allocator: &mut Allocator, params: &ListObjectsPara
             ..Default::default()
         };
 
-        aws_s3_initiate_list_objects(allocator.inner.as_ptr(), &inner_params)
+        aws_s3_initiate_list_objects(allocator.inner.as_ptr(), &inner_params).ok_or_last_error()?
     };
 
-    Some(Paginator {
-        inner: NonNull::new(inner)?,
-    })
+    Ok(Paginator { inner })
 }

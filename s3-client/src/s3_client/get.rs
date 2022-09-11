@@ -2,13 +2,15 @@ use std::ops::Range;
 use std::slice;
 use std::sync::mpsc::{Receiver, Sender};
 
+use aws_crt_s3::common::error::Error;
 use aws_crt_s3_sys::{
     aws_byte_cursor, aws_http_header, aws_http_message_add_header, aws_http_message_new_request,
-    aws_http_message_set_request_method, aws_http_message_set_request_path, aws_http_method_get,
+    aws_http_message_set_request_method, aws_http_message_set_request_path, aws_http_method_get, aws_last_error,
     aws_s3_client_make_meta_request, aws_s3_meta_request, aws_s3_meta_request_options, aws_s3_meta_request_result,
     aws_s3_meta_request_type, AWS_OP_SUCCESS,
 };
-use tracing::{error, trace};
+use thiserror::Error;
+use tracing::{debug, error, trace};
 
 use crate::util::{PtrExt, StringExt};
 use crate::S3Client;
@@ -22,7 +24,7 @@ impl S3Client {
         key: &str,
         range: Option<Range<u64>>,
         callback: impl FnMut(u64, &[u8]) + Send + 'static,
-    ) -> Result<GetObjectRequest, String> {
+    ) -> Result<GetObjectRequest, GetObjectError> {
         // Safety: `aws_http_message_add_header` and `aws_http_message_set_request_path` copy their
         // input strings, so none of the strings we create here need to live beyond this scope
         let message = unsafe {
@@ -91,7 +93,7 @@ impl S3Client {
 
         let _meta_request = unsafe {
             aws_s3_client_make_meta_request(self.s3_client.inner.as_ptr(), &request_options as *const _)
-                .ok_or("failed to create meta request".to_string())?
+                .ok_or(Error::from(aws_last_error()))?
         };
 
         Ok(GetObjectRequest {
@@ -100,14 +102,23 @@ impl S3Client {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum GetObjectError {
+    #[error("CRT error")]
+    CRTError(#[from] Error),
+}
+
 pub struct GetObjectRequest {
-    finish_receiver: Receiver<Result<(), String>>,
+    finish_receiver: Receiver<Result<(), Error>>,
 }
 
 impl GetObjectRequest {
     /// Block the current thread until the GetObject request finishes.
-    pub fn wait(self) -> Result<(), String> {
-        self.finish_receiver.recv().expect("recv failed")
+    pub fn wait(self) -> Result<(), GetObjectError> {
+        Ok(self
+            .finish_receiver
+            .recv()
+            .expect("sender must not drop before sending a result")?)
     }
 }
 
@@ -115,7 +126,7 @@ impl GetObjectRequest {
 struct GetObjectRequestUserData {
     #[allow(clippy::type_complexity)]
     callback: Box<dyn FnMut(u64, &[u8]) + Send>,
-    finish_channel: Sender<Result<(), String>>,
+    finish_channel: Sender<Result<(), Error>>,
 }
 
 // GetObjectRequestUserData needs to be Send because we (logically) send it to the CRT.
@@ -172,20 +183,24 @@ extern "C" fn get_object_finish_callback(
     let user_data = unsafe { Box::from_raw(user_data_ptr as *mut GetObjectRequestUserData) };
 
     if result.error_code != 0 {
-        let error_body = if let Some(error_body) = unsafe { result.error_response_body.as_ref() } {
+        if let Some(error_body) = unsafe { result.error_response_body.as_ref() } {
             let error_body: &[u8] = unsafe { slice::from_raw_parts(error_body.buffer, error_body.len) };
-            let error_body = std::str::from_utf8(error_body).expect("error wasn't UTF-8");
-            error_body.to_string()
-        } else {
-            "Unknown error".into()
-        };
+            let error_body = std::string::String::from_utf8_lossy(error_body);
+            debug!(request=?meta_request,
+                %error_body,
+            );
+        }
+
+        let err: Error = result.error_code.into();
         error!(
             request=?meta_request,
             error_code = result.error_code,
-            error_body, "GetObject failed"
+            error = err.to_debug_str(),
+            "GetObjectRequest failed"
         );
+
         // The other end may have already dropped, so just swallow failures here.
-        let _ = user_data.finish_channel.send(Err(error_body));
+        let _ = user_data.finish_channel.send(Err(err));
     } else {
         // The other end may have already dropped, so just swallow failures here.
         let _ = user_data.finish_channel.send(Ok(()));

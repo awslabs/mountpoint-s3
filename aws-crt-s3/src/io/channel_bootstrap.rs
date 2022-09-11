@@ -1,6 +1,8 @@
 use crate::common::allocator::Allocator;
+use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::host_resolver::HostResolver;
+use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
@@ -14,18 +16,18 @@ pub struct ClientBootstrapOptions<'a> {
 }
 
 impl ClientBootstrap {
-    pub fn new(allocator: &mut Allocator, options: &ClientBootstrapOptions) -> Option<Self> {
+    pub fn new(allocator: &mut Allocator, options: &ClientBootstrapOptions) -> Result<Self, Error> {
         let inner_options = aws_client_bootstrap_options {
             event_loop_group: options.event_loop_group.inner.as_ptr(),
             host_resolver: options.host_resolver.inner.as_ptr(),
             ..Default::default()
         };
 
-        let inner = unsafe { aws_client_bootstrap_new(allocator.inner.as_ptr(), &inner_options) };
+        // Safety: `event_loop_group` and `host_resolver` are reference counted pointers, so they
+        // will survive even if their Rust versions are dropped
+        let inner = unsafe { aws_client_bootstrap_new(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()? };
 
-        Some(Self {
-            inner: NonNull::new(inner)?,
-        })
+        Ok(Self { inner })
     }
 }
 

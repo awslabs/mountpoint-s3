@@ -1,5 +1,7 @@
 use crate::common::allocator::Allocator;
+use crate::common::error::Error;
 use crate::common::task_scheduler::Task;
+use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
@@ -26,29 +28,29 @@ pub struct EventLoopGroup {
 impl EventLoopGroup {
     /// Create a new default EventLoopGroup.
     /// max_threads: use None for the CRT default
-    pub fn new_default(allocator: &mut Allocator, max_threads: Option<u16>) -> Option<Self> {
+    pub fn new_default(allocator: &mut Allocator, max_threads: Option<u16>) -> Result<Self, Error> {
+        let max_threads = max_threads.unwrap_or(0);
+
         let inner = unsafe {
             // TODO: Don't hardcode clock = null
-            aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads.unwrap_or(0), std::ptr::null())
+            aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads, std::ptr::null())
+                .ok_or_last_error()?
         };
 
-        Some(Self {
-            inner: NonNull::new(inner)?,
-        })
+        Ok(Self { inner })
     }
 
     /// Get the next event loop to schedule a task on. (Internally, the CRT will make a choice
     /// on which loop in the group will be returned.)
-    pub fn get_next_loop(&mut self) -> Option<EventLoop> {
+    pub fn get_next_loop(&mut self) -> Result<EventLoop, Error> {
         unsafe {
             // Safety: we make sure to embed a copy of the event loop group into the EventLoop
             // struct so we don't free the group while we still have a reference to one of its
             // event loops.
+            let inner = aws_event_loop_group_get_next_loop(self.inner.as_ptr()).ok_or_last_error()?;
 
-            let inner = aws_event_loop_group_get_next_loop(self.inner.as_ptr());
-
-            Some(EventLoop {
-                inner: NonNull::new(inner)?,
+            Ok(EventLoop {
+                inner,
                 _event_loop_group: self.clone(),
             })
         }
@@ -93,7 +95,7 @@ mod test {
     fn test_schedule_tasks_default_el_group() {
         const NUM_TASKS: i32 = 2_000;
 
-        let mut allocator = Allocator::default().unwrap();
+        let mut allocator = Allocator::default();
         let mut el_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
 
         let counter = Arc::new(AtomicI32::new(0));

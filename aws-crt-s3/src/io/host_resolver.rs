@@ -1,5 +1,7 @@
 use crate::common::allocator::Allocator;
+use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
+use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
@@ -13,18 +15,17 @@ pub struct HostResolver {
 }
 
 impl HostResolver {
-    pub fn new_default(allocator: &mut Allocator, options: &HostResolverDefaultOptions) -> Option<Self> {
+    pub fn new_default(allocator: &mut Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {
         let mut inner_options = aws_host_resolver_default_options {
             el_group: options.event_loop_group.inner.as_ptr(),
             max_entries: options.max_entries,
             ..Default::default()
         };
 
-        let inner = unsafe { aws_host_resolver_new_default(allocator.inner.as_ptr(), &mut inner_options) };
+        let inner =
+            unsafe { aws_host_resolver_new_default(allocator.inner.as_ptr(), &mut inner_options).ok_or_last_error()? };
 
-        Some(Self {
-            inner: NonNull::new(inner)?,
-        })
+        Ok(Self { inner })
     }
 }
 

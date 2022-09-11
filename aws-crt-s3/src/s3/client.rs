@@ -1,8 +1,9 @@
 use crate::auth::credentials::CredentialsProvider;
 use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
+use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::StringExt;
+use crate::{PtrExt, StringExt};
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ pub struct ClientConfig<'a> {
 }
 
 impl Client {
-    pub fn new(allocator: &mut Allocator, config: &ClientConfig) -> Option<Self> {
+    pub fn new(allocator: &mut Allocator, config: &ClientConfig) -> Result<Self, Error> {
         let signing_config = config.signing_config.clone();
 
         // Get the inner pointer out of the signing config. Cast it to a mut pointer (even though we
@@ -45,12 +46,9 @@ impl Client {
             ..Default::default()
         };
 
-        let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &inner_config) };
+        let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &inner_config).ok_or_last_error()? };
 
-        Some(Self {
-            inner: NonNull::new(inner)?,
-            signing_config,
-        })
+        Ok(Self { inner, signing_config })
     }
 }
 

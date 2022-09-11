@@ -8,11 +8,17 @@ pub struct Allocator {
 
 impl Allocator {
     /// The default allocator is a singleton, so this always returns the same allocator
-    pub fn default() -> Option<Self> {
+    pub fn default() -> Self {
         let inner = unsafe { aws_default_allocator() };
 
-        Some(Self {
-            inner: NonNull::new(inner)?,
-        })
+        Self {
+            inner: NonNull::new(inner).expect("CRT default allocator is never null"),
+        }
+    }
+}
+
+impl Default for Allocator {
+    fn default() -> Self {
+        Self::default()
     }
 }

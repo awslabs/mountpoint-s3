@@ -40,7 +40,7 @@ impl S3Client {
         // Safety arguments in this function are mostly pretty boring (singletons, constructors that
         // copy from pointers, etc), so safety annotations only on interesting cases.
 
-        let mut allocator = Allocator::default().unwrap();
+        let mut allocator = Allocator::default();
 
         let mut event_loop_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
 

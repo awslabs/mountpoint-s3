@@ -12,6 +12,11 @@ all:
 release:
 	cargo build --release --all-targets
 
+.PHONY: test
+test:
+	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
+	cargo test $$packages
+
 .PHONY: fmt
 fmt:
 	@for crate in $(CRATES); do \
@@ -28,5 +33,5 @@ fmt-check:
 
 .PHONY: clippy
 clippy:
-	packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
+	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	cargo clippy $$packages --no-deps --all-targets -- -D clippy::all
