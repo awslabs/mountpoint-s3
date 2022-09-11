@@ -1,11 +1,15 @@
+//! Configuration for signing requests to AWS APIs
+
 use aws_crt_s3_sys::*;
 use std::ffi::OsString;
+use std::fmt::Debug;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::sync::Arc;
 
 #[derive(Default)]
 pub(crate) struct SigningConfigInner {
+    /// The raw `aws_signing_config` for this config
     // TODO: make only visible to this crate
     pub inner: aws_signing_config_aws,
 
@@ -16,10 +20,18 @@ pub(crate) struct SigningConfigInner {
     pub(crate) _pinned: PhantomPinned,
 }
 
+impl Debug for SigningConfigInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigningConfigInner")
+            .field("region", &self.region)
+            .finish()
+    }
+}
+
 /// Wrap the SigningConfigInner struct into a Pin<Box<_>>, so that it cannot be moved. Then wrap
 /// in an Arc so that we can make copies. If there were a way to convert Pin<Box<_>> into Pin<Arc<_>>
 /// then we could avoid needing both.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SigningConfig(pub(crate) Arc<Pin<Box<SigningConfigInner>>>);
 
 impl SigningConfig {

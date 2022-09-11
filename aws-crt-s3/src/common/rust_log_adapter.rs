@@ -1,3 +1,5 @@
+//! An adapter between the CRT's [Logger] and the Rust `log` facade
+
 use std::fmt::Write as _;
 
 use smallstr::SmallString;
@@ -9,6 +11,8 @@ use crate::common::logging::{Level, Logger, LoggerImpl, LoggerInitError, Subject
 /// Rust `log` facade. To install it, call `RustLogAdapter::try_init()`, and then CRT log messages
 /// will be sent to the `log` facade. These messages will follow that facade's logic for when to
 /// emit log messages. All CRT log messages will have a target that starts with "awscrt::".
+#[derive(Debug)]
+#[non_exhaustive]
 pub struct RustLogAdapter;
 
 impl RustLogAdapter {
@@ -39,7 +43,7 @@ impl From<Level> for log::Level {
             Level::Warn => log::Level::Warn,
             Level::Info => log::Level::Info,
             Level::Debug => log::Level::Debug,
-            Level::Trace | Level::Count => log::Level::Trace,
+            Level::Trace => log::Level::Trace,
         }
     }
 }

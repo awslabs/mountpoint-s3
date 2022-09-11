@@ -1,3 +1,7 @@
+#![deny(missing_debug_implementations, missing_docs)]
+
+//! Rust bindings for the AWS Common Runtime.
+
 use aws_crt_s3_sys::*;
 
 pub mod auth;

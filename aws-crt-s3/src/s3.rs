@@ -1,3 +1,5 @@
+//! High-throughput primitives for working with Amazon S3
+
 use std::sync::Once;
 
 use aws_crt_s3_sys::aws_s3_library_init;

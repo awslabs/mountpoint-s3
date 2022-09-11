@@ -1,7 +1,10 @@
+//! Common error handing tools for the CRT
+
 use std::fmt::{Debug, Display};
 
 use aws_crt_s3_sys::{aws_error_debug_str, aws_last_error};
 
+/// An error reported by the CRT
 #[derive(Clone, Copy)]
 pub struct Error(i32);
 

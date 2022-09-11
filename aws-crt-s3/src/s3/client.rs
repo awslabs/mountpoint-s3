@@ -1,3 +1,5 @@
+//! A client for high-throughput access to Amazon S3
+
 use crate::auth::credentials::CredentialsProvider;
 use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
@@ -9,7 +11,10 @@ use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+/// A client for high-throughput access to Amazon S3
+#[derive(Debug)]
 pub struct Client {
+    /// A pointer to the underlying `aws_s3_client`
     // TODO: make only visible to this crate
     pub inner: NonNull<aws_s3_client>,
 
@@ -18,18 +23,24 @@ pub struct Client {
     signing_config: SigningConfig,
 }
 
+/// Options for creating a new [Client]
+#[derive(Debug)]
 pub struct ClientConfig<'a> {
-    // None means default
+    /// The maximum number of active connections to S3, or `None` to use the default
     pub max_active_connections_override: Option<u32>,
-    // None means default
+    /// The target aggregate throughput for this client to S3, or `None` to use the default. The
+    /// client uses this setting to decide how many concurrent connections to make to S3.
     pub throughput_target_gbps: Option<f64>,
-    // None means default
+    /// The part size to use for each concurrent request to S3, or `None` to use the default
     pub part_size: Option<usize>,
+    /// The [ClientBootstrap] to use to create connections to S3
     pub client_bootstrap: &'a mut ClientBootstrap,
+    /// The configuration for signing API requests to S3
     pub signing_config: &'a SigningConfig,
 }
 
 impl Client {
+    /// Create a new S3 [Client]
     pub fn new(allocator: &mut Allocator, config: &ClientConfig) -> Result<Self, Error> {
         s3_library_init(allocator);
 
@@ -76,6 +87,8 @@ impl Drop for Client {
     }
 }
 
+/// Create a new [SigningConfig] with the default configuration for signing S3 requests to a region
+/// using the given [CredentialsProvider]
 pub fn init_default_signing_config(region: &str, credentials_provider: &mut CredentialsProvider) -> SigningConfig {
     let mut signing_config = Box::new(SigningConfigInner {
         inner: Default::default(),

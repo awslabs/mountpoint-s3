@@ -1,3 +1,5 @@
+//! Infrastructure for asynchronous green-threaded execution
+
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::task_scheduler::{Task, TaskStatus};
@@ -15,7 +17,10 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+/// An event loop that can be used to schedule and execute tasks
+#[derive(Debug)]
 pub struct EventLoop {
+    /// Pointer to the underlying `aws_event_loop`
     pub(crate) inner: NonNull<aws_event_loop>,
     /// Hold a cloned copy of the event loop group so that it's not destroyed while this event loop exists
     _event_loop_group: EventLoopGroup,
@@ -30,6 +35,7 @@ pub struct EventLoop {
 unsafe impl Send for EventLoop {}
 
 impl EventLoop {
+    /// Schedule a task to execute on this event loop as soon as possible
     pub fn schedule_task_now(&self, task: Task) {
         unsafe {
             // Safety: we turn the Task into a pointer but don't return it to the caller and
@@ -38,6 +44,7 @@ impl EventLoop {
         }
     }
 
+    /// Schedule a task to execute on this event loop at the specified time
     fn schedule_task_future(&self, task: Task, when: u64) {
         unsafe {
             // Safety: see schedule_task_now
@@ -45,6 +52,7 @@ impl EventLoop {
         }
     }
 
+    /// Get the current timestamp for this event loop's clock
     fn current_clock_time(&self) -> u64 {
         unsafe {
             let mut time_nanos: u64 = 0;
@@ -67,6 +75,9 @@ impl Clone for EventLoop {
     }
 }
 
+/// An event loop group collects one or more [`EventLoop`]s together for processor affiniity and
+/// load balancing purposes
+#[derive(Debug)]
 pub struct EventLoopGroup {
     pub(crate) inner: NonNull<aws_event_loop_group>,
 }
@@ -115,7 +126,8 @@ impl EventLoopGroup {
         }
     }
 
-    // Schedule a Future to execute on this event loop group.
+    /// Spawn the given Future as a task to run to completion on an event loop from this group. The
+    /// returned channel will return the result of the task once it completes.
     pub fn schedule_future<T: Send + 'static>(
         &self,
         future: impl Future<Output = T> + Send + 'static,
@@ -227,6 +239,7 @@ impl<T: Send + 'static> ArcWake for FutureTask<T> {
 
 /// EventLoopTimer is a Future that delays for some amount of time.
 /// Internally it schedules the timer on an event loop using schedule_task_future.
+#[derive(Debug)]
 pub struct EventLoopTimer {
     /// The event loop that the timer task is running on.
     event_loop: EventLoop,

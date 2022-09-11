@@ -1,5 +1,8 @@
-use aws_crt_s3_sys::*;
+//! Core primitives for the AWS Common Runtime
+
 use std::sync::Once;
+
+use aws_crt_s3_sys::*;
 
 use crate::common::allocator::Allocator;
 

@@ -1,3 +1,5 @@
+//! An asychronous DNS resolver
+
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
@@ -6,16 +8,24 @@ use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
+/// Options for creating a [HostResolver]
+#[derive(Debug)]
 pub struct HostResolverDefaultOptions<'a> {
+    /// The maximum number of host entries the resolver can hold on to
     pub max_entries: usize,
+    /// The [EventLoopGroup] that this resolver will spawn resolution tasks onto
     pub event_loop_group: &'a mut EventLoopGroup,
 }
 
+/// A [HostResolver] is a tool for doing async DNS resolution and caching the results, including
+/// pooling multiple resolutions for a single hostname to enable load balancing and fanout.
+#[derive(Debug)]
 pub struct HostResolver {
     pub(crate) inner: NonNull<aws_host_resolver>,
 }
 
 impl HostResolver {
+    /// Create a new [HostResolver] with the default behavior
     pub fn new_default(allocator: &mut Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {
         io_library_init(allocator);
 

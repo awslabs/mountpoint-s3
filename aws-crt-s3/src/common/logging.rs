@@ -1,3 +1,6 @@
+//! Logging infrastructure
+
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -11,11 +14,18 @@ use crate::common::common_library_init;
 
 static LOGGER_INIT: AtomicBool = AtomicBool::new(false);
 
+/// A logger that supports log levels and subjects
 pub struct Logger {
     inner: Pin<Box<aws_logger>>,
     _vtable: Pin<Box<aws_logger_vtable>>,
     // Double indirection allows us to pass `dyn LoggerImpl` across the FFI boundary.
     _impl: Pin<Box<Box<dyn LoggerImpl>>>,
+}
+
+impl Debug for Logger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Logger").field("inner", &self.inner).finish()
+    }
 }
 
 impl Logger {
@@ -67,6 +77,7 @@ impl Logger {
     }
 }
 
+/// Errors returned by methods that install [`Logger`]s
 #[derive(Debug)]
 pub enum LoggerInitError {
     /// A logger has already been initialized. Only one logger can be initialized for the lifetime
@@ -74,6 +85,7 @@ pub enum LoggerInitError {
     AlreadyInitialized,
 }
 
+/// Methods that a [`Logger`] can implement to filter and receive log messages
 pub trait LoggerImpl {
     /// Log a new message at the given level for a subject
     fn log(&self, _log_level: Level, _subject: Subject, _message: &str) {}
@@ -143,13 +155,19 @@ unsafe extern "C" fn logger_vtable_clean_up_fn(logger: *mut aws_logger) {
 /// The log level associated with a message
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
+    /// No log level set
     None,
-    Count,
+    /// The "trace" level for very verbose logging
     Trace,
+    /// The "debug" level for lower priority information
     Debug,
+    /// The "info" level for useful information
     Info,
+    /// The "warn" level for hazardous situations
     Warn,
+    /// The "error" level for serious errors
     Error,
+    /// The "fatal" level for errors that cannot be recovered from
     Fatal,
 }
 
@@ -157,7 +175,6 @@ impl From<aws_log_level::Type> for Level {
     fn from(level: aws_log_level::Type) -> Self {
         match level {
             aws_log_level::AWS_LL_NONE => Level::None,
-            aws_log_level::AWS_LL_COUNT => Level::Count,
             aws_log_level::AWS_LL_TRACE => Level::Trace,
             aws_log_level::AWS_LL_DEBUG => Level::Debug,
             aws_log_level::AWS_LL_INFO => Level::Info,
@@ -173,7 +190,6 @@ impl From<Level> for aws_log_level::Type {
     fn from(level: Level) -> Self {
         match level {
             Level::None => aws_log_level::AWS_LL_NONE,
-            Level::Count => aws_log_level::AWS_LL_COUNT,
             Level::Trace => aws_log_level::AWS_LL_TRACE,
             Level::Debug => aws_log_level::AWS_LL_DEBUG,
             Level::Info => aws_log_level::AWS_LL_INFO,
@@ -186,6 +202,7 @@ impl From<Level> for aws_log_level::Type {
 
 /// The subject of a log message. Subjects are the component of the CRT that a message is generated
 /// by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Subject(u32);
 
 impl Subject {

@@ -1,5 +1,8 @@
+//! Tools for scheduling and running units of work as tasks
+
 use aws_crt_s3_sys::*;
 use std::ffi::CString;
+use std::fmt::Debug;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 
@@ -12,7 +15,9 @@ use crate::common::common_library_init;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TaskStatus {
+    /// A task that is ready to run
     RunReady,
+    /// A task that has been cancelled
     Canceled,
 }
 
@@ -39,7 +44,7 @@ impl TaskStatus {
 type TaskCallback = Box<dyn FnOnce(TaskStatus) + Send>;
 
 struct TaskInner {
-    // The inner aws_task struct that we pass pointers to when interacting with the CRT.
+    /// The inner aws_task struct that we pass pointers to when interacting with the CRT.
     inner: aws_task,
 
     /// The callback the user wants to be notified on.
@@ -51,6 +56,16 @@ struct TaskInner {
     /// Force this object to be !Unpin since aws_task contains a linked list node, and the aws_task
     /// user data is a pointer to this struct itself.
     _pinned: PhantomPinned,
+}
+
+impl Debug for TaskInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskInner")
+            .field("inner", &(&self.inner as *const _))
+            .field("type_tag", &self.type_tag)
+            .field("_pinned", &self._pinned)
+            .finish()
+    }
 }
 
 // We're going to assume that TaskInner implements Send below, so let's add some safety
@@ -66,6 +81,7 @@ unsafe impl Send for TaskInner {}
 
 /// A wrapper around the CRT's aws_task. T is the type of some user data the user would like to
 /// receive as an argument in the callback.
+#[derive(Debug)]
 pub struct Task(Pin<Box<TaskInner>>);
 
 impl Task {

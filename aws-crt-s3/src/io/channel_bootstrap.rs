@@ -1,3 +1,5 @@
+//! Utilities for creating channels to communicate with endpoints
+
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
@@ -7,16 +9,23 @@ use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
+/// An object that handles the creation and setup of channels to communicate with an endpoint
+#[derive(Debug)]
 pub struct ClientBootstrap {
     pub(crate) inner: NonNull<aws_client_bootstrap>,
 }
 
+/// Options for creating a [ClientBootstrap]
+#[derive(Debug)]
 pub struct ClientBootstrapOptions<'a> {
+    /// The [EventLoopGroup] to create connections on
     pub event_loop_group: &'a mut EventLoopGroup,
+    /// The [HostResolver] to use to resolve endpoints
     pub host_resolver: &'a mut HostResolver,
 }
 
 impl ClientBootstrap {
+    /// Create a [ClientBootstrap] with the given options
     pub fn new(allocator: &mut Allocator, options: &ClientBootstrapOptions) -> Result<Self, Error> {
         io_library_init(allocator);
 

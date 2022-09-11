@@ -1,7 +1,12 @@
+//! Common memory allocation interfaces for the CRT
+
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
+/// An allocator for use by the CRT
+#[derive(Debug)]
 pub struct Allocator {
+    /// Pointer to the underlying `aws_allocator`
     // TODO: make only visible to this crate
     pub inner: NonNull<aws_allocator>,
 }

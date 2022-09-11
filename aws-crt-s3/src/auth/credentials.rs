@@ -1,3 +1,5 @@
+//! AWS credentials providers
+
 use crate::auth::auth_library_init;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
@@ -6,15 +8,22 @@ use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 
+/// Options for creating a default credentials provider
+#[derive(Debug)]
 pub struct CredentialsProviderChainDefaultOptions<'a> {
+    /// The client bootstrap this credentials provider should use to setup channels
     pub bootstrap: &'a mut ClientBootstrap,
 }
 
+/// A credentials provider is an object that has an asynchronous query function for retrieving AWS
+/// credentials
+#[derive(Debug)]
 pub struct CredentialsProvider {
     pub(crate) inner: NonNull<aws_credentials_provider>,
 }
 
 impl CredentialsProvider {
+    /// Creates the default credential provider chain as used by most AWS SDKs
     pub fn new_chain_default(
         allocator: &mut Allocator,
         options: &CredentialsProviderChainDefaultOptions,

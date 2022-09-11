@@ -1,3 +1,5 @@
+//! Rust bindings for the AWS Common Runtime authentication library.
+
 use std::sync::Once;
 
 use aws_crt_s3_sys::aws_auth_library_init;
