@@ -3,6 +3,9 @@ use std::ffi::CString;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 
+use crate::common::allocator::Allocator;
+use crate::common::common_library_init;
+
 /// Wrapper around aws_task_status. We need to do this (rather than have bindgen generate a
 /// Rust-like enum) since the type has to be FFI-safe in the callbacks later in this file. But the
 /// generated enum is less friendly to use, to we have this wrapper.
@@ -69,6 +72,8 @@ impl Task {
     /// Create a new Task from some user data and a callback function.
     /// type_tag must be CString-compatible (i.e., must not contain any null bytes)
     pub fn init(callback: impl FnOnce(TaskStatus) + Send + 'static, type_tag: &str) -> Self {
+        common_library_init(&mut Allocator::default());
+
         let mut task: Box<TaskInner> = Box::new(TaskInner {
             inner: Default::default(),
             callback: Box::new(callback),

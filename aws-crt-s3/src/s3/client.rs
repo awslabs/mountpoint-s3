@@ -3,6 +3,7 @@ use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
+use crate::s3::s3_library_init;
 use crate::{PtrExt, StringExt};
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
@@ -30,6 +31,8 @@ pub struct ClientConfig<'a> {
 
 impl Client {
     pub fn new(allocator: &mut Allocator, config: &ClientConfig) -> Result<Self, Error> {
+        s3_library_init(allocator);
+
         let signing_config = config.signing_config.clone();
 
         // Get the inner pointer out of the signing config. Cast it to a mut pointer (even though we

@@ -4,6 +4,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::s3::client::Client;
 use crate::s3::paginator::Paginator;
+use crate::s3::s3_library_init;
 use crate::{PtrExt, StringExt};
 use aws_crt_s3_sys::*;
 use std::ffi::OsStr;

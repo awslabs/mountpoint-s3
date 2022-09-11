@@ -1,6 +1,7 @@
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::task_scheduler::{Task, TaskStatus};
+use crate::io::io_library_init;
 use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use crossbeam::channel;
@@ -55,6 +56,8 @@ impl EventLoopGroup {
     /// Create a new default EventLoopGroup.
     /// max_threads: use None for the CRT default
     pub fn new_default(allocator: &mut Allocator, max_threads: Option<u16>) -> Result<Self, Error> {
+        io_library_init(allocator);
+
         let max_threads = max_threads.unwrap_or(0);
 
         let inner = unsafe {

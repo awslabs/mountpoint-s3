@@ -1,3 +1,4 @@
+use crate::auth::auth_library_init;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
@@ -18,6 +19,8 @@ impl CredentialsProvider {
         allocator: &mut Allocator,
         options: &CredentialsProviderChainDefaultOptions,
     ) -> Result<Self, Error> {
+        auth_library_init(allocator);
+
         let inner_options = aws_credentials_provider_chain_default_options {
             bootstrap: options.bootstrap.inner.as_ptr(),
             ..Default::default()

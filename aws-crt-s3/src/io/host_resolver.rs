@@ -1,6 +1,7 @@
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
+use crate::io::io_library_init;
 use crate::PtrExt as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
@@ -16,6 +17,8 @@ pub struct HostResolver {
 
 impl HostResolver {
     pub fn new_default(allocator: &mut Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {
+        io_library_init(allocator);
+
         let mut inner_options = aws_host_resolver_default_options {
             el_group: options.event_loop_group.inner.as_ptr(),
             max_entries: options.max_entries,

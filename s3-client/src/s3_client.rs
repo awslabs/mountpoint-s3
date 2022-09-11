@@ -7,8 +7,6 @@ use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig};
 use thiserror::Error;
 
-use crate::crt_init;
-
 mod get;
 mod list_objects_v2;
 
@@ -35,8 +33,6 @@ pub struct S3Client {
 
 impl S3Client {
     pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, S3ClientError> {
-        crt_init();
-
         // Safety arguments in this function are mostly pretty boring (singletons, constructors that
         // copy from pointers, etc), so safety annotations only on interesting cases.
 
