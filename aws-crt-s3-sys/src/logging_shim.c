@@ -4,7 +4,7 @@
 #include <inttypes.h>
 #include <stdarg.h>
 
-extern int aws_logger_adapter_log_fn(
+extern int aws_crt_s3_rs_logging_shim_log_fn(
     struct aws_logger *logger,
     enum aws_log_level log_level,
     aws_log_subject_t subject,
@@ -13,7 +13,7 @@ extern int aws_logger_adapter_log_fn(
 
 /// A little trampoline that takes care of the variadic arguments for the `format` string, which
 /// isn't possible in stable Rust. See the comment for this function in `logger.rs`.
-int aws_logger_adapter_log_fn_trampoline(
+int aws_crt_s3_rs_logging_shim_log_fn_trampoline(
     struct aws_logger *logger,
     enum aws_log_level log_level,
     aws_log_subject_t subject,
@@ -40,9 +40,9 @@ int aws_logger_adapter_log_fn_trampoline(
         aws_mem_release(logger->allocator, raw_string);
         return aws_raise_error(AWS_ERROR_INVALID_ARGUMENT);
     }
-    *(size_t *)(&raw_string->len) = required_length_terminated; // TODO?
+    *(size_t *)(&raw_string->len) = required_length_terminated;
 
-    int ret = aws_logger_adapter_log_fn(logger, log_level, subject, raw_string, required_length);
+    int ret = aws_crt_s3_rs_logging_shim_log_fn(logger, log_level, subject, raw_string, required_length);
 
     aws_mem_release(logger->allocator, raw_string);
 

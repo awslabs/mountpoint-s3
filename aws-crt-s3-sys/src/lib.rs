@@ -13,8 +13,7 @@ mod generated {
 
 pub use generated::*;
 
-mod logger;
-pub use logger::init_logger_adapter;
+pub mod logging_shim;
 
 #[cfg(test)]
 mod tests {

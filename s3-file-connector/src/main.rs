@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::Parser;
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{S3Client, S3ClientConfig};
@@ -8,6 +9,7 @@ mod fs;
 use std::path::PathBuf;
 
 fn init_tracing_subscriber() {
+    RustLogAdapter::try_init().expect("unable to install CRT log adapter");
     tracing_subscriber::fmt::init();
 
     // Or to send it to stderr instead...

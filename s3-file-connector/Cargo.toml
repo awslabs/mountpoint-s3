@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 fuser = { path = "../vendor/fuser" }
 s3-client = { path = "../s3-client" }
+aws-crt-s3 = { path = "../aws-crt-s3" }
 
 anyhow = { version = "1.0.64", features = ["backtrace"] }
 async-trait = "0.1.57"

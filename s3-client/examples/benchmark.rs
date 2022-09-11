@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use s3_client::{S3Client, S3ClientConfig, StreamingGetObject};
 
 use clap::{Arg, Command};
@@ -11,6 +12,8 @@ use tracing_subscriber::EnvFilter;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
+    RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+
     let subscriber = Subscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(std::io::stderr)

@@ -108,6 +108,8 @@ dependencies = [
  "crossbeam",
  "futures",
  "libc",
+ "log",
+ "smallstr",
  "static_assertions",
 ]
 
@@ -1505,6 +1507,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "aws-crt-s3",
  "clap",
  "ctrlc",
  "fuser",

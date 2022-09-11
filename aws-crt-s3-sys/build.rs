@@ -166,15 +166,15 @@ fn compile_crt_and_bindings() -> PathBuf {
     include_dir
 }
 
-fn compile_log_adapter(crt_include_dir: impl AsRef<Path>) {
+fn compile_logging_shim(crt_include_dir: impl AsRef<Path>) {
     cc::Build::new()
-        .file("src/log_adapter.c")
+        .file("src/logging_shim.c")
         .include(crt_include_dir)
-        .compile("log_adapter");
-    println!("cargo:rerun-if-changed=src/log_adapter.c");
+        .compile("logging_shim");
+    println!("cargo:rerun-if-changed=src/logging_shim.c");
 }
 
 fn main() {
     let include_dir = compile_crt_and_bindings();
-    compile_log_adapter(include_dir);
+    compile_logging_shim(include_dir);
 }
