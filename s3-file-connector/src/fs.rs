@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, UNIX_EPOCH, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{error, trace};
 
 use fuser::{
@@ -70,6 +70,8 @@ struct DirHandle {
     children: Vec<Inode>,
 }
 
+type DirectoryMap = Arc<RwLock<HashMap<String, Inode>>>;
+
 pub struct S3Filesystem {
     client: Arc<S3Client>,
     bucket: String,
@@ -80,19 +82,22 @@ pub struct S3Filesystem {
     next_inode: AtomicU64,
     inode_info: RwLock<HashMap<Inode, InodeInfo>>,
     dir_handles: RwLock<HashMap<u64, DirHandle>>,
-    dir_entries: RwLock<HashMap<Inode, Arc<RwLock<HashMap<String, Inode>>>>>,
+    dir_entries: RwLock<HashMap<Inode, DirectoryMap>>,
 }
 
 impl S3Filesystem {
     pub fn new(client: S3Client, bucket: &str, key: &str, size: usize) -> Self {
         let mut inode_info = HashMap::new();
-        inode_info.insert(ROOT_INODE, InodeInfo::new(
-            "".into(),
+        inode_info.insert(
             ROOT_INODE,
-            UNIX_EPOCH,
-            FileType::Directory,
-            1u64, // FIXME
-        ));
+            InodeInfo::new(
+                "".into(),
+                ROOT_INODE,
+                UNIX_EPOCH,
+                FileType::Directory,
+                1u64, // FIXME
+            ),
+        );
 
         let mut root_entries = HashMap::new();
         root_entries.insert(".".into(), ROOT_INODE);
@@ -147,7 +152,7 @@ impl S3Filesystem {
 fn make_attr(ino: Inode, inode_info: &InodeInfo) -> FileAttr {
     let (perm, nlink, blksize) = match inode_info.kind {
         FileType::RegularFile => (FILE_PERMISSIONS, 1, BLOCK_SIZE as u32),
-        FileType::Directory   => (DIR_PERMISSIONS, 2, 512),
+        FileType::Directory => (DIR_PERMISSIONS, 2, 512),
         _ => unreachable!(),
     };
     FileAttr {
@@ -214,8 +219,8 @@ impl Filesystem for S3Filesystem {
         }
 
         match self.inode_info.read().unwrap().get(&ino) {
-            Some(inode_info) => reply.attr(&TTL_ZERO, &make_attr(ino, &inode_info)),
-            None => reply.error(libc::ENOENT)
+            Some(inode_info) => reply.attr(&TTL_ZERO, &make_attr(ino, inode_info)),
+            None => reply.error(libc::ENOENT),
         }
     }
 
@@ -237,7 +242,13 @@ impl Filesystem for S3Filesystem {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        trace!("fs:read with ino {:?} fh {:?} offset {:?} size {:?}", ino, fh, offset, size);
+        trace!(
+            "fs:read with ino {:?} fh {:?} offset {:?} size {:?}",
+            ino,
+            fh,
+            offset,
+            size
+        );
 
         if ino == FILE_INODE {
             let mut inflight_reads = self.inflight_reads.read().unwrap();
@@ -288,7 +299,8 @@ impl Filesystem for S3Filesystem {
         let mut new_inodes = Vec::new();
 
         for child in children {
-            let (name, kind) = if !child.key.is_empty() { // an object
+            let (name, kind) = if !child.key.is_empty() {
+                // an object
                 (child.key.into_string().unwrap(), FileType::RegularFile)
             } else {
                 // unwrap is okay because S3 keys are UTF-8
@@ -332,9 +344,7 @@ impl Filesystem for S3Filesystem {
 
         // Allocate a handle
         let fh = self.next_handle();
-        let handle = DirHandle {
-            children: new_inodes,
-        };
+        let handle = DirHandle { children: new_inodes };
 
         let mut dir_handles = self.dir_handles.write().unwrap();
         dir_handles.insert(fh, handle);
@@ -362,7 +372,7 @@ impl Filesystem for S3Filesystem {
         for (i, ino) in handle.children.iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
             let inode_info = inode_info.get(ino).unwrap();
-            let _ = reply.add(*ino, (i+3) as i64, inode_info.kind, inode_info.name.clone());
+            let _ = reply.add(*ino, (i + 3) as i64, inode_info.kind, inode_info.name.clone());
         }
 
         reply.ok();
