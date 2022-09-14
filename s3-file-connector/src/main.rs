@@ -40,7 +40,7 @@ struct CliArgs {
     #[clap(help = "Size of key in bytes")]
     pub file_size: u64,
 
-    #[clap(help = "AWS region of the bucket", default_value = "us-east-1")]
+    #[clap(long, help = "AWS region of the bucket", default_value = "us-east-1")]
     pub region: String,
 
     #[clap(long, help = "Automatically unmount on exit")]
