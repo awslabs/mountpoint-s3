@@ -79,14 +79,13 @@ static_assertions::assert_impl_all!(CString: Send);
 // because the CRT can schedule tasks on different threads (and it passes a pointer to the aws_task struct).
 unsafe impl Send for TaskInner {}
 
-/// A wrapper around the CRT's aws_task. T is the type of some user data the user would like to
-/// receive as an argument in the callback.
+/// A wrapper around the CRT's aws_task.
 #[derive(Debug)]
 pub struct Task(Pin<Box<TaskInner>>);
 
 impl Task {
     /// Create a new Task from some user data and a callback function.
-    /// type_tag must be CString-compatible (i.e., must not contain any null bytes)
+    /// `type_tag` must be [CString]-compatible (i.e., must not contain any null bytes)
     pub fn init(callback: impl FnOnce(TaskStatus) + Send + 'static, type_tag: &str) -> Self {
         common_library_init(&mut Allocator::default());
 

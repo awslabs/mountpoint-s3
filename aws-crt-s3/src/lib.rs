@@ -6,6 +6,7 @@ use aws_crt_s3_sys::*;
 
 pub mod auth;
 pub mod common;
+pub mod http;
 pub mod io;
 pub mod s3;
 

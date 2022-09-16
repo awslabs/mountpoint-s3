@@ -2,17 +2,17 @@ use std::ops::Range;
 use std::slice;
 use std::sync::mpsc::{Receiver, Sender};
 
+use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
+use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3_sys::{
-    aws_byte_cursor, aws_http_header, aws_http_message_add_header, aws_http_message_new_request,
-    aws_http_message_set_request_method, aws_http_message_set_request_path, aws_http_method_get, aws_last_error,
-    aws_s3_client_make_meta_request, aws_s3_meta_request, aws_s3_meta_request_options, aws_s3_meta_request_result,
-    aws_s3_meta_request_type, AWS_OP_SUCCESS,
+    aws_byte_cursor, aws_last_error, aws_s3_client_make_meta_request, aws_s3_meta_request, aws_s3_meta_request_options,
+    aws_s3_meta_request_result, aws_s3_meta_request_type, AWS_OP_SUCCESS,
 };
 use thiserror::Error;
 use tracing::{debug, error, trace};
 
-use crate::util::{PtrExt, StringExt};
+use crate::util::PtrExt;
 use crate::S3Client;
 
 impl S3Client {
@@ -25,51 +25,25 @@ impl S3Client {
         range: Option<Range<u64>>,
         callback: impl FnMut(u64, &[u8]) + Send + 'static,
     ) -> Result<GetObjectRequest, GetObjectError> {
-        // Safety: `aws_http_message_add_header` and `aws_http_message_set_request_path` copy their
-        // input strings, so none of the strings we create here need to live beyond this scope
-        let message = unsafe {
-            let message = aws_http_message_new_request(self.allocator.inner.as_ptr());
+        let mut message = Message::new_request(&mut Allocator::default()).unwrap();
 
-            let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
-            let host_header = aws_http_header {
-                name: "Host".as_aws_byte_cursor(),
-                value: endpoint.as_aws_byte_cursor(),
-                ..Default::default()
-            };
-            aws_http_message_add_header(message, host_header);
+        let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
+        message.add_header(&Header::new("Host", &endpoint));
 
-            let accept_header = aws_http_header {
-                name: "accept".as_aws_byte_cursor(),
-                value: "*/*".as_aws_byte_cursor(),
-                ..Default::default()
-            };
-            aws_http_message_add_header(message, accept_header);
+        message.add_header(&Header::new("accept", "*/*"));
 
-            let user_agent_header = aws_http_header {
-                name: "user-agent".as_aws_byte_cursor(),
-                value: "aws-s3-crt-rust".as_aws_byte_cursor(),
-                ..Default::default()
-            };
-            aws_http_message_add_header(message, user_agent_header);
+        message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"));
 
-            if let Some(range) = range {
-                // Range HTTP header is bounded below *inclusive*
-                let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
-                let range_header = aws_http_header {
-                    name: "Range".as_aws_byte_cursor(),
-                    value: range_value.as_aws_byte_cursor(),
-                    ..Default::default()
-                };
-                aws_http_message_add_header(message, range_header);
-            }
+        if let Some(range) = range {
+            // Range HTTP header is bounded below *inclusive*
+            let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
+            message.add_header(&Header::new("Range", &range_value));
+        }
 
-            aws_http_message_set_request_method(message, aws_http_method_get);
+        message.set_request_method("GET");
 
-            let key = format!("/{}", key);
-            aws_http_message_set_request_path(message, key.as_aws_byte_cursor());
-
-            message
-        };
+        let key = format!("/{}", key);
+        message.set_request_path(key);
 
         let (sender, receiver) = std::sync::mpsc::channel();
 
@@ -85,7 +59,7 @@ impl S3Client {
             user_data: user_data as *const GetObjectRequestUserData as *mut libc::c_void,
             signing_config: self.signing_config.to_inner_ptr() as *mut _,
             type_: aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
-            message,
+            message: message.inner.as_ptr(),
             body_callback: Some(get_object_receive_body_callback),
             finish_callback: Some(get_object_finish_callback),
             ..Default::default()

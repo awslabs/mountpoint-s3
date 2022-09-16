@@ -33,6 +33,7 @@ const CRT_HEADERS: &[&str] = &[
     "common/log_writer.h",
     "common/string.h",
     "http/http.h",
+    "http/connection.h",
     "http/request_response.h",
     "io/channel_bootstrap.h",
     "io/event_loop.h",

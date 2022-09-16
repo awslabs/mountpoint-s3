@@ -14,7 +14,7 @@ pub fn get_test_bucket_name() -> String {
 }
 
 pub fn get_bucket_test_prefix() -> String {
-    std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_NAME to run integration tests")
+    std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests")
 }
 
 pub fn get_test_region() -> String {
