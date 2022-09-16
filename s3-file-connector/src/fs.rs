@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{error, trace};
 
 use fuser::{
-    FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, Request,
+    FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    ReplyOpen, Request,
 };
 use s3_client::{S3Client, StreamingGetObject};
 
@@ -19,8 +20,6 @@ const DIR_PERMISSIONS: u16 = 0o755;
 const FILE_PERMISSIONS: u16 = 0o644;
 const UID: u32 = 501;
 const GID: u32 = 20;
-
-const FILE_INODE: u64 = 2;
 
 const TTL_ZERO: Duration = Duration::from_secs(0);
 
@@ -70,23 +69,30 @@ struct DirHandle {
     children: Vec<Inode>,
 }
 
+#[derive(Debug)]
+struct FileHandle {
+    #[allow(unused)]
+    ino: Inode,
+    full_key: String,
+    object_size: u64,
+    request: Mutex<Option<StreamingGetObject>>,
+}
+
 type DirectoryMap = Arc<RwLock<HashMap<String, Inode>>>;
 
 pub struct S3Filesystem {
     client: Arc<S3Client>,
     bucket: String,
-    key: String,
-    size: usize,
-    inflight_reads: RwLock<HashMap<u64, Mutex<StreamingGetObject>>>,
     next_handle: AtomicU64,
     next_inode: AtomicU64,
     inode_info: RwLock<HashMap<Inode, InodeInfo>>,
     dir_handles: RwLock<HashMap<u64, DirHandle>>,
     dir_entries: RwLock<HashMap<Inode, DirectoryMap>>,
+    file_handles: RwLock<HashMap<u64, FileHandle>>,
 }
 
 impl S3Filesystem {
-    pub fn new(client: S3Client, bucket: &str, key: &str, size: usize) -> Self {
+    pub fn new(client: S3Client, bucket: &str) -> Self {
         let mut inode_info = HashMap::new();
         inode_info.insert(
             ROOT_INODE,
@@ -109,23 +115,21 @@ impl S3Filesystem {
         Self {
             client: Arc::new(client),
             bucket: bucket.to_string(),
-            key: key.to_string(),
-            size,
-            inflight_reads: Default::default(),
             next_handle: AtomicU64::new(1),
             next_inode: AtomicU64::new(ROOT_INODE + 1), // next Inode to allocate
             inode_info: RwLock::new(inode_info),
             dir_handles: RwLock::new(HashMap::new()),
             dir_entries: RwLock::new(dir_entries),
+            file_handles: RwLock::new(HashMap::new()),
         }
     }
 
-    fn path_from_root(&self, mut ino: Inode) -> Option<String> {
+    fn path_from_root(&self, mut ino: Inode, dir: bool) -> Option<String> {
         if ino == ROOT_INODE {
             Some("".into())
         } else {
             let inode_info = self.inode_info.read().unwrap();
-            let mut path = vec!["".into()]; // because we want the path to end in a /
+            let mut path = if dir { vec!["".into()] } else { vec![] }; // because we want the path to end in a /
             while ino != ROOT_INODE {
                 // FIXME Check that only the first one can return None?
                 let info = inode_info.get(&ino)?;
@@ -136,6 +140,31 @@ impl S3Filesystem {
             path.reverse();
             Some(path.join("/"))
         }
+    }
+
+    fn try_open(&self, ino: Inode) -> Option<u64> {
+        let inode_info = self.inode_info.read().unwrap();
+        let inode = inode_info.get(&ino)?;
+        if inode.kind != FileType::RegularFile {
+            return None;
+        }
+        let size = inode.size;
+        // TODO refactor inode_info so we don't have to drop this lock
+        drop(inode_info);
+        let full_path = self.path_from_root(ino, false)?;
+        // TODO separate dir and file handles?
+        let fh = self.next_handle();
+        let mut file_handles = self.file_handles.write().unwrap();
+        file_handles.insert(
+            fh,
+            FileHandle {
+                ino,
+                full_key: full_path,
+                object_size: size,
+                request: Mutex::new(None),
+            },
+        );
+        Some(fh)
     }
 
     fn next_inode(&self) -> u64 {
@@ -224,11 +253,14 @@ impl Filesystem for S3Filesystem {
         }
     }
 
-    async fn open(&self, _req: &Request<'_>, _ino: Inode, _flags: i32, reply: ReplyOpen) {
-        trace!("fs:open with ino {:?} flags {:?}", _ino, _flags);
+    async fn open(&self, _req: &Request<'_>, ino: Inode, _flags: i32, reply: ReplyOpen) {
+        trace!("fs:open with ino {:?} flags {:?}", ino, _flags);
 
-        let fh = self.next_handle.fetch_add(1, Ordering::SeqCst);
-        reply.opened(fh, 0);
+        if let Some(fh) = self.try_open(ino) {
+            reply.opened(fh, 0);
+        } else {
+            reply.error(libc::ENOENT);
+        }
     }
 
     async fn read(
@@ -250,20 +282,18 @@ impl Filesystem for S3Filesystem {
             size
         );
 
-        if ino == FILE_INODE {
-            let mut inflight_reads = self.inflight_reads.read().unwrap();
-            if !inflight_reads.contains_key(&fh) {
-                drop(inflight_reads);
-                let mut inflight_reads_mut = self.inflight_reads.write().unwrap();
-                println!("{} {} {}", &self.bucket, &self.key, self.size as u64);
-                let request =
-                    StreamingGetObject::new(Arc::clone(&self.client), &self.bucket, &self.key, self.size as u64);
-                inflight_reads_mut.insert(fh, Mutex::new(request));
-                drop(inflight_reads_mut);
-                inflight_reads = self.inflight_reads.read().unwrap();
+        let file_handles = self.file_handles.read().unwrap();
+        if let Some(handle) = file_handles.get(&fh) {
+            let mut request = handle.request.lock().unwrap();
+            if request.is_none() {
+                *request = Some(StreamingGetObject::new(
+                    Arc::clone(&self.client),
+                    &self.bucket,
+                    &handle.full_key,
+                    handle.object_size,
+                ));
             }
-            let mut inflight_read = inflight_reads.get(&fh).unwrap().lock().unwrap();
-            let body = inflight_read.read(offset as u64, size as usize);
+            let body = request.as_mut().unwrap().read(offset as u64, size as usize);
             reply.data(&body);
         } else {
             reply.error(libc::ENOENT);
@@ -273,7 +303,7 @@ impl Filesystem for S3Filesystem {
     async fn opendir(&self, _req: &Request<'_>, parent: Inode, _flags: i32, reply: ReplyOpen) {
         trace!("fs:opendir with parent {:?} flags {:?}", parent, _flags);
 
-        let prefix = match self.path_from_root(parent) {
+        let prefix = match self.path_from_root(parent, true) {
             Some(path) => path,
             None => {
                 reply.error(libc::ENOENT);
@@ -310,6 +340,11 @@ impl Filesystem for S3Filesystem {
             };
 
             debug_assert!(name.starts_with(&prefix));
+
+            // TODO handle explicit directories correctly
+            if name == prefix {
+                continue;
+            }
 
             let name = name[prefix.len()..].to_string();
 
@@ -372,9 +407,27 @@ impl Filesystem for S3Filesystem {
         for (i, ino) in handle.children.iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
             let inode_info = inode_info.get(ino).unwrap();
+            // TODO handle reply being full
             let _ = reply.add(*ino, (i + 3) as i64, inode_info.kind, inode_info.name.clone());
         }
 
+        reply.ok();
+    }
+
+    async fn release(
+        &self,
+        _req: &Request<'_>,
+        _ino: u64,
+        fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        // TODO how do we cancel an inflight StreamingGetRequest?
+        let mut file_handles = self.file_handles.write().unwrap();
+        let existed = file_handles.remove(&fh).is_some();
+        assert!(existed, "releasing a file handle that doesn't exist?");
         reply.ok();
     }
 }

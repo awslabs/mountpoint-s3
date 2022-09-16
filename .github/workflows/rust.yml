@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
 
 env:
-  RUSTFLAGS: -Dwarnings
+  # RUSTFLAGS: -Dwarnings
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket

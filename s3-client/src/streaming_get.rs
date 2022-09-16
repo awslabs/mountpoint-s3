@@ -22,6 +22,7 @@
 
 use std::borrow::Cow;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 
@@ -213,8 +214,21 @@ pub struct StreamingGetObject {
     object_size: u64,
 }
 
+impl Debug for StreamingGetObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("StreamingGetObject")
+            .field("next_part_offset", &self.next_part_offset)
+            .field("next_chunk_offset", &self.next_chunk_offset)
+            .field("next_chunk_size", &self.next_chunk_size)
+            .field("bucket", &self.bucket)
+            .field("key", &self.key)
+            .field("object_size", &self.object_size)
+            .finish()
+    }
+}
+
 impl StreamingGetObject {
-    /// Create and spawn
+    /// Create and spawn a new streaming request
     pub fn new(client: Arc<S3Client>, bucket: &str, key: &str, size: u64) -> Self {
         let num_chunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
         assert!(num_chunks > 0);
@@ -250,6 +264,8 @@ impl StreamingGetObject {
     ///
     /// TODO reads have to be sequential right now, but we don't enforce that properly.
     pub fn read(&mut self, offset: u64, size: usize) -> Cow<'_, [u8]> {
+        trace!(request=?self as *const _, offset, size, "StreamingGetObject read");
+
         let remaining = self.object_size.saturating_sub(offset);
         let mut to_read = (size as u64).min(remaining);
 
@@ -377,6 +393,7 @@ impl StreamingGetObject {
                 debug!(request=?self as *const _, ?range, inflight_chunks=parallel_chunks.len(), "starting new chunk");
 
                 // Request object doesn't need to survive as we won't block on it
+                // TODO we probably want to hold onto this thing for cancellation purposes
                 let _request = {
                     let chunk = Arc::clone(&chunk);
                     self.client

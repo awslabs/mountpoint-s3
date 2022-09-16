@@ -34,12 +34,6 @@ struct CliArgs {
     #[clap(help = "Name of bucket to mount")]
     pub bucket_name: String,
 
-    #[clap(help = "Name of key to mount")]
-    pub key_name: String,
-
-    #[clap(help = "Size of key in bytes")]
-    pub file_size: u64,
-
     #[clap(long, help = "AWS region of the bucket", default_value = "us-east-1")]
     pub region: String,
 
@@ -79,7 +73,7 @@ fn main() -> anyhow::Result<()> {
     let client = S3Client::new(&args.region, config).context("Failed to create S3 client")?;
 
     let session = Session::new(
-        fs::S3Filesystem::new(client, &args.bucket_name, &args.key_name, args.file_size as usize),
+        fs::S3Filesystem::new(client, &args.bucket_name),
         &args.mount_point,
         &options,
     )

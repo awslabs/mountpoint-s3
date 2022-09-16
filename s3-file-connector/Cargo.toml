@@ -6,7 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-fuser = { path = "../vendor/fuser" }
+fuser = { path = "../vendor/fuser", features = ["abi-7-28"] }
 s3-client = { path = "../s3-client" }
 aws-crt-s3 = { path = "../aws-crt-s3" }
 
@@ -19,7 +19,10 @@ tracing = { version = "0.1.35", default-features = false, features = ["std", "lo
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
 [dev-dependencies]
+base16ct = { version = "0.1.1", features = ["alloc"] }
+sha2 = "0.10.6"
 tempfile = "3.3.0"
+test-log = { version = "0.2.11", default-features = false, features = ["trace"] }
 
 [features]
 fuse_tests = []

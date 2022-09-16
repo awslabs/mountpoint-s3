@@ -18,12 +18,7 @@ pub fn make_test_session() -> (TempDir, BackgroundSession) {
         MountOption::AutoUnmount,
     ];
 
-    let session = Session::new(
-        S3Filesystem::new(client, &bucket_name, "dummy_file", 4),
-        mount_dir.path(),
-        &options,
-    )
-    .unwrap();
+    let session = Session::new(S3Filesystem::new(client, &bucket_name), mount_dir.path(), &options).unwrap();
 
     let session = BackgroundSession::new(session).unwrap();
 
