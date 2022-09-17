@@ -38,7 +38,7 @@ impl S3Client {
 
         let mut allocator = Allocator::default();
 
-        let mut event_loop_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
+        let mut event_loop_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         let resolver_options = HostResolverDefaultOptions {
             max_entries: 8,

@@ -53,3 +53,37 @@ impl<T> PtrExt for *mut T {
         NonNull::new(self as *mut T).ok_or_else(|| common::error::Error::last_error())
     }
 }
+
+/// Workaround until Result::inspect_err is stable.
+pub(crate) trait ResultExt: Sized {
+    fn on_err<F>(self, f: F) -> Self
+    where
+        F: FnOnce();
+}
+
+impl<T, E> ResultExt for Result<T, E> {
+    fn on_err<F>(self, f: F) -> Result<T, E>
+    where
+        F: FnOnce(),
+    {
+        match self {
+            Ok(val) => Ok(val),
+            Err(err) => {
+                f();
+                Err(err)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::common::rust_log_adapter::RustLogAdapter;
+
+    /// Enable tracing when running unit tests.
+    #[ctor::ctor]
+    fn init_tracing_subscriber() {
+        RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+        tracing_subscriber::fmt::init();
+    }
+}

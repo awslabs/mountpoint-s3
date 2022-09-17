@@ -35,7 +35,7 @@ async fn work() -> usize {
 
 fn event_loop_future(c: &mut Criterion) {
     let mut allocator = Allocator::default();
-    let el_group = EventLoopGroup::new_default(&mut allocator, Some(1)).unwrap();
+    let el_group = EventLoopGroup::new_default(&mut allocator, Some(1), || {}).unwrap();
 
     c.bench_function("event_loop_future", |b| {
         b.iter(|| {

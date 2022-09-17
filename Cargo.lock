@@ -113,11 +113,13 @@ dependencies = [
  "aws-crt-s3-sys",
  "criterion",
  "crossbeam",
+ "ctor",
  "futures",
  "libc",
  "log",
  "smallstr",
  "static_assertions",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -806,6 +808,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1a816186fa68d9e426e3cb4ae4dff1fcd8e4a2c34b781bf7a822574a0d0aac8"
 dependencies = [
  "sct",
+]
+
+[[package]]
+name = "ctor"
+version = "0.1.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdffe87e1d521a10f9696f833fe502293ea446d7f256c06128293a4119bdf4cb"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

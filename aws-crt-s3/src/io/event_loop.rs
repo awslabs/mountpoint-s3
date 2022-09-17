@@ -2,9 +2,11 @@
 
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
+use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
 use crate::common::task_scheduler::{Task, TaskStatus};
 use crate::io::io_library_init;
 use crate::PtrExt as _;
+use crate::ResultExt;
 use aws_crt_s3_sys::*;
 use crossbeam::channel;
 use futures::future::BoxFuture;
@@ -88,15 +90,22 @@ unsafe impl Sync for EventLoopGroup {}
 impl EventLoopGroup {
     /// Create a new default EventLoopGroup.
     /// max_threads: use None for the CRT default
-    pub fn new_default(allocator: &mut Allocator, max_threads: Option<u16>) -> Result<Self, Error> {
+    /// on_shutdown will be called when the event loop group shuts down.
+    pub fn new_default(
+        allocator: &mut Allocator,
+        max_threads: Option<u16>,
+        on_shutdown: impl FnOnce() + Send + 'static,
+    ) -> Result<Self, Error> {
         io_library_init(allocator);
 
         let max_threads = max_threads.unwrap_or(0);
 
+        let shutdown_options = new_shutdown_callback_options(on_shutdown);
+
         let inner = unsafe {
-            // TODO: Don't hardcode clock = null
-            aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads, std::ptr::null())
-                .ok_or_last_error()?
+            aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads, &shutdown_options)
+                .ok_or_last_error()
+                .on_err(|| abort_shutdown_callback(shutdown_options))?
         };
 
         Ok(Self { inner })
@@ -151,7 +160,7 @@ impl EventLoopGroup {
 impl Clone for EventLoopGroup {
     fn clone(&self) -> Self {
         let inner = unsafe {
-            // Safety: aws_event_loop_group_acquire returns the same pointer as input, and we know self.inner is NonNull.
+            // Safety: aws_event_loop_group_acquire returns the same pointer as input, and self.inner is [NonNull].
             NonNull::new_unchecked(aws_event_loop_group_acquire(self.inner.as_ptr()))
         };
         Self { inner }
@@ -319,6 +328,10 @@ mod test {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    /// How long each test should wait to receive values from channels. We set this deadline so that
+    /// if there's a bug, the tests won't try to spin forever.
+    const RECV_TIMEOUT: Duration = Duration::from_secs(5);
+
     /// Test that scheduling tasks on the default event loop works, by scheduling a large number
     /// of parallel tasks that all increment a counter.
     #[test]
@@ -326,7 +339,7 @@ mod test {
         const NUM_TASKS: i32 = 2_000;
 
         let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
+        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         let counter = Arc::new(AtomicI32::new(0));
 
@@ -350,7 +363,7 @@ mod test {
         }
 
         // Only wait 5 seconds to get all of the results to avoid blocking forever if there's a bug.
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + RECV_TIMEOUT;
 
         for _ in 0..NUM_TASKS {
             rx.recv_deadline(deadline).unwrap();
@@ -365,20 +378,36 @@ mod test {
     #[test]
     fn test_simple_future() {
         let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
+        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         let rx = el_group.schedule_future(async {
             println!("Hello from the future");
         });
 
-        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        rx.recv_timeout(RECV_TIMEOUT).unwrap();
+    }
+
+    /// Test that the event loop group shutdown callback works.
+    #[test]
+    fn test_event_loop_group_shutdown() {
+        let mut allocator = Allocator::default().traced();
+
+        let (tx, rx) = channel::bounded(1);
+
+        {
+            let _el_group = EventLoopGroup::new_default(&mut allocator, None, move || tx.send(()).unwrap()).unwrap();
+        }
+
+        // Wait until the event loop group's shutdown callback fires.
+        rx.recv_timeout(RECV_TIMEOUT).unwrap();
     }
 
     /// Test the EventLoopTimer with some simple timers.
     #[test]
     fn test_timer_future() {
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None).unwrap();
+        let mut allocator = Allocator::default().traced();
+
+        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
         let event_loop = el_group.get_next_loop().unwrap();
 
         // Create two timers, each delaying 1 second. They won't start timing until they're awaited.
@@ -387,14 +416,16 @@ mod test {
 
         let before_nanos = event_loop.current_clock_time();
 
+        allocator.tracer_dump();
+
         // Run a future that awaits both timers.
         let rx = el_group.schedule_future(async {
             timer1.await;
             timer2.await
         });
 
-        // Wait up to 5s for the future to complete.
-        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Wait up to the timeout for the future to complete.
+        rx.recv_timeout(RECV_TIMEOUT).unwrap();
 
         let after_nanos = event_loop.current_clock_time();
 

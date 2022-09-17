@@ -9,6 +9,7 @@ use crate::common::allocator::Allocator;
 pub mod allocator;
 pub mod error;
 pub mod logging;
+pub mod ref_count;
 pub mod rust_log_adapter;
 pub mod task_scheduler;
 
