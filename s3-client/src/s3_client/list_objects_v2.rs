@@ -1,6 +1,5 @@
 use crate::util::{byte_cursor_as_osstr, StringExt};
 use crate::S3Client;
-use anyhow::{anyhow, Result};
 use aws_crt_s3::auth::signing_config::SigningConfig;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
@@ -21,11 +20,27 @@ use tracing::{error, trace};
 pub struct ListObjectsV2Result {
     pub name: String,
     pub contents: Vec<S3Object>,
+    #[allow(clippy::enum_variant_names)]
     pub common_prefixes: Vec<String>,
 }
 
+#[derive(Error, Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum ListObjectsV2Error {
+    #[error("CRT error")]
+    CRTError(#[from] Error),
+    #[error("Error parsing XML element into result")]
+    ParseError(String),
+    #[error("XML parsing error")]
+    XMLParseError(#[from] xmltree::ParseError),
+}
+
 impl ListObjectsV2Result {
-    fn parse_from_xml(element: &mut xmltree::Element) -> Result<Self> {
+    fn parse_from_bytes(bytes: &[u8]) -> Result<Self, ListObjectsV2Error> {
+        Self::parse_from_xml(&mut xmltree::Element::parse(bytes)?)
+    }
+
+    fn parse_from_xml(element: &mut xmltree::Element) -> Result<Self, ListObjectsV2Error> {
         let mut contents = Vec::new();
 
         while let Some(content) = element.take_child("Contents") {
@@ -37,9 +52,9 @@ impl ListObjectsV2Result {
         while let Some(common_prefix) = element.take_child("CommonPrefixes") {
             let prefix = common_prefix
                 .get_child("Prefix")
-                .ok_or_else(|| anyhow!("no Prefix node"))?
+                .ok_or_else(|| ListObjectsV2Error::ParseError("no Prefix node".to_string()))?
                 .get_text()
-                .ok_or_else(|| anyhow!("no text"))?
+                .ok_or_else(|| ListObjectsV2Error::ParseError("no text".to_string()))?
                 .to_string();
 
             common_prefixes.push(prefix);
@@ -47,9 +62,9 @@ impl ListObjectsV2Result {
 
         let name = element
             .get_child("Name")
-            .ok_or_else(|| anyhow!("No Name node"))?
+            .ok_or_else(|| ListObjectsV2Error::ParseError("No Name node".to_string()))?
             .get_text()
-            .ok_or_else(|| anyhow!("no text"))?
+            .ok_or_else(|| ListObjectsV2Error::ParseError("no text".to_string()))?
             .to_string();
 
         Ok(Self {
@@ -67,23 +82,29 @@ pub struct S3Object {
 }
 
 impl S3Object {
-    fn parse_from_xml(element: &xmltree::Element) -> Result<Self> {
+    fn parse_from_xml(element: &xmltree::Element) -> Result<Self, ListObjectsV2Error> {
         let key = element.get_child("Key").unwrap().get_text().unwrap().to_string();
 
         let size = &element
             .get_child("Size")
-            .ok_or_else(|| anyhow!("No Size child"))?
+            .ok_or_else(|| ListObjectsV2Error::ParseError("No Size child".to_string()))?
             .get_text()
-            .ok_or_else(|| anyhow!("no text"))?;
+            .ok_or_else(|| ListObjectsV2Error::ParseError("no text".to_string()))?;
 
-        let size = u64::from_str(size)?;
+        let size = u64::from_str(size)
+            .map_err(|e| ListObjectsV2Error::ParseError(format!("Failed to parse size into u64: {:?}", e)))?;
 
         Ok(Self { key, size })
     }
 }
 
 impl S3Client {
-    pub fn new_list_objects_v2(&self, bucket: &str, prefix: &str, delimiter: &str) -> Result<ListObjectsV2Result> {
+    pub fn new_list_objects_v2(
+        &self,
+        bucket: &str,
+        prefix: &str,
+        delimiter: &str,
+    ) -> Result<ListObjectsV2Result, ListObjectsV2Error> {
         let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
 
         let mut message = Message::new_request(&mut Allocator::default()).unwrap();
@@ -100,21 +121,21 @@ impl S3Client {
 
         let mut options = MetaRequestOptions::new();
 
-        let (tx, rx) = mpsc::channel::<Result<ListObjectsV2Result>>();
+        let (tx, rx) = mpsc::channel::<Result<ListObjectsV2Result, ListObjectsV2Error>>();
         let tx2 = tx.clone();
 
         options
             .message(message)
             .on_body(move |start, body| {
                 assert_eq!(start, 0);
-                let mut elem = xmltree::Element::parse(body).unwrap();
-                let _ = tx.send(ListObjectsV2Result::parse_from_xml(&mut elem));
+
+                let _ = tx.send(ListObjectsV2Result::parse_from_bytes(body));
             })
             .on_finish(move |error_code, error_body| {
                 let error_body = error_body.map(String::from_utf8_lossy);
 
                 if error_code != 0 || error_body.is_some() {
-                    let _ = tx2.send(Err(anyhow!("{} {:?}", error_code, error_body)));
+                    let _ = tx2.send(Err(ListObjectsV2Error::CRTError(Error::from(error_code))));
                 }
             })
             .request_type(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);

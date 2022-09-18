@@ -15,7 +15,6 @@ futures = "0.3.24"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"
 xmltree = "0.10.3"
-anyhow = { version = "1.0.64", features = ["backtrace"] }
 
 [dev-dependencies]
 aws-sdk-s3 = "0.18.0"
@@ -25,6 +24,7 @@ clap = "3.2.12"
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 tokio = { version = "1.21.0", features = ["rt", "macros"] }
 ctor = "0.1.23"
+anyhow = { version = "1.0.64", features = ["backtrace"] }
 
 [lib]
 doctest = false
