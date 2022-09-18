@@ -38,4 +38,4 @@ fmt-check:
 .PHONY: clippy
 clippy:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
-	cargo clippy $$packages --no-deps --all-targets -- -D clippy::all
+	cargo clippy $$packages --no-deps --all-targets --all-features -- -D clippy::all

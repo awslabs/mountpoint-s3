@@ -1,14 +1,13 @@
 #![cfg(feature = "s3_tests")]
 
 mod common;
+
 use common::*;
 
 use s3_client::S3Client;
 
 #[tokio::test]
 async fn test_list_objects() {
-    tracing_subscriber::fmt::init();
-
     let sdk_client = get_test_sdk_client().await;
     let bucket = get_test_bucket_name();
     let prefix = get_bucket_test_prefix();
@@ -29,4 +28,16 @@ async fn test_list_objects() {
 
     println!("{:?}", result);
     assert_eq!(result.objects.len(), 2);
+}
+
+#[tokio::test]
+async fn new_test_list_objects() {
+    let bucket = get_test_bucket_name();
+    let prefix = get_bucket_test_prefix();
+
+    let client: S3Client = get_test_client();
+
+    let result = client.new_list_objects_v2(&bucket, &format!("{}/test_list_objects/", prefix), "/");
+
+    println!("{:?}", result);
 }

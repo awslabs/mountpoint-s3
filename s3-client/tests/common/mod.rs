@@ -5,6 +5,12 @@ use bytes::Bytes;
 use s3::Region;
 use s3_client::S3Client;
 
+/// Enable tracing when running unit tests.
+#[ctor::ctor]
+fn init_tracing_subscriber() {
+    tracing_subscriber::fmt::init();
+}
+
 pub fn get_test_client() -> S3Client {
     S3Client::new(&get_test_region(), Default::default()).expect("could not create test client")
 }
