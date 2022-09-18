@@ -13,6 +13,8 @@ pub mod s3;
 use std::ptr::NonNull;
 use std::{ffi::OsStr, os::unix::prelude::OsStrExt};
 
+use crate::common::error::Error;
+
 pub(crate) trait StringExt {
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor;
 }
@@ -30,27 +32,44 @@ impl<S: AsRef<OsStr>> StringExt for S {
 
 /// Translate the common "return a null pointer on failure" pattern into Results that pull the last
 /// error from the CRT.
-pub(crate) trait PtrExt: Sized {
+pub(crate) trait CrtError: Sized {
     type Return;
 
     /// Safety: This must only be used immediately on a pointer returned from the CRT, with no other
     /// CRT code being run beforehand, or else it will return the wrong error.
-    unsafe fn ok_or_last_error(self) -> Result<NonNull<Self::Return>, common::error::Error>;
+    unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error>;
 }
 
-impl<T> PtrExt for *const T {
-    type Return = T;
+impl<T> CrtError for *const T {
+    type Return = NonNull<T>;
 
-    unsafe fn ok_or_last_error(self) -> Result<NonNull<Self::Return>, common::error::Error> {
-        NonNull::new(self as *mut T).ok_or_else(|| common::error::Error::last_error())
+    unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
+        NonNull::new(self as *mut T).ok_or_else(|| Error::last_error())
     }
 }
 
-impl<T> PtrExt for *mut T {
-    type Return = T;
+impl<T> CrtError for *mut T {
+    type Return = NonNull<T>;
 
-    unsafe fn ok_or_last_error(self) -> Result<NonNull<Self::Return>, common::error::Error> {
-        NonNull::new(self as *mut T).ok_or_else(|| common::error::Error::last_error())
+    unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
+        NonNull::new(self as *mut T).ok_or_else(|| Error::last_error())
+    }
+}
+
+/// Some CRT functions return an int that is either AWS_OP_SUCCESS or AWS_OP_ERR, and the caller
+/// should use last_error to find out what happened. This simplifies that pattern.
+impl CrtError for i32 {
+    type Return = ();
+
+    unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
+        match self {
+            AWS_OP_SUCCESS => Ok(()),
+            AWS_OP_ERR => Err(Error::last_error()),
+            // This case shouldn't happen if used correctly since we should use this on functions
+            // that only return SUCCESS or ERR. But if it does happen, we can attempt to convert the
+            // error code directly, which may or may not work (but at least the Error won't be swallowed).
+            n => Err(common::error::Error::from(n)),
+        }
     }
 }
 

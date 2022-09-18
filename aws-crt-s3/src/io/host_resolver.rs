@@ -4,7 +4,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::io_library_init;
-use crate::PtrExt as _;
+use crate::CrtError as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 

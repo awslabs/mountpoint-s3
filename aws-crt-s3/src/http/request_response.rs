@@ -8,7 +8,7 @@ use aws_crt_s3_sys::*;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
-use crate::{PtrExt, StringExt};
+use crate::{CrtError, StringExt};
 
 /// Wraps an aws_http_stream. A stream exists for the duration of a request/response
 /// exchange.
@@ -73,29 +73,26 @@ impl Message {
     }
 
     /// Add a header to this message.
-    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>>) {
+    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>>) -> Result<(), Error> {
         unsafe {
             // Safety: this makes a copy of the underlying strings in the header.
-            let res = aws_http_message_add_header(self.inner.as_ptr(), header.inner);
-            assert_eq!(res, AWS_OP_SUCCESS);
+            aws_http_message_add_header(self.inner.as_ptr(), header.inner).ok_or_last_error()
         }
     }
 
     /// Set the request path for this message.
-    pub fn set_request_path(&mut self, path: impl AsRef<OsStr>) {
+    pub fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), Error> {
         unsafe {
             // Safety: the header makes its own copy of the string.
-            let res = aws_http_message_set_request_path(self.inner.as_ptr(), path.as_aws_byte_cursor());
-            assert_eq!(res, AWS_OP_SUCCESS);
+            aws_http_message_set_request_path(self.inner.as_ptr(), path.as_aws_byte_cursor()).ok_or_last_error()
         }
     }
 
     /// Set the request method for this message.
-    pub fn set_request_method(&mut self, method: impl AsRef<OsStr>) {
+    pub fn set_request_method(&mut self, method: impl AsRef<OsStr>) -> Result<(), Error> {
         unsafe {
             // Safety: the header makes its own copy of the string.
-            let res = aws_http_message_set_request_method(self.inner.as_ptr(), method.as_aws_byte_cursor());
-            assert_eq!(res, AWS_OP_SUCCESS);
+            aws_http_message_set_request_method(self.inner.as_ptr(), method.as_aws_byte_cursor()).ok_or_last_error()
         }
     }
 }

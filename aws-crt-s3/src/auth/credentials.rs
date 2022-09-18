@@ -4,7 +4,7 @@ use crate::auth::auth_library_init;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::PtrExt as _;
+use crate::CrtError as _;
 use aws_crt_s3_sys::*;
 use std::ptr::NonNull;
 

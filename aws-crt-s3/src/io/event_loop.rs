@@ -5,7 +5,7 @@ use crate::common::error::Error;
 use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
 use crate::common::task_scheduler::{Task, TaskStatus};
 use crate::io::io_library_init;
-use crate::PtrExt as _;
+use crate::CrtError as _;
 use crate::ResultExt;
 use aws_crt_s3_sys::*;
 use crossbeam::channel;

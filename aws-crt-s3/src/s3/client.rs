@@ -7,7 +7,7 @@ use crate::common::error::Error;
 use crate::http::request_response::Message;
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::s3::s3_library_init;
-use crate::{PtrExt, StringExt};
+use crate::{CrtError, ResultExt, StringExt};
 use aws_crt_s3_sys::*;
 use std::fmt::Debug;
 use std::marker::PhantomPinned;
@@ -329,7 +329,11 @@ impl Client {
             // Make the request on this client.
             // TODO: do we need to clone the client into the options struct? Or will the CRT internally
             // increment the refcount for us?
-            let inner = aws_s3_client_make_meta_request(self.inner.as_ptr(), &options.inner).ok_or_last_error()?;
+            let inner = aws_s3_client_make_meta_request(self.inner.as_ptr(), &options.inner)
+                .ok_or_last_error()
+                // Drop the options Box if we failed to make the meta request.
+                // Assumption: CRT won't call shutdown callback if make_meta_request returns null.
+                .on_err(|| std::mem::drop(Box::from_raw(options)))?;
 
             Ok(MetaRequest { inner })
         }

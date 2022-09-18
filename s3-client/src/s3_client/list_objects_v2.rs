@@ -87,14 +87,16 @@ impl S3Client {
         let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
 
         let mut message = Message::new_request(&mut Allocator::default()).unwrap();
-        message.set_request_method("GET");
-        message.add_header(&Header::new("Host", &endpoint));
-        message.add_header(&Header::new("accept", "*/*"));
-        message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"));
+        message.set_request_method("GET").unwrap();
+        message.add_header(&Header::new("Host", &endpoint)).unwrap();
+        message.add_header(&Header::new("accept", "*/*")).unwrap();
+        message
+            .add_header(&Header::new("user-agent", "aws-s3-crt-rust"))
+            .unwrap();
 
         // TODO: does the CRT do URI encoding for me?
         let request = format!("/?list-type=2&prefix={prefix}&delimiter={delimiter}");
-        message.set_request_path(request);
+        message.set_request_path(request).unwrap();
 
         let mut options = MetaRequestOptions::new();
 
