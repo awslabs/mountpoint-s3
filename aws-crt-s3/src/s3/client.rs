@@ -22,25 +22,70 @@ pub struct Client {
     // TODO: make only visible to this crate
     pub inner: NonNull<aws_s3_client>,
 
-    // We need to hold onto the signing config for as long as the client exists
-    // The signing config itself references some bytes owned by the user (e.g., region string).
-    signing_config: SigningConfig,
+    /// Hold on to an owned copy of the configuration so that it doesn't get dropped while the
+    /// client still exists. This is because the client config holds ownership of some strings
+    /// (like the region) that could still be used while the client exists.
+    config: ClientConfig,
 }
 
-/// Options for creating a new [Client]
-#[derive(Debug)]
-pub struct ClientConfig<'a> {
-    /// The maximum number of active connections to S3, or `None` to use the default
-    pub max_active_connections_override: Option<u32>,
-    /// The target aggregate throughput for this client to S3, or `None` to use the default. The
-    /// client uses this setting to decide how many concurrent connections to make to S3.
-    pub throughput_target_gbps: Option<f64>,
-    /// The part size to use for each concurrent request to S3, or `None` to use the default
-    pub part_size: Option<usize>,
+/// Options for creating a new [Client]. Follows the builder pattern.
+#[derive(Debug, Default)]
+pub struct ClientConfig {
+    /// The struct we can pass into the CRT's functions.
+    inner: aws_s3_client_config,
+
     /// The [ClientBootstrap] to use to create connections to S3
-    pub client_bootstrap: &'a mut ClientBootstrap,
-    /// The configuration for signing API requests to S3
-    pub signing_config: &'a SigningConfig,
+    client_bootstrap: Option<ClientBootstrap>,
+
+    /// The [SigningConfig] configuration for signing API requests to S3
+    signing_config: Option<SigningConfig>,
+}
+
+impl ClientConfig {
+    /// Create a new [ClientConfig] with default options.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Signing options to be used for each request. Leave out to not sign requests.
+    pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
+        self.signing_config = Some(signing_config);
+        // Safety: Cast the signing config to mut pointer since we know creating the client won't modify it.
+        self.inner.signing_config = self.signing_config.as_ref().unwrap().to_inner_ptr() as *mut aws_signing_config_aws;
+        self
+    }
+
+    /// Client bootstrap used for common staples such as event loop group, host resolver, etc.
+    pub fn client_bootstrap(&mut self, client_bootstrap: ClientBootstrap) -> &mut Self {
+        self.client_bootstrap = Some(client_bootstrap);
+        self.inner.client_bootstrap = self.client_bootstrap.as_ref().unwrap().inner.as_ptr();
+        self
+    }
+
+    /// Size of parts the files will be downloaded or uploaded in.
+    pub fn part_size(&mut self, part_size: usize) -> &mut Self {
+        self.inner.part_size = part_size;
+        self
+    }
+
+    /// If the part size needs to be adjusted for service limits, this is the maximum size it will be adjusted to.
+    pub fn max_part_size(&mut self, max_part_size: usize) -> &mut Self {
+        self.inner.max_part_size = max_part_size;
+        self
+    }
+
+    /// Throughput target in Gbps that we are trying to reach.
+    pub fn throughput_target_gbps(&mut self, throughput_target_gbps: f64) -> &mut Self {
+        self.inner.throughput_target_gbps = throughput_target_gbps;
+        self
+    }
+
+    /// When set, this will cap the number of active connections. Otherwise, the client will
+    /// determine this value based on throughput_target_gbps. (Recommended)
+    pub fn max_active_connections_override(&mut self, max_active_connections_override: u32) -> &mut Self {
+        self.inner.max_active_connections_override = max_active_connections_override;
+        self
+    }
 }
 
 /// Callback for when part of the response body is received. Given (range_start, data).
@@ -253,28 +298,12 @@ pub struct MetaRequest {
 
 impl Client {
     /// Create a new S3 [Client].
-    pub fn new(allocator: &mut Allocator, config: &ClientConfig) -> Result<Self, Error> {
+    pub fn new(allocator: &mut Allocator, config: ClientConfig) -> Result<Self, Error> {
         s3_library_init(allocator);
 
-        let signing_config = config.signing_config.clone();
+        let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &config.inner).ok_or_last_error()? };
 
-        // Get the inner pointer out of the signing config. Cast it to a mut pointer (even though we
-        // don't have a mut reference) because aws_s3_client_new doesn't modify the config: it
-        // creates a cached copy of it internally.
-        let signing_config_ptr = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;
-
-        let inner_config = aws_s3_client_config {
-            max_active_connections_override: config.max_active_connections_override.unwrap_or(0),
-            throughput_target_gbps: config.throughput_target_gbps.unwrap_or(0.0),
-            client_bootstrap: config.client_bootstrap.inner.as_ptr(),
-            part_size: config.part_size.unwrap_or(0),
-            signing_config: signing_config_ptr,
-            ..Default::default()
-        };
-
-        let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &inner_config).ok_or_last_error()? };
-
-        Ok(Self { inner, signing_config })
+        Ok(Self { inner, config })
     }
 
     /// Make a meta request to S3 using this [Client]. A meta request is an HTTP request that
@@ -286,7 +315,9 @@ impl Client {
             // related to the request, like the message, signing config, etc.
 
             // The client holds a copy of the signing config, copy it again for this request.
-            options.signing_config(self.signing_config.clone());
+            if let Some(signing_config) = self.config.signing_config.as_ref() {
+                options.signing_config(signing_config.clone());
+            }
 
             // Unpin the options (we won't move out of it, nor will the callbacks).
             let options = Pin::into_inner_unchecked(options.0);
@@ -301,19 +332,6 @@ impl Client {
             let inner = aws_s3_client_make_meta_request(self.inner.as_ptr(), &options.inner).ok_or_last_error()?;
 
             Ok(MetaRequest { inner })
-        }
-    }
-}
-
-impl Clone for Client {
-    fn clone(&self) -> Self {
-        unsafe {
-            aws_s3_client_acquire(self.inner.as_ptr());
-        }
-
-        Self {
-            inner: self.inner,
-            signing_config: self.signing_config.clone(),
         }
     }
 }

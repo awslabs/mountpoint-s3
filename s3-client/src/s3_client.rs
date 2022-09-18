@@ -22,11 +22,10 @@ pub struct S3ClientConfig {
 pub struct S3Client {
     allocator: Allocator,
     s3_client: Client,
+    signing_config: SigningConfig,
     credentials_provider: CredentialsProvider,
-    client_bootstrap: ClientBootstrap,
     host_resolver: HostResolver,
     event_loop_group: EventLoopGroup,
-    signing_config: SigningConfig,
     region: String,
     throughput_target_gbps: f64,
 }
@@ -64,24 +63,29 @@ impl S3Client {
         let throughput_target_gbps = config.throughput_target_gbps;
         let part_size = config.part_size;
 
-        let client_config = ClientConfig {
-            throughput_target_gbps,
-            max_active_connections_override: None,
-            part_size,
-            client_bootstrap: &mut client_bootstrap,
-            signing_config: &signing_config,
-        };
+        let mut client_config = ClientConfig::new();
 
-        let s3_client = Client::new(&mut allocator, &client_config).unwrap();
+        client_config
+            .client_bootstrap(client_bootstrap)
+            .signing_config(signing_config.clone());
+
+        if let Some(throughput_target_gbps) = throughput_target_gbps {
+            client_config.throughput_target_gbps(throughput_target_gbps);
+        }
+
+        if let Some(part_size) = part_size {
+            client_config.part_size(part_size);
+        }
+
+        let s3_client = Client::new(&mut allocator, client_config).unwrap();
 
         Ok(Self {
             allocator,
             s3_client,
-            client_bootstrap,
+            signing_config,
             host_resolver,
             event_loop_group,
             credentials_provider: creds_provider,
-            signing_config,
             region: region.to_owned(),
             throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
         })
