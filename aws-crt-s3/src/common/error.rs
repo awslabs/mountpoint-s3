@@ -1,5 +1,6 @@
 //! Common error handing tools for the CRT
 
+use std::ffi::CStr;
 use std::fmt::{Debug, Display};
 
 use aws_crt_s3_sys::{aws_error_debug_str, aws_last_error};
@@ -23,11 +24,8 @@ impl Error {
         // C strings (null-terminated), that live for the life of the program, and it also promises
         // never to return a null pointer.
         unsafe {
-            let s = aws_error_debug_str(self.0);
-            let len = libc::strnlen(s, 4096);
-            let slice = std::slice::from_raw_parts(s as *const u8, len);
-            // Valid ASCII strings are valid UTF-8 strings
-            std::str::from_utf8_unchecked(slice)
+            let s = CStr::from_ptr(aws_error_debug_str(self.0));
+            s.to_str().expect("aws_error_debug_str should return valid ASCII")
         }
     }
 }

@@ -21,8 +21,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct Client {
     /// A pointer to the underlying `aws_s3_client`
-    // TODO: make only visible to this crate
-    pub inner: NonNull<aws_s3_client>,
+    inner: NonNull<aws_s3_client>,
 
     /// Hold on to an owned copy of the configuration so that it doesn't get dropped while the
     /// client still exists. This is because the client config holds ownership of some strings

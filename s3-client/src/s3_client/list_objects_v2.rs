@@ -1,13 +1,12 @@
 use crate::S3Client;
-
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3::s3::client::MetaRequestOptions;
 use aws_crt_s3_sys::aws_s3_meta_request_type;
 use futures::channel::oneshot;
-use futures::Future;
 use futures::FutureExt;
+use std::future::Future;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -137,7 +136,14 @@ impl S3Client {
         options
             .message(message)
             .on_body(move |range_start, data| {
+                trace!(
+                    start = range_start,
+                    length = data.len(),
+                    "ListObjectsV2 body part received"
+                );
+
                 let mut body = body1.lock().unwrap();
+
                 // TODO: are we guaranteed to receive parts in order like this?
                 assert_eq!(range_start as usize, body.len());
                 body.extend_from_slice(data);

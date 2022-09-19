@@ -7,8 +7,7 @@ use std::ptr::NonNull;
 #[derive(Debug)]
 pub struct Allocator {
     /// Pointer to the underlying `aws_allocator`
-    // TODO: make only visible to this crate
-    pub inner: NonNull<aws_allocator>,
+    pub(crate) inner: NonNull<aws_allocator>,
 
     /// Whether we got this allocator from Allocator::traced.
     traced: bool,

@@ -10,8 +10,7 @@ use std::sync::Arc;
 #[derive(Default)]
 pub(crate) struct SigningConfigInner {
     /// The raw `aws_signing_config` for this config
-    // TODO: make only visible to this crate
-    pub inner: aws_signing_config_aws,
+    pub(crate) inner: aws_signing_config_aws,
 
     /// An owned copy of the region string, since the signing config holds a pointer to it
     pub(crate) region: OsString,
