@@ -9,8 +9,10 @@ use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::s3::s3_library_init;
 use crate::{CrtError, ResultExt, StringExt};
 use aws_crt_s3_sys::*;
+use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::marker::PhantomPinned;
+use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -92,7 +94,7 @@ impl ClientConfig {
 type BodyCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
 
 /// Callback for when the request is finished. Given (error_code, optional_error_body).
-type FinishCallback = Box<dyn FnOnce(i32, Option<&[u8]>) + Send>;
+type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
 /// Options for meta requests to S3. This is not a public interface, since clients should always
 /// be using the [MetaRequestOptions] wrapper, which pins this struct behind a pointer.
@@ -203,7 +205,7 @@ impl MetaRequestOptions {
     }
 
     /// Provide a callback to run when the request completes.
-    pub fn on_finish(&mut self, callback: impl FnOnce(i32, Option<&[u8]>) + Send + 'static) -> &mut Self {
+    pub fn on_finish(&mut self, callback: impl FnOnce(MetaRequestResult) + Send + 'static) -> &mut Self {
         // Safety: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_finish = Some(Box::new(callback));
@@ -265,15 +267,8 @@ unsafe extern "C" fn meta_request_finish(
     // in MetaRequestOptions::new.
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
-    // TODO: a better way to send errors to the callback.
-    let error_code: i32 = result.error_code;
-    let error_body: Option<&[u8]> = result
-        .error_response_body
-        .as_ref()
-        .map(|error_body| std::slice::from_raw_parts(error_body.buffer, error_body.len));
-
     if let Some(callback) = user_data.on_finish.take() {
-        callback(error_code, error_body);
+        callback(MetaRequestResult::from_crt_result(result));
     }
 }
 
@@ -344,6 +339,49 @@ impl Drop for Client {
     fn drop(&mut self) {
         unsafe {
             aws_s3_client_release(self.inner.as_ptr());
+        }
+    }
+}
+
+/// The result of a meta request using an S3 [Client].
+#[derive(Debug)]
+pub struct MetaRequestResult {
+    /// Response status of the failed request or of the entire meta request.
+    pub response_status: i32,
+
+    /// Final error code of the meta request.
+    pub error_code: i32,
+
+    /// Error HTTP response, if present
+    pub error_response_body: Option<OsString>,
+}
+
+/// Convert [MetaRequestResult] into a Rust result for monadic error handling.
+impl From<&MetaRequestResult> for Result<(), Error> {
+    fn from(request: &MetaRequestResult) -> Self {
+        if request.error_code == aws_common_error::AWS_ERROR_SUCCESS as i32 {
+            Ok(())
+        } else {
+            Err(Error::from(request.error_code))
+        }
+    }
+}
+
+impl MetaRequestResult {
+    /// Convert the CRT's meta request result struct into a safe, owned result.
+    /// Safety: This copies from the raw pointer inside of the request result, so only
+    /// call on results given to us from the CRT.
+    unsafe fn from_crt_result(inner: &aws_s3_meta_request_result) -> Self {
+        let error_response_body: Option<OsString> = inner.error_response_body.as_ref().map(|byte_buf| {
+            assert!(!byte_buf.buffer.is_null(), "error_response_body.buffer is null");
+            let slice: &[u8] = std::slice::from_raw_parts(byte_buf.buffer, byte_buf.len);
+            OsStr::from_bytes(slice).to_owned()
+        });
+
+        Self {
+            response_status: inner.response_status,
+            error_code: inner.error_code,
+            error_response_body,
         }
     }
 }

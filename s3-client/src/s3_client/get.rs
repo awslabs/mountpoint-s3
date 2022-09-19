@@ -59,23 +59,14 @@ impl S3Client {
 
                 callback(range_start, body);
             })
-            .on_finish(move |error_code, error_body| {
+            .on_finish(move |ref request_result| {
                 trace!("GetObjectRequest finished",);
 
-                let error_message: Option<String> =
-                    error_body.map(|bytes| std::string::String::from_utf8_lossy(bytes).into_owned());
-
-                assert_eq!(error_code == 0, error_message.is_none());
-
-                if error_code != 0 {
-                    error!(error_code, error = error_message, "GetObjectRequest failed");
-
-                    let err: Error = error_code.into();
-
-                    let _ = sender.send(Err(err));
-                } else {
-                    let _ = sender.send(Ok(()));
+                if let Some(error_body) = request_result.error_response_body.as_ref() {
+                    error!(error = ?error_body, "GetObjectRequest error");
                 }
+
+                let _ = sender.send(request_result.into());
             });
 
         self.s3_client

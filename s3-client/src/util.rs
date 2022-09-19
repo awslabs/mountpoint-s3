@@ -19,15 +19,6 @@ impl<S: AsRef<OsStr>> StringExt for S {
     }
 }
 
-/// View an aws_byte_cursor as a reference to an OsStr. Because aws_byte_cursor does not carry a
-/// lifetime, the returned reference can take on any lifetime and it's the caller's responsibility
-/// for ensuring that the cursor will live long enough. Call .to_owned() on the result to create an
-/// owned OsString from the reference.
-pub(crate) unsafe fn byte_cursor_as_osstr<'a>(cursor: aws_byte_cursor) -> &'a OsStr {
-    let slice = std::slice::from_raw_parts(cursor.ptr, cursor.len);
-    OsStr::from_bytes(slice)
-}
-
 /// Translate the common "return a null pointer on failure" pattern into Results
 pub(crate) trait PtrExt: Sized {
     fn ok_or<E>(self, err: E) -> Result<Self, E>;

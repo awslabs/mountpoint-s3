@@ -311,8 +311,9 @@ impl Filesystem for S3Filesystem {
             }
         };
 
-        let children = match self.client.list_objects_v2(&self.bucket, &prefix, "/", None).await {
-            Ok(result) => result.objects,
+        // FIXME continuation tokens and max-keys
+        let result = match self.client.list_objects_v2(&self.bucket, None, "/", 100, &prefix).await {
+            Ok(result) => result,
             Err(err) => {
                 error!(?err, "ListObjectsV2 failed");
                 reply.error(libc::EIO);
@@ -328,36 +329,47 @@ impl Filesystem for S3Filesystem {
         let mut inode_info = self.inode_info.write().unwrap();
         let mut new_inodes = Vec::new();
 
-        for child in children {
-            let (name, kind) = if !child.key.is_empty() {
-                // an object
-                (child.key.into_string().unwrap(), FileType::RegularFile)
-            } else {
-                // unwrap is okay because S3 keys are UTF-8
-                let mut str = child.prefix.into_string().unwrap();
-                assert_eq!(str.pop(), Some('/'));
-                (str, FileType::Directory)
-            };
+        for object in result.objects {
+            let name = object.key;
 
-            debug_assert!(name.starts_with(&prefix));
-
-            // TODO handle explicit directories correctly
-            if name == prefix {
+            if name.ends_with('/') {
+                // FIXME Handle explicit directories
                 continue;
             }
 
-            let name = name[prefix.len()..].to_string();
+            // FIXME This doesn't handle keys with trailing or consecutive slashes.
+            let name = name.split('/').last().unwrap().to_owned();
 
             // FIXME Fix S3Client's list_objects_v2 to also return object mtime
             // FIXME and return that here
             let mtime = UNIX_EPOCH;
-            let info = InodeInfo::new(name.clone(), parent, mtime, kind, child.size);
+            let info = InodeInfo::new(name.clone(), parent, mtime, FileType::RegularFile, object.size);
             let ino = self.next_inode();
             inode_info.insert(ino, info);
             new_inodes.push(ino);
 
             new_map.insert(name, ino);
         }
+
+        for dir in result.common_prefixes {
+            let mut name = dir;
+
+            assert_eq!(name.pop(), Some('/'));
+
+            // FIXME This doesn't handle keys with trailing or consecutive slashes.
+            let name = name.split('/').last().unwrap().to_owned();
+
+            // FIXME Fix S3Client's list_objects_v2 to also return object mtime
+            // FIXME and return that here
+            let mtime = UNIX_EPOCH;
+            let info = InodeInfo::new(name.clone(), parent, mtime, FileType::Directory, 1);
+            let ino = self.next_inode();
+            inode_info.insert(ino, info);
+            new_inodes.push(ino);
+
+            new_map.insert(name, ino);
+        }
+
         drop(inode_info);
 
         let mut dir_entries = self.dir_entries.write().unwrap();
