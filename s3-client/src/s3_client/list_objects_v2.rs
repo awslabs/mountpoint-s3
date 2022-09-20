@@ -14,10 +14,18 @@ use tracing::{error, trace};
 
 #[derive(Debug)]
 pub struct ListObjectsV2Result {
-    pub name: String,
+    /// The name of the bucket.
+    pub bucket: String,
+
+    /// The list of objects.
     pub objects: Vec<S3Object>,
-    #[allow(clippy::enum_variant_names)]
+
+    /// The list of common prefixes. This rolls up all of the objects with a common prefix up to
+    /// the next instance of the delimiter.
     pub common_prefixes: Vec<String>,
+
+    /// If present, the continuation token to use to query more results.
+    pub next_continuation_token: Option<String>,
 }
 
 #[derive(Error, Debug)]
@@ -31,6 +39,21 @@ pub enum ListObjectsV2Error {
     XMLParseError(#[from] xmltree::ParseError),
     #[error("The future was canceled")]
     CanceledError(#[from] oneshot::Canceled),
+}
+
+/// Copy text out of an XML element, mapping error into the right type.
+fn get_text(element: &xmltree::Element) -> Result<String, ListObjectsV2Error> {
+    Ok(element
+        .get_text()
+        .ok_or_else(|| ListObjectsV2Error::ParseError(format!("no text: {:?}", element)))?
+        .to_string())
+}
+
+/// Wrapper to get child with some name out of an XML element, with the right error type.
+fn get_child<'a>(element: &'a xmltree::Element, name: &str) -> Result<&'a xmltree::Element, ListObjectsV2Error> {
+    element
+        .get_child(name)
+        .ok_or_else(|| ListObjectsV2Error::ParseError(format!("No child named {:?} in {:?}", name, element)))
 }
 
 impl ListObjectsV2Result {
@@ -48,27 +71,22 @@ impl ListObjectsV2Result {
         let mut common_prefixes = Vec::new();
 
         while let Some(common_prefix) = element.take_child("CommonPrefixes") {
-            let prefix = common_prefix
-                .get_child("Prefix")
-                .ok_or_else(|| ListObjectsV2Error::ParseError("no Prefix node".to_string()))?
-                .get_text()
-                .ok_or_else(|| ListObjectsV2Error::ParseError("no text".to_string()))?
-                .to_string();
-
+            let prefix = get_text(get_child(&common_prefix, "Prefix")?)?;
             common_prefixes.push(prefix);
         }
 
-        let name = element
-            .get_child("Name")
-            .ok_or_else(|| ListObjectsV2Error::ParseError("No Name node".to_string()))?
-            .get_text()
-            .ok_or_else(|| ListObjectsV2Error::ParseError("no text".to_string()))?
-            .to_string();
+        let bucket = get_text(get_child(element, "Name")?)?;
+
+        let mut next_continuation_token = None;
+        if let Some(elem) = element.get_child("NextContinuationToken") {
+            next_continuation_token = Some(get_text(elem)?);
+        }
 
         Ok(Self {
-            name,
+            bucket,
             objects,
             common_prefixes,
+            next_continuation_token,
         })
     }
 }
@@ -81,15 +99,11 @@ pub struct S3Object {
 
 impl S3Object {
     fn parse_from_xml(element: &xmltree::Element) -> Result<Self, ListObjectsV2Error> {
-        let key = element.get_child("Key").unwrap().get_text().unwrap().to_string();
+        let key = get_text(get_child(element, "Key")?)?;
 
-        let size = &element
-            .get_child("Size")
-            .ok_or_else(|| ListObjectsV2Error::ParseError("No Size child".to_string()))?
-            .get_text()
-            .ok_or_else(|| ListObjectsV2Error::ParseError("no text".to_string()))?;
+        let size = get_text(get_child(element, "Size")?)?;
 
-        let size = u64::from_str(size)
+        let size = u64::from_str(&size)
             .map_err(|e| ListObjectsV2Error::ParseError(format!("Failed to parse size into u64: {:?}", e)))?;
 
         Ok(Self { key, size })
@@ -115,12 +129,16 @@ impl S3Client {
             .add_header(&Header::new("user-agent", "aws-s3-crt-rust"))
             .unwrap();
 
-        // TODO: does the CRT do URI encoding for me?
+        // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
         let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");
 
         if let Some(continuation_token) = continuation_token {
+            // DO URI encode the continuation token, since "/" in it needs to become "%2F"
+            let continuation_token = urlencoding::encode(continuation_token);
             request = request + &format!("&continuation-token={continuation_token}");
         }
+
+        println!("{}", request);
 
         message.set_request_path(request).unwrap();
 

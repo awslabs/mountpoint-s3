@@ -15,6 +15,7 @@ futures = "0.3.24"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"
 xmltree = "0.10.3"
+urlencoding = "2.1.2"
 
 [dev-dependencies]
 aws-sdk-s3 = "0.18.0"

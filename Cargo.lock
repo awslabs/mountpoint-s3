@@ -1677,6 +1677,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
  "xmltree",
 ]
 
