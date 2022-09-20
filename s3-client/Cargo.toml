@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 aws-crt-s3 = { path = "../aws-crt-s3" }
 aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }
+chrono = "0.4.22"
 futures = "0.3.24"
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"

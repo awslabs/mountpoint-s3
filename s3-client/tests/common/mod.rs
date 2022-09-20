@@ -23,8 +23,11 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     // Generate a random nonce to make sure this prefix is truly unique
     let nonce = OsRng.next_u64();
 
+    // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
-    let prefix = format!("{}/{}/{}", prefix, test_name, nonce);
+    assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
+
+    let prefix = format!("{}{}/{}/", prefix, test_name, nonce);
 
     (bucket, prefix)
 }
@@ -47,8 +50,8 @@ pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: 
         client
             .put_object()
             .bucket(bucket)
-            .key(format!("{}/{}", prefix, name.as_ref()))
-            .body(s3::types::ByteStream::from(Bytes::from_static(b"Hello")))
+            .key(format!("{}{}", prefix, name.as_ref()))
+            .body(s3::types::ByteStream::from(Bytes::from_static(b".")))
             .send()
             .await
             .unwrap();
@@ -63,7 +66,7 @@ async fn test_sdk_create_object() {
     let response = sdk_client
         .put_object()
         .bucket(bucket)
-        .key(format!("{}/hello", prefix))
+        .key(format!("{}hello", prefix))
         .body(s3::types::ByteStream::from(Bytes::from_static(b".")))
         .send()
         .await
