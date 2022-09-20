@@ -4,11 +4,12 @@ use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3::s3::client::MetaRequestOptions;
 use aws_crt_s3_sys::aws_s3_meta_request_type;
-use chrono::{DateTime, FixedOffset};
 use futures::channel::oneshot;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use tracing::{error, trace};
 
 #[derive(Error, Debug)]
@@ -35,8 +36,8 @@ pub enum ListObjectsError {
     #[error("Failed to parse field {1} as int: {0:?}")]
     ParseIntError(#[source] std::num::ParseIntError, String),
 
-    #[error("Failed to parse field {1} as DateTime: {0:?}")]
-    DateTimeParseError(#[source] chrono::format::ParseError, String),
+    #[error("Failed to parse field {1} as OffsetDateTime: {0:?}")]
+    OffsetDateTimeParseError(#[source] time::error::Parse, String),
 
     #[error("The future was canceled: {0:?}")]
     CanceledError(#[from] oneshot::Canceled),
@@ -135,7 +136,7 @@ pub struct S3Object {
     pub size: u64,
 
     /// The time this object was last modified.
-    pub last_modified: DateTime<FixedOffset>,
+    pub last_modified: OffsetDateTime,
 
     /// Storage class for this object.
     pub storage_class: String,
@@ -156,8 +157,9 @@ impl S3Object {
 
         // S3 appears to use RFC 3339 to encode this field, based on the API example here:
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
-        let last_modified = DateTime::parse_from_rfc3339(&last_modified)
-            .map_err(|e| ListObjectsError::DateTimeParseError(e, "LastModified".to_string()))?;
+
+        let last_modified = OffsetDateTime::parse(&last_modified, &Rfc3339)
+            .map_err(|e| ListObjectsError::OffsetDateTimeParseError(e, "LastModified".to_string()))?;
 
         let storage_class = get_field(element, "StorageClass")?;
 

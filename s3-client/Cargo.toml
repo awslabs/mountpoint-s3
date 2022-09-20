@@ -8,12 +8,12 @@ publish = false
 [dependencies]
 aws-crt-s3 = { path = "../aws-crt-s3" }
 aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }
-chrono = "0.4.22"
 futures = "0.3.24"
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"
+time = "0.3.14"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 urlencoding = "2.1.2"
 xmltree = "0.10.3"
