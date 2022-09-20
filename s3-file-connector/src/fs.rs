@@ -312,7 +312,7 @@ impl Filesystem for S3Filesystem {
         };
 
         // FIXME continuation tokens and max-keys
-        let result = match self.client.list_objects_v2(&self.bucket, None, "/", 100, &prefix).await {
+        let result = match self.client.list_objects(&self.bucket, None, "/", 100, &prefix).await {
             Ok(result) => result,
             Err(err) => {
                 error!(?err, "ListObjectsV2 failed");

@@ -2,6 +2,8 @@
 
 use aws_sdk_s3 as s3;
 use bytes::Bytes;
+use rand::rngs::OsRng;
+use rand::RngCore;
 use s3::Region;
 use s3_client::S3Client;
 
@@ -18,8 +20,11 @@ pub fn get_test_client() -> S3Client {
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let bucket = std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests");
 
+    // Generate a random nonce to make sure this prefix is truly unique
+    let nonce = OsRng.next_u64();
+
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
-    let prefix = format!("{}/{}", prefix, test_name);
+    let prefix = format!("{}/{}/{}", prefix, test_name, nonce);
 
     (bucket, prefix)
 }

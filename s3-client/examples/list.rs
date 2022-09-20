@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
 
     let client = S3Client::new(region, Default::default()).expect("couldn't create client");
 
-    let result = futures::executor::block_on(client.list_objects_v2(bucket, None, delimiter, 500, prefix))?;
+    let result = futures::executor::block_on(client.list_objects(bucket, None, delimiter, 500, prefix))?;
 
     for object in result.objects {
         println!("{:?}", object);
