@@ -105,7 +105,7 @@ fn compile_crt_and_bindings() -> PathBuf {
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
 
-    let additional_libraries = (target_os == "linux").then(|| CRT_CRYPTO_LIBRARIES);
+    let additional_libraries = (target_os == "linux").then_some(CRT_CRYPTO_LIBRARIES);
     let libraries = additional_libraries.into_iter().flatten().chain(CRT_LIBRARIES.iter());
 
     for lib in libraries.clone() {
