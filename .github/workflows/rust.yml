@@ -19,6 +19,10 @@ jobs:
     name: Tests
     runs-on: ubuntu-22.04
 
+    strategy:
+      matrix:
+        fuse: [fuse, fuse3]
+
     permissions:
       id-token: write
       contents: read
@@ -40,7 +44,7 @@ jobs:
       with:
         submodules: true
     - name: Install fuse
-      run: sudo apt-get install fuse libfuse2 libfuse-dev
+      run: sudo apt-get install ${{ matrix.fuse }} lib${{ matrix.fuse }}-dev
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Check all targets
