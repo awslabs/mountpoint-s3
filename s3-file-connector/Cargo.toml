@@ -19,10 +19,16 @@ tracing = { version = "0.1.35", default-features = false, features = ["std", "lo
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
 [dev-dependencies]
+aws-config = "0.48.0"
+aws-sdk-s3 = "0.18.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
+rand = "0.8.5"
+rand_chacha = "0.3.1"
 sha2 = "0.10.6"
 tempfile = "3.3.0"
 test-log = { version = "0.2.11", default-features = false, features = ["trace"] }
+tokio = { version = "1.21.0", features = ["rt", "macros"] }
 
 [features]
 fuse_tests = []
+s3_tests = []

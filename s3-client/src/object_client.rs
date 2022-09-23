@@ -2,6 +2,7 @@ use std::future::Future;
 use std::ops::Range;
 
 use async_trait::async_trait;
+use auto_impl::auto_impl;
 use futures::Stream;
 use time::OffsetDateTime;
 
@@ -11,6 +12,7 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 
 /// An [ObjectClient] is an S3-like blob storage interface
 #[async_trait]
+#[auto_impl(Arc)]
 pub trait ObjectClient {
     type GetObjectResult: Stream<Item = Result<GetBodyPart, Self::GetObjectError>> + Send;
     type GetObjectError: std::error::Error;

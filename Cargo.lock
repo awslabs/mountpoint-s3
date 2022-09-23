@@ -73,6 +73,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "auto_impl"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a8c1df849285fbacd587de7818cc7d13be6cd2cbcd47a04fb1801b0e2706e33"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -946,6 +958,7 @@ dependencies = [
  "futures-core",
  "futures-task",
  "futures-util",
+ "num_cpus",
 ]
 
 [[package]]
@@ -1711,6 +1724,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "auto_impl",
  "aws-config",
  "aws-crt-s3",
  "aws-crt-s3-sys",
@@ -1740,16 +1754,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "aws-config",
  "aws-crt-s3",
+ "aws-sdk-s3",
  "base16ct",
  "clap",
  "ctrlc",
  "fuser",
  "libc",
+ "rand",
+ "rand_chacha",
  "s3-client",
  "sha2",
  "tempfile",
  "test-log",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]

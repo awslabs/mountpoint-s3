@@ -1,30 +1,32 @@
-#![cfg(feature = "fuse_tests")]
-
-mod common;
-
 use std::fs::{read_dir, File, OpenOptions};
 use std::io::Read as _;
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;
 
-use sha2::Digest as _;
+use fuser::BackgroundSession;
+use rand::RngCore;
+use rand::SeedableRng as _;
+use rand_chacha::ChaChaRng;
+use tempfile::TempDir;
 use test_log::test;
 
-use common::*;
+use crate::fuse_tests::PutObjectFn;
 
-/// Tests read-only operations on a bucket whose contents we keep static and known for testing use
-#[test]
-fn read_only_mount_test() {
-    let (mount_point, _session) = make_test_session();
+fn basic_read_test<F>(creator_fn: F, prefix: &str)
+where
+    F: FnOnce(&str) -> (TempDir, BackgroundSession, PutObjectFn),
+{
+    let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 
-    // TODO we have to list the root directory first at the moment ... need to fix that
-    let _dir = read_dir(mount_point.path())
-        .unwrap()
-        .map(|f| f.unwrap())
-        .collect::<Vec<_>>();
+    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix);
 
-    let test_dir = read_dir(mount_point.path().join("read-only-mount-test")).unwrap();
+    put_object_fn("hello.txt", b"hello world").unwrap();
+    let mut two_mib_body = vec![0; 2 * 1024 * 1024];
+    rng.fill_bytes(&mut two_mib_body);
+    put_object_fn("test2MiB.bin", &two_mib_body).unwrap();
+
+    let test_dir = read_dir(mount_point.path()).unwrap();
     let files: Vec<_> = test_dir.map(|f| f.unwrap()).collect();
 
     assert_eq!(
@@ -38,7 +40,7 @@ fn read_only_mount_test() {
     let mut hello = File::open(files[0].path()).unwrap();
     let mut hello_contents = String::new();
     hello.read_to_string(&mut hello_contents).unwrap();
-    assert_eq!(hello_contents, "hello world\n");
+    assert_eq!(hello_contents, "hello world");
     drop(hello);
 
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
@@ -50,7 +52,7 @@ fn read_only_mount_test() {
         open.custom_flags(libc::O_DIRECT);
         open.open(files[1].path()).unwrap()
     };
-    let mut digest = sha2::Sha256::new();
+    let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
     loop {
@@ -58,11 +60,26 @@ fn read_only_mount_test() {
         if read == 0 {
             break;
         }
-        digest.update(&buf[..read]);
+        two_mib_read.extend_from_slice(&buf[..read]);
         bytes_read += read;
     }
     drop(bin);
     assert_eq!(bytes_read, 2 * 1024 * 1024);
-    let hash = base16ct::lower::encode_string(&digest.finalize());
-    assert_eq!(hash, "7d36e46fcd211cac7d0e5b7df8558f07976ccdddba3211e50a58d9816b507168");
+    assert_eq!(two_mib_body, two_mib_read);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn basic_read_test_s3() {
+    basic_read_test(crate::fuse_tests::s3_session::new, "basic_read_test");
+}
+
+#[test]
+fn basic_read_test_mock() {
+    basic_read_test(crate::fuse_tests::mock_session::new, "");
+}
+
+#[test]
+fn basic_read_test_mock_prefix() {
+    basic_read_test(crate::fuse_tests::mock_session::new, "basic_read_test");
 }

@@ -84,6 +84,7 @@ pub struct S3Filesystem<Client: ObjectClient> {
     client: Arc<Client>,
     streaming_get_manager: StreamingGetManager<Client>,
     bucket: String,
+    prefix: String,
     next_handle: AtomicU64,
     next_inode: AtomicU64,
     inode_info: RwLock<HashMap<Inode, InodeInfo>>,
@@ -93,7 +94,13 @@ pub struct S3Filesystem<Client: ObjectClient> {
 }
 
 impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
-    pub fn new(client: Client, bucket: &str, throughput_target_gbps: f64) -> Self {
+    pub fn new(client: Client, bucket: &str, prefix: &str, throughput_target_gbps: f64) -> Self {
+        // TODO is this required?
+        assert!(
+            prefix.is_empty() || prefix.ends_with('/'),
+            "prefix must be empty or end with `/`"
+        );
+
         let mut inode_info = HashMap::new();
         inode_info.insert(
             ROOT_INODE,
@@ -121,6 +128,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             client,
             streaming_get_manager,
             bucket: bucket.to_string(),
+            prefix: prefix.to_string(),
             next_handle: AtomicU64::new(1),
             next_inode: AtomicU64::new(ROOT_INODE + 1), // next Inode to allocate
             inode_info: RwLock::new(inode_info),
@@ -132,7 +140,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
     fn path_from_root(&self, mut ino: Inode, dir: bool) -> Option<String> {
         if ino == ROOT_INODE {
-            Some("".into())
+            Some(self.prefix.clone())
         } else {
             let inode_info = self.inode_info.read().unwrap();
             let mut path = if dir { vec!["".into()] } else { vec![] }; // because we want the path to end in a /
@@ -144,7 +152,8 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             }
             drop(inode_info);
             path.reverse();
-            Some(path.join("/"))
+            let path = path.join("/");
+            Some(format!("{}{}", self.prefix, path))
         }
     }
 

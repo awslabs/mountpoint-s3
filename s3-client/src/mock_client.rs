@@ -6,9 +6,11 @@ use std::sync::RwLock;
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::executor::{ThreadPool, ThreadPoolBuilder};
+use futures::{FutureExt, Stream};
 use thiserror::Error;
 use time::OffsetDateTime;
+use tracing::trace;
 
 use crate::object_client::{GetBodyPart, ListObjectsResult, ObjectInfo};
 use crate::ObjectClient;
@@ -27,6 +29,7 @@ pub struct MockClientConfig {
 pub struct MockClient {
     config: MockClientConfig,
     objects: RwLock<BTreeMap<String, Box<[u8]>>>,
+    executor: ThreadPool,
 }
 
 impl MockClient {
@@ -35,6 +38,7 @@ impl MockClient {
         Self {
             config,
             objects: Default::default(),
+            executor: ThreadPoolBuilder::new().pool_size(1).create().unwrap(),
         }
     }
 
@@ -96,6 +100,8 @@ impl ObjectClient for MockClient {
         key: &str,
         range: Option<Range<u64>>,
     ) -> Result<Self::GetObjectResult, Self::GetObjectError> {
+        trace!(bucket, key, ?range, "GetObject");
+
         if bucket != self.config.bucket {
             return Err(GetObjectError::NoSuchBucket);
         }
@@ -103,7 +109,7 @@ impl ObjectClient for MockClient {
         let objects = self.objects.read().unwrap();
         if let Some(body) = objects.get(key) {
             let (next_offset, body) = if let Some(range) = range {
-                if range.start > body.len() as u64 || range.end >= body.len() as u64 {
+                if range.start >= body.len() as u64 || range.end > body.len() as u64 {
                     return Err(GetObjectError::InvalidRange(body.len() as u64));
                 }
                 (range.start, &body[range.start as usize..range.end as usize])
@@ -129,6 +135,8 @@ impl ObjectClient for MockClient {
         max_keys: usize,
         prefix: &str,
     ) -> Result<ListObjectsResult, Self::ListObjectsError> {
+        trace!(bucket, ?continuation_token, delimiter, max_keys, prefix, "ListObjects");
+
         if bucket != self.config.bucket {
             return Err(ListObjectsError::NoSuchBucket);
         }
@@ -222,8 +230,8 @@ impl ObjectClient for MockClient {
         })
     }
 
-    fn spawn<T: Send + 'static>(&self, _future: impl Future<Output = T> + Send + 'static) {
-        todo!()
+    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) {
+        self.executor.spawn_ok(future.map(|_| ()));
     }
 }
 
@@ -270,6 +278,7 @@ mod tests {
     async fn get_object() {
         test_get_object("key1", 2000, None).await;
         test_get_object("key1", 9000, Some(50..2000)).await;
+        test_get_object("key1", 10, Some(0..10)).await;
     }
 
     #[allow(clippy::reversed_empty_ranges)]
@@ -302,6 +311,20 @@ mod tests {
             GetObjectError::NoSuchObject
         );
 
+        assert_eq!(
+            client
+                .get_object("test_bucket", "key1", Some(0..2001))
+                .await
+                .expect_err("should fail"),
+            GetObjectError::InvalidRange(2000)
+        );
+        assert_eq!(
+            client
+                .get_object("test_bucket", "key1", Some(2000..2000))
+                .await
+                .expect_err("should fail"),
+            GetObjectError::InvalidRange(2000)
+        );
         assert_eq!(
             client
                 .get_object("test_bucket", "key1", Some(500..2001))

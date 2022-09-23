@@ -10,7 +10,8 @@ aws-crt-s3 = { path = "../aws-crt-s3" }
 aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }
 
 async-trait = "0.1.57"
-futures = "0.3.24"
+auto_impl = "1.0.1"
+futures = { version = "0.3.24", features = ["thread-pool"] }
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
 pin-project = "1.0.12"
