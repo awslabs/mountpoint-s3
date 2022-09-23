@@ -26,9 +26,11 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 
-use tracing::{debug, trace};
+use futures::pin_mut;
+use futures::stream::StreamExt;
+use tracing::{debug, debug_span, error, instrument, trace, Instrument};
 
-use crate::S3Client;
+use crate::object_client::ObjectClient;
 
 /// TODO connect this to client config
 const PART_SIZE: u64 = 8 * (1 << 20);
@@ -135,14 +137,15 @@ impl StreamingChunk {
 
     /// Pop the next body part off the chunk. Blocks until a body part is available. Returns the
     /// body part and its offset within the object.
+    #[instrument(level = "debug", skip(self), fields(chunk = ?self as *const _))]
     fn pop(&self) -> (u64, Box<[u8]>) {
         let mut queue = self.queue.lock().unwrap();
         while queue.is_empty() {
-            trace!(chunk=?self as *const _, "StreamingChunk waiting for new part");
+            trace!("waiting for new part");
             queue = self.data_available.wait(queue).expect("cond failed");
         }
         let ret = queue.pop_front().unwrap();
-        trace!(chunk=?self as *const _, remaining_buffers = queue.len(), "read buffer from queue");
+        trace!(remaining_buffers = queue.len(), "read buffer from queue");
         let remaining_to_consume = self
             .remaining_to_consume
             .fetch_sub(ret.1.len() as u64, Ordering::SeqCst);
@@ -155,17 +158,16 @@ impl StreamingChunk {
 
     /// Push a new body part at the given offset onto the end of the chunk to make it ready for the
     /// consumer to read. Does not block.
-    fn push(&self, offset: u64, body: &[u8]) {
+    fn push(&self, offset: u64, body: Box<[u8]>) {
         let mut queue = self.queue.lock().unwrap();
         trace!(
-            chunk=?self as *const _,
             length = body.len(),
             remaining_buffers = queue.len(),
             "push buffer on queue"
         );
         self.remaining_to_download
             .fetch_sub(body.len() as u64, Ordering::SeqCst);
-        queue.push_back((offset, body.into()));
+        queue.push_back((offset, body));
         self.data_available.notify_one();
     }
 
@@ -178,33 +180,70 @@ impl StreamingChunk {
     }
 }
 
-struct InflightRequestToken;
+/// A token that can be used to track how many requests a [StreamingGetManager] has inflight.
+struct InflightRequestToken<Client: ObjectClient> {
+    inner: Arc<StreamingGetManagerInner<Client>>,
+}
 
-impl InflightRequestToken {
-    fn new() -> Self {
-        INFLIGHT_REQUEST_TRACKER.fetch_add(1, Ordering::Relaxed);
-        InflightRequestToken
+impl<Client: ObjectClient> InflightRequestToken<Client> {
+    fn new(inner: Arc<StreamingGetManagerInner<Client>>) -> Self {
+        inner.inflight_requests.fetch_add(1, Ordering::Relaxed);
+        Self { inner }
     }
 }
 
-impl Drop for InflightRequestToken {
+impl<Client: ObjectClient> Drop for InflightRequestToken<Client> {
     fn drop(&mut self) {
-        INFLIGHT_REQUEST_TRACKER.fetch_sub(1, Ordering::Relaxed);
+        self.inner.inflight_requests.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
-/// TODO giant hack, don't make this a static... it should be per-client
-static INFLIGHT_REQUEST_TRACKER: AtomicUsize = AtomicUsize::new(0);
+/// A [StreamingGetManager] creates and manages high-throughput streaming get requests to an object
+/// client. It manages the total throughput available to the object store, and dynamically divides
+/// that throughput among inflight requests.
+pub struct StreamingGetManager<Client: ObjectClient> {
+    inner: Arc<StreamingGetManagerInner<Client>>,
+}
+
+struct StreamingGetManagerInner<Client: ObjectClient> {
+    client: Arc<Client>,
+    inflight_requests: AtomicUsize,
+    throughput_target_gbps: f64,
+}
+
+impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetManager<Client> {
+    /// Create a new [StreamingGetManager] that will make requests to the given client.
+    pub fn new(client: Arc<Client>, throughput_target_gbps: f64) -> Self {
+        let inner = StreamingGetManagerInner {
+            client,
+            inflight_requests: AtomicUsize::new(0),
+            throughput_target_gbps,
+        };
+
+        Self { inner: Arc::new(inner) }
+    }
+
+    /// Start a new get request to the specified object.
+    pub fn get(&self, bucket: &str, key: &str, size: u64) -> StreamingGetObject<Client> {
+        StreamingGetObject::new(Arc::clone(&self.inner), bucket, key, size)
+    }
+}
+
+impl<Client: ObjectClient> StreamingGetManagerInner<Client> {
+    fn inflight_requests(&self) -> usize {
+        self.inflight_requests.load(Ordering::Relaxed)
+    }
+}
 
 /// A GetObject request that automatically divides the desired range into chunks and requests chunks
 /// in parallel to best utilize the available throughput.
 ///
 /// TODO could we replace this with a separate S3Client per request that configures the throughput
 /// target appropriately? Depends if multiple clients can share the same pool of VIPs.
-pub struct StreamingGetObject {
-    client: Arc<S3Client>,
+pub struct StreamingGetObject<Client: ObjectClient> {
+    inner: Arc<StreamingGetManagerInner<Client>>,
     parallel_chunks: Arc<RwLock<VecDeque<Arc<StreamingChunk>>>>,
-    _inflight_request: InflightRequestToken,
+    _inflight_request: InflightRequestToken<Client>,
     current_part: PartCursor,
     next_part_offset: u64,
     next_chunk_offset: u64,
@@ -214,7 +253,7 @@ pub struct StreamingGetObject {
     object_size: u64,
 }
 
-impl Debug for StreamingGetObject {
+impl<Client: ObjectClient> Debug for StreamingGetObject<Client> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("StreamingGetObject")
             .field("next_part_offset", &self.next_part_offset)
@@ -227,9 +266,9 @@ impl Debug for StreamingGetObject {
     }
 }
 
-impl StreamingGetObject {
+impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
     /// Create and spawn a new streaming request
-    pub fn new(client: Arc<S3Client>, bucket: &str, key: &str, size: u64) -> Self {
+    fn new(inner: Arc<StreamingGetManagerInner<Client>>, bucket: &str, key: &str, size: u64) -> Self {
         let num_chunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
         assert!(num_chunks > 0);
 
@@ -241,10 +280,10 @@ impl StreamingGetObject {
         }
 
         let mut request = StreamingGetObject {
-            client,
+            inner: inner.clone(),
             parallel_chunks: Default::default(),
             current_part: PartCursor::new([].into()),
-            _inflight_request: InflightRequestToken::new(),
+            _inflight_request: InflightRequestToken::new(inner),
             next_part_offset: 0,
             next_chunk_offset: chunk_start,
             next_chunk_size: chunk_size,
@@ -253,7 +292,8 @@ impl StreamingGetObject {
             key: key.to_owned(),
         };
 
-        request.refill_chunk_queue();
+        let span = debug_span!("StreamingGetObject", request=?&request as *const _);
+        span.in_scope(|| request.refill_chunk_queue());
 
         request
     }
@@ -264,7 +304,10 @@ impl StreamingGetObject {
     ///
     /// TODO reads have to be sequential right now, but we don't enforce that properly.
     pub fn read(&mut self, offset: u64, size: usize) -> Cow<'_, [u8]> {
-        trace!(request=?self as *const _, offset, size, "StreamingGetObject read");
+        let span = debug_span!("StreamingGetObject", request=?self as *const _);
+        let _guard = span.enter();
+
+        trace!(offset, size, "read");
 
         let remaining = self.object_size.saturating_sub(offset);
         let mut to_read = (size as u64).min(remaining);
@@ -347,22 +390,22 @@ impl StreamingGetObject {
 
     /// Spawn requests for new chunks until the chunk queue is filled.
     fn refill_chunk_queue(&mut self) {
-        if self.next_chunk_offset >= self.object_size {
-            return;
-        }
-
         let mut parallel_chunks = self.parallel_chunks.read().unwrap();
 
         // TODO this is a big hack; we want the CRT to do this part for us -- fairly schedule among
         // all in-flight requests.
-        let throughput_target_gbps = self.client.throughput_target_gbps();
+        let throughput_target_gbps = self.inner.throughput_target_gbps;
         let max_connections = (throughput_target_gbps / THROUGHPUT_PER_CONNECTION_GBPS) as usize;
         let my_max_connections = max_connections
-            .saturating_div(INFLIGHT_REQUEST_TRACKER.load(Ordering::Relaxed))
+            .saturating_div(self.inner.inflight_requests())
             .max(PARTS_PER_CHUNK);
         let my_max_chunks = (my_max_connections + PARTS_PER_CHUNK - 1) * MAX_CHUNKS_MULTIPLIER / PARTS_PER_CHUNK;
 
         while parallel_chunks.len() < my_max_chunks {
+            if self.next_chunk_offset >= self.object_size {
+                return;
+            }
+
             // We'll only spawn a new chunk if there is room in the queue and the current chunk is
             // consumed enough (read by the client, not just downloaded). This is how we get some
             // backpressure: if the consumer is slow, we will slow down our spawning of new chunks.
@@ -390,18 +433,42 @@ impl StreamingGetObject {
                 self.next_chunk_offset += self.next_chunk_size;
                 self.next_chunk_size = CHUNK_SIZE;
 
-                debug!(request=?self as *const _, ?range, inflight_chunks=parallel_chunks.len(), "starting new chunk");
+                debug!(?range, inflight_chunks = parallel_chunks.len(), "starting new chunk");
 
                 // Request object doesn't need to survive as we won't block on it
                 // TODO we probably want to hold onto this thing for cancellation purposes
-                let _request = {
+                // TODO how do we find out about errors? this whole mess needs to be async, i think
+                let request_task = {
+                    let client = Arc::clone(&self.inner.client);
                     let chunk = Arc::clone(&chunk);
-                    self.client
-                        .get_object(&self.bucket, &self.key, range, move |offset, body| {
-                            chunk.push(offset, body);
-                        })
-                        .expect("failed to start GetObject")
+                    let bucket = self.bucket.to_owned();
+                    let key = self.key.to_owned();
+
+                    let span = debug_span!("StreamingGetObjectTask", chunk=?&*chunk as *const _, range=?range);
+
+                    async move {
+                        let request = client
+                            .get_object(&bucket, &key, range.clone())
+                            .await
+                            .expect("get object failed");
+                        pin_mut!(request);
+                        loop {
+                            match request.next().await {
+                                Some(Ok((offset, body))) => {
+                                    chunk.push(offset, body);
+                                }
+                                Some(Err(e)) => {
+                                    error!(error=?e, "StreamingGetObject body part failed");
+                                    break;
+                                }
+                                None => break,
+                            }
+                        }
+                        trace!(?range, "finished GetObject task");
+                    }
+                    .instrument(span)
                 };
+                self.inner.client.spawn(request_task);
 
                 parallel_chunks.push_back(chunk);
             }

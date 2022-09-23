@@ -66,14 +66,16 @@ fn main() -> anyhow::Result<()> {
         options.push(MountOption::AllowRoot);
     }
 
+    let throughput_target_gbps = args.throughput_target_gbps.map(|t| t as f64);
+
     let config = S3ClientConfig {
-        throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
+        throughput_target_gbps,
         part_size: args.part_size.map(|t| t as usize),
     };
     let client = S3Client::new(&args.region, config).context("Failed to create S3 client")?;
 
     let session = Session::new(
-        fs::S3Filesystem::new(client, &args.bucket_name),
+        fs::S3Filesystem::new(client, &args.bucket_name, throughput_target_gbps.unwrap_or(1.0)),
         &args.mount_point,
         &options,
     )

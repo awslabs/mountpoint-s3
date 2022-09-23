@@ -1,3 +1,7 @@
+use std::future::Future;
+use std::ops::Range;
+
+use async_trait::async_trait;
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::auth::signing_config::SigningConfig;
 use aws_crt_s3::common::allocator::Allocator;
@@ -7,7 +11,11 @@ use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig};
 use thiserror::Error;
 
-mod get;
+use crate::object_client::{ListObjectsResult, ObjectClient};
+use crate::s3_client::get::{GetObjectError, GetObjectRequest};
+use crate::s3_client::list_objects::ListObjectsError;
+
+pub(crate) mod get;
 pub(crate) mod list_objects;
 
 #[derive(Debug, Clone, Default)]
@@ -105,3 +113,39 @@ pub enum S3ClientError {
 // TODO ?
 unsafe impl Send for S3Client {}
 unsafe impl Sync for S3Client {}
+
+#[async_trait]
+impl ObjectClient for S3Client {
+    type GetObjectResult = GetObjectRequest;
+    type GetObjectError = GetObjectError;
+
+    type ListObjectsError = ListObjectsError;
+
+    async fn get_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        range: Option<Range<u64>>,
+    ) -> Result<Self::GetObjectResult, Self::GetObjectError> {
+        self.get_object(bucket, key, range)
+    }
+
+    async fn list_objects(
+        &self,
+        bucket: &str,
+        continuation_token: Option<&str>,
+        delimiter: &str,
+        max_keys: usize,
+        prefix: &str,
+    ) -> Result<ListObjectsResult, Self::ListObjectsError> {
+        self.list_objects(bucket, continuation_token, delimiter, max_keys, prefix)
+            .await
+    }
+
+    /// Run the provided future to completion
+    // TODO this belongs on a trait i guess, since StreamingGetObject wants to spawn tasks and is generic
+    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) {
+        // TODO give this a proper JoinHandle-esque return type
+        self.event_loop_group.schedule_future(future);
+    }
+}

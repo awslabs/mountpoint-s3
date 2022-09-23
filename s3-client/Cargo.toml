@@ -8,9 +8,12 @@ publish = false
 [dependencies]
 aws-crt-s3 = { path = "../aws-crt-s3" }
 aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }
+
+async-trait = "0.1.57"
 futures = "0.3.24"
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
+pin-project = "1.0.12"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"
 time = "0.3.14"
@@ -26,6 +29,7 @@ bytes = "1.2.1"
 clap = "3.2.12"
 ctor = "0.1.23"
 rand = "0.8.5"
+rand_chacha = "0.3.1"
 tokio = { version = "1.21.0", features = ["rt", "macros"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 

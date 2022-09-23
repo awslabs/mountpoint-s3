@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
-use s3_client::{S3Client, S3ClientConfig, StreamingGetObject};
-
 use clap::{Arg, Command};
+use futures::StreamExt;
+use s3_client::{ObjectClient, S3Client, S3ClientConfig, StreamingGetManager};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -82,10 +82,11 @@ fn main() {
     let client = Arc::new(S3Client::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {
+        let manager = StreamingGetManager::new(client.clone(), throughput_target_gbps.unwrap_or(1.0));
         let received_size = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
         if use_rust_streaming_get {
-            let mut request = StreamingGetObject::new(Arc::clone(&client), bucket, key, size);
+            let mut request = manager.get(bucket, key, size);
             loop {
                 let offset = received_size.load(Ordering::SeqCst);
                 if offset >= size {
@@ -95,13 +96,26 @@ fn main() {
                 received_size.fetch_add(bytes.len() as u64, Ordering::SeqCst);
             }
         } else {
+            let client = Arc::clone(&client);
             let received_size_clone = Arc::clone(&received_size);
-            let request = client
-                .get_object(bucket, key, None, move |_offset, body| {
-                    received_size_clone.fetch_add(body.len() as u64, Ordering::SeqCst);
-                })
-                .expect("failed to start request");
-            request.wait().expect("request failed");
+            futures::executor::block_on(async move {
+                let mut request = client
+                    .get_object(bucket, key, None)
+                    .await
+                    .expect("couldn't create get request");
+                loop {
+                    match StreamExt::next(&mut request).await {
+                        Some(Ok((_offset, body))) => {
+                            received_size_clone.fetch_add(body.len() as u64, Ordering::SeqCst);
+                        }
+                        Some(Err(e)) => {
+                            tracing::error!(error = ?e, "request failed");
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+            })
         }
 
         let elapsed = start.elapsed();

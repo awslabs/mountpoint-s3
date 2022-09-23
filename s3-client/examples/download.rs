@@ -2,9 +2,9 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
-use s3_client::S3Client;
-
 use clap::{Arg, Command};
+use futures::StreamExt;
+use s3_client::{ObjectClient, S3Client};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -39,18 +39,27 @@ fn main() {
 
     let last_offset = Arc::new(Mutex::new(None));
     let last_offset_clone = Arc::clone(&last_offset);
-    let request = client
-        .get_object(bucket, key, None, move |offset, body| {
-            {
-                let mut last_offset = last_offset_clone.lock().unwrap();
-                assert!(Some(offset) > *last_offset, "out-of-order body parts");
-                *last_offset = Some(offset);
+    futures::executor::block_on(async move {
+        let mut request = client
+            .get_object(bucket, key, None)
+            .await
+            .expect("couldn't create get request");
+        loop {
+            match StreamExt::next(&mut request).await {
+                Some(Ok((offset, body))) => {
+                    let mut last_offset = last_offset_clone.lock().unwrap();
+                    assert!(Some(offset) > *last_offset, "out-of-order body parts");
+                    *last_offset = Some(offset);
+                    let stdout = std::io::stdout();
+                    let mut guard = stdout.lock();
+                    guard.write_all(&body[..]).expect("write failed");
+                }
+                Some(Err(e)) => {
+                    tracing::error!(error = ?e, "request failed");
+                    break;
+                }
+                None => break,
             }
-
-            let stdout = std::io::stdout();
-            let mut guard = stdout.lock();
-            guard.write_all(body).expect("write failed");
-        })
-        .expect("failed to start request");
-    request.wait().expect("request failed");
+        }
+    });
 }

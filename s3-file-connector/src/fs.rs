@@ -10,7 +10,7 @@ use fuser::{
     FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, Request,
 };
-use s3_client::{S3Client, StreamingGetObject};
+use s3_client::{ObjectClient, StreamingGetManager, StreamingGetObject};
 
 // FIXME Use newtype here? Will add a bunch of .into()s...
 type Inode = u64;
@@ -70,29 +70,30 @@ struct DirHandle {
 }
 
 #[derive(Debug)]
-struct FileHandle {
+struct FileHandle<Client: ObjectClient> {
     #[allow(unused)]
     ino: Inode,
     full_key: String,
     object_size: u64,
-    request: Mutex<Option<StreamingGetObject>>,
+    request: Mutex<Option<StreamingGetObject<Client>>>,
 }
 
 type DirectoryMap = Arc<RwLock<HashMap<String, Inode>>>;
 
-pub struct S3Filesystem {
-    client: Arc<S3Client>,
+pub struct S3Filesystem<Client: ObjectClient> {
+    client: Arc<Client>,
+    streaming_get_manager: StreamingGetManager<Client>,
     bucket: String,
     next_handle: AtomicU64,
     next_inode: AtomicU64,
     inode_info: RwLock<HashMap<Inode, InodeInfo>>,
     dir_handles: RwLock<HashMap<u64, DirHandle>>,
     dir_entries: RwLock<HashMap<Inode, DirectoryMap>>,
-    file_handles: RwLock<HashMap<u64, FileHandle>>,
+    file_handles: RwLock<HashMap<u64, FileHandle<Client>>>,
 }
 
-impl S3Filesystem {
-    pub fn new(client: S3Client, bucket: &str) -> Self {
+impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
+    pub fn new(client: Client, bucket: &str, throughput_target_gbps: f64) -> Self {
         let mut inode_info = HashMap::new();
         inode_info.insert(
             ROOT_INODE,
@@ -112,8 +113,13 @@ impl S3Filesystem {
         let mut dir_entries = HashMap::new();
         dir_entries.insert(ROOT_INODE, Arc::new(RwLock::new(root_entries)));
 
+        let client = Arc::new(client);
+
+        let streaming_get_manager = StreamingGetManager::new(client.clone(), throughput_target_gbps);
+
         Self {
-            client: Arc::new(client),
+            client,
+            streaming_get_manager,
             bucket: bucket.to_string(),
             next_handle: AtomicU64::new(1),
             next_inode: AtomicU64::new(ROOT_INODE + 1), // next Inode to allocate
@@ -204,7 +210,7 @@ fn make_attr(ino: Inode, inode_info: &InodeInfo) -> FileAttr {
 }
 
 #[async_trait]
-impl Filesystem for S3Filesystem {
+impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<Client> {
     async fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.set_max_readahead(0);
         Ok(())
@@ -286,12 +292,10 @@ impl Filesystem for S3Filesystem {
         if let Some(handle) = file_handles.get(&fh) {
             let mut request = handle.request.lock().unwrap();
             if request.is_none() {
-                *request = Some(StreamingGetObject::new(
-                    Arc::clone(&self.client),
-                    &self.bucket,
-                    &handle.full_key,
-                    handle.object_size,
-                ));
+                *request = Some(
+                    self.streaming_get_manager
+                        .get(&self.bucket, &handle.full_key, handle.object_size),
+                );
             }
             let body = request.as_mut().unwrap().read(offset as u64, size as usize);
             reply.data(&body);

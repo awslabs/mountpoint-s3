@@ -18,7 +18,15 @@ pub fn make_test_session() -> (TempDir, BackgroundSession) {
         MountOption::AutoUnmount,
     ];
 
-    let session = Session::new(S3Filesystem::new(client, &bucket_name), mount_dir.path(), &options).unwrap();
+    // TODO autodiscover this
+    let throughput_target_gbps = 1.0;
+
+    let session = Session::new(
+        S3Filesystem::new(client, &bucket_name, throughput_target_gbps),
+        mount_dir.path(),
+        &options,
+    )
+    .unwrap();
 
     let session = BackgroundSession::new(session).unwrap();
 

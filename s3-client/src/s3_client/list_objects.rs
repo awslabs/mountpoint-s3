@@ -1,3 +1,4 @@
+use crate::object_client::{ListObjectsResult, ObjectInfo};
 use crate::S3Client;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
@@ -63,22 +64,6 @@ fn get_field(element: &xmltree::Element, name: &str) -> Result<String, ListObjec
     get_text(get_child(element, name)?)
 }
 
-#[derive(Debug)]
-pub struct ListObjectsResult {
-    /// The name of the bucket.
-    pub bucket: String,
-
-    /// The list of objects.
-    pub objects: Vec<S3Object>,
-
-    /// The list of common prefixes. This rolls up all of the objects with a common prefix up to
-    /// the next instance of the delimiter.
-    pub common_prefixes: Vec<String>,
-
-    /// If present, the continuation token to use to query more results.
-    pub next_continuation_token: Option<String>,
-}
-
 impl ListObjectsResult {
     fn parse_from_bytes(bytes: &[u8]) -> Result<Self, ListObjectsError> {
         Self::parse_from_xml(&mut xmltree::Element::parse(bytes)?)
@@ -88,7 +73,7 @@ impl ListObjectsResult {
         let mut objects = Vec::new();
 
         while let Some(content) = element.take_child("Contents") {
-            objects.push(S3Object::parse_from_xml(&content)?);
+            objects.push(ObjectInfo::parse_from_xml(&content)?);
         }
 
         let mut common_prefixes = Vec::new();
@@ -125,27 +110,7 @@ impl ListObjectsResult {
     }
 }
 
-/// Metadata about a single S3 object.
-/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html for more details.
-#[derive(Debug)]
-pub struct S3Object {
-    /// Key for this object.
-    pub key: String,
-
-    /// Size of this object in bytes.
-    pub size: u64,
-
-    /// The time this object was last modified.
-    pub last_modified: OffsetDateTime,
-
-    /// Storage class for this object.
-    pub storage_class: String,
-
-    /// Entity tag of this object.
-    pub etag: String,
-}
-
-impl S3Object {
+impl ObjectInfo {
     fn parse_from_xml(element: &xmltree::Element) -> Result<Self, ListObjectsError> {
         let key = get_field(element, "Key")?;
 
@@ -268,11 +233,6 @@ impl S3Client {
             self.s3_client.make_meta_request(options)?;
         }
 
-        let result = rx.await;
-
-        // Map the futures Canceled error into the ListObjectsError
-        // This happens if the callback closure containing `tx` is dropped before being called;
-        // which can happen if the request is somehow canceled before completing.
-        result.unwrap_or_else(|err| Err(ListObjectsError::from(err)))
+        rx.await?
     }
 }

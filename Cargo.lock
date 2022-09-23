@@ -1709,6 +1709,7 @@ name = "s3-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "aws-config",
  "aws-crt-s3",
  "aws-crt-s3-sys",
@@ -1719,7 +1720,9 @@ dependencies = [
  "futures",
  "libc",
  "libc-stdhandle",
+ "pin-project",
  "rand",
+ "rand_chacha",
  "static_assertions",
  "thiserror",
  "time",
