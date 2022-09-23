@@ -119,6 +119,7 @@ dependencies = [
  "log",
  "smallstr",
  "static_assertions",
+ "thiserror",
  "tracing-subscriber",
 ]
 

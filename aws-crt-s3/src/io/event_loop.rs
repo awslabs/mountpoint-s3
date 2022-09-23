@@ -55,12 +55,11 @@ impl EventLoop {
     }
 
     /// Get the current timestamp for this event loop's clock
-    fn current_clock_time(&self) -> u64 {
+    fn current_clock_time(&self) -> Result<u64, Error> {
         unsafe {
             let mut time_nanos: u64 = 0;
-            let res = aws_event_loop_current_clock_time(self.inner.as_ptr(), &mut time_nanos);
-            assert_eq!(res, AWS_OP_SUCCESS);
-            time_nanos
+            aws_event_loop_current_clock_time(self.inner.as_ptr(), &mut time_nanos).ok_or_last_error()?;
+            Ok(time_nanos)
         }
     }
 }
@@ -277,12 +276,12 @@ impl EventLoopTimer {
 }
 
 impl Future for EventLoopTimer {
-    type Output = ();
+    type Output = Result<(), Error>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Check if the timer is already done
         if self.done.load(Ordering::SeqCst) {
-            return Poll::Ready(());
+            return Poll::Ready(Ok(()));
         }
 
         // Check if the timer is scheduled already. If it is, swapping true won't do anything and we
@@ -292,12 +291,20 @@ impl Future for EventLoopTimer {
             return Poll::Pending;
         }
 
-        let now = self.event_loop.current_clock_time();
-        let nanos: u64 = self
-            .duration
-            .as_nanos()
-            .try_into()
-            .expect("Too many nanoseconds in duration to fit in u64");
+        let now = match self.event_loop.current_clock_time() {
+            Ok(now) => now,
+            Err(e) => return Poll::Ready(Err(e)),
+        };
+
+        let nanos: u64 = match self.duration.as_nanos().try_into() {
+            Ok(nanos) => nanos,
+            Err(e) => {
+                return Poll::Ready(Err(Error::BindingError(
+                    Box::new(e),
+                    "Failed to convert nanos to u64 in EventLoopTimer".to_string(),
+                )))
+            }
+        };
 
         let waker = cx.waker().clone();
         let done = self.done.clone();
@@ -414,20 +421,24 @@ mod test {
         let timer1 = EventLoopTimer::new(event_loop.clone(), Duration::from_secs(1));
         let timer2 = EventLoopTimer::new(event_loop.clone(), Duration::from_secs(1));
 
-        let before_nanos = event_loop.current_clock_time();
+        let before_nanos = event_loop
+            .current_clock_time()
+            .expect("Failed to get current clock time");
 
         allocator.tracer_dump();
 
         // Run a future that awaits both timers.
         let rx = el_group.schedule_future(async {
-            timer1.await;
-            timer2.await
+            timer1.await.expect("timer1 failed");
+            timer2.await.expect("timer2 failed");
         });
 
         // Wait up to the timeout for the future to complete.
         rx.recv_timeout(RECV_TIMEOUT).unwrap();
 
-        let after_nanos = event_loop.current_clock_time();
+        let after_nanos = event_loop
+            .current_clock_time()
+            .expect("Failed to get current clock time");
 
         // At least 2 seconds should have passed by the time the future completes.
         assert!(after_nanos > before_nanos + u64::try_from(Duration::from_secs(2).as_nanos()).unwrap());

@@ -13,6 +13,7 @@ libc = "0.2.132"
 log = "0.4.17"
 smallstr = "0.3.0"
 static_assertions = "1.1.0"
+thiserror = "1.0.35"
 
 [dev-dependencies]
 criterion = "0.4.0"
