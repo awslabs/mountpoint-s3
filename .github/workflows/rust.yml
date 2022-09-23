@@ -1,4 +1,4 @@
-name: Rust Tests
+name: CI
 
 on:
   push:
@@ -33,12 +33,6 @@ jobs:
       with:
         role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
         aws-region: us-east-1
-    # Lifecycle on the bucket cleans these objects up for us
-    - name: Put test object
-      run: |
-        TMP=$(mktemp)
-        echo "Test object to check bucket exists" > $TMP
-        aws s3api put-object --bucket $S3_BUCKET_NAME --key $S3_BUCKET_TEST_PREFIX/test --body $TMP
     - name: Checkout code
       uses: actions/checkout@v3
       with:
@@ -47,13 +41,25 @@ jobs:
       run: sudo apt-get install ${{ matrix.fuse }} lib${{ matrix.fuse }}-dev
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
-    - name: Check all targets
-      run: cargo check --all-targets --features $RUST_FEATURES
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
 
+  check:
+    name: Check all targets
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install fuse
+      run: sudo apt-get install fuse libfuse-dev
+    - name: Check all targets
+      run: cargo check --all-targets --features $RUST_FEATURES
+
   rustfmt:
-    name: rustfmt
+    name: Formatting
     runs-on: ubuntu-22.04
 
     steps:
@@ -79,7 +85,7 @@ jobs:
         run: make clippy
 
   docs:
-    name: CRT Documentation
+    name: CRT docs
     runs-on: ubuntu-latest
 
     steps:
@@ -91,7 +97,7 @@ jobs:
         run: cargo doc --no-deps -p aws-crt-s3
 
   deny:
-    name: Deny
+    name: Licenses
     runs-on: ubuntu-latest
 
     steps:
