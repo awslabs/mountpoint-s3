@@ -1,24 +1,11 @@
-//! This module implements a "streaming" GetObject request.
+//! This module implements a prefetcher for GetObject requests.
 //!
-//! The CRT's GetObject request is very eager -- it sets out to download the desired (range of an)
-//! object as fast as possible. This is great for fast consumers, but it means there's not a great
-//! way to apply backpressure if the consumer is slower. The CRT will happily accumulate the entire
-//! object in memory if the consumer can't keep up with the rate of parts arriving.
-//!
-//! This module's `StreamingGetRequest` applies backpressure to the CRT by only requesting the
-//! object in "chunks". Each chunk is sized large enough for the CRT to be able to make effective
-//! use of many concurrent S3 requests, but small enough that we can tolerate holding a few entire
-//! chunks in memory if the consumer runs slowly. The `StreamingGetRequest` dynamically requests new
-//! chunks in line with the rate they're consumed.
+//! It works by making large concurrent "chunk"-sized GetObject requests to the CRT. We want the
+//! chunks to be large enough that they can make effective use of the CRT's fan-out parallelism
+//! across the S3 frontend, but small enough that we don't accumulate a lot of unread object data
+//! in memory or wastefully download data we'll never read.
 //!
 //! TODO this code only supports reading the entire object, and does not react well to failures.
-//!
-//! A quick glossary:
-//! * Object: an entire S3 object (or a range of one). The thing the customer wants to read.
-//! * Chunk: a large-ish part of the object. A chunk corresponds to one GetObject request submitted
-//!          to the CRT. A `StreamingGetObject` has multiple chunks inflight at once.
-//! * Part: a single part of an object as delivered by the CRT from a GetObject request. A chunk is
-//!         many parts; one part is delivered by the CRT in one callback invocation.
 
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -32,42 +19,12 @@ use tracing::{debug, debug_span, error, instrument, trace, Instrument};
 
 use crate::object_client::ObjectClient;
 
-/// TODO connect this to client config
-const PART_SIZE: u64 = 8 * (1 << 20);
-
-/// A chunk will be exposed to the CRT in one piece, so we want it big enough that it can make good
-/// use of a lot of concurrency to S3, but small enough that we can keep the whole chunk in memory
-/// if we're consuming it too slowly.
-///
-/// Here's the napkin math: I wanted to shoot for an entitlement of 3GB/s per `StreamingGetRequest`
-/// (a number I just made up that sounded reasonable). The CRT's math says that a single VIP can
-/// offer up to 4Gbit/s (`s_throughput_per_vip_gbps`), and will allow up to 10 connections
-/// (`g_max_num_connections_per_vip`). So a single connection to a single VIP offers 0.4Gbit =
-/// 50MB/s of throughput, and so we need 3000/50 = 60 concurrent connections to hit our 3GB/s goal.
-///
-/// TODO make this configurable
-/// TODO we really want to be more dynamic here -- if there's only a single request in flight,
-/// expose more chunks to the CRT, but back off as more requests are spawned so that all the in
-/// flight requests can share the available throughput.
-/// TODO i think what we actually want here is for the CRT to do fair scheduling across requests.
-const PARTS_PER_CHUNK: usize = 60;
-const CHUNK_SIZE: u64 = PARTS_PER_CHUNK as u64 * PART_SIZE;
-/// TODO don't duplicate this from CRT
-const THROUGHPUT_PER_CONNECTION_GBPS: f64 = 0.05;
-
-/// How many chunks can be in flight at once. We use this to smooth out the concurrency of chunks:
-/// as one chunk is almost completely downloaded, it has little concurrency remaining, so the other
-/// parallel chunks make use of those otherwise empty slots.
-///
-/// We're exploiting some understanding of the CRT's scheduler here: we know that it prefers to
-/// saturate earlier requests first, so adding additional chunks won't slow down the current (first)
-/// chunk.
-///
-/// This number was just derived empirically -- 2 was my first guess but wasn't enough. This roughly
-/// corelates with the CRT's `s_max_requests_multiplier`, which is also 4, and is used to decide how
-/// many requests can be inflight: to have N threads doing useful work (downloading bytes), it
-/// allows up to 4*N requests to exist, on the premise that the others are doing connection
-/// setup/teardown.
+/// A multiplier on how many chunks can be in flight at once, to account for the fact that some
+/// requests will be spending their time in setup or teardown. This number was just copied from the
+/// CRT's `s_max_requests_multiplier`, which serves a roughly equivalent purpose, and is used to
+/// decide how many requests can be inflight: to have N requests doing useful work (downloading
+/// bytes), it allows up to 4*N requests to exist, on the premise that the others are doing
+/// connection setup/teardown.
 const MAX_CHUNKS_MULTIPLIER: usize = 4;
 
 /// When the current (first) chunk has only 1/PARALLEL_CHUNK_REFILL_FACTOR of its bytes remaining to
@@ -79,8 +36,25 @@ const MAX_CHUNKS_MULTIPLIER: usize = 4;
 /// 1/2 seemed like a good default.
 const PARALLEL_CHUNK_REFILL_FACTOR: usize = 2;
 
-/// A single body part as returned by the CRT, together with a cursor into the part. The idea is to
-/// be able to do do zero-copy reads from the part if you own it.
+/// The part size the CRT will use for GetObject requests
+// TODO connect this to client config
+const PART_SIZE: u64 = 8 * (1 << 20);
+
+/// Chunk size is a trade-off between CRT throughput and memory usage/waste. These are arbitrary
+/// numbers that haven't been tuned at all.
+const PARTS_PER_CHUNK: usize = 60;
+const CHUNK_SIZE: u64 = PARTS_PER_CHUNK as u64 * PART_SIZE;
+
+/// Unfortunately the CRT is currently not very good at fair scheduling across GetObject requests.
+/// It will happily let one request use all the available concurrency and starve the others. So we
+/// help it out by dynamically scaling how many chunks we send to the CRT from a single
+/// [PrefetchingGetRequest]. This requires us to duplicate some understanding of how the CRT
+/// computes the available concurrency.
+// TODO don't duplicate this from CRT
+const THROUGHPUT_PER_CONNECTION_GBPS: f64 = 0.05;
+
+/// A single body part returned by the object client, together with a cursor into the part. This
+/// lets us do zero-copy reads from the part.
 struct PartCursor {
     bytes: Box<[u8]>,
     cursor: usize,
@@ -107,8 +81,8 @@ impl PartCursor {
     }
 }
 
-/// A single chunk of a `StreamingGetRequest`.
-struct StreamingChunk {
+/// A single chunk of a `PrefetchingGetRequest`.
+struct PrefetchChunk {
     // Data in a chunk is in three contiguous regions:
     //   [  1   |      2       |   3    ]
     // 1. Data both downloaded and consumed by the reader -- data we're finished with
@@ -124,7 +98,7 @@ struct StreamingChunk {
     data_available: Condvar,
 }
 
-impl StreamingChunk {
+impl PrefetchChunk {
     fn new(size: u64) -> Self {
         Self {
             queue: Default::default(),
@@ -180,13 +154,13 @@ impl StreamingChunk {
     }
 }
 
-/// A token that can be used to track how many requests a [StreamingGetManager] has inflight.
+/// A token that can be used to track how many requests a [Prefetcher] has inflight.
 struct InflightRequestToken<Client: ObjectClient> {
-    inner: Arc<StreamingGetManagerInner<Client>>,
+    inner: Arc<PrefetcherInner<Client>>,
 }
 
 impl<Client: ObjectClient> InflightRequestToken<Client> {
-    fn new(inner: Arc<StreamingGetManagerInner<Client>>) -> Self {
+    fn new(inner: Arc<PrefetcherInner<Client>>) -> Self {
         inner.inflight_requests.fetch_add(1, Ordering::Relaxed);
         Self { inner }
     }
@@ -198,23 +172,23 @@ impl<Client: ObjectClient> Drop for InflightRequestToken<Client> {
     }
 }
 
-/// A [StreamingGetManager] creates and manages high-throughput streaming get requests to an object
-/// client. It manages the total throughput available to the object store, and dynamically divides
-/// that throughput among inflight requests.
-pub struct StreamingGetManager<Client: ObjectClient> {
-    inner: Arc<StreamingGetManagerInner<Client>>,
+/// A [Prefetcher] creates and manages prefetching GetObject requests to objects. It manages the
+/// total throughput available to the object store, and dynamically divides that throughput among
+/// inflight requests.
+pub struct Prefetcher<Client: ObjectClient> {
+    inner: Arc<PrefetcherInner<Client>>,
 }
 
-struct StreamingGetManagerInner<Client: ObjectClient> {
+struct PrefetcherInner<Client: ObjectClient> {
     client: Arc<Client>,
     inflight_requests: AtomicUsize,
     throughput_target_gbps: f64,
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetManager<Client> {
-    /// Create a new [StreamingGetManager] that will make requests to the given client.
+impl<Client: ObjectClient + Send + Sync + 'static> Prefetcher<Client> {
+    /// Create a new [Prefetcher] that will make requests to the given client.
     pub fn new(client: Arc<Client>, throughput_target_gbps: f64) -> Self {
-        let inner = StreamingGetManagerInner {
+        let inner = PrefetcherInner {
             client,
             inflight_requests: AtomicUsize::new(0),
             throughput_target_gbps,
@@ -224,25 +198,22 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetManager<Client> {
     }
 
     /// Start a new get request to the specified object.
-    pub fn get(&self, bucket: &str, key: &str, size: u64) -> StreamingGetObject<Client> {
-        StreamingGetObject::new(Arc::clone(&self.inner), bucket, key, size)
+    pub fn get(&self, bucket: &str, key: &str, size: u64) -> PrefetchingGetRequest<Client> {
+        PrefetchingGetRequest::new(Arc::clone(&self.inner), bucket, key, size)
     }
 }
 
-impl<Client: ObjectClient> StreamingGetManagerInner<Client> {
+impl<Client: ObjectClient> PrefetcherInner<Client> {
     fn inflight_requests(&self) -> usize {
         self.inflight_requests.load(Ordering::Relaxed)
     }
 }
 
-/// A GetObject request that automatically divides the desired range into chunks and requests chunks
-/// in parallel to best utilize the available throughput.
-///
-/// TODO could we replace this with a separate S3Client per request that configures the throughput
-/// target appropriately? Depends if multiple clients can share the same pool of VIPs.
-pub struct StreamingGetObject<Client: ObjectClient> {
-    inner: Arc<StreamingGetManagerInner<Client>>,
-    parallel_chunks: Arc<RwLock<VecDeque<Arc<StreamingChunk>>>>,
+/// A GetObject request that divides the desired range of the object into chunks that it prefetches
+/// in a way that maximizes throughput from S3.
+pub struct PrefetchingGetRequest<Client: ObjectClient> {
+    inner: Arc<PrefetcherInner<Client>>,
+    parallel_chunks: Arc<RwLock<VecDeque<Arc<PrefetchChunk>>>>,
     _inflight_request: InflightRequestToken<Client>,
     current_part: PartCursor,
     next_part_offset: u64,
@@ -253,9 +224,9 @@ pub struct StreamingGetObject<Client: ObjectClient> {
     object_size: u64,
 }
 
-impl<Client: ObjectClient> Debug for StreamingGetObject<Client> {
+impl<Client: ObjectClient> Debug for PrefetchingGetRequest<Client> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("StreamingGetObject")
+        f.debug_struct("PrefetchingGetRequest")
             .field("next_part_offset", &self.next_part_offset)
             .field("next_chunk_offset", &self.next_chunk_offset)
             .field("next_chunk_size", &self.next_chunk_size)
@@ -266,9 +237,9 @@ impl<Client: ObjectClient> Debug for StreamingGetObject<Client> {
     }
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
-    /// Create and spawn a new streaming request
-    fn new(inner: Arc<StreamingGetManagerInner<Client>>, bucket: &str, key: &str, size: u64) -> Self {
+impl<Client: ObjectClient + Send + Sync + 'static> PrefetchingGetRequest<Client> {
+    /// Create and spawn a new prefetching request for an object
+    fn new(inner: Arc<PrefetcherInner<Client>>, bucket: &str, key: &str, size: u64) -> Self {
         let num_chunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
         assert!(num_chunks > 0);
 
@@ -279,7 +250,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
             chunk_size = CHUNK_SIZE;
         }
 
-        let mut request = StreamingGetObject {
+        let mut request = PrefetchingGetRequest {
             inner: inner.clone(),
             parallel_chunks: Default::default(),
             current_part: PartCursor::new([].into()),
@@ -292,7 +263,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
             key: key.to_owned(),
         };
 
-        let span = debug_span!("StreamingGetObject", request=?&request as *const _);
+        let span = debug_span!("PrefetchingGetRequest", request=?&request as *const _);
         span.in_scope(|| request.refill_chunk_queue());
 
         request
@@ -304,7 +275,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
     ///
     /// TODO reads have to be sequential right now, but we don't enforce that properly.
     pub fn read(&mut self, offset: u64, size: usize) -> Cow<'_, [u8]> {
-        let span = debug_span!("StreamingGetObject", request=?self as *const _);
+        let span = debug_span!("PrefetchingGetRequest", request=?self as *const _);
         let _guard = span.enter();
 
         trace!(offset, size, "read");
@@ -392,14 +363,13 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
     fn refill_chunk_queue(&mut self) {
         let mut parallel_chunks = self.parallel_chunks.read().unwrap();
 
-        // TODO this is a big hack; we want the CRT to do this part for us -- fairly schedule among
-        // all in-flight requests.
+        // TODO This is a big hack. We want the CRT to handle fair scheduling among requests, but it
+        // doesn't, so instead we basically replicate its understanding of S3 connections here.
         let throughput_target_gbps = self.inner.throughput_target_gbps;
         let max_connections = (throughput_target_gbps / THROUGHPUT_PER_CONNECTION_GBPS) as usize;
-        let my_max_connections = max_connections
-            .saturating_div(self.inner.inflight_requests())
-            .max(PARTS_PER_CHUNK);
-        let my_max_chunks = (my_max_connections + PARTS_PER_CHUNK - 1) * MAX_CHUNKS_MULTIPLIER / PARTS_PER_CHUNK;
+        let my_max_connections = max_connections.saturating_div(self.inner.inflight_requests());
+        let my_max_chunks = my_max_connections * MAX_CHUNKS_MULTIPLIER / PARTS_PER_CHUNK;
+        let my_max_chunks = my_max_chunks.max(1);
 
         while parallel_chunks.len() < my_max_chunks {
             if self.next_chunk_offset >= self.object_size {
@@ -428,7 +398,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
                 let mut parallel_chunks = self.parallel_chunks.write().unwrap();
 
                 let range = Some(self.next_chunk_offset..self.next_chunk_offset + self.next_chunk_size);
-                let chunk = Arc::new(StreamingChunk::new(self.next_chunk_size));
+                let chunk = Arc::new(PrefetchChunk::new(self.next_chunk_size));
 
                 self.next_chunk_offset += self.next_chunk_size;
                 self.next_chunk_size = CHUNK_SIZE;
@@ -444,7 +414,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
                     let bucket = self.bucket.to_owned();
                     let key = self.key.to_owned();
 
-                    let span = debug_span!("StreamingGetObjectTask", chunk=?&*chunk as *const _, range=?range);
+                    let span = debug_span!("PrefetchingGetRequestTask", chunk=?&*chunk as *const _, range=?range);
 
                     async move {
                         let request = client
@@ -458,7 +428,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> StreamingGetObject<Client> {
                                     chunk.push(offset, body);
                                 }
                                 Some(Err(e)) => {
-                                    error!(error=?e, "StreamingGetObject body part failed");
+                                    error!(error=?e, "PrefetchingGetRequest body part failed");
                                     break;
                                 }
                                 None => break,

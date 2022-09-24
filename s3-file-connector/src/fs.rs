@@ -10,7 +10,7 @@ use fuser::{
     FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, Request,
 };
-use s3_client::{ObjectClient, StreamingGetManager, StreamingGetObject};
+use s3_client::{ObjectClient, Prefetcher, PrefetchingGetRequest};
 
 // FIXME Use newtype here? Will add a bunch of .into()s...
 type Inode = u64;
@@ -75,14 +75,14 @@ struct FileHandle<Client: ObjectClient> {
     ino: Inode,
     full_key: String,
     object_size: u64,
-    request: Mutex<Option<StreamingGetObject<Client>>>,
+    request: Mutex<Option<PrefetchingGetRequest<Client>>>,
 }
 
 type DirectoryMap = Arc<RwLock<HashMap<String, Inode>>>;
 
 pub struct S3Filesystem<Client: ObjectClient> {
     client: Arc<Client>,
-    streaming_get_manager: StreamingGetManager<Client>,
+    streaming_get_manager: Prefetcher<Client>,
     bucket: String,
     prefix: String,
     next_handle: AtomicU64,
@@ -122,7 +122,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         let client = Arc::new(client);
 
-        let streaming_get_manager = StreamingGetManager::new(client.clone(), throughput_target_gbps);
+        let streaming_get_manager = Prefetcher::new(client.clone(), throughput_target_gbps);
 
         Self {
             client,
