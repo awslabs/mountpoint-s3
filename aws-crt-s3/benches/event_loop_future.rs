@@ -1,7 +1,7 @@
 //! Some basic spawn benchmarks, borrowed from Tokio:
 //! https://github.com/tokio-rs/tokio/blob/1c823093cb685c421ea614a2931e4b6db3918b22/benches/spawn.rs
 
-use std::future::{Future, IntoFuture};
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 

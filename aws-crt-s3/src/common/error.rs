@@ -13,9 +13,16 @@ pub enum Error {
     #[error("Error from CRT: ({0}) {}", err_code_to_debug_str(*.0))]
     CRTError(i32),
 
-    /// An error generated inside the CRT bindings.
+    /// An generic error generated inside the CRT bindings.
     #[error("Error in CRT bindings: cause = {0}, context = {1}")]
     BindingError(#[source] Box<dyn std::error::Error + Send + Sync>, String),
+
+    /// An error to indicate that a Future or callback was canceled before completion. Some examples
+    /// of when this could happen are if the client explicitly calls a cancel method before the
+    /// asynchronous task completes, or when the last [crate::io::event_loop::EventLoopGroup]
+    /// associated with the task is dropped before the task finishes executing.
+    #[error("The future / callback was canceled")]
+    Canceled,
 }
 
 impl Error {
@@ -54,6 +61,7 @@ impl Debug for Error {
                 .field(&err_code_to_debug_str(*err_code))
                 .finish(),
             Self::BindingError(cause, msg) => f.debug_tuple("BindingError").field(cause).field(msg).finish(),
+            Self::Canceled => f.debug_tuple("Canceled").finish(),
         }
     }
 }

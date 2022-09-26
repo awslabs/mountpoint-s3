@@ -11,8 +11,8 @@ use aws_crt_s3_sys::*;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::task::ArcWake;
-use futures::FutureExt;
-use std::future::{Future, IntoFuture};
+use futures::{FutureExt, TryFutureExt};
+use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -160,16 +160,13 @@ pub struct FutureHandle<T: Send + 'static> {
     receiver: oneshot::Receiver<T>,
 }
 
-impl<T> IntoFuture for FutureHandle<T>
+impl<T> FutureHandle<T>
 where
     T: Send + 'static,
 {
-    type IntoFuture = oneshot::Receiver<T>;
-
-    type Output = <Self::IntoFuture as Future>::Output;
-
-    fn into_future(self) -> Self::IntoFuture {
-        self.receiver
+    /// Convert this handle into a future that completes when the spawned future does.
+    pub fn into_future(self) -> impl Future<Output = Result<T, Error>> {
+        self.receiver.map_err(|_| Error::Canceled)
     }
 }
 
