@@ -1,13 +1,14 @@
 //! Some basic spawn benchmarks, borrowed from Tokio:
 //! https://github.com/tokio-rs/tokio/blob/1c823093cb685c421ea614a2931e4b6db3918b22/benches/spawn.rs
 
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use futures::executor::block_on;
 
 async fn yield_now() {
     struct YieldNow(bool);
@@ -43,11 +44,11 @@ fn event_loop_future(c: &mut Criterion) {
 
             let mut handles = Vec::with_capacity(NUM_TASKS);
             for _ in 0..NUM_TASKS {
-                handles.push(el_group.schedule_future(work()));
+                handles.push(el_group.spawn_future(work()));
             }
 
             for handle in handles {
-                assert_eq!(handle.recv().unwrap(), 2);
+                assert_eq!(block_on(handle.into_future()).unwrap(), 2);
             }
         })
     });

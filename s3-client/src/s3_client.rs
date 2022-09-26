@@ -146,6 +146,6 @@ impl ObjectClient for S3Client {
     // TODO this belongs on a trait i guess, since StreamingGetObject wants to spawn tasks and is generic
     fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) {
         // TODO give this a proper JoinHandle-esque return type
-        self.event_loop_group.schedule_future(future);
+        self.event_loop_group.spawn_future(future);
     }
 }

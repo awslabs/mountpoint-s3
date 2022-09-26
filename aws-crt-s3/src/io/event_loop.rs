@@ -8,11 +8,12 @@ use crate::io::io_library_init;
 use crate::CrtError as _;
 use crate::ResultExt;
 use aws_crt_s3_sys::*;
-use crossbeam::channel;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::task::ArcWake;
 use futures::FutureExt;
-use std::future::Future;
+use std::future::{Future, IntoFuture};
+use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -136,23 +137,39 @@ impl EventLoopGroup {
 
     /// Spawn the given Future as a task to run to completion on an event loop from this group. The
     /// returned channel will return the result of the task once it completes.
-    pub fn schedule_future<T: Send + 'static>(
-        &self,
-        future: impl Future<Output = T> + Send + 'static,
-    ) -> channel::Receiver<T> {
+    pub fn spawn_future<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) -> FutureHandle<T> {
         let future = future.boxed();
 
-        let (tx, rx) = channel::bounded(1);
+        let (tx, rx) = oneshot::channel();
 
         let waker = futures::task::waker(Arc::new(FutureTask {
             el_group: self.clone(),
-            result_channel: tx,
+            result_channel: Mutex::new(Some(tx)),
             future: Mutex::new(Some(future)),
         }));
 
         waker.wake_by_ref();
 
-        rx
+        FutureHandle { receiver: rx }
+    }
+}
+
+/// Handle to a spawned future. Can be awaited upon to get the result.
+#[derive(Debug)]
+pub struct FutureHandle<T: Send + 'static> {
+    receiver: oneshot::Receiver<T>,
+}
+
+impl<T> IntoFuture for FutureHandle<T>
+where
+    T: Send + 'static,
+{
+    type IntoFuture = oneshot::Receiver<T>;
+
+    type Output = <Self::IntoFuture as Future>::Output;
+
+    fn into_future(self) -> Self::IntoFuture {
+        self.receiver
     }
 }
 
@@ -184,7 +201,7 @@ struct FutureTask<T: Send + 'static> {
     /// A channel to write the result of the future to when it completes. This bridges the
     /// synchronous and asynchronous worlds by providing a way to block on the completion of the
     /// future in non-async code.
-    result_channel: channel::Sender<T>,
+    result_channel: Mutex<Option<oneshot::Sender<T>>>,
 
     /// The event loop group this future is running on. For now, every time wake is called, it is
     /// scheduled on the next event loop given by the group. In the future, we could change this to
@@ -211,10 +228,17 @@ impl<T: Send + 'static> FutureTask<T> {
                 Poll::Ready(value) => {
                     // Drop the future before replying on the channel
                     std::mem::drop(future);
-                    // This will never block because we only send one value. Ignore the result since
-                    // if this fails, the client must have closed the receiver side, in which case
-                    // they must not care about the result.
-                    let _ = arc_self.result_channel.send(value);
+                    // This will never fail because we only send one value and we don't put the
+                    // Future back into arc_self when it completes. Ignore the result since if this
+                    // fails, the client must have closed the receiver side, in which case they must
+                    // not care about the result.
+                    let channel = arc_self
+                        .result_channel
+                        .lock()
+                        .unwrap()
+                        .take()
+                        .expect("channel already taken");
+                    let _ = channel.send(value);
                 }
                 Poll::Pending => {
                     // The future isn't done, so keep it around for future calls to wake.
@@ -278,7 +302,7 @@ impl EventLoopTimer {
 impl Future for EventLoopTimer {
     type Output = Result<(), Error>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Check if the timer is already done
         if self.done.load(Ordering::SeqCst) {
             return Poll::Ready(Ok(()));
@@ -331,6 +355,7 @@ mod test {
     use super::*;
     use crate::common::allocator::Allocator;
     use crossbeam::channel;
+    use futures::executor::block_on;
     use std::sync::atomic::{AtomicI32, Ordering};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -387,11 +412,11 @@ mod test {
         let mut allocator = Allocator::default();
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
-        let rx = el_group.schedule_future(async {
+        let handle = el_group.spawn_future(async {
             println!("Hello from the future");
         });
 
-        rx.recv_timeout(RECV_TIMEOUT).unwrap();
+        block_on(handle.into_future()).unwrap();
     }
 
     /// Test that the event loop group shutdown callback works.
@@ -428,13 +453,13 @@ mod test {
         allocator.tracer_dump();
 
         // Run a future that awaits both timers.
-        let rx = el_group.schedule_future(async {
+        let handle = el_group.spawn_future(async {
             timer1.await.expect("timer1 failed");
             timer2.await.expect("timer2 failed");
         });
 
-        // Wait up to the timeout for the future to complete.
-        rx.recv_timeout(RECV_TIMEOUT).unwrap();
+        // Wait for the future to complete
+        block_on(handle.into_future()).unwrap();
 
         let after_nanos = event_loop
             .current_clock_time()
