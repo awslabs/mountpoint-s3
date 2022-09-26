@@ -15,7 +15,7 @@ use futures::{FutureExt, TryFutureExt};
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -143,9 +143,11 @@ impl EventLoopGroup {
         let (tx, rx) = oneshot::channel();
 
         let waker = futures::task::waker(Arc::new(FutureTask {
+            inner: Mutex::new(Some(FutureTaskInner {
+                future,
+                result_channel: tx,
+            })),
             el_group: self.clone(),
-            result_channel: Mutex::new(Some(tx)),
-            future: Mutex::new(Some(future)),
         }));
 
         waker.wake_by_ref();
@@ -157,7 +159,7 @@ impl EventLoopGroup {
 /// Handle to a spawned future. Can be awaited upon to get the result.
 #[derive(Debug)]
 pub struct FutureHandle<T: Send + 'static> {
-    receiver: oneshot::Receiver<T>,
+    receiver: oneshot::Receiver<Result<T, Error>>,
 }
 
 impl<T> FutureHandle<T>
@@ -166,7 +168,7 @@ where
 {
     /// Convert this handle into a future that completes when the spawned future does.
     pub fn into_future(self) -> impl Future<Output = Result<T, Error>> {
-        self.receiver.map_err(|_| Error::Canceled)
+        self.receiver.unwrap_or_else(|oneshot::Canceled| Err(Error::Canceled))
     }
 }
 
@@ -189,16 +191,21 @@ impl Drop for EventLoopGroup {
     }
 }
 
-struct FutureTask<T: Send + 'static> {
-    /// The future this task is running. Locked behind a mutex (since wake can be called from
-    /// different threads). If the future is not None, then it is still waiting to execute and we
-    /// need to call poll again when woken. If it is None, the future has already finished executing.
-    future: Mutex<Option<BoxFuture<'static, T>>>,
+/// Information about a not-yet-completed future.
+struct FutureTaskInner<T: Send + 'static> {
+    /// The [Future] from the client.
+    future: BoxFuture<'static, T>,
 
-    /// A channel to write the result of the future to when it completes. This bridges the
-    /// synchronous and asynchronous worlds by providing a way to block on the completion of the
-    /// future in non-async code.
-    result_channel: Mutex<Option<oneshot::Sender<T>>>,
+    /// A channel to write the result to when the future completes.
+    result_channel: oneshot::Sender<Result<T, Error>>,
+}
+
+struct FutureTask<T: Send + 'static> {
+    /// Inner information about the task if it hasn't completed yet. Held behind a mutex (since wake
+    /// can be called from different threads). If the future is not None, then it is still busy
+    /// and we should call poll again when woken. If it is None, the future has already
+    /// finished executing.
+    inner: Mutex<Option<FutureTaskInner<T>>>,
 
     /// The event loop group this future is running on. For now, every time wake is called, it is
     /// scheduled on the next event loop given by the group. In the future, we could change this to
@@ -211,35 +218,36 @@ impl<T: Send + 'static> FutureTask<T> {
     /// Poll the future associated with this FutureTask. If the future has already completed,
     /// this does nothing. If it hasn't, then it calls Future::poll. If the future is ready, write
     /// the result back to the synchronous channel. Otherwise wait for someone to poll again.
-    fn poll(arc_self: &Arc<Self>) {
+    /// If cancel is set to true, then this Future will complete immediately with [Error::Canceled].
+    fn poll(arc_self: &Arc<Self>, cancel: bool) {
         // Lock to read the future and call poll on it. Note this will block other tasks if wake was
         // called multiple times.
-        let mut locked = arc_self.future.lock().unwrap();
+        let mut locked = arc_self.inner.lock().unwrap();
 
         // Only do anything if there is a future to poll (i.e., it hasn't completed yet).
-        if let Some(mut future) = locked.take() {
-            let waker = futures::task::waker_ref(arc_self);
-            let context = &mut Context::from_waker(&*waker);
+        if let Some(mut inner) = locked.take() {
+            if cancel {
+                // If canceled, drop now and reply with an error.
+                std::mem::drop(inner.future);
+                let _ = inner.result_channel.send(Err(Error::Canceled));
+            } else {
+                // Otherwise poll the client-provided future.
+                let waker = futures::task::waker_ref(arc_self);
+                let context = &mut Context::from_waker(&*waker);
 
-            match Future::poll(future.as_mut(), context) {
-                Poll::Ready(value) => {
-                    // Drop the future before replying on the channel
-                    std::mem::drop(future);
-                    // This will never fail because we only send one value and we don't put the
-                    // Future back into arc_self when it completes. Ignore the result since if this
-                    // fails, the client must have closed the receiver side, in which case they must
-                    // not care about the result.
-                    let channel = arc_self
-                        .result_channel
-                        .lock()
-                        .unwrap()
-                        .take()
-                        .expect("channel already taken");
-                    let _ = channel.send(value);
-                }
-                Poll::Pending => {
-                    // The future isn't done, so keep it around for future calls to wake.
-                    *locked = Some(future);
+                match Future::poll(inner.future.as_mut(), context) {
+                    Poll::Ready(value) => {
+                        // Drop the future before replying on the channel. This guarantees that the
+                        // client can rely on values owned by the Future / closure will be dropped
+                        // once the channel has a result on it.
+                        std::mem::drop(inner.future);
+                        let _ = inner.result_channel.send(Ok(value));
+                    }
+                    Poll::Pending => {
+                        // The future isn't done, so put inner back into the [FutureTask] so that it
+                        // will still be there the next time this is polled.
+                        *locked = Some(inner);
+                    }
                 }
             }
         }
@@ -255,9 +263,11 @@ impl<T: Send + 'static> ArcWake for FutureTask<T> {
 
         let task = Task::init(
             move |status| {
-                // TODO: handle the Canceled case gracefully
-                assert_eq!(status, TaskStatus::RunReady, "Task canceled");
-                FutureTask::poll(&arc_self);
+                let canceled = match status {
+                    TaskStatus::RunReady => false,
+                    TaskStatus::Canceled => true,
+                };
+                FutureTask::poll(&arc_self, canceled);
             },
             "event_loop_future",
         );
@@ -274,13 +284,21 @@ pub struct EventLoopTimer {
     event_loop: EventLoop,
     /// How long the timer should run for.
     duration: Duration,
-    /// Whether the timer has completed already.
-    done: Arc<AtomicBool>,
-    /// Whether the timer task has been scheduled yet.
-    scheduled: Arc<AtomicBool>,
+
+    /// State of the timer. See associated constants below.
+    /// 0 => Not yet started.
+    /// 1 => Scheduled but not fired.
+    /// 2 => Done.
+    /// 3 => Canceled.
+    state: Arc<AtomicU8>,
 }
 
 impl EventLoopTimer {
+    const TIMER_UNSCHEDULED: u8 = 0;
+    const TIMER_RUNNING: u8 = 1;
+    const TIMER_DONE: u8 = 2;
+    const TIMER_CANCELED: u8 = 3;
+
     /// Create a new EventLoopTimer.
     /// event_loop is the loop that the timer thread will run on (which doesn't need to be related
     /// to the event loop the calling thread or future uses).
@@ -290,8 +308,7 @@ impl EventLoopTimer {
         Self {
             event_loop,
             duration,
-            done: Arc::new(AtomicBool::new(false)),
-            scheduled: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(AtomicU8::new(Self::TIMER_UNSCHEDULED)),
         }
     }
 }
@@ -300,15 +317,26 @@ impl Future for EventLoopTimer {
     type Output = Result<(), Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Check if the timer is already done
-        if self.done.load(Ordering::SeqCst) {
-            return Poll::Ready(Ok(()));
+        // If the timer callback has already fired, return with [Poll::Ready].
+        match self.state.load(Ordering::SeqCst) {
+            Self::TIMER_DONE => return Poll::Ready(Ok(())),
+            Self::TIMER_CANCELED => return Poll::Ready(Err(Error::Canceled)),
+            _ => {}
         }
 
-        // Check if the timer is scheduled already. If it is, swapping true won't do anything and we
-        // return Pending. If it isn't, this atomically sets scheduled to true and we will schedule
-        // the task now.
-        if self.scheduled.swap(true, Ordering::SeqCst) {
+        // Set the state to RUNNING if the current state is UNSCHEDULED. If this fails (because the
+        // current state is not RUNNING), then another thread got here first so we can return
+        // [Poll::Pending] and this function will be called again when the timer completes.
+        if self
+            .state
+            .compare_exchange(
+                Self::TIMER_UNSCHEDULED,
+                Self::TIMER_RUNNING,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err()
+        {
             return Poll::Pending;
         }
 
@@ -328,18 +356,25 @@ impl Future for EventLoopTimer {
         };
 
         let waker = cx.waker().clone();
-        let done = self.done.clone();
+        let state = self.state.clone();
 
         self.event_loop.schedule_task_future(
             Task::init(
                 move |status| {
-                    // TODO: handle the Canceled case more gracefully
-                    assert_eq!(status, TaskStatus::RunReady, "Task canceled");
-                    done.store(true, Ordering::SeqCst);
+                    // Compute the new state the timer should move into. If the [Task] was canceled,
+                    // the the timer Future should complete with an error.
+                    let new_state = match status {
+                        TaskStatus::RunReady => Self::TIMER_DONE,
+                        TaskStatus::Canceled => Self::TIMER_CANCELED,
+                    };
+                    // Store the new state, and wake up the future so that [TimerFuture::poll] gets
+                    // called again.
+                    state.store(new_state, Ordering::SeqCst);
                     waker.wake()
                 },
                 "event_loop_timer",
             ),
+            // Schedule the task to execute "nanos" nanoseconds into the future.
             now + nanos,
         );
 
@@ -351,11 +386,10 @@ impl Future for EventLoopTimer {
 mod test {
     use super::*;
     use crate::common::allocator::Allocator;
-    use crossbeam::channel;
     use futures::executor::block_on;
     use std::sync::atomic::{AtomicI32, Ordering};
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
 
     /// How long each test should wait to receive values from channels. We set this deadline so that
     /// if there's a bug, the tests won't try to spin forever.
@@ -372,7 +406,7 @@ mod test {
 
         let counter = Arc::new(AtomicI32::new(0));
 
-        let (tx, rx) = channel::bounded::<i32>(NUM_TASKS as usize);
+        let (tx, rx) = mpsc::channel::<i32>();
 
         for id in 0..NUM_TASKS {
             let el = el_group.get_next_loop().unwrap();
@@ -391,11 +425,8 @@ mod test {
             el.schedule_task_now(task);
         }
 
-        // Only wait 5 seconds to get all of the results to avoid blocking forever if there's a bug.
-        let deadline = Instant::now() + RECV_TIMEOUT;
-
         for _ in 0..NUM_TASKS {
-            rx.recv_deadline(deadline).unwrap();
+            rx.recv_timeout(RECV_TIMEOUT).unwrap();
         }
 
         let final_result = counter.load(Ordering::SeqCst);
@@ -421,7 +452,7 @@ mod test {
     fn test_event_loop_group_shutdown() {
         let mut allocator = Allocator::default().traced();
 
-        let (tx, rx) = channel::bounded(1);
+        let (tx, rx) = mpsc::channel();
 
         {
             let _el_group = EventLoopGroup::new_default(&mut allocator, None, move || tx.send(()).unwrap()).unwrap();

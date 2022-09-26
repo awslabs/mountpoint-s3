@@ -124,7 +124,6 @@ version = "0.1.0"
 dependencies = [
  "aws-crt-s3-sys",
  "criterion",
- "crossbeam",
  "ctor",
  "futures",
  "libc",

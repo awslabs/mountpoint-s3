@@ -13,7 +13,6 @@ use crate::common::common_library_init;
 /// Rust-like enum) since the type has to be FFI-safe in the callbacks later in this file. But the
 /// generated enum is less friendly to use, to we have this wrapper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum TaskStatus {
     /// A task that is ready to run
     RunReady,
@@ -163,19 +162,19 @@ unsafe extern "C" fn task_fn(task: *mut aws_task, arg: *mut libc::c_void, status
 
     (task_inner.callback)(status);
 
-    // task_inner will be freed when dropped, which is okay since the task is now finished running.
+    // The rest of task_inner will be freed when dropped, which is okay since the task is now finished running.
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crossbeam::channel;
+    use std::sync::mpsc;
 
     /// Test the task creation / execution using a very simple task that runs on the same thread
     /// as the task's creator.
     #[test]
     fn test_create_task() {
-        let (tx, rx) = channel::bounded(1);
+        let (tx, rx) = mpsc::channel();
 
         let start_num: u32 = 4;
 
