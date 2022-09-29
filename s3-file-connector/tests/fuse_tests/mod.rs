@@ -1,7 +1,8 @@
 mod mount_test;
+mod readdir_test;
 
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_file_connector::fs::S3Filesystem;
+use s3_file_connector::fs::{S3Filesystem, S3FilesystemConfig};
 use tempfile::TempDir;
 
 pub type PutObjectFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), Box<dyn std::error::Error>>>;
@@ -14,7 +15,7 @@ mod mock_session {
     use s3_client::mock_client::{MockClient, MockClientConfig};
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
-    pub fn new(test_name: &str) -> (TempDir, BackgroundSession, PutObjectFn) {
+    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn) {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let bucket = "test_bucket";
@@ -40,7 +41,13 @@ mod mock_session {
         let throughput_target_gbps = 1.0;
 
         let session = Session::new(
-            S3Filesystem::new(Arc::clone(&client), bucket, &prefix, throughput_target_gbps),
+            S3Filesystem::new(
+                Arc::clone(&client),
+                bucket,
+                &prefix,
+                filesystem_config,
+                throughput_target_gbps,
+            ),
             mount_dir.path(),
             &options,
         )
@@ -71,7 +78,7 @@ mod s3_session {
     use s3_client::{S3Client, S3ClientConfig};
 
     /// Create a FUSE mount backed by a real S3 client
-    pub fn new(test_name: &str) -> (TempDir, BackgroundSession, PutObjectFn) {
+    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn) {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
@@ -90,7 +97,7 @@ mod s3_session {
         let throughput_target_gbps = 1.0;
 
         let session = Session::new(
-            S3Filesystem::new(client, &bucket, &prefix, throughput_target_gbps),
+            S3Filesystem::new(client, &bucket, &prefix, filesystem_config, throughput_target_gbps),
             mount_dir.path(),
             &options,
         )

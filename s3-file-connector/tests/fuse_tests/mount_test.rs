@@ -8,6 +8,7 @@ use fuser::BackgroundSession;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
+use s3_file_connector::fs::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_log::test;
 
@@ -15,11 +16,11 @@ use crate::fuse_tests::PutObjectFn;
 
 fn basic_read_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
 {
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix);
+    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
 
     put_object_fn("hello.txt", b"hello world").unwrap();
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];

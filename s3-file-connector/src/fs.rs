@@ -21,8 +21,6 @@ const FILE_PERMISSIONS: u16 = 0o644;
 const UID: u32 = 501;
 const GID: u32 = 20;
 
-const TTL_ZERO: Duration = Duration::from_secs(0);
-
 const ROOT_DIR_ATTR: FileAttr = FileAttr {
     ino: ROOT_INODE,
     size: 0,
@@ -66,7 +64,11 @@ const BLOCK_SIZE: u64 = 4096;
 
 #[derive(Clone, Debug)]
 struct DirHandle {
-    children: Vec<Inode>,
+    prefix: String,
+    // offset is 0 before the first readdir call, and always positive afterwards (since
+    // every directory always reports at least two children)
+    offset: usize,
+    continuation_token: Option<String>,
 }
 
 #[derive(Debug)]
@@ -80,7 +82,22 @@ struct FileHandle<Client: ObjectClient> {
 
 type DirectoryMap = Arc<RwLock<HashMap<String, Inode>>>;
 
+pub struct S3FilesystemConfig {
+    pub ttl_zero: Duration,
+    pub readdir_size: usize,
+}
+
+impl Default for S3FilesystemConfig {
+    fn default() -> Self {
+        Self {
+            ttl_zero: Duration::from_secs(0),
+            readdir_size: 100,
+        }
+    }
+}
+
 pub struct S3Filesystem<Client: ObjectClient> {
+    config: S3FilesystemConfig,
     client: Arc<Client>,
     streaming_get_manager: Prefetcher<Client>,
     bucket: String,
@@ -94,7 +111,13 @@ pub struct S3Filesystem<Client: ObjectClient> {
 }
 
 impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
-    pub fn new(client: Client, bucket: &str, prefix: &str, throughput_target_gbps: f64) -> Self {
+    pub fn new(
+        client: Client,
+        bucket: &str,
+        prefix: &str,
+        config: S3FilesystemConfig,
+        throughput_target_gbps: f64,
+    ) -> Self {
         // TODO is this required?
         assert!(
             prefix.is_empty() || prefix.ends_with('/'),
@@ -113,9 +136,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             ),
         );
 
-        let mut root_entries = HashMap::new();
-        root_entries.insert(".".into(), ROOT_INODE);
-        root_entries.insert("..".into(), ROOT_INODE);
+        let root_entries = HashMap::new();
 
         let mut dir_entries = HashMap::new();
         dir_entries.insert(ROOT_INODE, Arc::new(RwLock::new(root_entries)));
@@ -125,6 +146,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
         let streaming_get_manager = Prefetcher::new(client.clone(), throughput_target_gbps);
 
         Self {
+            config,
             client,
             streaming_get_manager,
             bucket: bucket.to_string(),
@@ -251,19 +273,19 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
 
         let inode_info = self.inode_info.read().unwrap();
         let info = inode_info.get(&ino).unwrap();
-        reply.entry(&TTL_ZERO, &make_attr(ino, info), 0);
+        reply.entry(&self.config.ttl_zero, &make_attr(ino, info), 0);
     }
 
     async fn getattr(&self, _req: &Request<'_>, ino: Inode, reply: ReplyAttr) {
         trace!("fs:getattr with ino {:?}", ino);
 
         if ino == ROOT_INODE {
-            reply.attr(&TTL_ZERO, &ROOT_DIR_ATTR);
+            reply.attr(&self.config.ttl_zero, &ROOT_DIR_ATTR);
             return;
         }
 
         match self.inode_info.read().unwrap().get(&ino) {
-            Some(inode_info) => reply.attr(&TTL_ZERO, &make_attr(ino, inode_info)),
+            Some(inode_info) => reply.attr(&self.config.ttl_zero, &make_attr(ino, inode_info)),
             None => reply.error(libc::ENOENT),
         }
     }
@@ -324,8 +346,53 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             }
         };
 
-        // FIXME continuation tokens and max-keys
-        let result = match self.client.list_objects(&self.bucket, None, "/", 100, &prefix).await {
+        // Allocate a handle
+        let fh = self.next_handle();
+        let handle = DirHandle {
+            prefix,
+            offset: 0,
+            continuation_token: None,
+        };
+
+        let mut dir_handles = self.dir_handles.write().unwrap();
+        dir_handles.insert(fh, handle);
+        reply.opened(fh, 0);
+    }
+
+    async fn readdir(&self, _req: &Request<'_>, parent: Inode, fh: u64, offset: i64, mut reply: ReplyDirectory) {
+        trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
+
+        let mut handle = {
+            let dir_handles = self.dir_handles.read().unwrap();
+            match dir_handles.get(&fh) {
+                Some(handle) => handle.clone(),
+                None => {
+                    reply.error(libc::EBADF);
+                    return;
+                }
+            }
+        };
+
+        assert_eq!(offset as usize, handle.offset);
+
+        // We are done if this is not the first readdir call (offset == 0) and the last list_v2
+        // call returned an empty continuation token
+        if handle.offset > 0 && handle.continuation_token.is_none() {
+            reply.ok();
+            return;
+        }
+
+        let result = match self
+            .client
+            .list_objects(
+                &self.bucket,
+                handle.continuation_token.as_deref(),
+                "/",
+                self.config.readdir_size,
+                &handle.prefix,
+            )
+            .await
+        {
             Ok(result) => result,
             Err(err) => {
                 error!(?err, "ListObjectsV2 failed");
@@ -335,12 +402,19 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
         };
 
         // FIXME
-        //   For now we're going to issue a LIST on every opendir to keep it simple and not
+        //   For now we're going to issue a LIST on every opendir/readdir sequence and not
         //   try and cache directory entries. This means children will get allocated fresh
         //   inode numbers on each opendir.
         let mut new_map = HashMap::new();
         let mut inode_info = self.inode_info.write().unwrap();
         let mut new_inodes = Vec::new();
+
+        // If this is the first call after opendir (handle.offset is None), add entries for "." and ".."
+        if handle.offset == 0 {
+            let _ = reply.add(ROOT_INODE, 1, FileType::Directory, ".");
+            let _ = reply.add(ROOT_INODE, 2, FileType::Directory, "..");
+            handle.offset = 2;
+        }
 
         for object in result.objects {
             let name = object.key;
@@ -386,55 +460,21 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
         drop(inode_info);
 
         let mut dir_entries = self.dir_entries.write().unwrap();
-        let _old_map = dir_entries.insert(parent, Arc::new(RwLock::new(new_map)));
+        let _ = dir_entries.insert(parent, Arc::new(RwLock::new(new_map)));
         drop(dir_entries);
 
-        // FIXME We could garbage collect old inodes from the inode table as below
-        //  but that would break any concurrent filesystem calls that were accessing the previous inode
-        /*
-        if let Some(old_map) = old_map {
-            let mut inode_info = self.inode_info.write().unwrap();
-            for (_, ino) in old_map.write().unwrap().drain() {
-                if ino != ROOT_INODE { // Because / has entries for . and ..
-                    assert!(inode_info.remove(&ino).is_some());
-                }
-            }
-        }
-        */
-
-        // Allocate a handle
-        let fh = self.next_handle();
-        let handle = DirHandle { children: new_inodes };
-
-        let mut dir_handles = self.dir_handles.write().unwrap();
-        dir_handles.insert(fh, handle);
-        reply.opened(fh, 0);
-    }
-
-    async fn readdir(&self, _req: &Request<'_>, ino: Inode, fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", ino, fh, offset);
-
-        let dir_handles = self.dir_handles.read().unwrap();
-        let handle = match dir_handles.get(&fh) {
-            Some(handle) => handle.clone(),
-            None => {
-                reply.error(libc::EBADF);
-                return;
-            }
-        };
-
-        if (offset as usize) >= handle.children.len() {
-            reply.ok();
-            return;
-        }
-
         let inode_info = self.inode_info.read().unwrap();
-        for (i, ino) in handle.children.iter().enumerate().skip(offset as usize) {
+        for ino in new_inodes.iter() {
             // i + 1 means the index of the next entry
             let inode_info = inode_info.get(ino).unwrap();
             // TODO handle reply being full
-            let _ = reply.add(*ino, (i + 3) as i64, inode_info.kind, inode_info.name.clone());
+            handle.offset += 1;
+            let _ = reply.add(*ino, handle.offset as i64, inode_info.kind, inode_info.name.clone());
         }
+        handle.continuation_token = result.next_continuation_token;
+
+        let mut dir_handles = self.dir_handles.write().unwrap();
+        dir_handles.insert(fh, handle);
 
         reply.ok();
     }
