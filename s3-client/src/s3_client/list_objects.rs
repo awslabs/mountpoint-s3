@@ -1,27 +1,18 @@
 use crate::object_client::{ListObjectsResult, ObjectInfo};
+use crate::s3_client::S3ClientError;
 use crate::S3Client;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::{Header, Message};
-use aws_crt_s3::s3::client::MetaRequestOptions;
-use aws_crt_s3_sys::aws_s3_meta_request_type;
-use futures::channel::oneshot;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tracing::{error, trace};
+use tracing::error;
 
 #[derive(Error, Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum ListObjectsError {
-    #[error("CRT error: {0:?}")]
-    CRTError(#[from] Error),
-
-    #[error("HTTP error ({0}): code = {1}, response = {2}")]
-    HTTPError(#[source] Error, i32, String),
-
     #[error("XML response was not valid: problem = {1}, xml node = {0:?}")]
     InvalidResponse(xmltree::Element, String),
 
@@ -40,8 +31,14 @@ pub enum ListObjectsError {
     #[error("Failed to parse field {1} as OffsetDateTime: {0:?}")]
     OffsetDateTimeParseError(#[source] time::error::Parse, String),
 
-    #[error("The future was canceled: {0:?}")]
-    CanceledError(#[from] oneshot::Canceled),
+    #[error("S3 Client Error: {0}")]
+    S3Client(#[from] S3ClientError),
+}
+
+impl From<Error> for ListObjectsError {
+    fn from(err: Error) -> Self {
+        Self::from(S3ClientError::from(err))
+    }
 }
 
 /// Copy text out of an XML element, with the right error type.
@@ -149,20 +146,15 @@ impl S3Client {
         max_keys: usize,
         prefix: &str,
     ) -> Result<ListObjectsResult, ListObjectsError> {
-        let (tx, rx) = oneshot::channel::<Result<ListObjectsResult, ListObjectsError>>();
-
-        // Scope everything except the channel before the first .await so that the Future is Send.
-        // (Since message, options, etc. are not).
-        {
+        // Scope the endpoiint, message, etc. since otherwise rustc thinks we use Message across the await.
+        let body = {
             let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
 
-            let mut message = Message::new_request(&mut Allocator::default()).unwrap();
-            message.set_request_method("GET").unwrap();
-            message.add_header(&Header::new("Host", &endpoint)).unwrap();
-            message.add_header(&Header::new("accept", "application/xml")).unwrap();
-            message
-                .add_header(&Header::new("user-agent", "aws-s3-crt-rust"))
-                .unwrap();
+            let mut message = Message::new_request(&mut Allocator::default())?;
+            message.set_request_method("GET")?;
+            message.add_header(&Header::new("Host", &endpoint))?;
+            message.add_header(&Header::new("accept", "application/xml"))?;
+            message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
 
             // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
             let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");
@@ -173,66 +165,13 @@ impl S3Client {
                 request = request + &format!("&continuation-token={continuation_token}");
             }
 
-            message.set_request_path(request).unwrap();
+            message.set_request_path(request)?;
 
-            // Accumulate the body of the response into this Vec<u8>.
-            let body: Arc<Mutex<Vec<u8>>> = Default::default();
-            let body1 = body.clone();
-            let mut options = MetaRequestOptions::new();
-            options
-                .message(message)
-                .on_body(move |range_start, data| {
-                    trace!(
-                        start = range_start,
-                        length = data.len(),
-                        "ListObjects body part received"
-                    );
+            self.make_http_request(message)
+        };
 
-                    let mut body = body1.lock().unwrap();
+        let body = body.await?;
 
-                    // TODO: are we guaranteed to receive parts in order like this?
-                    assert_eq!(range_start as usize, body.len());
-                    body.extend_from_slice(data);
-                })
-                .on_finish(move |request_result| {
-                    let body = body.lock().unwrap();
-
-                    trace!(total_size = body.len(), "ListObjects finished");
-
-                    let result = if request_result.error_code == 0 {
-                        ListObjectsResult::parse_from_bytes(&body)
-                    } else {
-                        // Turn the error response body into String, using Debug to produce some message
-                        // if it's not valid UTF-8.
-                        let error_response_body = request_result
-                            .error_response_body
-                            .unwrap_or_else(|| "No error response body".into())
-                            .into_string()
-                            .unwrap_or_else(|e| format!("Response not valid UTF-8: {:?}", e));
-
-                        let crt_error: Error = request_result.error_code.into();
-
-                        error!(
-                            ?crt_error,
-                            http_code = request_result.response_status,
-                            response = error_response_body,
-                            "ListObjects error"
-                        );
-
-                        Err(ListObjectsError::HTTPError(
-                            crt_error,
-                            request_result.response_status,
-                            error_response_body,
-                        ))
-                    };
-
-                    let _ = tx.send(result);
-                })
-                .request_type(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
-
-            self.s3_client.make_meta_request(options)?;
-        }
-
-        rx.await?
+        ListObjectsResult::parse_from_bytes(&body)
     }
 }
