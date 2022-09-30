@@ -207,11 +207,12 @@ impl<S: TaskScheduler + Clone> FutureSpawner for S {
 mod test {
     use futures::executor::block_on;
     use futures::future::join_all;
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::time::Duration;
 
     use super::*;
     use crate::common::allocator::Allocator;
-    use crate::io::event_loop::EventLoopGroup;
+    use crate::io::event_loop::{EventLoopGroup, EventLoopTimer};
     use std::sync::atomic::Ordering;
 
     /// Test that running a small future on an event loop works correctly.
@@ -270,5 +271,49 @@ mod test {
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         test_join_all_futures(&el_group);
+    }
+
+    /// Test that cancelling a future works.
+    #[test]
+    fn test_cancel_future() {
+        let mut allocator = Allocator::default().traced();
+        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+
+        // Create a long timer to delay the future for some time.
+        let timer = EventLoopTimer::new(&el_group.get_next_loop().unwrap(), Duration::from_secs(20));
+
+        // Set up a flag that will set to true when the timer is finished.
+        let flag = Arc::new(AtomicBool::new(false));
+
+        // Spawn a future that waits for the timer to be done then stores true to the flag.
+        let future_handle = {
+            let flag = flag.clone();
+            el_group.spawn_future(async move {
+                timer.await.unwrap();
+                flag.store(true, Ordering::SeqCst);
+            })
+        };
+
+        assert_eq!(
+            Arc::strong_count(&flag),
+            2,
+            "there should be 2 references to flag: ours and the Future's"
+        );
+
+        // Sleep this thread some amount of time (enough for the timer to start running after the first poll).
+        std::thread::sleep(Duration::from_secs(1));
+
+        // Cancel the future
+        future_handle.cancel();
+
+        assert_eq!(
+            Arc::strong_count(&flag),
+            1,
+            "The Future should be dropped at this point"
+        );
+        assert!(
+            !flag.load(Ordering::SeqCst),
+            "flag should still be false after cancellation"
+        );
     }
 }

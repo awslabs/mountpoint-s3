@@ -196,9 +196,9 @@ impl EventLoopTimer {
     /// to the event loop the calling thread or future uses).
     /// duration is how long the timer should delay for. The timer doesn't start until the first
     /// time it's been polled / awaited upon.
-    pub fn new(event_loop: EventLoop, duration: Duration) -> Self {
+    pub fn new(event_loop: &EventLoop, duration: Duration) -> Self {
         Self {
-            event_loop,
+            event_loop: event_loop.clone(),
             duration,
             state: Arc::new(AtomicU8::new(Self::TIMER_UNSCHEDULED)),
         }
@@ -351,8 +351,8 @@ mod test {
         let event_loop = el_group.get_next_loop().unwrap();
 
         // Create two timers, each delaying 1 second. They won't start timing until they're awaited.
-        let timer1 = EventLoopTimer::new(event_loop.clone(), Duration::from_secs(1));
-        let timer2 = EventLoopTimer::new(event_loop.clone(), Duration::from_secs(1));
+        let timer1 = EventLoopTimer::new(&event_loop, Duration::from_secs(1));
+        let timer2 = EventLoopTimer::new(&event_loop, Duration::from_secs(1));
 
         let before_nanos = event_loop
             .current_clock_time()
