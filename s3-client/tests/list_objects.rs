@@ -1,9 +1,8 @@
 #![cfg(feature = "s3_tests")]
 
-mod common;
+pub mod common;
 
 use common::*;
-
 use s3_client::S3Client;
 
 #[tokio::test]

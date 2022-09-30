@@ -1,15 +1,14 @@
 #![cfg(feature = "s3_tests")]
 
-mod common;
-use common::*;
-
-use std::ops::Range;
+pub mod common;
 
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
+use common::*;
 use futures::stream::StreamExt;
 use futures::{pin_mut, Stream};
 use s3_client::{GetObjectError, ObjectClient, S3Client};
+use std::ops::Range;
 
 #[track_caller]
 async fn check_get_result(

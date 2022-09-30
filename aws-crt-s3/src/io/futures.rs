@@ -245,6 +245,12 @@ mod test {
 
         let results = block_on(join_all(future_handles.into_iter().map(FutureJoinHandle::into_future)));
 
+        assert_eq!(
+            Arc::strong_count(&counter),
+            1,
+            "all references to the counter except ours should be dropped"
+        );
+
         // Check that all Futures completed successfully.
         let results: Result<(), Error> = results.into_iter().collect();
         results.expect("one or more futures failed");
@@ -256,7 +262,6 @@ mod test {
     #[test]
     fn test_join_all_futures_event_loop() {
         let mut allocator = Allocator::default().traced();
-
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
         let event_loop = el_group.get_next_loop().unwrap();
 
@@ -267,7 +272,6 @@ mod test {
     #[test]
     fn test_join_all_futures_event_loop_group() {
         let mut allocator = Allocator::default().traced();
-
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         test_join_all_futures(&el_group);
@@ -289,7 +293,7 @@ mod test {
         let future_handle = {
             let flag = flag.clone();
             el_group.spawn_future(async move {
-                timer.await.unwrap();
+                timer.await.expect("failed while awaiting timer");
                 flag.store(true, Ordering::SeqCst);
             })
         };
