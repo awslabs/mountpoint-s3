@@ -15,6 +15,12 @@ use std::{ffi::OsStr, os::unix::prelude::OsStrExt};
 
 use crate::common::error::Error;
 
+pub(crate) mod private {
+    /// Seals a trait to prevent clients from implementing it for their own types, since this trait
+    /// is only accessible to this crate.
+    pub trait Sealed {}
+}
+
 pub(crate) trait StringExt {
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor;
 }

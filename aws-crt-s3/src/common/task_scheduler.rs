@@ -8,6 +8,7 @@ use std::pin::Pin;
 
 use crate::common::allocator::Allocator;
 use crate::common::common_library_init;
+use crate::common::error::Error;
 
 /// Wrapper around aws_task_status. We need to do this (rather than have bindgen generate a
 /// Rust-like enum) since the type has to be FFI-safe in the callbacks later in this file. But the
@@ -163,6 +164,27 @@ unsafe extern "C" fn task_fn(task: *mut aws_task, arg: *mut libc::c_void, status
     (task_inner.callback)(status);
 
     // The rest of task_inner will be freed when dropped, which is okay since the task is now finished running.
+}
+
+/// A [TaskScheduler] provides a way to schedule [Task]s.
+/// A [TaskScheduler] must be Send + Sync so that different threads can each schedule tasks.
+pub trait TaskScheduler: Send + Sync + 'static + crate::private::Sealed {
+    /// Schedule a [Task] to run as soon as possible. If the task is cancelled, it will be called
+    /// with [TaskStatus::Canceled] as an argument.
+    fn schedule_task_now(&self, task: Task) -> Result<(), Error>;
+}
+
+/// A [TaskScheduler] that runs the task synchronously on the calling thread, blocking until the task completes.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockingTaskScheduler;
+
+impl crate::private::Sealed for BlockingTaskScheduler {}
+
+impl TaskScheduler for BlockingTaskScheduler {
+    fn schedule_task_now(&self, task: Task) -> Result<(), Error> {
+        task.run(TaskStatus::RunReady);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

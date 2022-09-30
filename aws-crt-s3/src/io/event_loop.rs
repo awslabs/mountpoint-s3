@@ -3,20 +3,17 @@
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
-use crate::common::task_scheduler::{Task, TaskStatus};
+use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
 use crate::io::io_library_init;
 use crate::CrtError as _;
 use crate::ResultExt;
 use aws_crt_s3_sys::*;
-use futures::channel::oneshot;
-use futures::future::BoxFuture;
-use futures::task::ArcWake;
-use futures::{FutureExt, TryFutureExt};
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -36,17 +33,9 @@ pub struct EventLoop {
 // From event_loop.h:aws_event_loop_schedule_task_now
 // >  * This function may be called from outside or inside the event loop thread.
 unsafe impl Send for EventLoop {}
+unsafe impl Sync for EventLoop {}
 
 impl EventLoop {
-    /// Schedule a task to execute on this event loop as soon as possible
-    pub fn schedule_task_now(&self, task: Task) {
-        unsafe {
-            // Safety: we turn the Task into a pointer but don't return it to the caller and
-            // immediately schedule it on this event loop.
-            aws_event_loop_schedule_task_now(self.inner.as_ptr(), task.into_aws_task_ptr());
-        }
-    }
-
     /// Schedule a task to execute on this event loop at the specified time
     fn schedule_task_future(&self, task: Task, when: u64) {
         unsafe {
@@ -62,6 +51,19 @@ impl EventLoop {
             aws_event_loop_current_clock_time(self.inner.as_ptr(), &mut time_nanos).ok_or_last_error()?;
             Ok(time_nanos)
         }
+    }
+}
+
+impl crate::private::Sealed for EventLoop {}
+
+impl TaskScheduler for EventLoop {
+    fn schedule_task_now(&self, task: Task) -> Result<(), Error> {
+        unsafe {
+            // Safety: we turn the Task into a pointer but don't return it to the caller and
+            // immediately schedule it on this event loop.
+            aws_event_loop_schedule_task_now(self.inner.as_ptr(), task.into_aws_task_ptr());
+        }
+        Ok(())
     }
 }
 
@@ -134,41 +136,16 @@ impl EventLoopGroup {
             aws_event_loop_group_get_loop_count(self.inner.as_ptr())
         }
     }
-
-    /// Spawn the given Future as a task to run to completion on an event loop from this group. The
-    /// returned channel will return the result of the task once it completes.
-    pub fn spawn_future<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) -> FutureHandle<T> {
-        let future = future.boxed();
-
-        let (tx, rx) = oneshot::channel();
-
-        let waker = futures::task::waker(Arc::new(FutureTask {
-            inner: Mutex::new(Some(FutureTaskInner {
-                future,
-                result_channel: tx,
-            })),
-            el_group: self.clone(),
-        }));
-
-        waker.wake_by_ref();
-
-        FutureHandle { receiver: rx }
-    }
 }
 
-/// Handle to a spawned future. Can be awaited upon to get the result.
-#[derive(Debug)]
-pub struct FutureHandle<T: Send + 'static> {
-    receiver: oneshot::Receiver<Result<T, Error>>,
-}
+impl crate::private::Sealed for EventLoopGroup {}
 
-impl<T> FutureHandle<T>
-where
-    T: Send + 'static,
-{
-    /// Convert this handle into a future that completes when the spawned future does.
-    pub fn into_future(self) -> impl Future<Output = Result<T, Error>> {
-        self.receiver.unwrap_or_else(|oneshot::Canceled| Err(Error::Canceled))
+/// Scheduling a task on an [EventLoopGroup] first finds the next [EventLoop] to use (as reported by
+/// the CRT), then uses that one to run the [Task].
+impl TaskScheduler for EventLoopGroup {
+    fn schedule_task_now(&self, task: Task) -> Result<(), Error> {
+        let event_loop = self.get_next_loop()?;
+        event_loop.schedule_task_now(task)
     }
 }
 
@@ -188,91 +165,6 @@ impl Drop for EventLoopGroup {
             // Safety: In Clone, we call acquire to increment the ref count, so on Drop it is safe to decerement by calling release.
             aws_event_loop_group_release(self.inner.as_ptr());
         }
-    }
-}
-
-/// Information about a not-yet-completed future.
-struct FutureTaskInner<T: Send + 'static> {
-    /// The [Future] from the client.
-    future: BoxFuture<'static, T>,
-
-    /// A channel to write the result to when the future completes.
-    result_channel: oneshot::Sender<Result<T, Error>>,
-}
-
-struct FutureTask<T: Send + 'static> {
-    /// Inner information about the task if it hasn't completed yet. Held behind a mutex (since wake
-    /// can be called from different threads). If the future is not None, then it is still busy
-    /// and we should call poll again when woken. If it is None, the future has already
-    /// finished executing.
-    inner: Mutex<Option<FutureTaskInner<T>>>,
-
-    /// The event loop group this future is running on. For now, every time wake is called, it is
-    /// scheduled on the next event loop given by the group. In the future, we could change this to
-    /// pin the future to a particular event loop (or try to always use the same event loop a CRT
-    /// callback comes in on).
-    el_group: EventLoopGroup,
-}
-
-impl<T: Send + 'static> FutureTask<T> {
-    /// Poll the future associated with this FutureTask. If the future has already completed,
-    /// this does nothing. If it hasn't, then it calls Future::poll. If the future is ready, write
-    /// the result back to the synchronous channel. Otherwise wait for someone to poll again.
-    /// If cancel is set to true, then this Future will complete immediately with [Error::Canceled].
-    fn poll(arc_self: &Arc<Self>, cancel: bool) {
-        // Lock to read the future and call poll on it. Note this will block other tasks if wake was
-        // called multiple times.
-        let mut locked = arc_self.inner.lock().unwrap();
-
-        // Only do anything if there is a future to poll (i.e., it hasn't completed yet).
-        if let Some(mut inner) = locked.take() {
-            if cancel {
-                // If canceled, drop now and reply with an error.
-                std::mem::drop(inner.future);
-                let _ = inner.result_channel.send(Err(Error::Canceled));
-            } else {
-                // Otherwise poll the client-provided future.
-                let waker = futures::task::waker_ref(arc_self);
-                let context = &mut Context::from_waker(&*waker);
-
-                match Future::poll(inner.future.as_mut(), context) {
-                    Poll::Ready(value) => {
-                        // Drop the future before replying on the channel. This guarantees that the
-                        // client can rely on values owned by the Future / closure will be dropped
-                        // once the channel has a result on it.
-                        std::mem::drop(inner.future);
-                        let _ = inner.result_channel.send(Ok(value));
-                    }
-                    Poll::Pending => {
-                        // The future isn't done, so put inner back into the [FutureTask] so that it
-                        // will still be there the next time this is polled.
-                        *locked = Some(inner);
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl<T: Send + 'static> ArcWake for FutureTask<T> {
-    /// Wakes the FutureTask by creating a new Task to call poll, and scheduling it on the event
-    /// loop group associated with the task.
-    fn wake_by_ref(arc_self: &Arc<Self>) {
-        let el_group = arc_self.el_group.clone();
-        let arc_self = arc_self.clone();
-
-        let task = Task::init(
-            move |status| {
-                let canceled = match status {
-                    TaskStatus::RunReady => false,
-                    TaskStatus::Canceled => true,
-                };
-                FutureTask::poll(&arc_self, canceled);
-            },
-            "event_loop_future",
-        );
-
-        el_group.get_next_loop().unwrap().schedule_task_now(task);
     }
 }
 
@@ -386,6 +278,7 @@ impl Future for EventLoopTimer {
 mod test {
     use super::*;
     use crate::common::allocator::Allocator;
+    use crate::io::futures::FutureSpawner;
     use futures::executor::block_on;
     use std::sync::atomic::{AtomicI32, Ordering};
     use std::sync::{mpsc, Arc};
@@ -422,7 +315,7 @@ mod test {
                 "test",
             );
 
-            el.schedule_task_now(task);
+            el.schedule_task_now(task).expect("failed to schedule task");
         }
 
         for _ in 0..NUM_TASKS {
@@ -432,19 +325,6 @@ mod test {
         let final_result = counter.load(Ordering::SeqCst);
 
         assert_eq!(final_result, NUM_TASKS);
-    }
-
-    /// Test that running a small future on an event loop works correctly.
-    #[test]
-    fn test_simple_future() {
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
-
-        let handle = el_group.spawn_future(async {
-            println!("Hello from the future");
-        });
-
-        block_on(handle.into_future()).unwrap();
     }
 
     /// Test that the event loop group shutdown callback works.

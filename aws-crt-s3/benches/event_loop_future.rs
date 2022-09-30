@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::io::event_loop::EventLoopGroup;
+use aws_crt_s3::io::futures::FutureSpawner;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 

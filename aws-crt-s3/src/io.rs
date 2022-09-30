@@ -8,6 +8,7 @@ use crate::common::allocator::Allocator;
 
 pub mod channel_bootstrap;
 pub mod event_loop;
+pub mod futures;
 pub mod host_resolver;
 
 static IO_LIBRARY_INIT: Once = Once::new();

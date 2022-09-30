@@ -7,6 +7,7 @@ use aws_crt_s3::auth::signing_config::SigningConfig;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use aws_crt_s3::io::event_loop::EventLoopGroup;
+use aws_crt_s3::io::futures::FutureSpawner;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig};
 use thiserror::Error;
