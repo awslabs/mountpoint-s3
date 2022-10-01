@@ -143,6 +143,7 @@ dependencies = [
  "cmake",
  "libc",
  "log",
+ "rustflags",
  "smallstr",
 ]
 
@@ -1685,6 +1686,12 @@ checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
 dependencies = [
  "semver",
 ]
+
+[[package]]
+name = "rustflags"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b7b4b81839a593edf095ca5170f67cd065009d7cc828e25de85dab6cd0027f"
 
 [[package]]
 name = "rustls"

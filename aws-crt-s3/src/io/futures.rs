@@ -261,7 +261,7 @@ mod test {
     /// test_join_all_futures using a pinned EventLoop.
     #[test]
     fn test_join_all_futures_event_loop() {
-        let mut allocator = Allocator::default().traced();
+        let mut allocator = Allocator::default();
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
         let event_loop = el_group.get_next_loop().unwrap();
 
@@ -271,7 +271,7 @@ mod test {
     /// test_join_all_futures using an EventLoopGroup.
     #[test]
     fn test_join_all_futures_event_loop_group() {
-        let mut allocator = Allocator::default().traced();
+        let mut allocator = Allocator::default();
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         test_join_all_futures(&el_group);
@@ -280,7 +280,7 @@ mod test {
     /// Test that cancelling a future works.
     #[test]
     fn test_cancel_future() {
-        let mut allocator = Allocator::default().traced();
+        let mut allocator = Allocator::default();
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
 
         // Create a long timer to delay the future for some time.

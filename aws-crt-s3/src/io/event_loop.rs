@@ -330,7 +330,7 @@ mod test {
     /// Test that the event loop group shutdown callback works.
     #[test]
     fn test_event_loop_group_shutdown() {
-        let mut allocator = Allocator::default().traced();
+        let mut allocator = Allocator::default();
 
         let (tx, rx) = mpsc::channel();
 
@@ -345,7 +345,7 @@ mod test {
     /// Test the EventLoopTimer with some simple timers.
     #[test]
     fn test_timer_future() {
-        let mut allocator = Allocator::default().traced();
+        let mut allocator = Allocator::default();
 
         let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
         let event_loop = el_group.get_next_loop().unwrap();
@@ -357,8 +357,6 @@ mod test {
         let before_nanos = event_loop
             .current_clock_time()
             .expect("Failed to get current clock time");
-
-        allocator.tracer_dump();
 
         // Run a future that awaits both timers.
         let handle = el_group.spawn_future(async {

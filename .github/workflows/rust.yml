@@ -60,6 +60,39 @@ jobs:
     - name: Check all targets
       run: cargo check --all-targets --features $RUST_FEATURES
 
+  asan:
+    name: Address sanitizer
+    runs-on: ubuntu-22.04
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
+        aws-region: us-east-1
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install nightly Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rust-src
+    - name: Install fuse
+      run: sudo apt-get install fuse3 libfuse3-dev
+    - name: Install llvm-dev
+      run: sudo apt-get install llvm-dev
+    - name: Configure fuse
+      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Run tests
+      run: make test-asan
+
   rustfmt:
     name: Formatting
     runs-on: ubuntu-22.04

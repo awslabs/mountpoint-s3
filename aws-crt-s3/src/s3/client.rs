@@ -290,6 +290,16 @@ pub struct MetaRequest {
     inner: NonNull<aws_s3_meta_request>,
 }
 
+impl Drop for MetaRequest {
+    fn drop(&mut self) {
+        // Safety: we will no longer use the pointer after this MetaRequest is dropped, so it's safe
+        // to give up our refcount on it now.
+        unsafe {
+            aws_s3_meta_request_release(self.inner.as_ptr());
+        }
+    }
+}
+
 impl Client {
     /// Create a new S3 [Client].
     pub fn new(allocator: &mut Allocator, config: ClientConfig) -> Result<Self, Error> {

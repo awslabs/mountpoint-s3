@@ -3,6 +3,7 @@
 # go away.
 
 CRATES = aws-crt-s3-sys aws-crt-s3 s3-client s3-file-connector
+RUST_FEATURES ?= fuse_tests
 
 .PHONY: all
 all:
@@ -20,6 +21,13 @@ check:
 test:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	cargo test $$packages
+
+.PHONY: test-asan
+test-asan:
+	packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
+	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
+	RUSTFLAGS="-Zsanitizer=address" \
+	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages
 
 .PHONY: fmt
 fmt:

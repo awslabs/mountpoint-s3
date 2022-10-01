@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use bindgen::{BindgenError, Bindings};
+use rustflags::Flag;
 
 /// Path to the CRT repos, relative to the crate root.
 const CRT_PATH: &str = "crt";
@@ -129,10 +130,26 @@ fn compile_crt_and_bindings() -> PathBuf {
             .define("CMAKE_INSTALL_PREFIX", &target_dir)
             .define("CMAKE_PREFIX_PATH", &target_dir)
             .define("BUILD_TESTING", "OFF");
+
         if *lib == "aws-lc" {
             builder.define("DISABLE_PERL", "ON");
             builder.define("DISABLE_GO", "ON");
         }
+
+        // Configure ASan in a way that will be compatible with Rust's clang-based version
+        if rustflags::from_env().any(|f| f == Flag::Z("sanitizer=address".to_string())) {
+            let mut clang = cc::Build::new();
+            clang.compiler("clang");
+            let mut clangxx = cc::Build::new();
+            clangxx.compiler("clang++");
+            builder
+                .define("ENABLE_SANITIZERS", "ON")
+                .define("SANITIZERS", "address")
+                .init_c_cfg(clang)
+                .init_cxx_cfg(clangxx);
+            println!("cargo:warning=CRT building with address sanitizer");
+        }
+
         builder.build();
     }
 

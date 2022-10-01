@@ -1,0 +1,8 @@
+# Suppressions of leaks detected by LeakSanitizer
+
+# We don't correctly invoke `aws_io_library_cleanup` right now, and so s2n leaks some OpenSSL
+# allocations
+leak:aws_tls_init_static_state
+
+# libfuse is outside our control
+leak:fuse_opt_add_arg
