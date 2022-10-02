@@ -10,19 +10,14 @@ use std::path::PathBuf;
 
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+
+    // Brutal hack because tracing-subscriber doesn't allow us to specify *multiple* default
+    // directives -- we want warning-level logging except for the CRT, which is very spammy.
+    if std::env::var("RUST_LOG") == Err(std::env::VarError::NotPresent) {
+        std::env::set_var("RUST_LOG", "info,awscrt=off,fuser=error");
+    }
+
     tracing_subscriber::fmt::init();
-
-    // Or to send it to stderr instead...
-    // use tracing_subscriber::util::SubscriberInitExt as _;
-
-    // let subscriber = tracing_subscriber::fmt::Subscriber::builder()
-    //     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-    //     .with_writer(std::io::stderr)
-    //     .finish();
-
-    // subscriber
-    //     .try_init()
-    //     .expect("unable to install global subscriber");
 }
 
 #[derive(Parser)]
@@ -102,6 +97,8 @@ fn main() -> anyhow::Result<()> {
     };
     let session = session.context("Failed to start FUSE session")?;
 
+    tracing::info!("successfully mounted {:?}", args.mount_point);
+
     let (sender, receiver) = std::sync::mpsc::sync_channel(0);
 
     ctrlc::set_handler(move || {
@@ -127,7 +124,12 @@ fn create_client_for_bucket(
     match futures::executor::block_on(head_request) {
         Ok(_) => Ok(client),
         Err(HeadBucketError::IncorrectRegion(region)) => {
-            tracing::warn!("bucket {} is in region {}, not {}", bucket, region, supposed_region);
+            tracing::warn!(
+                "bucket {} is in region {}, not {}. redirecting...",
+                bucket,
+                region,
+                supposed_region
+            );
             let new_client = S3Client::new(&region, client_config)?;
             let head_request = new_client.head_bucket(bucket);
             futures::executor::block_on(head_request)
