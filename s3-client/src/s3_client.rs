@@ -128,7 +128,7 @@ impl S3Client {
                 trace!(
                     start = range_start,
                     length = data.len(),
-                    "ListObjects body part received"
+                    "HTTP request body part received"
                 );
 
                 let mut body = body1.lock().unwrap();

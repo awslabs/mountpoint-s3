@@ -36,6 +36,7 @@ test-asan-working:
 test-asan:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
+	ASAN_OPTIONS=verbosity=1 \
 	RUSTFLAGS="-Zsanitizer=address" \
 	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages
 
