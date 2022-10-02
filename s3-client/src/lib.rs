@@ -7,7 +7,8 @@ mod util;
 pub use object_client::ObjectClient;
 pub use prefetcher::{Prefetcher, PrefetchingGetRequest};
 pub use s3_client::get::GetObjectError;
-pub use s3_client::{S3Client, S3ClientConfig};
+pub use s3_client::head_bucket::HeadBucketError;
+pub use s3_client::{S3Client, S3ClientConfig, S3ClientError};
 
 #[cfg(test)]
 mod tests {

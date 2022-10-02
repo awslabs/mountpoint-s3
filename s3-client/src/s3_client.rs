@@ -17,6 +17,7 @@ use crate::s3_client::get::{GetObjectError, GetObjectRequest};
 use crate::s3_client::list_objects::ListObjectsError;
 
 pub(crate) mod get;
+pub(crate) mod head_bucket;
 pub(crate) mod list_objects;
 
 #[derive(Debug, Clone, Default)]
@@ -25,8 +26,6 @@ pub struct S3ClientConfig {
     pub part_size: Option<usize>,
 }
 
-// TODO i think event loops are intended to never move across threads, so need to think about
-// synchronization here
 #[allow(unused)]
 pub struct S3Client {
     allocator: Allocator,

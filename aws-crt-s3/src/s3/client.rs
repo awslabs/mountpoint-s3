@@ -4,7 +4,7 @@ use crate::auth::credentials::CredentialsProvider;
 use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
-use crate::http::request_response::Message;
+use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::s3::s3_library_init;
 use crate::{CrtError, ResultExt, StringExt};
@@ -351,6 +351,9 @@ pub struct MetaRequestResult {
     /// Final error code of the meta request.
     pub error_code: i32,
 
+    /// Error HTTP body, if present
+    pub error_response_headers: Option<Headers>,
+
     /// Error HTTP response, if present
     pub error_response_body: Option<OsString>,
 }
@@ -371,6 +374,11 @@ impl MetaRequestResult {
     /// Safety: This copies from the raw pointer inside of the request result, so only
     /// call on results given to us from the CRT.
     unsafe fn from_crt_result(inner: &aws_s3_meta_request_result) -> Self {
+        let error_response_headers = inner
+            .error_response_headers
+            .as_ref()
+            .map(|headers| Headers::from_crt(NonNull::from(headers)));
+
         let error_response_body: Option<OsString> = inner.error_response_body.as_ref().map(|byte_buf| {
             assert!(!byte_buf.buffer.is_null(), "error_response_body.buffer is null");
             let slice: &[u8] = std::slice::from_raw_parts(byte_buf.buffer, byte_buf.len);
@@ -380,6 +388,7 @@ impl MetaRequestResult {
         Self {
             response_status: inner.response_status,
             error_code: inner.error_code,
+            error_response_headers,
             error_response_body,
         }
     }

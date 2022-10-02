@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::Parser;
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_client::{S3Client, S3ClientConfig};
+use s3_client::{HeadBucketError, S3Client, S3ClientConfig};
 
 mod fs;
 
@@ -79,7 +79,8 @@ fn main() -> anyhow::Result<()> {
         throughput_target_gbps,
         part_size: args.part_size.map(|t| t as usize),
     };
-    let client = S3Client::new(&args.region, client_config).context("Failed to create S3 client")?;
+    let client = create_client_for_bucket(&args.bucket_name, &args.region, client_config)
+        .context("Failed to create S3 client")?;
 
     let session = Session::new(
         fs::S3Filesystem::new(
@@ -113,4 +114,28 @@ fn main() -> anyhow::Result<()> {
     drop(session);
 
     Ok(())
+}
+
+/// Discover the region for the bucket and create a client for it
+fn create_client_for_bucket(
+    bucket: &str,
+    supposed_region: &str,
+    client_config: S3ClientConfig,
+) -> Result<S3Client, anyhow::Error> {
+    let client = S3Client::new(supposed_region, client_config.clone())?;
+    let head_request = client.head_bucket(bucket);
+    match futures::executor::block_on(head_request) {
+        Ok(_) => Ok(client),
+        Err(HeadBucketError::IncorrectRegion(region)) => {
+            tracing::warn!("bucket {} is in region {}, not {}", bucket, region, supposed_region);
+            let new_client = S3Client::new(&region, client_config)?;
+            let head_request = new_client.head_bucket(bucket);
+            futures::executor::block_on(head_request)
+                .map(|_| new_client)
+                .with_context(|| format!("HeadBucket failed for bucket {} in region {}", bucket, region))
+        }
+        Err(e) => {
+            Err(e).with_context(|| format!("HeadBucket failed for bucket {} in region {}", bucket, supposed_region))
+        }
+    }
 }

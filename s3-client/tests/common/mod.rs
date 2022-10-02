@@ -1,5 +1,6 @@
 #![cfg(feature = "s3_tests")]
 
+use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use aws_sdk_s3 as s3;
 use bytes::Bytes;
 use rand::rngs::OsRng;
@@ -7,10 +8,11 @@ use rand::RngCore;
 use s3::Region;
 use s3_client::S3Client;
 
-/// Enable tracing when running unit tests.
+/// Enable tracing and CRT logging when running unit tests.
 #[ctor::ctor]
 fn init_tracing_subscriber() {
-    tracing_subscriber::fmt::init();
+    let _ = RustLogAdapter::try_init();
+    let _ = tracing_subscriber::fmt::try_init();
 }
 
 pub fn get_test_client() -> S3Client {
@@ -34,6 +36,10 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
 
 pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
+}
+
+pub fn get_test_bucket_without_permissions() -> String {
+    std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
 }
 
 pub async fn get_test_sdk_client() -> s3::Client {
