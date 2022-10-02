@@ -71,17 +71,16 @@ impl S3Client {
                     let _ = sender.unbounded_send(Ok((range_start, body.into())));
                 }
             })
-            .on_finish(move |ref request_result| {
+            .on_finish(move |request_result| {
                 trace!("GetObjectRequest finished");
 
                 let mut sender = sender_clone.lock().unwrap();
 
                 if let Some(error_body) = request_result.error_response_body.as_ref() {
                     error!(error = ?error_body, "GetObjectRequest error");
-                    let result: Result<(), Error> = request_result.into();
                     let _ = sender
                         .as_mut()
-                        .map(|sender| sender.unbounded_send(result.map(|_| unreachable!("it's an Err"))));
+                        .map(|sender| sender.unbounded_send(Err(request_result.crt_error)));
                 }
 
                 sender.take().expect("request should only finish once");

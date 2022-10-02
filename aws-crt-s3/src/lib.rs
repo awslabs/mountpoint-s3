@@ -36,6 +36,16 @@ impl<S: AsRef<OsStr>> StringExt for S {
     }
 }
 
+/// View an aws_byte_cursor as an OsStr.
+/// Safety: This function is unsafe because it makes a reference to an OsStr from the raw pointers
+/// inside the aws_byte_cursor. The caller must ensure that the returned OsStr does not outlive
+/// the bytes pointed to by the cursor. A common pattern is to use .to_owned() on the result
+/// to copy the bytes out to make the lifetime independent of the cursor.
+pub(crate) unsafe fn aws_byte_cursor_as_osstr<'a>(cursor: &aws_byte_cursor) -> &'a OsStr {
+    let cursor_slice: &[u8] = std::slice::from_raw_parts(cursor.ptr, cursor.len);
+    OsStr::from_bytes(cursor_slice)
+}
+
 /// Translate the common "return a null pointer on failure" pattern into Results that pull the last
 /// error from the CRT.
 pub(crate) trait CrtError: Sized {

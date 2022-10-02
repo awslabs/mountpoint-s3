@@ -2,7 +2,6 @@
 
 use std::ffi::{OsStr, OsString};
 use std::mem::MaybeUninit;
-use std::os::unix::prelude::OsStrExt;
 use std::ptr::NonNull;
 
 use aws_crt_s3_sys::*;
@@ -11,7 +10,7 @@ use thiserror::Error;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
-use crate::{CrtError, StringExt};
+use crate::{aws_byte_cursor_as_osstr, CrtError, StringExt};
 
 /// Wraps an aws_http_stream. A stream exists for the duration of a request/response
 /// exchange.
@@ -69,6 +68,11 @@ pub struct Headers {
     inner: NonNull<aws_http_headers>,
 }
 
+/// Safety: This is okay since we don't implement a shallow Clone for Headers that could otherwise
+/// allow threads to simultaneously modify it.
+unsafe impl Send for Headers {}
+unsafe impl Sync for Headers {}
+
 /// Errors returned by operations on [Headers]
 #[derive(Debug, Error)]
 pub enum HeadersError {
@@ -92,6 +96,32 @@ impl Headers {
         Self { inner: ptr }
     }
 
+    /// Return how many headers there are.
+    pub fn count(&self) -> usize {
+        unsafe {
+            // Safety: This doesn't modify the headers, and `self.inner` is a valid aws_http_headers.
+            aws_http_headers_count(self.inner.as_ptr())
+        }
+    }
+
+    /// Get the header at the specified index.
+    pub fn get_index(&self, index: usize) -> Result<Header<OsString>, HeadersError> {
+        let header = unsafe {
+            let mut header: MaybeUninit<aws_http_header> = MaybeUninit::uninit();
+            aws_http_headers_get_index(self.inner.as_ptr(), index, header.as_mut_ptr()).ok_or_last_error()?;
+            header.assume_init()
+        };
+
+        let (name, value) = unsafe {
+            (
+                aws_byte_cursor_as_osstr(&header.name).to_owned(),
+                aws_byte_cursor_as_osstr(&header.value).to_owned(),
+            )
+        };
+
+        Ok(Header::new(name, value))
+    }
+
     /// Get a single header by name from this block of headers
     pub fn get<H: AsRef<OsStr>>(&self, name: H) -> Result<Header<OsString>, HeadersError> {
         // Safety: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get` promises to
@@ -108,8 +138,11 @@ impl Headers {
         };
 
         let name = name.as_ref().to_os_string();
-        let value_slice: &[u8] = unsafe { std::slice::from_raw_parts(value.ptr, value.len) };
-        let value = OsStr::from_bytes(value_slice).to_owned();
+
+        let value = unsafe {
+            // Safety: we create an owned copy of the bytes before the aws_byte_cursor can expire
+            aws_byte_cursor_as_osstr(&value).to_owned()
+        };
 
         Ok(Header::new(name, value))
     }

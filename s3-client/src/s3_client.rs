@@ -11,7 +11,9 @@ use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions}
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::futures::FutureSpawner;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
-use aws_crt_s3::s3::client::{init_default_signing_config, Client, ClientConfig, MetaRequestOptions};
+use aws_crt_s3::s3::client::{
+    init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult,
+};
 use aws_crt_s3_sys::aws_s3_meta_request_type;
 use futures::channel::oneshot;
 use futures::TryFutureExt;
@@ -42,17 +44,6 @@ pub struct S3Client {
     event_loop_group: EventLoopGroup,
     region: String,
     throughput_target_gbps: f64,
-}
-
-#[derive(Error, Debug)]
-#[error("HTTP Error: {self}")]
-pub struct HttpError {
-    #[source]
-    crt_error: aws_crt_s3::common::error::Error,
-
-    response_status: i32,
-
-    error_response_body: String,
 }
 
 impl S3Client {
@@ -151,31 +142,11 @@ impl S3Client {
 
                 trace!(total_size = body.len(), "HTTP request finished");
 
-                let result = if request_result.error_code == 0 {
+                let result = if !request_result.is_err() {
                     Ok(std::mem::take(&mut *body))
                 } else {
-                    // Turn the error response body into String, using Debug to produce some message
-                    // if it's not valid UTF-8.
-                    let error_response_body = request_result
-                        .error_response_body
-                        .unwrap_or_else(|| "No error response body".into())
-                        .into_string()
-                        .unwrap_or_else(|e| format!("Response not valid UTF-8: {:?}", e));
-
-                    let crt_error: aws_crt_s3::common::error::Error = request_result.error_code.into();
-
-                    error!(
-                        ?crt_error,
-                        http_code = request_result.response_status,
-                        response = error_response_body,
-                        "HTTP error"
-                    );
-
-                    Err(S3ClientError::Http(
-                        crt_error,
-                        request_result.response_status,
-                        error_response_body,
-                    ))
+                    error!(?request_result, "HTTP error");
+                    Err(S3ClientError::Http(request_result))
                 };
 
                 let _ = tx.send(result);
@@ -202,8 +173,8 @@ pub enum S3ClientError {
     #[error("CRT error: {0}")]
     Crt(#[from] aws_crt_s3::common::error::Error),
 
-    #[error("HTTP error: CRT: {0}, response code = {1}, response = {2}")]
-    Http(#[source] aws_crt_s3::common::error::Error, i32, String),
+    #[error("HTTP error: {0:?}")]
+    Http(MetaRequestResult),
 
     #[error("A future was prematurely canceled: {0}")]
     OneshotCanceled(#[from] futures::channel::oneshot::Canceled),

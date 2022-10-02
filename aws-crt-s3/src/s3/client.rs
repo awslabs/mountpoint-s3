@@ -359,7 +359,7 @@ pub struct MetaRequestResult {
     pub response_status: i32,
 
     /// Final error code of the meta request.
-    pub error_code: i32,
+    pub crt_error: Error,
 
     /// Error HTTP body, if present
     pub error_response_headers: Option<Headers>,
@@ -368,18 +368,15 @@ pub struct MetaRequestResult {
     pub error_response_body: Option<OsString>,
 }
 
-/// Convert [MetaRequestResult] into a Rust result for monadic error handling.
-impl From<&MetaRequestResult> for Result<(), Error> {
-    fn from(request: &MetaRequestResult) -> Self {
-        if request.error_code == aws_common_error::AWS_ERROR_SUCCESS as i32 {
-            Ok(())
-        } else {
-            Err(Error::from(request.error_code))
+impl MetaRequestResult {
+    /// Returns whether this HTTP request result represents an error.
+    pub fn is_err(&self) -> bool {
+        match self.crt_error {
+            Error::CRTError(val) => val != AWS_OP_SUCCESS,
+            _ => true,
         }
     }
-}
 
-impl MetaRequestResult {
     /// Convert the CRT's meta request result struct into a safe, owned result.
     /// Safety: This copies from the raw pointer inside of the request result, so only
     /// call on results given to us from the CRT.
@@ -397,7 +394,7 @@ impl MetaRequestResult {
 
         Self {
             response_status: inner.response_status,
-            error_code: inner.error_code,
+            crt_error: inner.error_code.into(),
             error_response_headers,
             error_response_body,
         }

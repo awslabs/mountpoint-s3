@@ -18,7 +18,7 @@ fn init_tracing_subscriber() {
     subscriber.try_init().expect("unable to install global subscriber");
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     init_tracing_subscriber();
 
     let matches = Command::new("list")
@@ -36,11 +36,9 @@ fn main() -> anyhow::Result<()> {
 
     let client = S3Client::new(region, Default::default()).expect("couldn't create client");
 
-    let result = futures::executor::block_on(client.list_objects(bucket, None, delimiter, 500, prefix))?;
+    let result = futures::executor::block_on(client.list_objects(bucket, None, delimiter, 500, prefix)).unwrap();
 
     for object in result.objects {
         println!("{:?}", object);
     }
-
-    Ok(())
 }

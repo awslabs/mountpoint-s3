@@ -36,5 +36,5 @@ async fn test_head_bucket_forbidden() {
 
     let result = client.head_bucket(&bucket).await;
 
-    assert!(matches!(result, Err(HeadBucketError::PermissionDenied(_, _, _))));
+    assert!(matches!(result, Err(HeadBucketError::PermissionDenied(_))));
 }
