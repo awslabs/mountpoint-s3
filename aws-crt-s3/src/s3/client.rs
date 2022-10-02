@@ -7,7 +7,7 @@ use crate::common::error::Error;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::s3::s3_library_init;
-use crate::{CrtError, ResultExt, StringExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, StringExt};
 use aws_crt_s3_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -247,7 +247,7 @@ unsafe extern "C" fn meta_request_receive_body(
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
     if let Some(callback) = user_data.on_body.as_mut() {
-        let slice: &[u8] = std::slice::from_raw_parts((*body).ptr, (*body).len);
+        let slice: &[u8] = aws_byte_cursor_as_slice(&*body);
         callback(range_start, slice);
     }
 

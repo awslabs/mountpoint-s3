@@ -36,14 +36,19 @@ impl<S: AsRef<OsStr>> StringExt for S {
     }
 }
 
-/// View an aws_byte_cursor as an OsStr.
-/// Safety: This function is unsafe because it makes a reference to an OsStr from the raw pointers
-/// inside the aws_byte_cursor. The caller must ensure that the returned OsStr does not outlive
-/// the bytes pointed to by the cursor. A common pattern is to use .to_owned() on the result
-/// to copy the bytes out to make the lifetime independent of the cursor.
-pub(crate) unsafe fn aws_byte_cursor_as_osstr<'a>(cursor: &aws_byte_cursor) -> &'a OsStr {
-    let cursor_slice: &[u8] = std::slice::from_raw_parts(cursor.ptr, cursor.len);
-    OsStr::from_bytes(cursor_slice)
+/// View an aws_byte_cursor as a slice of bytes.
+/// Safety: This function is unsafe because it makes a reference from the raw pointers
+/// inside the aws_byte_cursor. The caller must ensure that the returned slice does not outlive
+/// the bytes pointed to by the cursor, for example, by copying the bytes out.
+pub(crate) unsafe fn aws_byte_cursor_as_slice<'a>(cursor: &aws_byte_cursor) -> &'a [u8] {
+    // Safety: from_raw_parts can't be used on null pointers, even if the length is 0. So we handle
+    // that as a special case. If the pointer is null, the length must be 0 and we return an empty slice.
+    if cursor.ptr.is_null() {
+        assert_eq!(cursor.len, 0, "length must be 0 for null cursors");
+        &[]
+    } else {
+        std::slice::from_raw_parts(cursor.ptr, cursor.len)
+    }
 }
 
 /// Translate the common "return a null pointer on failure" pattern into Results that pull the last

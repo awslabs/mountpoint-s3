@@ -2,6 +2,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::mem::MaybeUninit;
+use std::os::unix::prelude::OsStrExt;
 use std::ptr::NonNull;
 
 use aws_crt_s3_sys::*;
@@ -10,7 +11,7 @@ use thiserror::Error;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
-use crate::{aws_byte_cursor_as_osstr, CrtError, StringExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, StringExt};
 
 /// Wraps an aws_http_stream. A stream exists for the duration of a request/response
 /// exchange.
@@ -114,8 +115,8 @@ impl Headers {
 
         let (name, value) = unsafe {
             (
-                aws_byte_cursor_as_osstr(&header.name).to_owned(),
-                aws_byte_cursor_as_osstr(&header.value).to_owned(),
+                OsStr::from_bytes(aws_byte_cursor_as_slice(&header.name)).to_owned(),
+                OsStr::from_bytes(aws_byte_cursor_as_slice(&header.value)).to_owned(),
             )
         };
 
@@ -141,7 +142,7 @@ impl Headers {
 
         let value = unsafe {
             // Safety: we create an owned copy of the bytes before the aws_byte_cursor can expire
-            aws_byte_cursor_as_osstr(&value).to_owned()
+            OsStr::from_bytes(aws_byte_cursor_as_slice(&value)).to_owned()
         };
 
         Ok(Header::new(name, value))
