@@ -111,4 +111,24 @@ mod test {
         RustLogAdapter::try_init().expect("unable to install CRT log adapter");
         tracing_subscriber::fmt::init();
     }
+
+    /// Validate that ASan is working across both Rust and the CRT by intentionally provoking a
+    /// use-after-free that crosses the boundary: the allocation is created and freed by Rust, but
+    /// accessed by the CRT. Ignored by default, and run only by ASan in CI.
+    #[test]
+    #[ignore]
+    fn test_asan_working() {
+        use aws_crt_s3_sys::{aws_byte_cursor, aws_byte_cursor_is_valid};
+
+        let heap_cursor = Box::new(aws_byte_cursor {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        });
+        let heap_ptr = &*heap_cursor as *const aws_byte_cursor as *mut _;
+        drop(heap_cursor);
+
+        // `heap_ptr` is now pointing to a freed allocation of a previously-valid, so
+        // `aws_byte_cursor_is_valid` will cause a use-after-free that ASan should catch
+        let _ = unsafe { aws_byte_cursor_is_valid(heap_ptr) };
+    }
 }

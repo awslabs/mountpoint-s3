@@ -22,9 +22,19 @@ test:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	cargo test $$packages
 
+# Run a test that we know should fail if ASan is enabled
+.PHONY: test-asan-working
+test-asan-working:
+	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
+	RUSTFLAGS="-Zsanitizer=address" \
+	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages -- --ignored test_asan_working 2>&1 \
+	| tee /dev/stderr \
+	| grep "heap-use-after-free" \
+	  && echo "ASan is working" || (echo "ASan did not find the use-after-free; something's wrong"; exit 1)
+
 .PHONY: test-asan
 test-asan:
-	packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
+	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
 	RUSTFLAGS="-Zsanitizer=address" \
 	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages

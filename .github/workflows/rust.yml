@@ -90,6 +90,8 @@ jobs:
       run: sudo apt-get install llvm-dev
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Validate ASan is working
+      run: make test-asan-working
     - name: Run tests
       run: make test-asan
 
