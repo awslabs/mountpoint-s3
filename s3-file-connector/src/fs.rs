@@ -260,6 +260,104 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             }
         };
 
+        // parent dir could appear be empty when we know it's a directory but haven't looked it up yet
+        let ino = {
+            let dir_entries = dir_entries.read().unwrap();
+            match dir_entries.get(name.to_str().unwrap()) {
+                Some(ino) => Some(*ino),
+                None => None,
+            }
+        };
+
+        // call LIST API to see if parent is really empty or not
+        if ino.is_none() {
+            // borrow this part from opendir
+            let prefix = match self.path_from_root(parent, true) {
+                Some(path) => path,
+                None => {
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+            };
+
+            // FIXME continuation tokens and max-keys
+            let result = match self.client.list_objects(&self.bucket, None, "/", 100, &prefix).await {
+                Ok(result) => result,
+                Err(err) => {
+                    error!(?err, "ListObjectsV2 failed");
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+            };
+
+            // FIXME
+            //   For now we're going to issue a LIST on every opendir to keep it simple and not
+            //   try and cache directory entries. This means children will get allocated fresh
+            //   inode numbers on each opendir.
+            let mut new_map = HashMap::new();
+            let mut inode_info = self.inode_info.write().unwrap();
+            let mut new_inodes = Vec::new();
+
+            for object in result.objects {
+                let name = object.key;
+
+                if name.ends_with('/') {
+                    // FIXME Handle explicit directories
+                    continue;
+                }
+
+                // FIXME This doesn't handle keys with trailing or consecutive slashes.
+                let name = name.split('/').last().unwrap().to_owned();
+
+                // FIXME Fix S3Client's list_objects_v2 to also return object mtime
+                // FIXME and return that here
+                let mtime = UNIX_EPOCH;
+                let info = InodeInfo::new(name.clone(), parent, mtime, FileType::RegularFile, object.size);
+                let ino = self.next_inode();
+                inode_info.insert(ino, info);
+                new_inodes.push(ino);
+
+                new_map.insert(name, ino);
+            }
+
+            let mut dir_entries = self.dir_entries.write().unwrap();
+            for dir in result.common_prefixes {
+                let mut name = dir;
+
+                assert_eq!(name.pop(), Some('/'));
+
+                // FIXME This doesn't handle keys with trailing or consecutive slashes.
+                let name = name.split('/').last().unwrap().to_owned();
+
+                // FIXME Fix S3Client's list_objects_v2 to also return object mtime
+                // FIXME and return that here
+                let mtime = UNIX_EPOCH;
+                let info = InodeInfo::new(name.clone(), parent, mtime, FileType::Directory, 1);
+                let ino = self.next_inode();
+                inode_info.insert(ino, info);
+                new_inodes.push(ino);
+
+                new_map.insert(name, ino);
+
+                // add an empty dir_entry for every directory found
+                // the values will be updated when someone try to lookup its children
+                dir_entries.insert(ino, Arc::new(RwLock::new(HashMap::new())));
+            }
+
+            drop(inode_info);
+            let _old_map = dir_entries.insert(parent, Arc::new(RwLock::new(new_map)));
+        }
+
+        let dir_entries = {
+            let dir_entries = self.dir_entries.read().unwrap();
+            if let Some(entries) = dir_entries.get(&parent) {
+                Arc::clone(entries)
+            } else {
+                reply.error(libc::ENOENT);
+                return;
+            }
+        };
+
         let ino = {
             let dir_entries = dir_entries.read().unwrap();
             match dir_entries.get(name.to_str().unwrap()) {
