@@ -263,7 +263,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
         // parent dir could appear be empty when we know it's a directory but haven't looked it up yet
         let ino = {
             let dir_entries = dir_entries.read().unwrap();
-            dir_entries.get(name.to_str().unwrap()).map(|ino| *ino)
+            dir_entries.get(name.to_str().unwrap()).copied()
         };
 
         // call LIST API to see if parent is really empty or not
