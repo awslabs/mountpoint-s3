@@ -7,8 +7,6 @@ use aws_crt_s3_sys::aws_s3_library_init;
 use crate::common::allocator::Allocator;
 
 pub mod client;
-pub mod list_objects;
-pub mod paginator;
 
 static S3_LIBRARY_INIT: Once = Once::new();
 
