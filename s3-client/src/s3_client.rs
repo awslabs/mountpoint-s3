@@ -1,8 +1,9 @@
-use std::future::{ready, Future};
+use std::future::Future;
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::auth::signing_config::SigningConfig;
 use aws_crt_s3::common::allocator::Allocator;
@@ -15,9 +16,11 @@ use aws_crt_s3::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult,
 };
 use aws_crt_s3_sys::aws_s3_meta_request_type;
+
 use futures::channel::oneshot;
-use futures::TryFutureExt;
+
 use thiserror::Error;
+
 use tracing::{error, trace};
 
 use crate::object_client::{ListObjectsResult, ObjectClient};
@@ -155,15 +158,21 @@ impl S3Client {
             })
             .request_type(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
 
-        // TODO: this ugliness is because using rustc thinks that Message (which isn't Send) is held
-        // across an await. This manual unrolling into futures::future combinators shows that isn't the case.
-        ready(
-            self.s3_client
-                .make_meta_request(options)
-                .map_err(S3RequestError::ConstructionFailure)
-                .map(|_| {}),
-        )
-        .and_then(|()| rx.unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err)))))
+        // Issue the HTTP request using the CRT's S3 meta request API.
+        let req = self
+            .s3_client
+            .make_meta_request(options)
+            .map(|_| ()) // Discard the MetaRequest since it's not Send.
+            .map_err(S3RequestError::ConstructionFailure);
+
+        async {
+            // Check that the request was successfully constructed. Has to be in the async block.
+            req?;
+
+            // Wait on the rx channel until the callbacks are all done.
+            rx.await
+                .unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err))))
+        }
     }
 }
 
@@ -198,10 +207,6 @@ pub enum S3RequestError<E: std::error::Error> {
     #[error("Error received from S3: {0:?}")]
     ServiceError(#[source] E),
 }
-
-// TODO ?
-unsafe impl Send for S3Client {}
-unsafe impl Sync for S3Client {}
 
 #[async_trait]
 impl ObjectClient for S3Client {

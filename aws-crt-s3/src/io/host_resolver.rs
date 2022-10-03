@@ -24,6 +24,9 @@ pub struct HostResolver {
     pub(crate) inner: NonNull<aws_host_resolver>,
 }
 
+unsafe impl Send for HostResolver {}
+unsafe impl Sync for HostResolver {}
+
 impl HostResolver {
     /// Create a new [HostResolver] with the default behavior
     pub fn new_default(allocator: &mut Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {

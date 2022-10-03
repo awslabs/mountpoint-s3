@@ -35,8 +35,7 @@ pub struct SigningConfig(pub(crate) Arc<Pin<Box<SigningConfigInner>>>);
 
 impl SigningConfig {
     /// Get out the inner pointer to the signing config
-    /// TODO: make this visible only inside this crate
-    pub fn to_inner_ptr(&self) -> *const aws_signing_config_aws {
+    pub(crate) fn to_inner_ptr(&self) -> *const aws_signing_config_aws {
         &Pin::as_ref(&self.0).get_ref().inner
     }
 }

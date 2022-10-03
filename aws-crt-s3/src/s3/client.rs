@@ -29,6 +29,9 @@ pub struct Client {
     config: ClientConfig,
 }
 
+unsafe impl Send for Client {}
+unsafe impl Sync for Client {}
+
 /// Options for creating a new [Client]. Follows the builder pattern.
 #[derive(Debug, Default)]
 pub struct ClientConfig {
