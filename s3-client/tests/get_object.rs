@@ -7,12 +7,12 @@ use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;
 use futures::{pin_mut, Stream};
-use s3_client::{GetObjectError, ObjectClient, S3Client};
+use s3_client::{GetObjectError, ObjectClient, S3Client, S3RequestError};
 use std::ops::Range;
 
 #[track_caller]
 async fn check_get_result(
-    result: impl Stream<Item = Result<(u64, Box<[u8]>), GetObjectError>>,
+    result: impl Stream<Item = Result<(u64, Box<[u8]>), S3RequestError<GetObjectError>>>,
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {

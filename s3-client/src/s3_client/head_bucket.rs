@@ -1,4 +1,4 @@
-use crate::{S3Client, S3ClientError};
+use crate::{S3Client, S3RequestError};
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3::s3::client::MetaRequestResult;
@@ -6,20 +6,17 @@ use thiserror::Error;
 use tracing::error;
 
 #[derive(Error, Debug)]
-#[allow(clippy::enum_variant_names)]
+#[non_exhaustive]
 pub enum HeadBucketError {
     #[error("Wrong region: should be {0}")]
     IncorrectRegion(String),
 
-    #[error("S3 Client error: {0}")]
-    S3Client(#[from] S3ClientError),
-
-    #[error("Permissions error: {0:?}")]
+    #[error("Permission denied")]
     PermissionDenied(MetaRequestResult),
 }
 
 impl S3Client {
-    pub async fn head_bucket(&self, bucket: &str) -> Result<(), HeadBucketError> {
+    pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
         let body = {
             let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
 
@@ -35,13 +32,15 @@ impl S3Client {
         };
 
         body.await.map(|_| ()).map_err(|err| match err {
-            S3ClientError::Http(request_result) => match request_result.response_status {
+            S3RequestError::ResponseError(request_result) => match request_result.response_status {
                 301 => try_parse_redirect(&request_result)
-                    .unwrap_or(HeadBucketError::S3Client(S3ClientError::Http(request_result))),
-                400 | 403 => HeadBucketError::PermissionDenied(request_result),
-                _ => HeadBucketError::S3Client(S3ClientError::Http(request_result)),
+                    .map(S3RequestError::ServiceError)
+                    .unwrap_or(S3RequestError::ResponseError(request_result)),
+                // S3 returns 400 for invalid or expired STS tokens
+                400 | 403 => S3RequestError::ServiceError(HeadBucketError::PermissionDenied(request_result)),
+                _ => S3RequestError::ResponseError(request_result),
             },
-            err => HeadBucketError::S3Client(err),
+            err => err,
         })
     }
 }

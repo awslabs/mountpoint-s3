@@ -1,13 +1,5 @@
 //! Infrastructure for asynchronous green-threaded execution
 
-use crate::common::allocator::Allocator;
-use crate::common::error::Error;
-use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
-use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
-use crate::io::io_library_init;
-use crate::CrtError as _;
-use crate::ResultExt;
-use aws_crt_s3_sys::*;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -16,6 +8,17 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+use aws_crt_s3_sys::*;
+use thiserror::Error;
+
+use crate::common::allocator::Allocator;
+use crate::common::error::Error;
+use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
+use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
+use crate::io::io_library_init;
+use crate::CrtError as _;
+use crate::ResultExt;
 
 /// An event loop that can be used to schedule and execute tasks
 #[derive(Debug)]
@@ -206,13 +209,13 @@ impl EventLoopTimer {
 }
 
 impl Future for EventLoopTimer {
-    type Output = Result<(), Error>;
+    type Output = Result<(), EventLoopTimerError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // If the timer callback has already fired, return with [Poll::Ready].
         match self.state.load(Ordering::SeqCst) {
             Self::TIMER_DONE => return Poll::Ready(Ok(())),
-            Self::TIMER_CANCELED => return Poll::Ready(Err(Error::Canceled)),
+            Self::TIMER_CANCELED => return Poll::Ready(Err(EventLoopTimerError::Canceled)),
             _ => {}
         }
 
@@ -234,18 +237,15 @@ impl Future for EventLoopTimer {
 
         let now = match self.event_loop.current_clock_time() {
             Ok(now) => now,
-            Err(e) => return Poll::Ready(Err(e)),
+            Err(e) => return Poll::Ready(Err(e.into())),
         };
 
-        let nanos: u64 = match self.duration.as_nanos().try_into() {
-            Ok(nanos) => nanos,
-            Err(e) => {
-                return Poll::Ready(Err(Error::BindingError(
-                    Box::new(e),
-                    "Failed to convert nanos to u64 in EventLoopTimer".to_string(),
-                )))
-            }
-        };
+        // 2^64 nanoseconds is almost 600 years, shrug
+        let nanos: u64 = self
+            .duration
+            .as_nanos()
+            .try_into()
+            .expect("cannot set a timer beyond 2^64 nanoseconds");
 
         let waker = cx.waker().clone();
         let state = self.state.clone();
@@ -272,6 +272,18 @@ impl Future for EventLoopTimer {
 
         Poll::Pending
     }
+}
+
+/// [EventLoopTimer] failure results
+#[derive(Error, Debug)]
+pub enum EventLoopTimerError {
+    /// The timer was cancelled
+    #[error("The timer was cancelled")]
+    Canceled,
+
+    /// An internal error from the AWS Common Runtime
+    #[error("Internal CRT error: {0}")]
+    InternalError(#[from] crate::common::error::Error),
 }
 
 #[cfg(test)]

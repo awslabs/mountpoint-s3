@@ -371,10 +371,7 @@ pub struct MetaRequestResult {
 impl MetaRequestResult {
     /// Returns whether this HTTP request result represents an error.
     pub fn is_err(&self) -> bool {
-        match self.crt_error {
-            Error::CRTError(val) => val != AWS_OP_SUCCESS,
-            _ => true,
-        }
+        self.crt_error.is_err()
     }
 
     /// Convert the CRT's meta request result struct into a safe, owned result.

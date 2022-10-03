@@ -15,7 +15,7 @@ use thiserror::Error;
 use tracing::{error, trace};
 
 use crate::object_client::GetBodyPart;
-use crate::S3Client;
+use crate::{S3Client, S3RequestError};
 
 impl S3Client {
     /// Create and begin a new GetObject request. The body of the object will be returned in parts
@@ -25,7 +25,7 @@ impl S3Client {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-    ) -> Result<GetObjectRequest, GetObjectError> {
+    ) -> Result<GetObjectRequest, S3RequestError<GetObjectError>> {
         let mut message = Message::new_request(&mut Allocator::default()).unwrap();
 
         let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
@@ -97,6 +97,7 @@ impl S3Client {
 }
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum GetObjectError {
     #[error("CRT error")]
     CRTError(#[from] Error),
@@ -110,7 +111,7 @@ pub struct GetObjectRequest {
 }
 
 impl Stream for GetObjectRequest {
-    type Item = Result<GetBodyPart, GetObjectError>;
+    type Item = Result<GetBodyPart, S3RequestError<GetObjectError>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         self.project()

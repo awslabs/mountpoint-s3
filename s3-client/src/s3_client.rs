@@ -34,20 +34,20 @@ pub struct S3ClientConfig {
     pub part_size: Option<usize>,
 }
 
-#[allow(unused)]
+#[derive(Debug)]
 pub struct S3Client {
-    allocator: Allocator,
     s3_client: Client,
-    signing_config: SigningConfig,
-    credentials_provider: CredentialsProvider,
-    host_resolver: HostResolver,
+    _signing_config: SigningConfig,
+    _credentials_provider: CredentialsProvider,
+    _host_resolver: HostResolver,
     event_loop_group: EventLoopGroup,
     region: String,
+    _allocator: Allocator,
     throughput_target_gbps: f64,
 }
 
 impl S3Client {
-    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, S3ClientError> {
+    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
         // Safety arguments in this function are mostly pretty boring (singletons, constructors that
         // copy from pointers, etc), so safety annotations only on interesting cases.
 
@@ -96,12 +96,12 @@ impl S3Client {
         let s3_client = Client::new(&mut allocator, client_config).unwrap();
 
         Ok(Self {
-            allocator,
+            _allocator: allocator,
             s3_client,
-            signing_config,
-            host_resolver,
+            _signing_config: signing_config,
+            _host_resolver: host_resolver,
             event_loop_group,
-            credentials_provider: creds_provider,
+            _credentials_provider: creds_provider,
             region: region.to_owned(),
             throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
         })
@@ -112,15 +112,17 @@ impl S3Client {
     }
 
     /// Make an HTTP request using this S3 client. Returns the body of the HTTP response on success.
-    fn make_http_request(&self, message: Message) -> impl Future<Output = Result<Vec<u8>, S3ClientError>> + Send {
-        let (tx, rx) = oneshot::channel::<Result<Vec<u8>, S3ClientError>>();
+    fn make_http_request<E: std::error::Error + Send + 'static>(
+        &self,
+        message: Message,
+    ) -> impl Future<Output = Result<Vec<u8>, S3RequestError<E>>> + Send {
+        let (tx, rx) = oneshot::channel::<Result<Vec<u8>, S3RequestError<E>>>();
 
         // Accumulate the body of the response into this Vec<u8>.
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
 
         let body1 = body.clone();
 
-        let message = message;
         let mut options = MetaRequestOptions::new();
         options
             .message(message)
@@ -128,7 +130,7 @@ impl S3Client {
                 trace!(
                     start = range_start,
                     length = data.len(),
-                    "HTTP request body part received"
+                    "S3 request body part received"
                 );
 
                 let mut body = body1.lock().unwrap();
@@ -140,13 +142,13 @@ impl S3Client {
             .on_finish(move |request_result| {
                 let mut body = body.lock().unwrap();
 
-                trace!(total_size = body.len(), "HTTP request finished");
+                trace!(body_size = body.len(), "S3 request finished");
 
                 let result = if !request_result.is_err() {
                     Ok(std::mem::take(&mut *body))
                 } else {
-                    error!(?request_result, "HTTP error");
-                    Err(S3ClientError::Http(request_result))
+                    error!(?request_result, "S3 request failed");
+                    Err(S3RequestError::ResponseError(request_result))
                 };
 
                 let _ = tx.send(result);
@@ -158,26 +160,43 @@ impl S3Client {
         ready(
             self.s3_client
                 .make_meta_request(options)
-                .map_err(S3ClientError::Crt)
+                .map_err(S3RequestError::ConstructionFailure)
                 .map(|_| {}),
         )
-        .and_then(|()| rx.unwrap_or_else(|err| Err(S3ClientError::OneshotCanceled(err))))
+        .and_then(|()| rx.unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err)))))
     }
 }
 
+/// Failures to construct a new S3 client
 #[derive(Error, Debug)]
-pub enum S3ClientError {
-    #[error("unknown S3Client error")]
-    Unknown,
+#[non_exhaustive]
+pub enum NewClientError {
+    // Currently, client construction is actually infallible, but this reserves the ability for us
+    // to do fallible stuff at construction time.
+}
 
-    #[error("CRT error: {0}")]
-    Crt(#[from] aws_crt_s3::common::error::Error),
+/// Failed S3 request results
+#[derive(Error, Debug)]
+pub enum S3RequestError<E: std::error::Error> {
+    /// An internal error from within the S3 client. The request may have been sent.
+    #[error("Internal S3 client error")]
+    InternalError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("HTTP error: {0:?}")]
-    Http(MetaRequestResult),
+    /// An internal error from within the AWS Common Runtime. The request may have been sent.
+    #[error("Unknown CRT error: {0}")]
+    CrtError(#[from] aws_crt_s3::common::error::Error),
 
-    #[error("A future was prematurely canceled: {0}")]
-    OneshotCanceled(#[from] futures::channel::oneshot::Canceled),
+    /// An error during construction of a request. The request was not sent.
+    #[error("Failed to construct request: {0}")]
+    ConstructionFailure(#[source] aws_crt_s3::common::error::Error),
+
+    /// The request was sent but an unknown or unhandled failure occurred while processing it.
+    #[error("Unknown response error: {0:?}")]
+    ResponseError(MetaRequestResult),
+
+    /// The request was sent and the service returned an error.
+    #[error("Error received from S3: {0:?}")]
+    ServiceError(#[source] E),
 }
 
 // TODO ?
@@ -187,9 +206,9 @@ unsafe impl Sync for S3Client {}
 #[async_trait]
 impl ObjectClient for S3Client {
     type GetObjectResult = GetObjectRequest;
-    type GetObjectError = GetObjectError;
+    type GetObjectError = S3RequestError<GetObjectError>;
 
-    type ListObjectsError = ListObjectsError;
+    type ListObjectsError = S3RequestError<ListObjectsError>;
 
     async fn get_object(
         &self,

@@ -1,23 +1,25 @@
 //! This module provides an interface to use [Future]s on top of the CRT's event loops and event
 //! loop groups.
 
-use crate::common::error::Error;
-use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
-use futures::channel::oneshot;
-use futures::future::BoxFuture;
-use futures::task::ArcWake;
-use futures::{FutureExt, TryFutureExt};
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+
+use futures::channel::oneshot;
+use futures::future::BoxFuture;
+use futures::task::ArcWake;
+use futures::{FutureExt, TryFutureExt};
+use thiserror::Error;
+
+use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
 
 /// Handle to a spawned future. Can be converted into a [Future] that completes when the task finishes.
 #[derive(Debug)]
 pub struct FutureJoinHandle<T: Send + 'static> {
     inner: Arc<Mutex<Option<FutureTaskInner<T>>>>,
 
-    receiver: oneshot::Receiver<Result<T, Error>>,
+    receiver: oneshot::Receiver<Result<T, JoinError>>,
 }
 
 impl<T> FutureJoinHandle<T>
@@ -25,12 +27,13 @@ where
     T: Send + 'static,
 {
     /// Convert this handle into a future that completes when the spawned future does.
-    pub fn into_future(self) -> impl Future<Output = Result<T, Error>> {
-        self.receiver.unwrap_or_else(|oneshot::Canceled| Err(Error::Canceled))
+    pub fn into_future(self) -> impl Future<Output = Result<T, JoinError>> {
+        self.receiver
+            .unwrap_or_else(|oneshot::Canceled| Err(JoinError::Canceled))
     }
 
     /// Wait for a result, blocking the current thread.
-    pub fn wait(self) -> Result<T, Error> {
+    pub fn wait(self) -> Result<T, JoinError> {
         futures::executor::block_on(self.into_future())
     }
 
@@ -58,7 +61,7 @@ struct FutureTaskInner<T: Send + 'static> {
     future: BoxFuture<'static, T>,
 
     /// A channel to write the result to when the future completes.
-    result_channel: oneshot::Sender<Result<T, Error>>,
+    result_channel: oneshot::Sender<Result<T, JoinError>>,
 }
 
 /// Manual [Debug] implementation since [BoxFuture] doesn't implement Debug.
@@ -86,7 +89,7 @@ struct FutureTaskWaker<S: TaskScheduler, T: Send + 'static> {
 impl<S: TaskScheduler, T: Send + 'static> FutureTaskWaker<S, T> {
     /// Finish this task with an error. Does not call [Future::poll], and prevents any future
     /// wake-ups from calling poll either.
-    fn finish_with_error(arc_self: &Arc<Self>, error: Error) {
+    fn finish_with_error(arc_self: &Arc<Self>, error: JoinError) {
         let mut locked = arc_self.inner.lock().unwrap();
 
         if let Some(inner) = locked.take() {
@@ -140,7 +143,7 @@ impl<S: TaskScheduler, T: Send + 'static> ArcWake for FutureTaskWaker<S, T> {
         let task = Task::init(
             move |status| match status {
                 TaskStatus::RunReady => FutureTaskWaker::poll(&task_arc_self),
-                TaskStatus::Canceled => FutureTaskWaker::finish_with_error(&task_arc_self, Error::Canceled),
+                TaskStatus::Canceled => FutureTaskWaker::finish_with_error(&task_arc_self, JoinError::Canceled),
             },
             "FutureTaskWaker_wake_by_ref",
         );
@@ -148,7 +151,7 @@ impl<S: TaskScheduler, T: Send + 'static> ArcWake for FutureTaskWaker<S, T> {
         // Schedule the task. If it fails, finish with the error.
         match arc_self.scheduler.schedule_task_now(task) {
             Ok(()) => {}
-            Err(err) => FutureTaskWaker::finish_with_error(arc_self, err),
+            Err(err) => FutureTaskWaker::finish_with_error(arc_self, err.into()),
         }
     }
 }
@@ -203,6 +206,18 @@ impl<S: TaskScheduler + Clone> FutureSpawner for S {
     }
 }
 
+/// Future completion failures
+#[derive(Error, Debug)]
+pub enum JoinError {
+    /// The task was cancelled
+    #[error("The task was cancelled")]
+    Canceled,
+
+    /// Internal error from the AWS Common Runtime
+    #[error("Internal CRT error: {0}")]
+    InternalError(#[from] crate::common::error::Error),
+}
+
 #[cfg(test)]
 mod test {
     use futures::executor::block_on;
@@ -252,7 +267,7 @@ mod test {
         );
 
         // Check that all Futures completed successfully.
-        let results: Result<(), Error> = results.into_iter().collect();
+        let results: Result<(), JoinError> = results.into_iter().collect();
         results.expect("one or more futures failed");
 
         assert_eq!(counter.load(Ordering::SeqCst), NUM_FUTURES);

@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::Parser;
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_client::{HeadBucketError, S3Client, S3ClientConfig};
+use s3_client::{HeadBucketError, S3Client, S3ClientConfig, S3RequestError};
 
 mod fs;
 
@@ -123,7 +123,7 @@ fn create_client_for_bucket(
     let head_request = client.head_bucket(bucket);
     match futures::executor::block_on(head_request) {
         Ok(_) => Ok(client),
-        Err(HeadBucketError::IncorrectRegion(region)) => {
+        Err(S3RequestError::ServiceError(HeadBucketError::IncorrectRegion(region))) => {
             tracing::warn!(
                 "bucket {} is in region {}, not {}. redirecting...",
                 bucket,

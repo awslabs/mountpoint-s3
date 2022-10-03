@@ -1,8 +1,7 @@
 use crate::object_client::{ListObjectsResult, ObjectInfo};
-use crate::s3_client::S3ClientError;
+use crate::s3_client::S3RequestError;
 use crate::S3Client;
 use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::{Header, Message};
 use std::str::FromStr;
 use thiserror::Error;
@@ -11,62 +10,60 @@ use time::OffsetDateTime;
 use tracing::error;
 
 #[derive(Error, Debug)]
-#[allow(clippy::enum_variant_names)]
+#[non_exhaustive]
 pub enum ListObjectsError {
+    #[error("Error parsing response: {0}")]
+    ParseError(#[from] ParseError),
+}
+
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum ParseError {
     #[error("XML response was not valid: problem = {1}, xml node = {0:?}")]
     InvalidResponse(xmltree::Element, String),
 
     #[error("XML parsing error: {0:?}")]
-    XMLParseError(#[from] xmltree::ParseError),
+    Xml(#[from] xmltree::ParseError),
 
     #[error("Missing field {1} from XML element {0:?}")]
-    MissingFieldError(xmltree::Element, String),
+    MissingField(xmltree::Element, String),
 
     #[error("Failed to parse field {1} as bool: {0:?}")]
-    ParseBoolError(#[source] std::str::ParseBoolError, String),
+    Bool(#[source] std::str::ParseBoolError, String),
 
     #[error("Failed to parse field {1} as int: {0:?}")]
-    ParseIntError(#[source] std::num::ParseIntError, String),
+    Int(#[source] std::num::ParseIntError, String),
 
     #[error("Failed to parse field {1} as OffsetDateTime: {0:?}")]
-    OffsetDateTimeParseError(#[source] time::error::Parse, String),
-
-    #[error("S3 Client Error: {0}")]
-    S3Client(#[from] S3ClientError),
-}
-
-impl From<Error> for ListObjectsError {
-    fn from(err: Error) -> Self {
-        Self::from(S3ClientError::from(err))
-    }
+    OffsetDateTime(#[source] time::error::Parse, String),
 }
 
 /// Copy text out of an XML element, with the right error type.
-fn get_text(element: &xmltree::Element) -> Result<String, ListObjectsError> {
+fn get_text(element: &xmltree::Element) -> Result<String, ParseError> {
     Ok(element
         .get_text()
-        .ok_or_else(|| ListObjectsError::InvalidResponse(element.clone(), "field has no text".to_string()))?
+        .ok_or_else(|| ParseError::InvalidResponse(element.clone(), "field has no text".to_string()))?
         .to_string())
 }
 
 /// Wrapper to get child with some name out of an XML element, with the right error type.
-fn get_child<'a>(element: &'a xmltree::Element, name: &str) -> Result<&'a xmltree::Element, ListObjectsError> {
+fn get_child<'a>(element: &'a xmltree::Element, name: &str) -> Result<&'a xmltree::Element, ParseError> {
     element
         .get_child(name)
-        .ok_or_else(|| ListObjectsError::MissingFieldError(element.clone(), name.to_string()))
+        .ok_or_else(|| ParseError::MissingField(element.clone(), name.to_string()))
 }
 
 /// Get the text out of a child node, with the right error type.
-fn get_field(element: &xmltree::Element, name: &str) -> Result<String, ListObjectsError> {
+fn get_field(element: &xmltree::Element, name: &str) -> Result<String, ParseError> {
     get_text(get_child(element, name)?)
 }
 
 impl ListObjectsResult {
-    fn parse_from_bytes(bytes: &[u8]) -> Result<Self, ListObjectsError> {
+    fn parse_from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
         Self::parse_from_xml(&mut xmltree::Element::parse(bytes)?)
     }
 
-    fn parse_from_xml(element: &mut xmltree::Element) -> Result<Self, ListObjectsError> {
+    fn parse_from_xml(element: &mut xmltree::Element) -> Result<Self, ParseError> {
         let mut objects = Vec::new();
 
         while let Some(content) = element.take_child("Contents") {
@@ -88,11 +85,10 @@ impl ListObjectsResult {
         }
 
         let is_truncated = get_field(element, "IsTruncated")?;
-        let is_truncated = bool::from_str(&is_truncated)
-            .map_err(|e| ListObjectsError::ParseBoolError(e, "IsTruncated".to_string()))?;
+        let is_truncated = bool::from_str(&is_truncated).map_err(|e| ParseError::Bool(e, "IsTruncated".to_string()))?;
 
         if is_truncated != next_continuation_token.is_some() {
-            return Err(ListObjectsError::InvalidResponse(
+            return Err(ParseError::InvalidResponse(
                 element.clone(),
                 "IsTruncated doesn't match NextContinuationToken".to_string(),
             ));
@@ -108,12 +104,12 @@ impl ListObjectsResult {
 }
 
 impl ObjectInfo {
-    fn parse_from_xml(element: &xmltree::Element) -> Result<Self, ListObjectsError> {
+    fn parse_from_xml(element: &xmltree::Element) -> Result<Self, ParseError> {
         let key = get_field(element, "Key")?;
 
         let size = get_field(element, "Size")?;
 
-        let size = u64::from_str(&size).map_err(|e| ListObjectsError::ParseIntError(e, "Size".to_string()))?;
+        let size = u64::from_str(&size).map_err(|e| ParseError::Int(e, "Size".to_string()))?;
 
         let last_modified = get_field(element, "LastModified")?;
 
@@ -121,7 +117,7 @@ impl ObjectInfo {
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
 
         let last_modified = OffsetDateTime::parse(&last_modified, &Rfc3339)
-            .map_err(|e| ListObjectsError::OffsetDateTimeParseError(e, "LastModified".to_string()))?;
+            .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".to_string()))?;
 
         let storage_class = get_field(element, "StorageClass")?;
 
@@ -145,7 +141,7 @@ impl S3Client {
         delimiter: &str,
         max_keys: usize,
         prefix: &str,
-    ) -> Result<ListObjectsResult, ListObjectsError> {
+    ) -> Result<ListObjectsResult, S3RequestError<ListObjectsError>> {
         // Scope the endpoiint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
             let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
@@ -172,6 +168,6 @@ impl S3Client {
 
         let body = body.await?;
 
-        ListObjectsResult::parse_from_bytes(&body)
+        ListObjectsResult::parse_from_bytes(&body).map_err(|e| S3RequestError::ServiceError(e.into()))
     }
 }
