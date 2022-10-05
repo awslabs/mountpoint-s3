@@ -1,7 +1,8 @@
 use clap::{Arg, Command};
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{S3Client, S3ClientConfig};
-use s3_file_connector::fs::{S3Filesystem, S3FilesystemConfig};
+use s3_file_connector::fuse::S3FuseFilesystem;
+use s3_file_connector::S3FilesystemConfig;
 use std::{
     fs::File,
     io::{self, BufRead, BufReader},
@@ -108,7 +109,7 @@ fn mount_file_system(bucket_name: &str, region: &str) -> BackgroundSession {
         mountpoint.to_str().unwrap()
     );
     let session = Session::new(
-        S3Filesystem::new(
+        S3FuseFilesystem::new(
             client,
             bucket_name,
             "",
