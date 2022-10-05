@@ -5,7 +5,7 @@ use std::os::unix::prelude::OsStrExt;
 use std::sync::Arc;
 
 use fuser::FileType;
-use s3_client::mock_client::{MockClient, MockClientConfig};
+use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
 use s3_file_connector::fs::{DirectoryReplier, ReadReplier, FUSE_ROOT_INODE};
 use s3_file_connector::{S3Filesystem, S3FilesystemConfig};
 use test_case::test_case;
@@ -75,9 +75,9 @@ impl<'a> ReadReplier for ReadReply<'a> {
 async fn test_read_dir_root(prefix: &str) {
     let (client, fs) = make_test_filesystem("test_read_dir", prefix, Default::default());
 
-    client.add_object(&format!("{}file1.txt", prefix), &[0xa1; 15]);
-    client.add_object(&format!("{}file2.txt", prefix), &[0xa2; 15]);
-    client.add_object(&format!("{}file3.txt", prefix), &[0xa3; 15]);
+    client.add_object(&format!("{}file1.txt", prefix), MockObject::constant(0xa1, 15));
+    client.add_object(&format!("{}file2.txt", prefix), MockObject::constant(0xa2, 15));
+    client.add_object(&format!("{}file3.txt", prefix), MockObject::constant(0xa3, 15));
 
     // Listing the root directory doesn't require resolving it first, can just opendir the root inode
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -131,9 +131,9 @@ async fn test_read_dir_root(prefix: &str) {
 async fn test_read_dir_nested(prefix: &str) {
     let (client, fs) = make_test_filesystem("test_read_dir_nested", prefix, Default::default());
 
-    client.add_object(&format!("{}dir1/file1.txt", prefix), &[0xa1; 15]);
-    client.add_object(&format!("{}dir1/file2.txt", prefix), &[0xa2; 15]);
-    client.add_object(&format!("{}dir2/file3.txt", prefix), &[0xa3; 15]);
+    client.add_object(&format!("{}dir1/file1.txt", prefix), MockObject::constant(0xa1, 15));
+    client.add_object(&format!("{}dir1/file2.txt", prefix), MockObject::constant(0xa2, 15));
+    client.add_object(&format!("{}dir2/file3.txt", prefix), MockObject::constant(0xa3, 15));
 
     let entry = fs
         .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))

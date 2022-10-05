@@ -58,7 +58,7 @@ mod mock_session {
 
         let put_object = move |key: &str, value: &[u8]| {
             let full_key = format!("{}{}", prefix, key);
-            client.add_object(&full_key, value);
+            client.add_object(&full_key, value.into());
             Ok(())
         };
 

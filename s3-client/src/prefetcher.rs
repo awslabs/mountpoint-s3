@@ -333,26 +333,39 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchingGetRequest<Client>
     fn install_next_part(&mut self) {
         assert!(self.current_part.is_empty());
 
-        let mut parallel_chunks = self.parallel_chunks.read().unwrap();
+        {
+            let parallel_chunks = self.parallel_chunks.read().unwrap();
 
-        let mut current_chunk = parallel_chunks.front().expect("cannot read with no chunks left");
-        // Check if we're done with the current chunk. If so, push it off the queue and grab the
-        // next one instead.
-        if current_chunk.finished() {
-            drop(parallel_chunks);
-            let _ = self.parallel_chunks.write().unwrap().pop_front().unwrap();
-            parallel_chunks = self.parallel_chunks.read().unwrap();
-            current_chunk = parallel_chunks
-                .front()
-                .expect("cannot read with no non-empty chunks left");
+            let current_chunk = parallel_chunks.front().expect("cannot read with no chunks left");
+
+            // Check if we're done with the current chunk. If so, push it off the queue and grab the
+            // next one instead.
+            if current_chunk.finished() {
+                drop(parallel_chunks);
+
+                let _ = self.parallel_chunks.write().unwrap().pop_front().unwrap();
+
+                // That might have been the last/only chunk, so refill now
+                self.refill_chunk_queue();
+
+                let parallel_chunks = self.parallel_chunks.read().unwrap();
+                let current_chunk = parallel_chunks
+                    .front()
+                    .expect("cannot read with no non-empty chunks left");
+
+                let (next_offset, next_bytes) = current_chunk.pop();
+                assert_eq!(next_offset, self.next_part_offset);
+                self.next_part_offset += next_bytes.len() as u64;
+                self.current_part = PartCursor::new(next_bytes);
+            } else {
+                // TODO don't duplicate this in both branches, but the locking is funky here and
+                // this is the best idea I can come up with.
+                let (next_offset, next_bytes) = current_chunk.pop();
+                assert_eq!(next_offset, self.next_part_offset);
+                self.next_part_offset += next_bytes.len() as u64;
+                self.current_part = PartCursor::new(next_bytes);
+            }
         }
-
-        let (next_offset, next_bytes) = current_chunk.pop();
-        assert_eq!(next_offset, self.next_part_offset);
-        self.next_part_offset += next_bytes.len() as u64;
-        self.current_part = PartCursor::new(next_bytes);
-
-        drop(parallel_chunks);
 
         // Consider refilling the request queue since we might have taken the part that pushes us
         // over the refill threshold
@@ -444,5 +457,41 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchingGetRequest<Client>
             }
             parallel_chunks = self.parallel_chunks.read().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock_client::{MockClient, MockClientConfig, MockObject};
+    use test_case::test_case;
+
+    #[test_case(1024 * 1024 + 111; "single chunk, single part")]
+    #[test_case(16 * 1024 * 1024 + 111; "single chunk, multiple part")]
+    #[test_case(5 * CHUNK_SIZE as usize * 2 + PART_SIZE as usize + 111; "multiple chunk, multiple part")]
+    fn test_sequential_read(size: usize) {
+        let config = MockClientConfig {
+            bucket: "test-bucket".to_string(),
+            part_size: 8 * 1024 * 1024,
+        };
+        let client = MockClient::new(config);
+
+        client.add_object("hello", MockObject::constant(0xaa, size));
+
+        let prefetcher = Prefetcher::new(Arc::new(client), 1.0);
+
+        let mut request = prefetcher.get("test-bucket", "hello", size as u64);
+
+        let expected = vec![0xaa; 1024 * 1024];
+        let mut next_offset = 0;
+        loop {
+            let buf = request.read(next_offset, 1024 * 1024);
+            if buf.len() == 0 {
+                break;
+            }
+            assert_eq!(&buf[..], &expected[..buf.len()]);
+            next_offset += buf.len() as u64;
+        }
+        assert_eq!(next_offset, size as u64);
     }
 }

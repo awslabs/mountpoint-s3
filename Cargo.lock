@@ -1745,6 +1745,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "static_assertions",
+ "test-case",
  "thiserror",
  "time",
  "tokio",

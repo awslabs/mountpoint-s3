@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
@@ -28,7 +28,7 @@ pub struct MockClientConfig {
 #[derive(Debug)]
 pub struct MockClient {
     config: MockClientConfig,
-    objects: RwLock<BTreeMap<String, Box<[u8]>>>,
+    objects: RwLock<BTreeMap<String, Arc<MockObject>>>,
     executor: ThreadPool,
 }
 
@@ -43,15 +43,58 @@ impl MockClient {
     }
 
     /// Add an object to this mock client's bucket
-    pub fn add_object(&self, key: &str, value: &[u8]) {
-        self.objects.write().unwrap().insert(key.to_owned(), value.into());
+    pub fn add_object(&self, key: &str, value: MockObject) {
+        self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
+    }
+}
+
+pub struct MockObject {
+    generator: Box<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
+    size: usize,
+}
+
+impl MockObject {
+    fn read(&self, offset: u64, size: usize) -> Box<[u8]> {
+        (self.generator)(offset, size)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let bytes: Box<[u8]> = bytes.into();
+        Self {
+            size: bytes.len(),
+            generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
+        }
+    }
+
+    pub fn constant(v: u8, size: usize) -> Self {
+        Self {
+            generator: Box::new(move |_offset, size| vec![v; size].into_boxed_slice()),
+            size,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.size
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for MockObject {
+    fn from(bytes: T) -> Self {
+        MockObject::from_bytes(bytes.as_ref())
+    }
+}
+
+impl std::fmt::Debug for MockObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("MockObject").finish()
     }
 }
 
 #[derive(Debug)]
 pub struct GetObjectResult {
-    data: VecDeque<u8>,
+    object: Arc<MockObject>,
     next_offset: u64,
+    length: usize,
     part_size: usize,
 }
 
@@ -59,14 +102,15 @@ impl Stream for GetObjectResult {
     type Item = Result<GetBodyPart, GetObjectError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.data.is_empty() {
+        if self.length == 0 {
             return Poll::Ready(None);
         }
 
-        let next_part_size = self.part_size.min(self.data.len());
-        let next_part = self.data.drain(..next_part_size).collect::<Box<[u8]>>();
+        let next_part_size = self.part_size.min(self.length);
+        let next_part = self.object.read(self.next_offset, next_part_size);
         let result = (self.next_offset, next_part);
         self.next_offset += next_part_size as u64;
+        self.length -= next_part_size;
         Poll::Ready(Some(Ok(result)))
     }
 }
@@ -107,19 +151,20 @@ impl ObjectClient for MockClient {
         }
 
         let objects = self.objects.read().unwrap();
-        if let Some(body) = objects.get(key) {
-            let (next_offset, body) = if let Some(range) = range {
-                if range.start >= body.len() as u64 || range.end > body.len() as u64 {
-                    return Err(GetObjectError::InvalidRange(body.len() as u64));
+        if let Some(object) = objects.get(key) {
+            let (next_offset, length) = if let Some(range) = range {
+                if range.start >= object.len() as u64 || range.end > object.len() as u64 {
+                    return Err(GetObjectError::InvalidRange(object.len() as u64));
                 }
-                (range.start, &body[range.start as usize..range.end as usize])
+                (range.start, (range.end - range.start) as usize)
             } else {
-                (0, &body[..])
+                (0, object.len())
             };
 
             Ok(GetObjectResult {
-                data: VecDeque::from(Vec::from(body)),
+                object: Arc::clone(object),
                 next_offset,
+                length,
                 part_size: self.config.part_size,
             })
         } else {
@@ -254,7 +299,7 @@ mod tests {
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
-        client.add_object(key, &body);
+        client.add_object(key, MockObject::from_bytes(&body));
 
         let mut get_request = client
             .get_object("test_bucket", key, range.clone())
@@ -293,7 +338,7 @@ mod tests {
 
         let mut body = vec![0u8; 2000];
         rng.fill_bytes(&mut body);
-        client.add_object("key1", &body);
+        client.add_object("key1", body[..].into());
 
         assert_eq!(
             client
@@ -363,7 +408,7 @@ mod tests {
             keys.push(format!("dirs/dir2/file{}.txt", i));
         }
         for key in &keys {
-            client.add_object(key, &[0u8; 5]);
+            client.add_object(key, MockObject::constant(0u8, 5));
         }
 
         macro_rules! check {

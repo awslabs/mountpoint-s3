@@ -31,6 +31,7 @@ clap = "3.2.12"
 ctor = "0.1.23"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
+test-case = "2.2.2"
 tokio = { version = "1.21.0", features = ["rt", "macros"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
