@@ -1,10 +1,9 @@
 use crate::fuse_tests::PutObjectFn;
 use fuser::BackgroundSession;
-use s3_file_connector::fs::S3FilesystemConfig;
+use s3_file_connector::S3FilesystemConfig;
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
-use test_log::test;
 
 // Unit Tests
 // Generate a filesystem with many entries

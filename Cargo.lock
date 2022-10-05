@@ -1765,6 +1765,7 @@ dependencies = [
  "aws-sdk-s3",
  "base16ct",
  "clap",
+ "ctor",
  "ctrlc",
  "fuser",
  "futures",
@@ -1774,7 +1775,7 @@ dependencies = [
  "s3-client",
  "sha2",
  "tempfile",
- "test-log",
+ "test-case",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2011,11 +2012,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-log"
-version = "0.2.11"
+name = "test-case"
+version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38f0c854faeb68a048f0f2dc410c5ddae3bf83854ef0e4977d58306a5edef50e"
+checksum = "21d6cf5a7dffb3f9dceec8e6b8ca528d9bd71d36c9f074defb548ce161f598c0"
 dependencies = [
+ "test-case-macros",
+]
+
+[[package]]
+name = "test-case-macros"
+version = "2.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e45b7bf6e19353ddd832745c8fcf77a17a93171df7151187f26623f2b75b5b26"
+dependencies = [
+ "cfg-if",
+ "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn",

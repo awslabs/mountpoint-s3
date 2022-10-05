@@ -1,12 +1,13 @@
+use std::path::PathBuf;
+
 use anyhow::Context as _;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::Parser;
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{HeadBucketError, S3Client, S3ClientConfig, S3RequestError};
 
-mod fs;
-
-use std::path::PathBuf;
+use s3_file_connector::fs::S3FilesystemConfig;
+use s3_file_connector::fuse::S3FuseFilesystem;
 
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
@@ -67,7 +68,7 @@ fn main() -> anyhow::Result<()> {
         options.push(MountOption::AllowRoot);
     }
 
-    let filesystem_config = fs::S3FilesystemConfig::default();
+    let filesystem_config = S3FilesystemConfig::default();
     let throughput_target_gbps = args.throughput_target_gbps.map(|t| t as f64);
 
     let client_config = S3ClientConfig {
@@ -77,18 +78,15 @@ fn main() -> anyhow::Result<()> {
     let client = create_client_for_bucket(&args.bucket_name, &args.region, client_config)
         .context("Failed to create S3 client")?;
 
-    let session = Session::new(
-        fs::S3Filesystem::new(
-            client,
-            &args.bucket_name,
-            args.prefix.as_deref().unwrap_or(""),
-            filesystem_config,
-            throughput_target_gbps.unwrap_or(1.0),
-        ),
-        &args.mount_point,
-        &options,
-    )
-    .context("Failed to create FUSE session")?;
+    let fs = S3FuseFilesystem::new(
+        client,
+        &args.bucket_name,
+        args.prefix.as_deref().unwrap_or(""),
+        filesystem_config,
+        throughput_target_gbps.unwrap_or(1.0),
+    );
+
+    let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
 
     let session = if let Some(thread_count) = args.thread_count {
         BackgroundSession::new_multi_thread(session, thread_count as usize)

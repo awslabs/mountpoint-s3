@@ -2,7 +2,8 @@ mod mount_test;
 mod readdir_test;
 
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_file_connector::fs::{S3Filesystem, S3FilesystemConfig};
+use s3_file_connector::fuse::S3FuseFilesystem;
+use s3_file_connector::S3FilesystemConfig;
 use tempfile::TempDir;
 
 pub type PutObjectFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), Box<dyn std::error::Error>>>;
@@ -41,7 +42,7 @@ mod mock_session {
         let throughput_target_gbps = 1.0;
 
         let session = Session::new(
-            S3Filesystem::new(
+            S3FuseFilesystem::new(
                 Arc::clone(&client),
                 bucket,
                 &prefix,
@@ -97,7 +98,7 @@ mod s3_session {
         let throughput_target_gbps = 1.0;
 
         let session = Session::new(
-            S3Filesystem::new(client, &bucket, &prefix, filesystem_config, throughput_target_gbps),
+            S3FuseFilesystem::new(client, &bucket, &prefix, filesystem_config, throughput_target_gbps),
             mount_dir.path(),
             &options,
         )

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -6,23 +5,21 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{error, trace};
 
-use fuser::{
-    FileAttr, FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    ReplyOpen, Request,
-};
+use fuser::{FileAttr, FileType, KernelConfig};
 use s3_client::{ObjectClient, Prefetcher, PrefetchingGetRequest};
 
 // FIXME Use newtype here? Will add a bunch of .into()s...
-type Inode = u64;
+pub type Inode = u64;
 
-const ROOT_INODE: Inode = 1u64;
+pub const FUSE_ROOT_INODE: Inode = 1u64;
+
 const DIR_PERMISSIONS: u16 = 0o755;
 const FILE_PERMISSIONS: u16 = 0o644;
 const UID: u32 = 501;
 const GID: u32 = 20;
 
 const ROOT_DIR_ATTR: FileAttr = FileAttr {
-    ino: ROOT_INODE,
+    ino: FUSE_ROOT_INODE,
     size: 0,
     blocks: 0,
     atime: UNIX_EPOCH, // 1970-01-01 00:00:00
@@ -64,6 +61,7 @@ const BLOCK_SIZE: u64 = 4096;
 
 #[derive(Clone, Debug)]
 struct DirHandle {
+    ino: Inode,
     prefix: String,
     // offset is 0 before the first readdir call, and always positive afterwards (since
     // every directory always reports at least two children)
@@ -126,10 +124,10 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         let mut inode_info = HashMap::new();
         inode_info.insert(
-            ROOT_INODE,
+            FUSE_ROOT_INODE,
             InodeInfo::new(
                 "".into(),
-                ROOT_INODE,
+                FUSE_ROOT_INODE,
                 UNIX_EPOCH,
                 FileType::Directory,
                 1u64, // FIXME
@@ -139,7 +137,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
         let root_entries = HashMap::new();
 
         let mut dir_entries = HashMap::new();
-        dir_entries.insert(ROOT_INODE, Arc::new(RwLock::new(root_entries)));
+        dir_entries.insert(FUSE_ROOT_INODE, Arc::new(RwLock::new(root_entries)));
 
         let client = Arc::new(client);
 
@@ -152,7 +150,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             bucket: bucket.to_string(),
             prefix: prefix.to_string(),
             next_handle: AtomicU64::new(1),
-            next_inode: AtomicU64::new(ROOT_INODE + 1), // next Inode to allocate
+            next_inode: AtomicU64::new(FUSE_ROOT_INODE + 1), // next Inode to allocate
             inode_info: RwLock::new(inode_info),
             dir_handles: RwLock::new(HashMap::new()),
             dir_entries: RwLock::new(dir_entries),
@@ -161,12 +159,12 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
     }
 
     fn path_from_root(&self, mut ino: Inode, dir: bool) -> Option<String> {
-        if ino == ROOT_INODE {
+        if ino == FUSE_ROOT_INODE {
             Some(self.prefix.clone())
         } else {
             let inode_info = self.inode_info.read().unwrap();
             let mut path = if dir { vec!["".into()] } else { vec![] }; // because we want the path to end in a /
-            while ino != ROOT_INODE {
+            while ino != FUSE_ROOT_INODE {
                 // FIXME Check that only the first one can return None?
                 let info = inode_info.get(&ino)?;
                 path.push(info.name.clone());
@@ -240,14 +238,51 @@ fn make_attr(ino: Inode, inode_info: &InodeInfo) -> FileAttr {
     }
 }
 
-#[async_trait]
-impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<Client> {
-    async fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+/// Reply to a `lookup` call
+pub struct Entry {
+    pub ttl: Duration,
+    pub attr: FileAttr,
+    pub generation: u64,
+}
+
+/// Reply to a `getattr` call
+pub struct Attr {
+    pub ttl: Duration,
+    pub attr: FileAttr,
+}
+
+/// Reply to a `open` or `opendir` call
+pub struct Opened {
+    pub fh: u64,
+    pub flags: u32,
+}
+
+/// Reply to a `readdir` call
+pub trait DirectoryReplier {
+    /// Add a new dentry to the reply, and return whether there was space for it.
+    fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool;
+}
+
+/// Reply to a `read` call. This is funky because we want the reply to happen with only a borrow of
+/// the bytes. But that borrow probably comes from some lock in this module or below, and we don't
+/// want to have to shoehorn that lifetime into the layer above us. So instead we have this trait
+/// that forces the `read` method to invoke exactly one of the reply methods. The idea is that the
+/// [Replied] type should be private and unconstructable by this module.
+pub trait ReadReplier {
+    type Replied;
+    /// Reply with a data payload
+    fn data(self, data: &[u8]) -> Self::Replied;
+    /// Reply with an error
+    fn error(self, error: libc::c_int) -> Self::Replied;
+}
+
+impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
+    pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.set_max_readahead(0);
         Ok(())
     }
 
-    async fn lookup(&self, _req: &Request<'_>, parent: Inode, name: &OsStr, reply: ReplyEntry) {
+    pub async fn lookup(&self, parent: Inode, name: &OsStr) -> Result<Entry, libc::c_int> {
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
         let dir_entries = {
@@ -255,8 +290,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             if let Some(entries) = dir_entries.get(&parent) {
                 Arc::clone(entries)
             } else {
-                reply.error(libc::ENOENT);
-                return;
+                return Err(libc::ENOENT);
             }
         };
 
@@ -272,8 +306,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             let prefix = match self.path_from_root(parent, true) {
                 Some(path) => path,
                 None => {
-                    reply.error(libc::ENOENT);
-                    return;
+                    return Err(libc::ENOENT);
                 }
             };
 
@@ -282,8 +315,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
                 Ok(result) => result,
                 Err(err) => {
                     error!(?err, "ListObjectsV2 failed");
-                    reply.error(libc::ENOENT);
-                    return;
+                    return Err(libc::ENOENT);
                 }
             };
 
@@ -350,8 +382,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             if let Some(entries) = dir_entries.get(&parent) {
                 Arc::clone(entries)
             } else {
-                reply.error(libc::ENOENT);
-                return;
+                return Err(libc::ENOENT);
             }
         };
 
@@ -360,52 +391,61 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             match dir_entries.get(name.to_str().unwrap()) {
                 Some(ino) => *ino,
                 None => {
-                    reply.error(libc::ENOENT);
-                    return;
+                    return Err(libc::ENOENT);
                 }
             }
         };
 
         let inode_info = self.inode_info.read().unwrap();
         let info = inode_info.get(&ino).unwrap();
-        reply.entry(&self.config.ttl_zero, &make_attr(ino, info), 0);
+
+        Ok(Entry {
+            ttl: self.config.ttl_zero,
+            attr: make_attr(ino, info),
+            generation: 0,
+        })
     }
 
-    async fn getattr(&self, _req: &Request<'_>, ino: Inode, reply: ReplyAttr) {
+    pub async fn getattr(&self, ino: Inode) -> Result<Attr, libc::c_int> {
         trace!("fs:getattr with ino {:?}", ino);
 
-        if ino == ROOT_INODE {
-            reply.attr(&self.config.ttl_zero, &ROOT_DIR_ATTR);
-            return;
+        if ino == FUSE_ROOT_INODE {
+            return Ok(Attr {
+                ttl: self.config.ttl_zero,
+                attr: ROOT_DIR_ATTR,
+            });
         }
 
         match self.inode_info.read().unwrap().get(&ino) {
-            Some(inode_info) => reply.attr(&self.config.ttl_zero, &make_attr(ino, inode_info)),
-            None => reply.error(libc::ENOENT),
+            Some(inode_info) => Ok(Attr {
+                ttl: self.config.ttl_zero,
+                attr: make_attr(ino, inode_info),
+            }),
+            None => Err(libc::ENOENT),
         }
     }
 
-    async fn open(&self, _req: &Request<'_>, ino: Inode, _flags: i32, reply: ReplyOpen) {
+    pub async fn open(&self, ino: Inode, _flags: i32) -> Result<Opened, libc::c_int> {
         trace!("fs:open with ino {:?} flags {:?}", ino, _flags);
 
         if let Some(fh) = self.try_open(ino) {
-            reply.opened(fh, 0);
+            Ok(Opened { fh, flags: 0 })
         } else {
-            reply.error(libc::ENOENT);
+            Err(libc::ENOENT)
         }
     }
 
-    async fn read(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn read<R: ReadReplier>(
         &self,
-        _req: &Request<'_>,
         ino: Inode,
         fh: u64,
         offset: i64,
         size: u32,
         _flags: i32,
         _lock: Option<u64>,
-        reply: ReplyData,
-    ) {
+        reply: R,
+    ) -> R::Replied {
         trace!(
             "fs:read with ino {:?} fh {:?} offset {:?} size {:?}",
             ino,
@@ -424,20 +464,19 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
                 );
             }
             let body = request.as_mut().unwrap().read(offset as u64, size as usize);
-            reply.data(&body);
+            reply.data(&body)
         } else {
-            reply.error(libc::ENOENT);
+            reply.error(libc::ENOENT)
         }
     }
 
-    async fn opendir(&self, _req: &Request<'_>, parent: Inode, _flags: i32, reply: ReplyOpen) {
+    pub async fn opendir(&self, parent: Inode, _flags: i32) -> Result<Opened, libc::c_int> {
         trace!("fs:opendir with parent {:?} flags {:?}", parent, _flags);
 
         let prefix = match self.path_from_root(parent, true) {
             Some(path) => path,
             None => {
-                reply.error(libc::ENOENT);
-                return;
+                return Err(libc::ENOENT);
             }
         };
 
@@ -447,14 +486,21 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             prefix,
             offset: 0,
             continuation_token: None,
+            ino: parent,
         };
 
         let mut dir_handles = self.dir_handles.write().unwrap();
         dir_handles.insert(fh, handle);
-        reply.opened(fh, 0);
+        Ok(Opened { fh, flags: 0 })
     }
 
-    async fn readdir(&self, _req: &Request<'_>, parent: Inode, fh: u64, offset: i64, mut reply: ReplyDirectory) {
+    pub async fn readdir<R: DirectoryReplier>(
+        &self,
+        parent: Inode,
+        fh: u64,
+        offset: i64,
+        mut reply: R,
+    ) -> Result<R, libc::c_int> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
 
         let mut handle = {
@@ -462,8 +508,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             match dir_handles.get(&fh) {
                 Some(handle) => handle.clone(),
                 None => {
-                    reply.error(libc::EBADF);
-                    return;
+                    return Err(libc::EBADF);
                 }
             }
         };
@@ -473,8 +518,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
         // We are done if this is not the first readdir call (offset == 0) and the last list_v2
         // call returned an empty continuation token
         if handle.offset > 0 && handle.continuation_token.is_none() {
-            reply.ok();
-            return;
+            return Ok(reply);
         }
 
         let result = match self
@@ -491,8 +535,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
             Ok(result) => result,
             Err(err) => {
                 error!(?err, "ListObjectsV2 failed");
-                reply.error(libc::EIO);
-                return;
+                return Err(libc::EIO);
             }
         };
 
@@ -506,8 +549,18 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
 
         // If this is the first call after opendir (handle.offset is None), add entries for "." and ".."
         if handle.offset == 0 {
-            let _ = reply.add(ROOT_INODE, 1, FileType::Directory, ".");
-            let _ = reply.add(ROOT_INODE, 2, FileType::Directory, "..");
+            let _ = reply.add(handle.ino, 1, FileType::Directory, ".");
+
+            match inode_info.get(&handle.ino) {
+                Some(inode) => {
+                    let _ = reply.add(inode.parent, 2, FileType::Directory, "..");
+                }
+                None => {
+                    error!(ino = handle.ino, "readdir for non-existent inode");
+                    return Err(libc::EBADF);
+                }
+            }
+
             handle.offset = 2;
         }
 
@@ -571,23 +624,21 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3Filesystem<C
         let mut dir_handles = self.dir_handles.write().unwrap();
         dir_handles.insert(fh, handle);
 
-        reply.ok();
+        Ok(reply)
     }
 
-    async fn release(
+    pub async fn release(
         &self,
-        _req: &Request<'_>,
         _ino: u64,
         fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
-        reply: ReplyEmpty,
-    ) {
+    ) -> Result<(), libc::c_int> {
         // TODO how do we cancel an inflight StreamingGetRequest?
         let mut file_handles = self.file_handles.write().unwrap();
         let existed = file_handles.remove(&fh).is_some();
         assert!(existed, "releasing a file handle that doesn't exist?");
-        reply.ok();
+        Ok(())
     }
 }

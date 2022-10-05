@@ -8,9 +8,8 @@ use fuser::BackgroundSession;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
-use s3_file_connector::fs::S3FilesystemConfig;
+use s3_file_connector::S3FilesystemConfig;
 use tempfile::TempDir;
-use test_log::test;
 
 use crate::fuse_tests::PutObjectFn;
 
