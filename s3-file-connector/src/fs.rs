@@ -302,7 +302,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         // call LIST API to see if parent is really empty or not
         if ino.is_none() {
-            // borrow this part from opendir
+            // borrow this part from readdir
             let prefix = match self.path_from_root(parent, true) {
                 Some(path) => path,
                 None => {
@@ -368,13 +368,14 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
                 new_map.insert(name, ino);
 
-                // add an empty dir_entry for every directory found
+                // add child directory to dir_entries
                 // the values will be updated when someone try to lookup its children
                 dir_entries.insert(ino, Arc::new(RwLock::new(HashMap::new())));
             }
 
             drop(inode_info);
             let _old_map = dir_entries.insert(parent, Arc::new(RwLock::new(new_map)));
+            drop(dir_entries);
         }
 
         let dir_entries = {
@@ -586,6 +587,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             new_map.insert(name, ino);
         }
 
+        let mut dir_entries = self.dir_entries.write().unwrap();
         for dir in result.common_prefixes {
             let mut name = dir;
 
@@ -603,11 +605,14 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             new_inodes.push(ino);
 
             new_map.insert(name, ino);
+
+            // add child directory to dir_entries
+            // its values will be updated when someone try to lookup its children
+            dir_entries.insert(ino, Arc::new(RwLock::new(HashMap::new())));
         }
 
         drop(inode_info);
 
-        let mut dir_entries = self.dir_entries.write().unwrap();
         let _ = dir_entries.insert(parent, Arc::new(RwLock::new(new_map)));
         drop(dir_entries);
 
