@@ -13,7 +13,7 @@ use tempfile::tempdir;
 fn main() -> io::Result<()> {
     const KB: usize = 1 << 10;
     const MB: usize = 1 << 20;
-    const BUFFER_CAP: usize = 128 * KB;
+    const DEFAULT_BUF_CAP: usize = 128;
 
     let matches = Command::new("benchmark")
         .about("Read a single file from a path and ignore its contents")
@@ -22,6 +22,18 @@ fn main() -> io::Result<()> {
             Arg::new("file_path")
                 .required(true)
                 .help("relative path to the mountpoint"),
+        )
+        .arg(
+            Arg::new("buffer-capacity-kb")
+                .long("buffer-capacity-kb")
+                .help("Buffer reader capacity in KB")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::new("throughput-target-gbps")
+                .long("throughput-target-gbps")
+                .help("Desired throughput in Gbps")
+                .takes_value(true),
         )
         .arg(
             Arg::new("iterations")
@@ -34,12 +46,18 @@ fn main() -> io::Result<()> {
 
     let bucket_name = matches.get_one::<String>("bucket").unwrap();
     let file_path = matches.get_one::<String>("file_path").unwrap();
+    let buffer_capacity = matches
+        .get_one::<String>("buffer-capacity-kb")
+        .map(|s| s.parse::<usize>().expect("buffer capacity must be a number"));
+    let throughput_target_gbps = matches
+        .get_one::<String>("throughput-target-gbps")
+        .map(|s| s.parse::<f64>().expect("throughput target must be an f64"));
     let iterations = matches
         .get_one::<String>("iterations")
         .map(|s| s.parse::<usize>().expect("iterations must be a number"));
     let region = matches.get_one::<String>("region").unwrap();
 
-    let session = mount_file_system(bucket_name, region);
+    let session = mount_file_system(bucket_name, region, throughput_target_gbps);
     let mountpoint = &session.mountpoint;
 
     for i in 0..iterations.unwrap_or(1) {
@@ -49,7 +67,7 @@ fn main() -> io::Result<()> {
         let mut op_counter: u64 = 0;
 
         let start = Instant::now();
-        let mut reader = BufReader::with_capacity(BUFFER_CAP, file);
+        let mut reader = BufReader::with_capacity(buffer_capacity.unwrap_or(DEFAULT_BUF_CAP) * KB, file);
         loop {
             let length = {
                 let buffer = reader.fill_buf()?;
@@ -86,11 +104,10 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn mount_file_system(bucket_name: &str, region: &str) -> BackgroundSession {
+fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Option<f64>) -> BackgroundSession {
     let temp_dir = tempdir().expect("Should be able to create temp directory");
     let mountpoint = temp_dir.path();
 
-    let throughput_target_gbps = Some(1.0);
     let part_size = None;
     let config = S3ClientConfig {
         throughput_target_gbps,
