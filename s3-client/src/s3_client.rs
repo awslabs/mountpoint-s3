@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
-use aws_crt_s3::auth::signing_config::SigningConfig;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::Message;
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
@@ -40,9 +39,6 @@ pub struct S3ClientConfig {
 #[derive(Debug)]
 pub struct S3Client {
     s3_client: Client,
-    _signing_config: SigningConfig,
-    _credentials_provider: CredentialsProvider,
-    _host_resolver: HostResolver,
     event_loop_group: EventLoopGroup,
     region: String,
     _allocator: Allocator,
@@ -86,7 +82,7 @@ impl S3Client {
 
         client_config
             .client_bootstrap(client_bootstrap)
-            .signing_config(signing_config.clone());
+            .signing_config(signing_config);
 
         if let Some(throughput_target_gbps) = throughput_target_gbps {
             client_config.throughput_target_gbps(throughput_target_gbps);
@@ -101,10 +97,7 @@ impl S3Client {
         Ok(Self {
             _allocator: allocator,
             s3_client,
-            _signing_config: signing_config,
-            _host_resolver: host_resolver,
             event_loop_group,
-            _credentials_provider: creds_provider,
             region: region.to_owned(),
             throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
         })

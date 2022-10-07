@@ -39,6 +39,3 @@ impl SigningConfig {
         &Pin::as_ref(&self.0).get_ref().inner
     }
 }
-
-unsafe impl Send for SigningConfig {}
-unsafe impl Sync for SigningConfig {}

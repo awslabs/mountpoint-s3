@@ -21,11 +21,9 @@ pub struct HostResolverDefaultOptions<'a> {
 /// pooling multiple resolutions for a single hostname to enable load balancing and fanout.
 #[derive(Debug)]
 pub struct HostResolver {
+    // The inner aws_host_resolver pointer.
     pub(crate) inner: NonNull<aws_host_resolver>,
 }
-
-unsafe impl Send for HostResolver {}
-unsafe impl Sync for HostResolver {}
 
 impl HostResolver {
     /// Create a new [HostResolver] with the default behavior
@@ -39,6 +37,7 @@ impl HostResolver {
         };
 
         let inner =
+            // SAFETY: aws_host_resolver_new_default makes acquires a reference to the inner event loop group.
             unsafe { aws_host_resolver_new_default(allocator.inner.as_ptr(), &mut inner_options).ok_or_last_error()? };
 
         Ok(Self { inner })

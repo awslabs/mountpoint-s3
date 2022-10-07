@@ -29,7 +29,9 @@ pub struct Client {
     config: ClientConfig,
 }
 
+// SAFETY: We assume that the CRT allows making requests using the same client from multiple threads.
 unsafe impl Send for Client {}
+// SAFETY: We assume that the CRT allows making requests using the same client from multiple threads.
 unsafe impl Sync for Client {}
 
 /// Options for creating a new [Client]. Follows the builder pattern.
@@ -176,9 +178,9 @@ impl MetaRequestOptions {
         let mut options = Box::into_pin(options);
 
         // Now set the user_data to a self-referential pointer to the options struct.
+        // SAFETY: We're setting up the struct to be self-referential, and we're not moving out
+        // of the struct, so the unchecked deref of the pinned pointer is okay.
         unsafe {
-            // Safety: We're setting up the struct to be self-referential, and we're not moving out
-            // of the struct, so the unchecked deref of the pinned pointer is okay.
             let options = Pin::get_unchecked_mut(Pin::as_mut(&mut options));
             options.inner.user_data = options as *mut MetaRequestOptionsInner as *mut libc::c_void;
         }
@@ -188,7 +190,7 @@ impl MetaRequestOptions {
 
     /// Set the message of the request.
     pub fn message(&mut self, message: Message) -> &mut Self {
-        // Safety: we aren't moving out of the struct.
+        // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
         options.inner.message = options.message.as_mut().unwrap().inner.as_ptr();
@@ -198,7 +200,7 @@ impl MetaRequestOptions {
     /// Set the signing config used for this message. Not public because we copy it from the client
     /// when making a request.
     fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
-        // Safety: we aren't moving out of the struct.
+        // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.signing_config = Some(signing_config);
         options.inner.signing_config =
@@ -208,7 +210,7 @@ impl MetaRequestOptions {
 
     /// Provide a callback to run when the request completes.
     pub fn on_finish(&mut self, callback: impl FnOnce(MetaRequestResult) + Send + 'static) -> &mut Self {
-        // Safety: we aren't moving out of the struct.
+        // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_finish = Some(Box::new(callback));
         self
@@ -216,7 +218,7 @@ impl MetaRequestOptions {
 
     /// Provide a callback to run when the request's body arrives.
     pub fn on_body(&mut self, callback: impl FnMut(u64, &[u8]) + Send + 'static) -> &mut Self {
-        // Safety: we aren't moving out of the struct.
+        // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_body = Some(Box::new(callback));
         self
@@ -225,7 +227,7 @@ impl MetaRequestOptions {
     /// Set the type of this request
     /// TODO: wrap aws_s3_meta_request_type
     pub fn request_type(&mut self, request_type: aws_s3_meta_request_type) -> &mut Self {
-        // Safety: we aren't moving out of the struct.
+        // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.inner.type_ = request_type;
         self
@@ -238,14 +240,14 @@ impl Default for MetaRequestOptions {
     }
 }
 
-/// Safety: Don't call this function directly, only called by the CRT as a callback.
+/// SAFETY: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn meta_request_receive_body(
     _request: *mut aws_s3_meta_request,
     body: *const aws_byte_cursor,
     range_start: u64,
     user_data: *mut libc::c_void,
 ) -> i32 {
-    // Safety: user_data always will be a MetaRequestOptionsInner since that's what we set it to
+    // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
@@ -257,7 +259,7 @@ unsafe extern "C" fn meta_request_receive_body(
     AWS_OP_SUCCESS
 }
 
-/// Safety: Don't call this function directly, only called by the CRT as a callback.
+/// SAFETY: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn meta_request_finish(
     _request: *mut aws_s3_meta_request,
     result: *const aws_s3_meta_request_result,
@@ -265,10 +267,11 @@ unsafe extern "C" fn meta_request_finish(
 ) {
     let result = result.as_ref().expect("result cannot be NULL");
 
-    // Safety: user_data always will be a MetaRequestOptionsInner since that's what we set it to
+    // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
+    // take ownership of the callback, since it can only be called once.
     if let Some(callback) = user_data.on_finish.take() {
         callback(MetaRequestResult::from_crt_result(result));
     }

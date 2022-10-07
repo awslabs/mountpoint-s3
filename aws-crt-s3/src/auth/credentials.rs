@@ -22,9 +22,6 @@ pub struct CredentialsProvider {
     pub(crate) inner: NonNull<aws_credentials_provider>,
 }
 
-unsafe impl Send for CredentialsProvider {}
-unsafe impl Sync for CredentialsProvider {}
-
 impl CredentialsProvider {
     /// Creates the default credential provider chain as used by most AWS SDKs
     pub fn new_chain_default(
@@ -38,6 +35,7 @@ impl CredentialsProvider {
             ..Default::default()
         };
 
+        // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options.
         let inner = unsafe {
             aws_credentials_provider_new_chain_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
