@@ -13,14 +13,16 @@ pub struct Allocator {
     traced: bool,
 }
 
-// Safety: the allocator is global and shared across the entire program, so it must be safe to
+// SAFETY: the allocator is global and shared across the entire program, so it must be safe to
 // share them across threads.
 unsafe impl Send for Allocator {}
+// SAFETY: Same safety argument as for Send, the allocator is global and can be used by all threads.
 unsafe impl Sync for Allocator {}
 
 impl Allocator {
     /// The default allocator is a singleton, so this always returns the same allocator
     pub fn default() -> Self {
+        // SAFETY: The default allocator always exists and cannot be destroyed.
         let inner = unsafe { aws_default_allocator() };
 
         let inner = NonNull::new(inner).expect("CRT default allocator is never null");
@@ -34,6 +36,8 @@ impl Allocator {
     /// NB: an implementation detail of this function is there is only one traced allocator. Multiple
     /// calls to traced() will overwrite the inner allocator with the last one used in a .traced() call.
     pub fn traced(&self) -> Self {
+        // SAFETY: `self.inner` is a valid `aws_allocator`. The second argument to
+        // `aws_mem_tracer_new` is deprecated and should always be null.
         unsafe {
             let inner = aws_mem_tracer_new(
                 self.inner.as_ptr(),
@@ -53,6 +57,8 @@ impl Allocator {
     /// Should only be called on tracer allocators obtained from Allocator::traced.
     pub fn tracer_dump(&self) {
         assert!(self.traced, "cannot call on non-traced allocator");
+        // SAFETY: `self.inner` is a valid `aws_allocator` and we only call this when this allocator
+        // was obtained through `Allocator::traced`.
         unsafe {
             aws_mem_tracer_dump(self.inner.as_ptr());
         }
@@ -62,6 +68,8 @@ impl Allocator {
     /// Should only be called on tracer allocators obtained from Allocator::traced.
     pub fn tracer_bytes(&self) -> usize {
         assert!(self.traced, "cannot call on non-traced allocator");
+        // SAFETY: `self.inner` is a valid `aws_allocator` and we only call this when this allocator
+        // was obtained through `Allocator::traced`.
         unsafe { aws_mem_tracer_bytes(self.inner.as_ptr()) }
     }
 
@@ -69,6 +77,8 @@ impl Allocator {
     /// Should only be called on tracer allocators obtained from Allocator::traced.
     pub fn tracer_count(&self) -> usize {
         assert!(self.traced, "cannot call on non-traced allocator");
+        // SAFETY: `self.inner` is a valid `aws_allocator` and we only call this when this allocator
+        // was obtained through `Allocator::traced`.
         unsafe { aws_mem_tracer_count(self.inner.as_ptr()) }
     }
 }

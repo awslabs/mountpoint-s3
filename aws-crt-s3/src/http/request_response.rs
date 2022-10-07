@@ -13,23 +13,6 @@ use crate::common::error::Error;
 use crate::http::http_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, StringExt};
 
-/// Wraps an aws_http_stream. A stream exists for the duration of a request/response
-/// exchange.
-#[derive(Debug)]
-pub struct Stream {
-    inner: NonNull<aws_http_stream>,
-}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
-        unsafe {
-            // Safety: TODO: stream callbacks can still fire after we call
-            // this, so we need to make sure those are safe too.
-            aws_http_stream_release(self.inner.as_ptr());
-        }
-    }
-}
-
 /// An HTTP header.
 #[derive(Debug)]
 pub struct Header<P: AsRef<OsStr>> {
@@ -41,6 +24,8 @@ pub struct Header<P: AsRef<OsStr>> {
 impl<P: AsRef<OsStr>> Header<P> {
     /// Create a new header.
     pub fn new(name: P, value: P) -> Self {
+        // SAFETY: this struct will own `name` and `value` so they will live as long as the byte
+        // cursors do.
         let inner = unsafe {
             aws_http_header {
                 name: name.as_ref().as_aws_byte_cursor(),
@@ -72,6 +57,8 @@ pub struct Headers {
 /// Safety: This is okay since we don't implement a shallow Clone for Headers that could otherwise
 /// allow threads to simultaneously modify it.
 unsafe impl Send for Headers {}
+/// Safety: This is okay since we don't implement a shallow Clone for Headers that could otherwise
+/// allow threads to simultaneously modify it.
 unsafe impl Sync for Headers {}
 
 /// Errors returned by operations on [Headers]
@@ -91,7 +78,7 @@ impl Headers {
     /// returned [Headers] will increment the reference count of the underlying CRT structure, and
     /// so there are no lifetime issues here.
     ///
-    /// Safety: `ptr` must point to a valid `aws_http_headers` struct
+    /// SAFETY: `ptr` must point to a valid `aws_http_headers` struct
     pub(crate) unsafe fn from_crt(ptr: NonNull<aws_http_headers>) -> Self {
         aws_http_headers_acquire(ptr.as_ptr());
         Self { inner: ptr }
@@ -99,20 +86,23 @@ impl Headers {
 
     /// Return how many headers there are.
     pub fn count(&self) -> usize {
-        unsafe {
-            // Safety: This doesn't modify the headers, and `self.inner` is a valid aws_http_headers.
-            aws_http_headers_count(self.inner.as_ptr())
-        }
+        // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_count` returns a
+        // value of a primitive type so there's no potential lifetime issues.
+        unsafe { aws_http_headers_count(self.inner.as_ptr()) }
     }
 
     /// Get the header at the specified index.
     pub fn get_index(&self, index: usize) -> Result<Header<OsString>, HeadersError> {
+        // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get_index`
+        // promises to initialize the output `struct aws_http_header *out_header` on success.
         let header = unsafe {
             let mut header: MaybeUninit<aws_http_header> = MaybeUninit::uninit();
             aws_http_headers_get_index(self.inner.as_ptr(), index, header.as_mut_ptr()).ok_or_last_error()?;
             header.assume_init()
         };
 
+        // SAFETY: `header.name` and `header.value are assumed to be valid byte cursors since they
+        // came from the CRT, and we immediately make copies of them before they could expire.
         let (name, value) = unsafe {
             (
                 OsStr::from_bytes(aws_byte_cursor_as_slice(&header.name)).to_owned(),
@@ -125,8 +115,8 @@ impl Headers {
 
     /// Get a single header by name from this block of headers
     pub fn get<H: AsRef<OsStr>>(&self, name: H) -> Result<Header<OsString>, HeadersError> {
-        // Safety: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get` promises to
-        // initialize the output `struct aws_http_header *out_header` on success.
+        // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get` promises to
+        // initialize the output `struct aws_byte_cursor *out_value` on success.
         let value = unsafe {
             let mut value: MaybeUninit<aws_byte_cursor> = MaybeUninit::uninit();
             aws_http_headers_get(
@@ -140,10 +130,9 @@ impl Headers {
 
         let name = name.as_ref().to_os_string();
 
-        let value = unsafe {
-            // Safety: we create an owned copy of the bytes before the aws_byte_cursor can expire
-            OsStr::from_bytes(aws_byte_cursor_as_slice(&value)).to_owned()
-        };
+        // SAFETY: `value` is assumed to be a valid byte cursor since it came from the CRT, and we
+        // immediately make a copy of it before the byte cursor can expire.
+        let value = unsafe { OsStr::from_bytes(aws_byte_cursor_as_slice(&value)).to_owned() };
 
         Ok(Header::new(name, value))
     }
@@ -151,6 +140,8 @@ impl Headers {
 
 impl Drop for Headers {
     fn drop(&mut self) {
+        // SAFETY: `self.inner` is a valid `aws_http_headers`, and on Drop it's safe to decrement
+        // the reference count since we won't use it again through `self.`
         unsafe {
             aws_http_headers_release(self.inner.as_ptr());
         }
@@ -160,8 +151,8 @@ impl Drop for Headers {
 /// A single HTTP message, initialized to be blank.
 #[derive(Debug)]
 pub struct Message {
-    /// TODO: make this field non-public
-    pub inner: NonNull<aws_http_message>,
+    /// The pointer to the inner `aws_http_message`.
+    pub(crate) inner: NonNull<aws_http_message>,
 }
 
 impl Message {
@@ -170,6 +161,7 @@ impl Message {
         // TODO: figure out a better place to call this
         http_library_init(allocator);
 
+        // SAFETY: `allocator.inner` is a valid `aws_allocator`.
         let inner = unsafe { aws_http_message_new_request(allocator.inner.as_ptr()).ok_or_last_error()? };
 
         Ok(Self { inner })
@@ -177,24 +169,20 @@ impl Message {
 
     /// Add a header to this message.
     pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>>) -> Result<(), Error> {
-        unsafe {
-            // Safety: this makes a copy of the underlying strings in the header.
-            aws_http_message_add_header(self.inner.as_ptr(), header.inner).ok_or_last_error()
-        }
+        // SAFETY: `aws_http_message_add_header` makes a copy of the values in `header`.
+        unsafe { aws_http_message_add_header(self.inner.as_ptr(), header.inner).ok_or_last_error() }
     }
 
     /// Set the request path for this message.
     pub fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), Error> {
-        unsafe {
-            // Safety: the header makes its own copy of the string.
-            aws_http_message_set_request_path(self.inner.as_ptr(), path.as_aws_byte_cursor()).ok_or_last_error()
-        }
+        // SAFETY: `aws_http_message_set_request_path` makes a copy of `path`.
+        unsafe { aws_http_message_set_request_path(self.inner.as_ptr(), path.as_aws_byte_cursor()).ok_or_last_error() }
     }
 
     /// Set the request method for this message.
     pub fn set_request_method(&mut self, method: impl AsRef<OsStr>) -> Result<(), Error> {
+        // SAFETY: `aws_http_message_set_request_method` makes a copy of `method`.
         unsafe {
-            // Safety: the header makes its own copy of the string.
             aws_http_message_set_request_method(self.inner.as_ptr(), method.as_aws_byte_cursor()).ok_or_last_error()
         }
     }
@@ -202,8 +190,9 @@ impl Message {
 
 impl Drop for Message {
     fn drop(&mut self) {
+        // SAFETY: `self.inner` is a valid `aws_http_message`, and on Drop it's safe to decrement
+        // the reference count since we won't use it again through `self.`
         unsafe {
-            // Safety: okay to release the message since we're in Drop for this handle
             aws_http_message_release(self.inner.as_ptr());
         }
     }

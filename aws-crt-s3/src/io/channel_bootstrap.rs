@@ -45,6 +45,8 @@ impl ClientBootstrap {
 
 impl Clone for ClientBootstrap {
     fn clone(&self) -> Self {
+        // SAFETY: self.inner is a valid aws_client_bootstrap and aws_client_bootstrap_acquire
+        // increments the reference count for it (and always returns a copy of the input, which is non-null).
         let inner = unsafe { NonNull::new_unchecked(aws_client_bootstrap_acquire(self.inner.as_ptr())) };
 
         Self { inner }
@@ -53,6 +55,8 @@ impl Clone for ClientBootstrap {
 
 impl Drop for ClientBootstrap {
     fn drop(&mut self) {
+        // SAFETY: self.inner is a valid aws_client_bootstrap, and we're dropping a reference to it
+        // so it's safe to call release (which will decrement the refcnt).
         unsafe {
             aws_client_bootstrap_release(self.inner.as_ptr());
         }

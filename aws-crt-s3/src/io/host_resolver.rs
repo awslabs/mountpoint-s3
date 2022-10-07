@@ -47,6 +47,8 @@ impl HostResolver {
 
 impl Clone for HostResolver {
     fn clone(&self) -> Self {
+        // SAFETY: self.inner is a valid aws_host_resolver and aws_host_resolver_acquire increments
+        // the reference count for it (and always returns a copy of the input, which is non-null).
         let inner = unsafe { NonNull::new_unchecked(aws_host_resolver_acquire(self.inner.as_ptr())) };
 
         Self { inner }
@@ -55,6 +57,8 @@ impl Clone for HostResolver {
 
 impl Drop for HostResolver {
     fn drop(&mut self) {
+        // SAFETY: self.inner is a valid aws_host_resolver, and we're dropping a reference to it
+        // so it's safe to call release (which will decrement the refcnt).
         unsafe {
             aws_host_resolver_release(self.inner.as_ptr());
         }

@@ -22,9 +22,10 @@ pub(crate) fn new_shutdown_callback_options(callback: impl FnOnce() + Send + 'st
 }
 
 /// Abort the shutdown callback and free the data associated with the callback, without calling it.
-/// Safety: Only call on the result of new_shutdown_callback_options. Also, this frees the callback
-/// data structure so it's only safe to call if you know the CRT won't call shutdown_callback, for example,
-/// if the function you pass the options to fails.
+///
+/// SAFETY: Only call on the result of new_shutdown_callback_options. Also, this frees the callback
+/// data structure so it's only safe to call if you *know* the CRT won't call shutdown_callback, for
+/// example, if the function you pass the options to fails.
 pub(crate) unsafe fn abort_shutdown_callback(callback: aws_shutdown_callback_options) {
     assert!(callback.shutdown_callback_fn == Some(shutdown_callback));
     let ptr = callback.shutdown_callback_user_data as *mut ShutdownCallbackUserData;
@@ -32,7 +33,7 @@ pub(crate) unsafe fn abort_shutdown_callback(callback: aws_shutdown_callback_opt
     std::mem::drop(user_data);
 }
 
-/// Safety: not safe to call directly, only let the CRT call this function as a callback.
+/// SAFETY: not safe to call directly, only let the CRT call this function as a callback.
 unsafe extern "C" fn shutdown_callback(user_data: *mut libc::c_void) {
     assert!(!user_data.is_null());
     let user_data: Box<ShutdownCallbackUserData> = Box::from_raw(user_data as *mut ShutdownCallbackUserData);
@@ -70,6 +71,8 @@ mod test {
             std::mem::drop(_signal);
         });
 
+        // SAFETY: we never scheduled the `options` to run as a callback with the CRT, so it's safe
+        // to abort it (which will free the memory associated with the callback).
         unsafe {
             abort_shutdown_callback(options);
         }

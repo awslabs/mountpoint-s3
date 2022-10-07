@@ -42,6 +42,7 @@ impl Logger {
         });
         let logger = Box::pin(aws_logger {
             vtable: &mut *vtable.as_mut() as *mut _,
+            // SAFETY: `allocator.inner` is a valid `aws_allocator`.
             allocator: unsafe { allocator.inner.as_mut() },
             p_impl: &mut *impl_.as_mut() as *mut Box<dyn LoggerImpl> as *mut _,
         });
@@ -65,11 +66,14 @@ impl Logger {
                 .expect("logging shim should not be initialized if logger isn't");
 
             let ptr = &mut *self.inner.as_mut() as *mut _;
-            // The global logger lives for the lifetime of the program (the CRT requires that
-            // `aws_logger_set` is only ever called once), so we can leak it rather than holding
-            // onto it in some global static.
-            std::mem::forget(self);
-            unsafe { aws_logger_set(ptr) };
+            // SAFETY: The global logger lives for the lifetime of the program (the CRT requires
+            // that `aws_logger_set` is only ever called once), so we can leak it rather than
+            // holding onto it in some global static. `ptr` is guaranteed to be a valid
+            // `aws_logger`.
+            unsafe {
+                std::mem::forget(self);
+                aws_logger_set(ptr)
+            };
             Ok(())
         } else {
             Err(LoggerInitError::AlreadyInitialized)

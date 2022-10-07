@@ -28,7 +28,7 @@ impl Error {
 
 /// Return a formatted description of this error suitable for debugging
 fn err_code_to_debug_str(code: i32) -> &'static str {
-    // Safety for this function: we trust the CRT's `aws_error_debug_str` to return valid ASCII
+    // SAFETY: we trust the CRT's `aws_error_debug_str` to return valid ASCII
     // C strings (null-terminated), that live for the life of the program, and it also promises
     // never to return a null pointer.
     unsafe {

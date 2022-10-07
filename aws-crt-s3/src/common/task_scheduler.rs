@@ -101,11 +101,11 @@ impl Task {
         // list node). So it's really important to Pin the pointer we give back to the user.
         let task_ptr = &mut *task as *mut TaskInner;
 
+        // SAFETY: we pass in a pointer to the type_tag string, which is owned by the TaskInner
+        // struct to ensure it lives at least as long as the task does. The user_data is a pointer
+        // to our TaskInner struct, which is why it's important that the result of this function is
+        // Pinned.
         unsafe {
-            // Safety: we pass in a pointer to the type_tag string, which is owned by the TaskInner
-            // struct to ensure it lives at least as long as the task does. The user_data is a
-            // pointer to our TaskInner struct, which is why it's important that the result of this
-            // function is Pinned.
             aws_task_init(
                 &mut task.inner,
                 Some(task_fn),
@@ -138,9 +138,8 @@ impl Task {
 
     /// Run this task on the current thread. Consumes the Task.
     pub fn run(self, status: TaskStatus) {
+        // SAFETY: we turn the task into a pointer and immediately schedule it with `aws_task_run`
         unsafe {
-            // Safety: we turn the task into a pointer but immediately schedule it with aws_task_run
-            // and don't return it to the caller.
             aws_task_run(self.into_aws_task_ptr(), status.to_aws_task_status());
         }
     }

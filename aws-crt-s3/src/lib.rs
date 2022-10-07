@@ -1,4 +1,5 @@
 #![deny(missing_debug_implementations, missing_docs)]
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 //! Rust bindings for the AWS Common Runtime.
 
@@ -22,12 +23,15 @@ pub(crate) mod private {
 }
 
 pub(crate) trait StringExt {
+    /// SAFETY: the user *must not* mutate the bytes pointed at by this cursor
+    /// Also, the user must be careful that the aws_byte_cursor does not outlive self. When passing
+    /// the aws_byte_cursor to the CRT, make sure that self will live as long as the CRT might
+    /// continue to use that buffer.
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor;
 }
 
 impl<S: AsRef<OsStr>> StringExt for S {
-    /// Safety: the user *must not* mutate the bytes pointed at by this cursor
-    /// Also, the user must be careful that the aws_byte_cursor does not outlive self.
+    /// SAFETY: See comment on [StringExt::as_aws_byte_cursor].
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor {
         aws_byte_cursor {
             ptr: self.as_ref().as_bytes().as_ptr() as *mut _,
@@ -37,11 +41,11 @@ impl<S: AsRef<OsStr>> StringExt for S {
 }
 
 /// View an aws_byte_cursor as a slice of bytes.
-/// Safety: This function is unsafe because it makes a reference from the raw pointers
+/// SAFETY: This function is unsafe because it makes a reference from the raw pointers
 /// inside the aws_byte_cursor. The caller must ensure that the returned slice does not outlive
 /// the bytes pointed to by the cursor, for example, by copying the bytes out.
 pub(crate) unsafe fn aws_byte_cursor_as_slice<'a>(cursor: &aws_byte_cursor) -> &'a [u8] {
-    // Safety: from_raw_parts can't be used on null pointers, even if the length is 0. So we handle
+    // SAFETY: from_raw_parts can't be used on null pointers, even if the length is 0. So we handle
     // that as a special case. If the pointer is null, the length must be 0 and we return an empty slice.
     if cursor.ptr.is_null() {
         assert_eq!(cursor.len, 0, "length must be 0 for null cursors");
@@ -142,8 +146,9 @@ mod test {
         let heap_ptr = &*heap_cursor as *const aws_byte_cursor as *mut _;
         drop(heap_cursor);
 
-        // `heap_ptr` is now pointing to a freed allocation of a previously-valid, so
-        // `aws_byte_cursor_is_valid` will cause a use-after-free that ASan should catch
+        // SAFETY: This code isn't safe; it's supposed to test that ASan can catch use-after-free
+        // bugs. `heap_ptr` points to a freed allocation, so this causes a use-after-free that ASan
+        // should catch.
         let _ = unsafe { aws_byte_cursor_is_valid(heap_ptr) };
     }
 }

@@ -29,26 +29,29 @@ pub struct EventLoop {
     _event_loop_group: EventLoopGroup,
 }
 
-// Safety: Event Loops are safe to send across threads, since they're the main way to schedule things onto other threads.
+// SAFETY: Event Loops are safe to send across threads, since they're the main way to schedule things onto other threads.
 // From aws_c_io README
 // > The functions we specify as thread-safe, we do so because those functions are necessary for abiding by the stated threading model.
 // > For example, since scheduling a task is the main function for addressing cross-threaded operations, it has to be thread-safe.
 // From event_loop.h:aws_event_loop_schedule_task_now
 // >  * This function may be called from outside or inside the event loop thread.
 unsafe impl Send for EventLoop {}
+// SAFETY: See above argument.
 unsafe impl Sync for EventLoop {}
 
 impl EventLoop {
     /// Schedule a task to execute on this event loop at the specified time
     fn schedule_task_future(&self, task: Task, when: u64) {
+        // SAFETY: self.inner is a valid aws_event_loop and into_aws_task_ptr leaks memory until
+        // the callback fires, so it will live as long as it needs to.
         unsafe {
-            // Safety: see schedule_task_now
             aws_event_loop_schedule_task_future(self.inner.as_ptr(), task.into_aws_task_ptr(), when);
         }
     }
 
     /// Get the current timestamp for this event loop's clock
     fn current_clock_time(&self) -> Result<u64, Error> {
+        // SAFETY: self.inner is a valid aws_event_loop.
         unsafe {
             let mut time_nanos: u64 = 0;
             aws_event_loop_current_clock_time(self.inner.as_ptr(), &mut time_nanos).ok_or_last_error()?;
@@ -61,9 +64,9 @@ impl crate::private::Sealed for EventLoop {}
 
 impl TaskScheduler for EventLoop {
     fn schedule_task_now(&self, task: Task) -> Result<(), Error> {
+        // SAFETY: self.inner is a valid aws_event_loop and into_aws_task_ptr leaks memory until
+        // the callback fires, so it will live as long as it needs to.
         unsafe {
-            // Safety: we turn the Task into a pointer but don't return it to the caller and
-            // immediately schedule it on this event loop.
             aws_event_loop_schedule_task_now(self.inner.as_ptr(), task.into_aws_task_ptr());
         }
         Ok(())
@@ -89,7 +92,10 @@ pub struct EventLoopGroup {
     pub(crate) inner: NonNull<aws_event_loop_group>,
 }
 
+// SAFETY: EventLoopGroups have to be safe to share across threads since they're the primary
+// mechanism the CRT provides for scheduling things on other threads.
 unsafe impl Send for EventLoopGroup {}
+// SAFETY: See above.
 unsafe impl Sync for EventLoopGroup {}
 
 impl EventLoopGroup {
@@ -107,6 +113,10 @@ impl EventLoopGroup {
 
         let shutdown_options = new_shutdown_callback_options(on_shutdown);
 
+        // SAFETY: `allocator` is a valid `aws_allocator`. If the creation of the event loop group
+        // fails, then (and only then), we abort the callback which frees the internal data
+        // structures, which is safe since we know the callback won't fire if the event loop group
+        // cannot be created.
         let inner = unsafe {
             aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads, &shutdown_options)
                 .ok_or_last_error()
@@ -119,10 +129,9 @@ impl EventLoopGroup {
     /// Get the next event loop to schedule a task on. (Internally, the CRT will make a choice
     /// on which loop in the group will be returned.)
     pub fn get_next_loop(&self) -> Result<EventLoop, Error> {
+        // SAFETY: we make sure to embed a copy of the event loop group into the EventLoop struct so
+        // we don't free the group while we still have a reference to one of its event loops.
         unsafe {
-            // Safety: we make sure to embed a copy of the event loop group into the EventLoop
-            // struct so we don't free the group while we still have a reference to one of its
-            // event loops.
             let inner = aws_event_loop_group_get_next_loop(self.inner.as_ptr()).ok_or_last_error()?;
 
             Ok(EventLoop {
@@ -134,10 +143,8 @@ impl EventLoopGroup {
 
     /// Get the number of loops in this group.
     pub fn get_loop_count(&self) -> usize {
-        unsafe {
-            // Safety: self.inner is always non-null and we're calling a simple getter.
-            aws_event_loop_group_get_loop_count(self.inner.as_ptr())
-        }
+        // SAFETY: self.inner is a valid event_loop_group.
+        unsafe { aws_event_loop_group_get_loop_count(self.inner.as_ptr()) }
     }
 }
 
@@ -154,18 +161,16 @@ impl TaskScheduler for EventLoopGroup {
 
 impl Clone for EventLoopGroup {
     fn clone(&self) -> Self {
-        let inner = unsafe {
-            // Safety: aws_event_loop_group_acquire returns the same pointer as input, and self.inner is [NonNull].
-            NonNull::new_unchecked(aws_event_loop_group_acquire(self.inner.as_ptr()))
-        };
+        // SAFETY: aws_event_loop_group_acquire returns the same pointer as input, and self.inner is [NonNull].
+        let inner = unsafe { NonNull::new_unchecked(aws_event_loop_group_acquire(self.inner.as_ptr())) };
         Self { inner }
     }
 }
 
 impl Drop for EventLoopGroup {
     fn drop(&mut self) {
+        // SAFETY: In Clone, we call acquire to increment the ref count, so on Drop it is safe to decerement by calling release.
         unsafe {
-            // Safety: In Clone, we call acquire to increment the ref count, so on Drop it is safe to decerement by calling release.
             aws_event_loop_group_release(self.inner.as_ptr());
         }
     }

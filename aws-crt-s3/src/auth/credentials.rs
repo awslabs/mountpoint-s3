@@ -48,6 +48,8 @@ impl CredentialsProvider {
 
 impl Drop for CredentialsProvider {
     fn drop(&mut self) {
+        // SAFETY: `self.inner` is a valid `aws_credentials_provider` and we're in drop so it's safe
+        // to decrement the reference count.
         unsafe {
             aws_credentials_provider_release(self.inner.as_ptr());
         }

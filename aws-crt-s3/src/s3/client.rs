@@ -277,11 +277,11 @@ unsafe extern "C" fn meta_request_finish(
 /// Safety: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn meta_request_shutdown(user_data: *mut libc::c_void) {
     // Take back ownership of the user data so it will be freed when dropped.
-    // Safety: user_data always will be a MetaRequestOptionsInner since that's what we set it to
+    // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
     let user_data = MetaRequestOptionsInner::from_user_data_ptr_owned(user_data);
 
-    // Safety: at this point, we shouldn't receieve any more callbacks for this request.
+    // SAFETY: at this point, we shouldn't receieve any more callbacks for this request.
     std::mem::drop(user_data);
 }
 
@@ -295,7 +295,7 @@ pub struct MetaRequest {
 
 impl Drop for MetaRequest {
     fn drop(&mut self) {
-        // Safety: we will no longer use the pointer after this MetaRequest is dropped, so it's safe
+        // SAFETY: we will no longer use the pointer after this MetaRequest is dropped, so it's safe
         // to give up our refcount on it now.
         unsafe {
             aws_s3_meta_request_release(self.inner.as_ptr());
@@ -308,6 +308,9 @@ impl Client {
     pub fn new(allocator: &mut Allocator, config: ClientConfig) -> Result<Self, Error> {
         s3_library_init(allocator);
 
+        // SAFETY: `config` is moved into the [Client] on success, so `config.inner` (and the values
+        // inside) are guaranteed to live at least as long as this [Client] does. `allocator` is
+        // guaranteed to be a valid allocator because of the type-safe wrapper.
         let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &config.inner).ok_or_last_error()? };
 
         Ok(Self { inner, config })
@@ -316,11 +319,10 @@ impl Client {
     /// Make a meta request to S3 using this [Client]. A meta request is an HTTP request that
     /// the CRT might internally split up into multiple requests for performance.
     pub fn make_meta_request(&self, mut options: MetaRequestOptions) -> Result<MetaRequest, Error> {
+        // SAFETY: The inner struct pointed to by MetaRequestOptions will live as long as the
+        // request does, since we only drop it in the shutdown callback. That struct owns everything
+        // related to the request, like the message, signing config, etc.
         unsafe {
-            // Safety: The inner struct pointed to by MetaRequestOptions will live as long as the
-            // request does, since we only drop it in the shutdown callback. That struct owns everything
-            // related to the request, like the message, signing config, etc.
-
             // The client holds a copy of the signing config, copy it again for this request.
             if let Some(signing_config) = self.config.signing_config.as_ref() {
                 options.signing_config(signing_config.clone());
@@ -349,6 +351,8 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
+        // SAFETY: `self.inner` points to a valid s3_client, and when this [Client] is dropped, it's
+        // safe to decrement the reference counter by one.
         unsafe {
             aws_s3_client_release(self.inner.as_ptr());
         }
@@ -364,10 +368,10 @@ pub struct MetaRequestResult {
     /// Final error code of the meta request.
     pub crt_error: Error,
 
-    /// Error HTTP body, if present
+    /// Error HTTP body, if present.
     pub error_response_headers: Option<Headers>,
 
-    /// Error HTTP response, if present
+    /// Error HTTP response, if present.
     pub error_response_body: Option<OsString>,
 }
 
@@ -378,8 +382,8 @@ impl MetaRequestResult {
     }
 
     /// Convert the CRT's meta request result struct into a safe, owned result.
-    /// Safety: This copies from the raw pointer inside of the request result, so only
-    /// call on results given to us from the CRT.
+    /// SAFETY: This copies from the raw pointer inside of the request result, so only call on
+    /// results given to us from the CRT.
     unsafe fn from_crt_result(inner: &aws_s3_meta_request_result) -> Self {
         let error_response_headers = inner
             .error_response_headers
@@ -410,8 +414,8 @@ pub fn init_default_signing_config(region: &str, credentials_provider: &mut Cred
         _pinned: Default::default(),
     });
 
-    // Safety: we copied the region to an OsString in the SigningConfig so the bytes will
-    // live as long as the inner aws_signing_config_aws does.
+    // SAFETY: we copied the region into the signing_config (`region.to_owned()` above), so the byte
+    // cursor we create here will point to bytes that are valid as long as this SigningConfig is.
     unsafe {
         let region_cursor = signing_config.region.as_aws_byte_cursor();
 

@@ -40,6 +40,5 @@ impl SigningConfig {
     }
 }
 
-// TODO: is this okay?
 unsafe impl Send for SigningConfig {}
 unsafe impl Sync for SigningConfig {}
