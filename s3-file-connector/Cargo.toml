@@ -23,6 +23,7 @@ tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 aws-config = "0.48.0"
 aws-sdk-s3 = "0.18.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
+criterion = "0.4.0"
 ctor = "0.1.23"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
@@ -34,3 +35,7 @@ tokio = { version = "1.21.0", features = ["rt", "macros"] }
 [features]
 fuse_tests = []
 s3_tests = []
+
+[[bench]]
+name = "fs_bench"
+harness = false
