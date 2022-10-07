@@ -12,7 +12,7 @@ use test_case::test_case;
 
 mod common;
 
-fn make_test_filesystem(
+pub fn make_test_filesystem(
     bucket: &str,
     prefix: &str,
     config: S3FilesystemConfig,

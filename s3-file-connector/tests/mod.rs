@@ -2,3 +2,4 @@
 mod fuse_tests;
 
 mod common;
+mod reftests;
