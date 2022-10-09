@@ -1,4 +1,13 @@
 pub mod fs;
 pub mod fuse;
+pub mod inode;
 
 pub use fs::{S3Filesystem, S3FilesystemConfig};
+
+/// Enable tracing and CRT logging when running unit tests.
+#[cfg(test)]
+#[ctor::ctor]
+fn init_tracing_subscriber() {
+    let _ = aws_crt_s3::common::rust_log_adapter::RustLogAdapter::try_init();
+    let _ = tracing_subscriber::fmt::try_init();
+}

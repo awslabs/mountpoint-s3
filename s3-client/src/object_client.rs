@@ -15,9 +15,9 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 #[auto_impl(Arc)]
 pub trait ObjectClient {
     type GetObjectResult: Stream<Item = Result<GetBodyPart, Self::GetObjectError>> + Send;
-    type GetObjectError: std::error::Error;
+    type GetObjectError: std::error::Error + Send + Sync + 'static;
 
-    type ListObjectsError: std::error::Error;
+    type ListObjectsError: std::error::Error + Send + Sync + 'static;
 
     /// Get an object from the object store. Returns a stream of body parts of the object. Parts are
     /// guaranteed to be returned by the stream in order and contiguously.

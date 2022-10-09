@@ -241,10 +241,11 @@ impl ObjectClient for MockClient {
             // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html). So here
             // remove the prefix (if any) to make sure we are only looking for delimiters
             // that come after the prefix
-            let mut no_prefix_key = key[prefix.len()..].to_string();
-            if no_prefix_key.starts_with('/') {
-                no_prefix_key = no_prefix_key[1..].to_string();
-            }
+            let no_prefix_key = key[prefix.len()..].to_string();
+            // TODO I think this check is unnecessary (and was wrong anyway, needs to use the actual delimiter)
+            // if no_prefix_key.starts_with('/') {
+            //     no_prefix_key = no_prefix_key[1..].to_string();
+            // }
 
             // If we have a delimiter, split the prefix-less key on it. If that gives a non-empty
             // string, it's a common prefix. If not, it's a regular key.
@@ -423,9 +424,10 @@ mod tests {
                         .into_iter()
                         .map(|object| object.key)
                         .collect::<Vec<_>>(),
-                    $objects as &[String]
+                    $objects as &[String],
+                    "wrong objects"
                 );
-                assert_eq!(&result.common_prefixes, $prefixes as &[&str]);
+                assert_eq!(&result.common_prefixes, $prefixes as &[&str], "wrong prefixes");
             };
         }
 
@@ -441,6 +443,8 @@ mod tests {
         check!("/", 1, "dirs/", &[], &["dirs/dir1/"]);
         check!("/", 2, "dirs/dir2/", &keys[5..7], &[]);
         check!("/", 1, "dirs/dir2/", &keys[5..6], &[]);
+        check!("/", 1, "dirs/dir2", &[], &["dirs/dir2/"]);
+        check!("/", 2, "dirs/dir2", &[], &["dirs/dir2/"]);
 
         macro_rules! check_continuation {
             ($delimiter:expr, $max_keys:expr, $prefix:expr, $objects:expr, $prefixes:expr) => {
@@ -453,7 +457,7 @@ mod tests {
                 let result = client
                     .list_objects(
                         "test_bucket",
-                        result.next_continuation_token.as_ref().map(|x| &**x),
+                        result.next_continuation_token.as_deref(),
                         $delimiter,
                         $max_keys,
                         $prefix,

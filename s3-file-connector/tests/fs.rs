@@ -53,7 +53,7 @@ impl DirectoryReplier for &mut DirectoryReply {
             name: name.as_ref().to_os_string(),
         });
         // TODO test full replies
-        true
+        false
     }
 }
 

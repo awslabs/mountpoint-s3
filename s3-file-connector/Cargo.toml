@@ -16,6 +16,7 @@ clap = { version = "3.2.12", features = ["derive"] }
 ctrlc = "3.2.3"
 futures = "0.3.24"
 libc = "0.2.126"
+thiserror = "1.0.34"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 

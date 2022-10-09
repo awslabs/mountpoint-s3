@@ -4,7 +4,7 @@ mod prefetcher;
 mod s3_client;
 mod util;
 
-pub use object_client::ObjectClient;
+pub use object_client::{ListObjectsResult, ObjectClient};
 pub use prefetcher::{Prefetcher, PrefetchingGetRequest};
 pub use s3_client::get::GetObjectError;
 pub use s3_client::head_bucket::HeadBucketError;

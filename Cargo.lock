@@ -1783,6 +1783,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "test-case",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
