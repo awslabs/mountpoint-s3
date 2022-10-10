@@ -2,12 +2,13 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use fuser::{BackgroundSession, MountOption, Session};
 use rand::rngs::OsRng;
 use rand::RngCore;
-use s3_client::{S3Client};
+use s3_client::S3Client;
 use s3_file_connector::fuse::S3FuseFilesystem;
-use s3_file_connector::{S3FilesystemConfig};
+use s3_file_connector::S3FilesystemConfig;
 use std::{
     fs::File,
-    io::{BufRead, BufReader}, time::Duration,
+    io::{BufRead, BufReader},
+    time::Duration,
 };
 use tempfile::tempdir;
 
@@ -34,6 +35,10 @@ fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run this benchmark")
 }
 
+fn get_bench_file() -> String {
+    std::env::var("S3_BUCKET_BENCH_FILE").expect("Set S3_BUCKET_BENCH_FILE to run this benchmark")
+}
+
 fn mount_file_system() -> BackgroundSession {
     let (bucket, _) = get_test_bucket_and_prefix("read_file");
     let temp_dir = tempdir().expect("Should be able to create temp directory");
@@ -47,13 +52,7 @@ fn mount_file_system() -> BackgroundSession {
     let filesystem_config = S3FilesystemConfig::default();
     let throughput_target_gbps = 1.0;
     let session = Session::new(
-        S3FuseFilesystem::new(
-            client,
-            &bucket,
-            "",
-            filesystem_config,
-            throughput_target_gbps,
-        ),
+        S3FuseFilesystem::new(client, &bucket, "", filesystem_config, throughput_target_gbps),
         mountpoint,
         &options,
     )
@@ -65,7 +64,7 @@ fn mount_file_system() -> BackgroundSession {
 pub fn read_file_benchmark(c: &mut Criterion) {
     const DEFAULT_BUF_CAP: usize = 128;
 
-    let file_path = "read-only-mount-test/test2MiB.bin";
+    let file_path = &get_bench_file();
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;

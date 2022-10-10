@@ -11,6 +11,7 @@ env:
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket
   S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
+  S3_BUCKET_BENCH_FILE: read-only-mount-test/bench1GB.bin
   # A bucket our IAM role has no access to, but is in the right region, for permissions tests
   S3_FORBIDDEN_BUCKET_NAME: s3-file-connector-github-test-bucket-forbidden
   S3_REGION: us-east-1
@@ -45,6 +46,31 @@ jobs:
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
+
+  bench:
+    name: Benchmark
+    runs-on: ubuntu-22.04
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
+        aws-region: us-east-1
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install fuse
+      run: sudo apt-get install fuse libfuse-dev
+    - name: Configure fuse
+      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Run benchmark
+      run: cargo bench
 
   check:
     name: Check all targets
