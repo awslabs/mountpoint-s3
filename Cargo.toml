@@ -1,7 +1,7 @@
 [workspace]
 members = [
-	"aws-crt-s3-sys",
 	"aws-crt-s3",
+	"aws-crt-s3-sys",
 	"s3-client",
 	"s3-file-connector",
 	"vendor/fuser",
