@@ -94,6 +94,9 @@ impl ClientConfig {
     }
 }
 
+/// Callback for when headers are received as part of a successful HTTP request. Given (headers, response_status).
+type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
+
 /// Callback for when part of the response body is received. Given (range_start, data).
 type BodyCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
 
@@ -111,6 +114,9 @@ struct MetaRequestOptionsInner {
 
     /// Owned signing config, if provided.
     signing_config: Option<SigningConfig>,
+
+    /// Headers callback, if provided.
+    on_headers: Option<HeadersCallback>,
 
     /// Body callback, if provided.
     on_body: Option<BodyCallback>,
@@ -161,14 +167,16 @@ impl MetaRequestOptions {
         // the address of the inner struct is.
         let options = Box::new(MetaRequestOptionsInner {
             inner: aws_s3_meta_request_options {
-                finish_callback: Some(meta_request_finish),
-                shutdown_callback: Some(meta_request_shutdown),
-                body_callback: Some(meta_request_receive_body),
+                headers_callback: Some(meta_request_headers_callback),
+                body_callback: Some(meta_request_receive_body_callback),
+                finish_callback: Some(meta_request_finish_callback),
+                shutdown_callback: Some(meta_request_shutdown_callback),
                 user_data: std::ptr::null_mut(), // Set to null until the Box is made.
                 ..Default::default()
             },
             message: None,
             signing_config: None,
+            on_headers: None,
             on_body: None,
             on_finish: None,
             _pinned: Default::default(),
@@ -208,11 +216,11 @@ impl MetaRequestOptions {
         self
     }
 
-    /// Provide a callback to run when the request completes.
-    pub fn on_finish(&mut self, callback: impl FnOnce(MetaRequestResult) + Send + 'static) -> &mut Self {
+    /// Provide a callback to run when the request's headers arrive. Given (headers, response_status)
+    pub fn on_headers(&mut self, callback: impl FnMut(&Headers, i32) + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
-        options.on_finish = Some(Box::new(callback));
+        options.on_headers = Some(Box::new(callback));
         self
     }
 
@@ -221,6 +229,14 @@ impl MetaRequestOptions {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_body = Some(Box::new(callback));
+        self
+    }
+
+    /// Provide a callback to run when the request completes.
+    pub fn on_finish(&mut self, callback: impl FnOnce(MetaRequestResult) + Send + 'static) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.on_finish = Some(Box::new(callback));
         self
     }
 
@@ -241,7 +257,27 @@ impl Default for MetaRequestOptions {
 }
 
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
-unsafe extern "C" fn meta_request_receive_body(
+unsafe extern "C" fn meta_request_headers_callback(
+    _request: *mut aws_s3_meta_request,
+    headers: *const aws_http_headers,
+    response_status: i32,
+    user_data: *mut libc::c_void,
+) -> i32 {
+    // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
+    // in MetaRequestOptions::new.
+    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+
+    if let Some(callback) = user_data.on_headers.as_mut() {
+        let headers = NonNull::new(headers as *mut aws_http_headers).expect("Got headers == NULL in request callback");
+        let headers = Headers::from_crt(headers);
+        callback(&headers, response_status);
+    }
+
+    AWS_OP_SUCCESS
+}
+
+/// SAFETY: Don't call this function directly, only called by the CRT as a callback.
+unsafe extern "C" fn meta_request_receive_body_callback(
     _request: *mut aws_s3_meta_request,
     body: *const aws_byte_cursor,
     range_start: u64,
@@ -260,7 +296,7 @@ unsafe extern "C" fn meta_request_receive_body(
 }
 
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
-unsafe extern "C" fn meta_request_finish(
+unsafe extern "C" fn meta_request_finish_callback(
     _request: *mut aws_s3_meta_request,
     result: *const aws_s3_meta_request_result,
     user_data: *mut libc::c_void,
@@ -278,7 +314,7 @@ unsafe extern "C" fn meta_request_finish(
 }
 
 /// Safety: Don't call this function directly, only called by the CRT as a callback.
-unsafe extern "C" fn meta_request_shutdown(user_data: *mut libc::c_void) {
+unsafe extern "C" fn meta_request_shutdown_callback(user_data: *mut libc::c_void) {
     // Take back ownership of the user data so it will be freed when dropped.
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
