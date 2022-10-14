@@ -359,6 +359,25 @@ mod test {
         rx.recv_timeout(RECV_TIMEOUT).unwrap();
     }
 
+    /// Test [EventLoopGroup::get_loop_count]
+    #[test]
+    fn test_event_loop_group_get_loop_count() {
+        let mut allocator = Allocator::default();
+
+        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+
+        assert!(el_group.get_loop_count() > 0);
+    }
+
+    /// Test [EventLoopGroup::get_loop_count]
+    #[test]
+    fn test_new_event_loop_group_max_threads_fails() {
+        let mut allocator = Allocator::default();
+
+        EventLoopGroup::new_default(&mut allocator, Some(u16::MAX), || {})
+            .expect_err("creating an event loop group with u16::MAX threads should fail");
+    }
+
     /// Test the EventLoopTimer with some simple timers.
     #[test]
     fn test_timer_future() {
