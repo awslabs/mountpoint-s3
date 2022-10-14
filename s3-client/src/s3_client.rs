@@ -22,12 +22,14 @@ use thiserror::Error;
 
 use tracing::{error, trace};
 
-use crate::object_client::{ListObjectsResult, ObjectClient};
+use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient};
 use crate::s3_client::get::{GetObjectError, GetObjectRequest};
+use crate::s3_client::head_object::HeadObjectError;
 use crate::s3_client::list_objects::ListObjectsError;
 
 pub(crate) mod get;
 pub(crate) mod head_bucket;
+pub(crate) mod head_object;
 pub(crate) mod list_objects;
 
 #[derive(Debug, Clone, Default)]
@@ -205,7 +207,7 @@ pub enum S3RequestError<E: std::error::Error> {
 impl ObjectClient for S3Client {
     type GetObjectResult = GetObjectRequest;
     type GetObjectError = S3RequestError<GetObjectError>;
-
+    type HeadObjectError = S3RequestError<HeadObjectError>;
     type ListObjectsError = S3RequestError<ListObjectsError>;
 
     async fn get_object(
@@ -227,6 +229,10 @@ impl ObjectClient for S3Client {
     ) -> Result<ListObjectsResult, Self::ListObjectsError> {
         self.list_objects(bucket, continuation_token, delimiter, max_keys, prefix)
             .await
+    }
+
+    async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
+        self.head_object(bucket, key).await
     }
 
     /// Run the provided future to completion

@@ -16,7 +16,7 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 pub trait ObjectClient {
     type GetObjectResult: Stream<Item = Result<GetBodyPart, Self::GetObjectError>> + Send;
     type GetObjectError: std::error::Error + Send + Sync + 'static;
-
+    type HeadObjectError: std::error::Error + Send + Sync + 'static;
     type ListObjectsError: std::error::Error + Send + Sync + 'static;
 
     /// Get an object from the object store. Returns a stream of body parts of the object. Parts are
@@ -37,6 +37,9 @@ pub trait ObjectClient {
         max_keys: usize,
         prefix: &str,
     ) -> Result<ListObjectsResult, Self::ListObjectsError>;
+
+    /// Retrieve object metadata without retrieving the object contents
+    async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError>;
 
     // TODO this should live on some separate trait. It exists mostly so StreamingGetObject knows
     // how to spawn tasks.
@@ -60,6 +63,16 @@ pub struct ListObjectsResult {
     pub next_continuation_token: Option<String>,
 }
 
+/// Result of a [ObjectClient::head_object] request
+#[derive(Debug)]
+pub struct HeadObjectResult {
+    /// The name of the bcuket
+    pub bucket: String,
+
+    /// Object metadata
+    pub object: ObjectInfo,
+}
+
 /// Metadata about a single S3 object.
 /// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html for more details.
 #[derive(Debug)]
@@ -73,8 +86,10 @@ pub struct ObjectInfo {
     /// The time this object was last modified.
     pub last_modified: OffsetDateTime,
 
-    /// Storage class for this object.
-    pub storage_class: String,
+    /// Storage class for this object.  Optional because head_object does not return
+    /// the storage class in its response.  See Examples here
+    /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples
+    pub storage_class: Option<String>,
 
     /// Entity tag of this object.
     pub etag: String,

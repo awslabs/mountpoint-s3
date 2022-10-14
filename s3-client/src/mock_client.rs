@@ -12,7 +12,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
 
-use crate::object_client::{GetBodyPart, ListObjectsResult, ObjectInfo};
+use crate::object_client::{GetBodyPart, HeadObjectResult, ListObjectsResult, ObjectInfo};
 use crate::ObjectClient;
 
 #[derive(Debug, Default)]
@@ -131,11 +131,19 @@ pub enum ListObjectsError {
     NoSuchBucket,
 }
 
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadObjectError {
+    #[error("bucket does not exist")]
+    NoSuchBucket,
+    #[error("object does not exist")]
+    NoSuchObject,
+}
+
 #[async_trait]
 impl ObjectClient for MockClient {
     type GetObjectResult = GetObjectResult;
     type GetObjectError = GetObjectError;
-
+    type HeadObjectError = HeadObjectError;
     type ListObjectsError = ListObjectsError;
 
     async fn get_object(
@@ -169,6 +177,31 @@ impl ObjectClient for MockClient {
             })
         } else {
             Err(GetObjectError::NoSuchObject)
+        }
+    }
+
+    async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
+        trace!(bucket, key, "HeadObject");
+
+        if bucket != self.config.bucket {
+            return Err(HeadObjectError::NoSuchBucket);
+        }
+
+        let objects = self.objects.read().unwrap();
+        if let Some(object) = objects.get(key) {
+            Ok(HeadObjectResult {
+                bucket: bucket.to_string(),
+                object: ObjectInfo {
+                    key: key.to_string(),
+                    size: object.size as u64,
+                    // TODO real mtimes
+                    last_modified: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+                    etag: "TODO".to_string(),
+                    storage_class: None,
+                },
+            })
+        } else {
+            Err(HeadObjectError::NoSuchObject)
         }
     }
 
@@ -261,7 +294,7 @@ impl ObjectClient for MockClient {
                     // TODO real mtimes
                     last_modified: OffsetDateTime::from_unix_timestamp(0).unwrap(),
                     etag: "TODO".to_string(),
-                    storage_class: "TODO".to_string(),
+                    storage_class: None,
                 });
             }
         }

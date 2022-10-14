@@ -119,7 +119,7 @@ impl ObjectInfo {
         let last_modified = OffsetDateTime::parse(&last_modified, &Rfc3339)
             .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".to_string()))?;
 
-        let storage_class = get_field(element, "StorageClass")?;
+        let storage_class = Some(get_field(element, "StorageClass")?);
 
         let etag = get_field(element, "ETag")?;
 
@@ -142,7 +142,7 @@ impl S3Client {
         max_keys: usize,
         prefix: &str,
     ) -> Result<ListObjectsResult, S3RequestError<ListObjectsError>> {
-        // Scope the endpoiint, message, etc. since otherwise rustc thinks we use Message across the await.
+        // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
             let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
 
