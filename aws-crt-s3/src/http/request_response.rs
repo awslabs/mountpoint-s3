@@ -84,6 +84,14 @@ impl Headers {
         Self { inner: ptr }
     }
 
+    /// Create a new [Headers] object in the given allocator.
+    pub fn new(allocator: &mut Allocator) -> Result<Self, HeadersError> {
+        // SAFETY: allocator is a valid aws_allocator, and we check the return is non-null.
+        let inner = unsafe { aws_http_headers_new(allocator.inner.as_ptr()).ok_or_last_error()? };
+
+        Ok(Self { inner })
+    }
+
     /// Return how many headers there are.
     pub fn count(&self) -> usize {
         // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_count` returns a
@@ -113,6 +121,17 @@ impl Headers {
         Ok(Header::new(name, value))
     }
 
+    /// Add a [Header] to this [Headers].
+    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>>) -> Result<(), HeadersError> {
+        // SAFETY: `aws_http_headers_add_header` makes a copy of the underlying strings.
+        // Also, this function takes a mut reference to `self`, since this function modifies the headers.
+        unsafe {
+            aws_http_headers_add_header(self.inner.as_ptr(), &header.inner).ok_or_last_error()?;
+        }
+
+        Ok(())
+    }
+
     /// Get a single header by name from this block of headers
     pub fn get<H: AsRef<OsStr>>(&self, name: H) -> Result<Header<OsString>, HeadersError> {
         // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get` promises to
@@ -136,6 +155,14 @@ impl Headers {
 
         Ok(Header::new(name, value))
     }
+
+    /// Iterate over the headers as (name, value) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (OsString, OsString)> + '_ {
+        HeadersIterator {
+            headers: self,
+            offset: 0,
+        }
+    }
 }
 
 impl Drop for Headers {
@@ -144,6 +171,31 @@ impl Drop for Headers {
         // the reference count since we won't use it again through `self.`
         unsafe {
             aws_http_headers_release(self.inner.as_ptr());
+        }
+    }
+}
+
+/// [HeadersIterator] iterates through (name, value) pairs in the iterator.
+#[derive(Debug)]
+struct HeadersIterator<'a> {
+    headers: &'a Headers,
+    offset: usize,
+}
+
+impl<'a> Iterator for HeadersIterator<'a> {
+    type Item = (OsString, OsString);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset < self.headers.count() {
+            let header = self
+                .headers
+                .get_index(self.offset)
+                .expect("HeadersIterator: failed to get next header");
+            self.offset += 1;
+
+            Some((header.name, header.value))
+        } else {
+            None
         }
     }
 }
@@ -195,5 +247,34 @@ impl Drop for Message {
         unsafe {
             aws_http_message_release(self.inner.as_ptr());
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::common::allocator::Allocator;
+    use std::collections::HashMap;
+
+    /// Test various parts of the [Headers] API.
+    #[test]
+    fn test_headers() {
+        let mut allocator = Allocator::default();
+
+        let mut headers = Headers::new(&mut allocator).expect("failed to create headers");
+
+        headers.add_header(&Header::new("a", "1")).unwrap();
+        headers.add_header(&Header::new("b", "2")).unwrap();
+        headers.add_header(&Header::new("c", "3")).unwrap();
+
+        assert_eq!(headers.count(), 3);
+
+        assert_eq!(headers.get("a").unwrap().name(), "a");
+        assert_eq!(headers.get("a").unwrap().value(), "1");
+
+        let map: HashMap<OsString, OsString> = headers.iter().collect();
+
+        assert_eq!(map.len(), 3);
+        assert_eq!(map.get(OsStr::new("a")), Some(&OsString::from("1")));
     }
 }
