@@ -5,6 +5,8 @@ use std::os::unix::prelude::OsStrExt;
 use std::sync::Arc;
 
 use fuser::FileType;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
 use s3_file_connector::fs::{DirectoryReplier, ReadReplier, FUSE_ROOT_INODE};
 use s3_file_connector::{S3Filesystem, S3FilesystemConfig};
@@ -181,4 +183,41 @@ async fn test_read_dir_nested(prefix: &str) {
 
     // Not implemented
     // fs.releasedir(fh).unwrap();
+}
+
+#[test_case(1024 * 1024; "small")]
+#[test_case(5 * 1024 * 1024 * 1024 * 5; "large")]
+#[tokio::test]
+#[ignore] // TODO fix random reads once prefetching settles down
+async fn test_random_read(object_size: usize) {
+    let (client, fs) = make_test_filesystem("test_random_read", "", Default::default());
+
+    client.add_object("file", MockObject::constant(0xa1, object_size as usize));
+
+    // Find the object
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let mut reply = Default::default();
+    let _reply = fs.readdir(1, dir_handle, 0, &mut reply).await.unwrap();
+
+    assert_eq!(reply.entries.len(), 2 + 1);
+
+    assert_eq!(reply.entries[2].name, "file");
+    let ino = reply.entries[2].ino;
+
+    let fh = fs.open(ino, 0x8000).await.unwrap().fh;
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
+    for _ in 0..10 {
+        let offset = rng.gen_range(0..object_size);
+        // TODO do we need to bound it? should work anyway, just partial read, right?
+        let length = rng.gen_range(0..(object_size - offset).min(1024 * 1024)) + 1;
+        let mut read = Err(0);
+        fs.read(ino, fh, offset as i64, length as u32, 0, None, ReadReply(&mut read))
+            .await;
+        let read = read.unwrap();
+        assert_eq!(read.len(), length);
+        assert_eq!(&read[..], vec![0xa1; length]);
+    }
+
+    fs.release(ino, fh, 0, None, true).await.unwrap();
 }
