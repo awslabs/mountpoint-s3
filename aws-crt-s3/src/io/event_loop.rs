@@ -369,8 +369,11 @@ mod test {
         assert!(el_group.get_loop_count() > 0);
     }
 
-    /// Test [EventLoopGroup::get_loop_count]
+    /// Test that creating an event loop group with too many threads will fail.
+    /// This exercises the error path for creating an event loop group, but it also triggers ASAN
+    /// failures, so it's ignored for now.
     #[test]
+    #[ignore]
     fn test_new_event_loop_group_max_threads_fails() {
         let mut allocator = Allocator::default();
 
