@@ -5,7 +5,7 @@ pub mod common;
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
-use s3_client::{S3Client, S3RequestError};
+use s3_client::S3Client;
 
 #[tokio::test]
 async fn test_head_object() {

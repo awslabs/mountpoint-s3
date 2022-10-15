@@ -350,7 +350,13 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 }
 
 impl From<InodeError> for i32 {
-    fn from(_: InodeError) -> Self {
-        todo!()
+    fn from(err: InodeError) -> Self {
+        match err {
+            InodeError::ClientError(_) => libc::EIO,
+            InodeError::FileDoesNotExist => libc::ENOENT,
+            InodeError::InodeDoesNotExist(_) => libc::ENOENT,
+            InodeError::InvalidFileName(_) => libc::EINVAL,
+            InodeError::NotADirectory(_) => libc::ENOTDIR,
+        }
     }
 }

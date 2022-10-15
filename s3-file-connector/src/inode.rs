@@ -95,6 +95,12 @@ impl Superblock {
     ) -> Result<Lookup, InodeError> {
         trace!(?parent, ?name, "lookup");
 
+        // This should be impossible, but just to be safe, explicitly reject lookups to files that
+        // end with '/', since they could be shadowed by directories.
+        if name.to_str().unwrap().ends_with('/') {
+            return Err(InodeError::InvalidFileName(name.into()));
+        }
+
         // TODO use caches. if we already know about this name, we just need to revalidate the stat
         // cache and then read it.
 
@@ -408,28 +414,33 @@ impl ReaddirHandle {
                         stat: stat_clone,
                     })
             });
-            let objects = result.objects.into_iter().map(|object| {
-                let name = &object.key[self.full_path.len()..];
-                let stat = InodeStat {
-                    kind: InodeStatKind::File {},
-                    size: object.size as usize,
-                };
-                let stat_clone = stat.clone();
+            let objects = result
+                .objects
+                .into_iter()
+                // Hide keys that end with '/', since they can be confused with directories
+                .filter(|object| !object.key.ends_with('/'))
+                .map(|object| {
+                    let name = &object.key[self.full_path.len()..];
+                    let stat = InodeStat {
+                        kind: InodeStatKind::File {},
+                        size: object.size as usize,
+                    };
+                    let stat_clone = stat.clone();
 
-                self.inner
-                    .update_or_insert(
-                        self.dir_ino,
-                        &OsString::from(name),
-                        InodeKind::File,
-                        stat,
-                        Instant::now(),
-                    )
-                    .map(|ino| DirEntryPlus {
-                        name: OsString::from(name),
-                        ino,
-                        stat: stat_clone,
-                    })
-            });
+                    self.inner
+                        .update_or_insert(
+                            self.dir_ino,
+                            &OsString::from(name),
+                            InodeKind::File,
+                            stat,
+                            Instant::now(),
+                        )
+                        .map(|ino| DirEntryPlus {
+                            name: OsString::from(name),
+                            ino,
+                            stat: stat_clone,
+                        })
+                });
 
             // TODO would be nice to do this as a merge sort but the Result makes it messy
             match prefixes.chain(objects).collect::<Result<Vec<_>, _>>() {
@@ -545,14 +556,16 @@ impl From<&InodeStatKind> for FileType {
 
 #[derive(Debug, Error)]
 pub enum InodeError {
-    #[error("inode {0} does not exist")]
-    InodeDoesNotExist(InodeNo),
-    #[error("file does not exist")]
-    FileDoesNotExist,
-    #[error("inode {0} is not a directory")]
-    NotADirectory(InodeNo),
     #[error("error from ObjectClient")]
     ClientError(#[source] anyhow::Error),
+    #[error("file does not exist")]
+    FileDoesNotExist,
+    #[error("inode {0} does not exist")]
+    InodeDoesNotExist(InodeNo),
+    #[error("invalid file name {0:?}")]
+    InvalidFileName(OsString),
+    #[error("inode {0} is not a directory")]
+    NotADirectory(InodeNo),
 }
 
 #[derive(Debug)]
