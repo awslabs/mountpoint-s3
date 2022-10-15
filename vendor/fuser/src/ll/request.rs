@@ -1340,6 +1340,7 @@ mod op {
     #[derive(Debug)]
     pub struct NotifyReply<'a> {
         header: &'a fuse_in_header,
+        #[allow(unused)]
         arg: &'a [u8],
     }
     #[cfg(feature = "abi-7-15")]
@@ -1350,6 +1351,7 @@ mod op {
     #[derive(Debug)]
     pub struct BatchForget<'a> {
         header: &'a fuse_in_header,
+        #[allow(unused)]
         arg: &'a fuse_batch_forget_in,
         nodes: &'a [fuse_forget_one],
     }
@@ -1587,6 +1589,7 @@ mod op {
     #[derive(Debug)]
     pub struct CuseInit<'a> {
         header: &'a fuse_in_header,
+        #[allow(unused)]
         arg: &'a fuse_init_in,
     }
     #[cfg(feature = "abi-7-12")]

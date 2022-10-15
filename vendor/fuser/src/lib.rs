@@ -4,8 +4,7 @@
 //! advantage of Rust's architecture. The only thing we rely on in the real libfuse are mount
 //! and unmount calls which are needed to establish a fd to talk to the kernel driver.
 
-// #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
-#![allow(warnings)]
+#![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
 use async_trait::async_trait;
 use libc::{c_int, ENOSYS, EPERM};
@@ -324,7 +323,7 @@ pub trait Filesystem {
     #[cfg(feature = "abi-7-16")]
     async fn batch_forget(&self, req: &Request<'_>, nodes: &[fuse_forget_one]) {
         for node in nodes {
-            self.forget(req, node.nodeid, node.nlookup);
+            self.forget(req, node.nodeid, node.nlookup).await;
         }
     }
 
