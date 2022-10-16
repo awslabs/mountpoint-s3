@@ -20,7 +20,7 @@ pub fn make_test_filesystem(
 
     let client = Arc::new(MockClient::new(client_config));
 
-    let fs = S3Filesystem::new(Arc::clone(&client), bucket, prefix, config, 1.0);
+    let fs = S3Filesystem::new(Arc::clone(&client), bucket, prefix, config);
 
     (client, fs)
 }

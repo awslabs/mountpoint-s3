@@ -26,7 +26,7 @@ pub fn make_test_filesystem(
 
     let client = Arc::new(MockClient::new(client_config));
 
-    let fs = S3Filesystem::new(Arc::clone(&client), bucket, prefix, config, 1.0);
+    let fs = S3Filesystem::new(Arc::clone(&client), bucket, prefix, config);
 
     (client, fs)
 }
@@ -186,13 +186,15 @@ async fn test_read_dir_nested(prefix: &str) {
 }
 
 #[test_case(1024 * 1024; "small")]
-#[test_case(5 * 1024 * 1024 * 1024 * 5; "large")]
+#[test_case(50 * 1024 * 1024; "large")]
 #[tokio::test]
-#[ignore] // TODO fix random reads once prefetching settles down
 async fn test_random_read(object_size: usize) {
     let (client, fs) = make_test_filesystem("test_random_read", "", Default::default());
 
-    client.add_object("file", MockObject::constant(0xa1, object_size as usize));
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
+    let mut expected = vec![0; object_size];
+    rng.fill(&mut expected[..]);
+    client.add_object("file", MockObject::from_bytes(&expected[..]));
 
     // Find the object
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -216,7 +218,7 @@ async fn test_random_read(object_size: usize) {
             .await;
         let read = read.unwrap();
         assert_eq!(read.len(), length);
-        assert_eq!(&read[..], vec![0xa1; length]);
+        assert_eq!(&read[..], &expected[offset..offset + length]);
     }
 
     fs.release(ino, fh, 0, None, true).await.unwrap();

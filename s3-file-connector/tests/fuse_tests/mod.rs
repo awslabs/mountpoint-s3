@@ -38,17 +38,8 @@ mod mock_session {
             MountOption::AutoUnmount,
         ];
 
-        // TODO autodiscover this
-        let throughput_target_gbps = 1.0;
-
         let session = Session::new(
-            S3FuseFilesystem::new(
-                Arc::clone(&client),
-                bucket,
-                &prefix,
-                filesystem_config,
-                throughput_target_gbps,
-            ),
+            S3FuseFilesystem::new(Arc::clone(&client), bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
         )
@@ -94,11 +85,8 @@ mod s3_session {
             MountOption::AutoUnmount,
         ];
 
-        // TODO autodiscover this
-        let throughput_target_gbps = 1.0;
-
         let session = Session::new(
-            S3FuseFilesystem::new(client, &bucket, &prefix, filesystem_config, throughput_target_gbps),
+            S3FuseFilesystem::new(client, &bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
         )

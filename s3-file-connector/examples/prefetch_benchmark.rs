@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
-use futures::StreamExt;
-use s3_client::{ObjectClient, S3Client, S3ClientConfig};
+use s3_client::{S3Client, S3ClientConfig};
+use s3_file_connector::prefetch::Prefetcher;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -29,6 +29,7 @@ fn main() {
         .about("Download a single key from S3 and ignore its contents")
         .arg(Arg::new("bucket").required(true))
         .arg(Arg::new("key").required(true))
+        .arg(Arg::new("size").required(true))
         .arg(
             Arg::new("throughput-target-gbps")
                 .long("throughput-target-gbps")
@@ -52,6 +53,11 @@ fn main() {
 
     let bucket = matches.get_one::<String>("bucket").unwrap();
     let key = matches.get_one::<String>("key").unwrap();
+    let size = matches
+        .get_one::<String>("size")
+        .unwrap()
+        .parse::<u64>()
+        .expect("size must be u64");
     let throughput_target_gbps = matches
         .get_one::<String>("throughput-target-gbps")
         .map(|s| s.parse::<f64>().expect("throughput target must be an f64"));
@@ -70,28 +76,20 @@ fn main() {
     let client = Arc::new(S3Client::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {
+        let manager = Prefetcher::new(client.clone());
         let received_size = Arc::new(AtomicU64::new(0));
+
         let start = Instant::now();
-        let client = Arc::clone(&client);
-        let received_size_clone = Arc::clone(&received_size);
-        futures::executor::block_on(async move {
-            let mut request = client
-                .get_object(bucket, key, None)
-                .await
-                .expect("couldn't create get request");
-            loop {
-                match StreamExt::next(&mut request).await {
-                    Some(Ok((_offset, body))) => {
-                        received_size_clone.fetch_add(body.len() as u64, Ordering::SeqCst);
-                    }
-                    Some(Err(e)) => {
-                        tracing::error!(error = ?e, "request failed");
-                        break;
-                    }
-                    None => break,
-                }
+
+        let mut request = manager.get(bucket, key, size);
+        loop {
+            let offset = received_size.load(Ordering::SeqCst);
+            if offset >= size {
+                break;
             }
-        });
+            let bytes = request.read(offset, 1 << 20);
+            received_size.fetch_add(bytes.len() as u64, Ordering::SeqCst);
+        }
 
         let elapsed = start.elapsed();
 

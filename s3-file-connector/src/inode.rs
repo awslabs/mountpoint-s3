@@ -480,20 +480,24 @@ pub struct Inode {
     parent: InodeNo,
     name: OsString,
     stat_cache: RwLock<InodeStat>,
+    #[allow(unused)]
     stat_cache_expiry: Instant,
     data: InodeData,
     // TODO dirty/new state?
 }
 
 impl Inode {
+    #[allow(unused)]
     pub fn remember(&self) {
         todo!()
     }
 
+    #[allow(unused)]
     pub fn forget(&self, _nlookup: usize) {
         todo!()
     }
 
+    #[allow(unused)]
     pub fn is_valid(&self) -> bool {
         Instant::now() > self.stat_cache_expiry
     }

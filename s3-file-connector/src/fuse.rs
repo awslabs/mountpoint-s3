@@ -12,14 +12,8 @@ pub struct S3FuseFilesystem<Client: ObjectClient> {
 }
 
 impl<Client: ObjectClient + Send + Sync + 'static> S3FuseFilesystem<Client> {
-    pub fn new(
-        client: Client,
-        bucket: &str,
-        prefix: &str,
-        config: S3FilesystemConfig,
-        throughput_target_gbps: f64,
-    ) -> Self {
-        let fs = S3Filesystem::new(client, bucket, prefix, config, throughput_target_gbps);
+    pub fn new(client: Client, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
+        let fs = S3Filesystem::new(client, bucket, prefix, config);
 
         Self { fs }
     }

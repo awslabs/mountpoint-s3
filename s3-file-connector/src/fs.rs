@@ -7,9 +7,10 @@ use std::time::{Duration, UNIX_EPOCH};
 use tracing::{error, trace};
 
 use fuser::{FileAttr, FileType, KernelConfig};
-use s3_client::{ObjectClient, Prefetcher, PrefetchingGetRequest};
+use s3_client::ObjectClient;
 
 use crate::inode::{InodeError, InodeNo, InodeStat, InodeStatKind, ReaddirHandle, Superblock};
+use crate::prefetch::{PrefetchGetObject, Prefetcher};
 
 // FIXME Use newtype here? Will add a bunch of .into()s...
 pub type Inode = u64;
@@ -47,7 +48,7 @@ struct FileHandle<Client: ObjectClient> {
     ino: InodeNo,
     full_key: OsString,
     object_size: u64,
-    request: Mutex<Option<PrefetchingGetRequest<Client>>>,
+    request: Mutex<Option<PrefetchGetObject<Client>>>,
 }
 
 pub struct S3FilesystemConfig {
@@ -78,13 +79,7 @@ pub struct S3Filesystem<Client: ObjectClient> {
 }
 
 impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
-    pub fn new(
-        client: Client,
-        bucket: &str,
-        prefix: &str,
-        config: S3FilesystemConfig,
-        throughput_target_gbps: f64,
-    ) -> Self {
+    pub fn new(client: Client, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
         // TODO is this required?
         assert!(
             prefix.is_empty() || prefix.ends_with('/'),
@@ -95,7 +90,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         let client = Arc::new(client);
 
-        let streaming_get_manager = Prefetcher::new(client.clone(), throughput_target_gbps);
+        let streaming_get_manager = Prefetcher::new(client.clone());
 
         Self {
             config,

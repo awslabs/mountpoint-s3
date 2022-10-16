@@ -1,6 +1,7 @@
 pub mod fs;
 pub mod fuse;
-pub mod inode;
+mod inode;
+pub mod prefetch;
 
 pub use fs::{S3Filesystem, S3FilesystemConfig};
 

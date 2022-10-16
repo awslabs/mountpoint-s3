@@ -50,9 +50,8 @@ fn mount_file_system() -> BackgroundSession {
     options.push(MountOption::AutoUnmount);
 
     let filesystem_config = S3FilesystemConfig::default();
-    let throughput_target_gbps = 1.0;
     let session = Session::new(
-        S3FuseFilesystem::new(client, &bucket, "", filesystem_config, throughput_target_gbps),
+        S3FuseFilesystem::new(client, &bucket, "", filesystem_config),
         mountpoint,
         &options,
     )

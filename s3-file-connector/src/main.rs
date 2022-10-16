@@ -18,7 +18,10 @@ fn init_tracing_subscriber() {
         std::env::set_var("RUST_LOG", "info,awscrt=off,fuser=error");
     }
 
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
+        .init();
 }
 
 #[derive(Parser)]
@@ -83,7 +86,6 @@ fn main() -> anyhow::Result<()> {
         &args.bucket_name,
         args.prefix.as_deref().unwrap_or(""),
         filesystem_config,
-        throughput_target_gbps.unwrap_or(1.0),
     );
 
     let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;

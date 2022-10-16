@@ -126,13 +126,7 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
         mountpoint.to_str().unwrap()
     );
     let session = Session::new(
-        S3FuseFilesystem::new(
-            client,
-            bucket_name,
-            "",
-            filesystem_config,
-            throughput_target_gbps.unwrap_or(1.0),
-        ),
+        S3FuseFilesystem::new(client, bucket_name, "", filesystem_config),
         mountpoint,
         &options,
     )
