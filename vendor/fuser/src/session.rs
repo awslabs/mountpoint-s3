@@ -116,7 +116,6 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
         FS: 'static,
     {
         let session = self;
-        println!("i am {:?}", unsafe { libc::syscall(libc::SYS_gettid) });
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
