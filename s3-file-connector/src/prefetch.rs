@@ -26,12 +26,25 @@ use tracing::{debug_span, error, instrument, trace, Instrument};
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{PartQueue, PartReadError};
 
-/// Size of the first request in a prefetch run
-const FIRST_REQUEST_SIZE: usize = 256 * 1024;
-/// Maximum size of a single prefetch request
-const MAX_REQUEST_SIZE: usize = 2 * 1024 * 1024 * 1024;
-/// The factor to increase the request size by whenever the reader continues making sequential reads
-const SEQUENTIAL_PREFETCH_MULTIPLIER: usize = 8;
+#[derive(Debug, Clone, Copy)]
+pub struct PrefetcherConfig {
+    /// Size of the first request in a prefetch run
+    pub first_request_size: usize,
+    /// Maximum size of a single prefetch request
+    pub max_request_size: usize,
+    /// Factor to increase the request size by whenever the reader continues making sequential reads
+    pub sequential_prefetch_multipler: usize,
+}
+
+impl Default for PrefetcherConfig {
+    fn default() -> Self {
+        Self {
+            first_request_size: 256 * 1024,
+            max_request_size: 2 * 1024 * 1024 * 1024,
+            sequential_prefetch_multipler: 8,
+        }
+    }
+}
 
 /// A [Prefetcher] creates and manages prefetching GetObject requests to objects.
 pub struct Prefetcher<Client: ObjectClient> {
@@ -41,16 +54,13 @@ pub struct Prefetcher<Client: ObjectClient> {
 #[derive(Debug)]
 struct PrefetcherInner<Client: ObjectClient> {
     client: Arc<Client>,
-    first_part_size: usize,
+    config: PrefetcherConfig,
 }
 
 impl<Client: ObjectClient + Send + Sync + 'static> Prefetcher<Client> {
     /// Create a new [Prefetcher] that will make requests to the given client.
-    pub fn new(client: Arc<Client>) -> Self {
-        let inner = PrefetcherInner {
-            client,
-            first_part_size: FIRST_REQUEST_SIZE,
-        };
+    pub fn new(client: Arc<Client>, config: PrefetcherConfig) -> Self {
+        let inner = PrefetcherInner { client, config };
 
         Self { inner: Arc::new(inner) }
     }
@@ -71,7 +81,7 @@ pub struct PrefetchGetObject<Client: ObjectClient> {
     future_tasks: Arc<RwLock<VecDeque<RequestTask>>>,
     bucket: String,
     key: String,
-    next_sequential_read_offset: Option<u64>,
+    next_sequential_read_offset: u64,
     next_request_size: usize,
     next_request_offset: u64,
     size: u64,
@@ -84,8 +94,8 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
             inner: inner.clone(),
             current_task: None,
             future_tasks: Default::default(),
-            next_request_size: inner.first_part_size,
-            next_sequential_read_offset: None,
+            next_request_size: inner.config.first_request_size,
+            next_sequential_read_offset: 0,
             next_request_offset: 0,
             bucket: bucket.to_owned(),
             key: key.to_owned(),
@@ -97,7 +107,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
     /// function will always return exactly `size` bytes, except at the end of the object where it
     /// will return however many bytes are left (including possibly 0 bytes).
     #[instrument(skip(self), fields(self=?&*self as *const _))]
-    pub fn read(&mut self, mut offset: u64, length: usize) -> Bytes {
+    pub fn read(&mut self, offset: u64, length: usize) -> Bytes {
         trace!(
             offset,
             length,
@@ -112,21 +122,21 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
         let mut to_read = (length as u64).min(remaining);
 
         // Cancel and reset prefetching if this is an out-of-order read
-        if self
-            .next_sequential_read_offset
-            .map(|next_read_offset| next_read_offset != offset)
-            .unwrap_or(true)
-        {
-            trace!(expected=?self.next_sequential_read_offset, actual=offset, "out-of-order read, resetting prefetch");
+        if self.next_sequential_read_offset != offset {
+            trace!(
+                expected = self.next_sequential_read_offset,
+                actual = offset,
+                "out-of-order read, resetting prefetch"
+            );
             // TODO cancel inflight requests
             // TODO see if we can reuse any inflight requests rather than dropping them immediately
             self.current_task = None;
             self.future_tasks.write().unwrap().drain(..);
-            self.next_request_size = self.inner.first_part_size;
-            self.next_sequential_read_offset = Some(offset);
+            self.next_request_size = self.inner.config.first_request_size;
+            self.next_sequential_read_offset = offset;
             self.next_request_offset = offset;
         }
-        debug_assert_eq!(self.next_sequential_read_offset, Some(offset));
+        debug_assert_eq!(self.next_sequential_read_offset, offset);
 
         self.prepare_requests();
 
@@ -137,26 +147,21 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
             return Bytes::new();
         }
 
-        let current_task = self.current_task.as_mut().unwrap();
-        if current_task.remaining >= to_read as usize {
-            // TODO handle timeouts
-            let part = current_task.read(to_read as usize, Duration::from_secs(60)).unwrap();
-            *self.next_sequential_read_offset.as_mut().unwrap() += part.len() as u64;
-            return part.into_bytes(OsStr::from_bytes(self.key.as_bytes()), offset).unwrap();
-        }
-
-        let mut response = BytesMut::with_capacity(to_read as usize);
+        let mut response = BytesMut::new();
         while to_read > 0 {
             let current_task = self.current_task.as_mut().unwrap();
-            assert!(current_task.remaining > 0);
+            debug_assert!(current_task.remaining > 0);
             // TODO handle timeouts
             let part = current_task.read(to_read as usize, Duration::from_secs(60)).unwrap();
-            let part_bytes = part.into_bytes(OsStr::from_bytes(self.key.as_bytes()), offset).unwrap();
-            let part_length = part_bytes.len();
+            let part_bytes = part
+                .into_bytes(OsStr::from_bytes(self.key.as_bytes()), self.next_sequential_read_offset)
+                .unwrap();
+            self.next_sequential_read_offset += part_bytes.len() as u64;
+            if response.is_empty() && part_bytes.len() == to_read as usize {
+                return part_bytes;
+            }
             response.extend_from_slice(&part_bytes[..]);
-            to_read -= part_length as u64;
-            offset += part_length as u64;
-            *self.next_sequential_read_offset.as_mut().unwrap() += part_length as u64;
+            to_read -= part_bytes.len() as u64;
             if current_task.remaining == 0 {
                 self.prepare_requests();
                 if self.current_task.is_none() {
@@ -164,6 +169,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
                 }
             }
         }
+
         response.freeze()
     }
 
@@ -193,13 +199,13 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
     /// Spawn the next required request
     fn spawn_next_request(&mut self) -> Option<RequestTask> {
         let start = self.next_request_offset;
-        let size = self.next_request_size;
-        let end = (start + size as u64).min(self.size);
+        let end = (start + self.next_request_size as u64).min(self.size);
 
         if start >= self.size {
             return None;
         }
 
+        let size = end - start;
         let range = start..end;
         let part_queue = Arc::new(PartQueue::new());
 
@@ -241,12 +247,13 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
         self.inner.client.spawn(request_task);
 
         // [read] will reset these if the reader stops making sequential requests
-        self.next_request_offset += size as u64;
-        self.next_request_size = (self.next_request_size * SEQUENTIAL_PREFETCH_MULTIPLIER).min(MAX_REQUEST_SIZE);
+        self.next_request_offset += size;
+        self.next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multipler)
+            .min(self.inner.config.max_request_size);
 
         Some(RequestTask {
-            total_size: size,
-            remaining: size,
+            total_size: size as usize,
+            remaining: size as usize,
             part_queue,
         })
     }
@@ -274,19 +281,36 @@ mod tests {
     use proptest::proptest;
     use proptest::sample::SizeRange;
     use proptest::strategy::{Just, Strategy};
+    use proptest_derive::Arbitrary;
     use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
 
-    fn run_sequential_read_test(size: u64, read_size: usize, prefetch_part_size: usize) {
+    #[derive(Debug, Arbitrary)]
+    struct TestConfig {
+        #[proptest(strategy = "16usize..5*1024*1024")]
+        first_request_size: usize,
+        #[proptest(strategy = "16usize..5*1024*1024")]
+        max_request_size: usize,
+        #[proptest(strategy = "1usize..8usize")]
+        sequential_prefetch_multiplier: usize,
+        #[proptest(strategy = "16usize..8*1024*1024")]
+        client_part_size: usize,
+    }
+
+    fn run_sequential_read_test(size: u64, read_size: usize, test_config: TestConfig) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
-            part_size: 8 * 1024 * 1024,
+            part_size: test_config.client_part_size,
         };
         let client = MockClient::new(config);
 
         client.add_object("hello", MockObject::constant(0xaa, size as usize));
 
-        let mut prefetcher = Prefetcher::new(Arc::new(client));
-        Arc::get_mut(&mut prefetcher.inner).unwrap().first_part_size = prefetch_part_size;
+        let test_config = PrefetcherConfig {
+            first_request_size: test_config.first_request_size,
+            max_request_size: test_config.max_request_size,
+            sequential_prefetch_multipler: test_config.sequential_prefetch_multiplier,
+        };
+        let prefetcher = Prefetcher::new(Arc::new(client), test_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", size as u64);
 
@@ -305,22 +329,35 @@ mod tests {
 
     #[test]
     fn sequential_read_small() {
-        run_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, FIRST_REQUEST_SIZE);
+        let config = TestConfig {
+            first_request_size: 256 * 1024,
+            max_request_size: 1024 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 8 * 1024 * 1024,
+        };
+        run_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config);
     }
 
     #[test]
     fn sequential_read_medium() {
-        run_sequential_read_test(16 * 1024 * 1024 + 111, 1024 * 1024, FIRST_REQUEST_SIZE);
+        let config = TestConfig {
+            first_request_size: 256 * 1024,
+            max_request_size: 1024 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 8 * 1024 * 1024,
+        };
+        run_sequential_read_test(16 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
     #[test]
     fn sequential_read_large() {
-        run_sequential_read_test(4 * 1024 * 1024 * 1024 + 111, 1024 * 1024, FIRST_REQUEST_SIZE);
-    }
-
-    #[test]
-    fn sequential_read_regression1() {
-        run_sequential_read_test(3413830, 4, 20009);
+        let config = TestConfig {
+            first_request_size: 256 * 1024,
+            max_request_size: 1024 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 8 * 1024 * 1024,
+        };
+        run_sequential_read_test(4 * 1024 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
     proptest! {
@@ -328,31 +365,34 @@ mod tests {
         fn proptest_sequential_read(
             size in 1u64..5 * 1024 * 1024,
             read_size in 1usize..5 * 1024 * 1024,
-            prefetch_part_size in 1usize..5 * 1024 * 1024
+            config: TestConfig,
         ) {
-            run_sequential_read_test(size, read_size, prefetch_part_size);
+            run_sequential_read_test(size, read_size, config);
         }
 
         #[test]
-        fn proptest_sequential_read_small_read_size(size in 1u64..5 * 1024 * 1024, read_factor in 1usize..10, prefetch_factor in 1usize..10) {
+        fn proptest_sequential_read_small_read_size(size in 1u64..5 * 1024 * 1024, read_factor in 1usize..10, config: TestConfig) {
             let read_size = (size as usize / read_factor).max(1);
-            let prefetch_size = (size as usize / prefetch_factor).max(1);
-            run_sequential_read_test(size, read_size, prefetch_size);
+            run_sequential_read_test(size, read_size, config);
         }
     }
 
-    fn run_random_read_test(object_size: u64, reads: Vec<(u64, usize)>, prefetch_part_size: usize) {
+    fn run_random_read_test(object_size: u64, reads: Vec<(u64, usize)>, test_config: TestConfig) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
-            part_size: 8 * 1024 * 1024,
+            part_size: test_config.client_part_size,
         };
         let client = MockClient::new(config);
 
         // TODO non-constant object so we can actually tell if we're getting the right bytes
         client.add_object("hello", MockObject::constant(0xaa, object_size as usize));
 
-        let mut prefetcher = Prefetcher::new(Arc::new(client));
-        Arc::get_mut(&mut prefetcher.inner).unwrap().first_part_size = prefetch_part_size;
+        let test_config = PrefetcherConfig {
+            first_request_size: test_config.first_request_size,
+            max_request_size: test_config.max_request_size,
+            sequential_prefetch_multipler: test_config.sequential_prefetch_multiplier,
+        };
+        let prefetcher = Prefetcher::new(Arc::new(client), test_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", object_size);
 
@@ -361,7 +401,18 @@ mod tests {
             assert!(offset + length as u64 <= object_size);
             let expected = vec![0xaa; length];
             let buf = request.read(offset, length);
-            assert_eq!(&buf[..], &expected[..]);
+            assert_eq!(buf.len(), expected.len());
+            // Don't spew the giant buffer if this test fails
+            if buf[..] != expected[..] {
+                for i in 0..buf.len() {
+                    if buf[i] != expected[i] {
+                        panic!(
+                            "buffer mismatch at offset {}, saw {} expected {}",
+                            i, buf[i], expected[i]
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -383,10 +434,23 @@ mod tests {
         #[test]
         fn proptest_random_read(
             reads in random_read_strategy(5 * 1024 * 1024),
-            prefetch_part_size in 1usize..5 * 1024 * 1024,
+            config: TestConfig,
         ) {
             let (object_size, reads) = reads;
-            run_random_read_test(object_size, reads, prefetch_part_size);
+            run_random_read_test(object_size, reads, config);
         }
+    }
+
+    #[test]
+    fn test_random_read_regression() {
+        let object_size = 724314;
+        let reads = vec![(0, 516883)];
+        let config = TestConfig {
+            first_request_size: 3684779,
+            max_request_size: 2147621,
+            sequential_prefetch_multiplier: 4,
+            client_part_size: 516882,
+        };
+        run_random_read_test(object_size, reads, config);
     }
 }

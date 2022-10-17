@@ -90,7 +90,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         let client = Arc::new(client);
 
-        let streaming_get_manager = Prefetcher::new(client.clone());
+        let streaming_get_manager = Prefetcher::new(client.clone(), Default::default());
 
         Self {
             config,

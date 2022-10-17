@@ -76,7 +76,7 @@ fn main() {
     let client = Arc::new(S3Client::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {
-        let manager = Prefetcher::new(client.clone());
+        let manager = Prefetcher::new(client.clone(), Default::default());
         let received_size = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();

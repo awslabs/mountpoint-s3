@@ -11,14 +11,14 @@ use crate::prefetch::part::Part;
 #[derive(Debug)]
 pub struct PartQueue {
     buffers: Mutex<VecDeque<Part>>,
-    available: Condvar,
+    queue_signal: Condvar,
 }
 
 impl PartQueue {
     pub fn new() -> Self {
         Self {
             buffers: Mutex::new(VecDeque::new()),
-            available: Condvar::new(),
+            queue_signal: Condvar::new(),
         }
     }
 
@@ -28,7 +28,7 @@ impl PartQueue {
     /// empty.
     pub fn read(&self, length: usize, timeout: Duration) -> Result<Part, PartReadError> {
         let (mut buffers, timed_out) = self
-            .available
+            .queue_signal
             .wait_timeout_while(self.buffers.lock().unwrap(), timeout, |buffers| buffers.is_empty())
             .unwrap();
         if timed_out.timed_out() {
@@ -51,7 +51,7 @@ impl PartQueue {
     pub fn push(&self, part: Part) {
         let mut buffers = self.buffers.lock().unwrap();
         buffers.push_back(part);
-        self.available.notify_one();
+        self.queue_signal.notify_one();
     }
 }
 

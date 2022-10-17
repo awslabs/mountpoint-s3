@@ -19,7 +19,7 @@ fn init_tracing_subscriber() {
     }
 
     tracing_subscriber::fmt()
-        .with_ansi(false)
+        .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
         .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();
 }
@@ -113,7 +113,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Discover the region for the bucket and create a client for it
+/// Discover the region for the bucket and create a client for it.
+///
+/// This also has the nice side effect of triggering the CRT's DNS resolver to start pooling
+/// responses, which means we don't have to wait for the first file read to start the rampup period.
 fn create_client_for_bucket(
     bucket: &str,
     supposed_region: &str,
