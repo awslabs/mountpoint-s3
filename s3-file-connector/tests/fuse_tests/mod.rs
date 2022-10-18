@@ -1,3 +1,4 @@
+mod lookup_test;
 mod mount_test;
 mod readdir_test;
 

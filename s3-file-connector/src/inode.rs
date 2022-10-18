@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use fuser::FileType;
+use futures::{select_biased, FutureExt};
 use s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::{trace, warn};
@@ -111,52 +112,107 @@ impl Superblock {
         };
         assert!(full_path.is_empty() || full_path.to_str().unwrap().ends_with('/'));
         full_path.push(&name);
+        let full_path_clone = full_path.clone();
+        let mut full_path_suffixed = full_path.clone();
+        full_path_suffixed.push("/");
 
-        // TODO do we need to do HeadObject here too?
-        let result = client
+        // We need to try two ListObjects requests, one with and one without a "/" suffix. This is
+        // to deal with a namespace like this:
+        //   dir/
+        //     foo
+        //   dir-1/
+        //     bar
+        // Here, if we lookup("dir"), and only looked at the unsuffixed ListObjects, we'd get back
+        // the common prefix "dir-1/", because that precedes "dir/" in lexicographic order. Doing
+        // the suffixed lookup concurrently makes sure we have a chance to find out that "dir" also
+        // exists, by listing starting from "dir/".
+        let mut lookup_unsuffixed = client
             .list_objects(&self.inner.bucket, None, "/", 1, full_path.to_str().unwrap())
-            .await
-            .map_err(|e| InodeError::ClientError(e.into()))?;
+            .fuse();
+        let mut lookup_suffixed = client
+            .list_objects(&self.inner.bucket, None, "/", 1, full_path_suffixed.to_str().unwrap())
+            .fuse();
 
-        let (kind, stat) = if result
-            .common_prefixes
-            .get(0)
-            .map(|prefix| &prefix[..prefix.len() - 1] == full_path.to_str().unwrap())
-            .unwrap_or(false)
-        {
-            (
-                InodeKind::Directory,
-                InodeStat {
-                    kind: InodeStatKind::Directory {},
-                    size: 0,
-                },
-            )
-        } else if result
-            .objects
-            .get(0)
-            .map(|object| object.key == full_path.to_str().unwrap())
-            .unwrap_or(false)
-        {
-            (
-                InodeKind::File,
-                InodeStat {
-                    kind: InodeStatKind::File {},
-                    size: result.objects[0].size as usize,
-                },
-            )
-        } else {
-            return Err(InodeError::FileDoesNotExist);
-        };
+        for _ in 0..2 {
+            select_biased! {
+                result = lookup_unsuffixed => {
+                    let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
+                    let maybe_inode = if result
+                        .common_prefixes
+                        .get(0)
+                        .map(|prefix| &prefix[..prefix.len() - 1] == full_path.to_str().unwrap())
+                        .unwrap_or(false)
+                    {
+                        Some((
+                            InodeKind::Directory,
+                            InodeStat {
+                                kind: InodeStatKind::Directory {},
+                                size: 0,
+                            },
+                        ))
+                    } else if result
+                        .objects
+                        .get(0)
+                        .map(|object| object.key == full_path.to_str().unwrap())
+                        .unwrap_or(false)
+                    {
+                        Some((
+                            InodeKind::File,
+                            InodeStat {
+                                kind: InodeStatKind::File {},
+                                size: result.objects[0].size as usize,
+                            },
+                        ))
+                    } else {
+                        None
+                    };
 
-        let ino = self
-            .inner
-            .update_or_insert(parent, name, kind, stat.clone(), Instant::now())?;
+                    if let Some((kind, stat)) = maybe_inode {
+                        trace!(?parent, ?name, ?kind, "unprefixed lookup success");
+                        let ino = self
+                            .inner
+                            .update_or_insert(parent, name, kind, stat.clone(), Instant::now())?;
+                        return Ok(Lookup {
+                            ino,
+                            stat,
+                            full_key: full_path_clone,
+                        })
+                    }
+                }
+                result = lookup_suffixed => {
+                    let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
+                    if result
+                        .common_prefixes
+                        .get(0)
+                        .map(|prefix| prefix.starts_with(full_path_suffixed.to_str().unwrap()))
+                        .or_else(|| {
+                            result
+                                .objects
+                                .get(0)
+                                .map(|object| object.key.starts_with(full_path_suffixed.to_str().unwrap()))
+                        })
+                        .unwrap_or(false)
+                    {
+                        trace!(?parent, ?name, "prefixed lookup success");
+                        let stat = InodeStat {
+                            kind: InodeStatKind::Directory {},
+                            size: 0,
+                        };
+                        let ino =
+                            self.inner
+                                .update_or_insert(parent, name, InodeKind::Directory, stat.clone(), Instant::now())?;
+                        return Ok(Lookup {
+                            ino,
+                            stat,
+                            full_key: full_path_clone,
+                        });
+                    }
+                }
+            }
+        }
 
-        Ok(Lookup {
-            ino,
-            stat,
-            full_key: full_path,
-        })
+        // If we made it here, both requests failed to find the object, so it must not exist
+        Err(InodeError::FileDoesNotExist)
     }
 
     /// Retrieve the attributes for an inode
@@ -773,5 +829,38 @@ mod tests {
                 .unwrap();
             assert_eq!(file1_1.ino, file1_2.ino);
         }
+    }
+
+    #[test_case(""; "no subdirectory")]
+    #[test_case("subdir/"; "with subdirectory")]
+    #[tokio::test]
+    async fn test_lookup_directory_overlap(subdir: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        // In this test the `/` delimiter comes back to bite us. `dir-1/` comes before `dir/` in
+        // lexicographical order (- is ASCII 0x2d, / is ASCII 0x2f), so `dir-1` will be the first
+        // common prefix when we do ListObjects with prefix = 'dir'. But `dir` comes before `dir-1`
+        // in lexicographical order, so `dir` will be the first common prefix when we do ListObjects
+        // with prefix = ''.
+        client.add_object(&format!("dir/{}file1.txt", subdir), MockObject::constant(0xaa, 30));
+        client.add_object(&format!("dir-1/{}file1.txt", subdir), MockObject::constant(0xaa, 30));
+
+        let superblock = Superblock::new("test_bucket".to_string(), OsString::new());
+
+        let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        assert_eq!(
+            entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(),
+            &["dir", "dir-1"]
+        );
+
+        let dir = superblock
+            .lookup(&client, FUSE_ROOT_INODE, OsStr::from_bytes("dir".as_bytes()))
+            .await
+            .unwrap();
+        assert_eq!(dir.full_key, OsString::from("dir"));
     }
 }
