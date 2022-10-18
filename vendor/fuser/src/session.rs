@@ -115,19 +115,16 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
     where
         FS: 'static,
     {
-        let session = self;
+        let session = &*self;
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
             let mut buffer = FuseRequestBuffer::allocate();
-            match session.ch.receive(buffer.deref_mut()) {
+            match self.ch.receive(buffer.deref_mut()) {
                 // TODO figure out the alignment stuff here ... need to chop `buffer` down to `size` + whatever padding came off the front
-                Ok(size) => match Request::new(session.ch.sender(), buffer, size) {
+                Ok(size) => match Request::new(self.ch.sender(), buffer, size) {
                     // Dispatch request
-                    Some(req) => {
-                        let session = std::sync::Arc::clone(&session);
-                        futures::executor::block_on(async move { req.dispatch(&*session).await });
-                    }
+                    Some(req) => futures::executor::block_on(async move { req.dispatch(session).await }),
                     // Quit loop on illegal request
                     None => break,
                 },
