@@ -18,8 +18,9 @@ use crate::object_client::GetBodyPart;
 use crate::{S3Client, S3RequestError};
 
 impl S3Client {
-    /// Create and begin a new GetObject request. The body of the object will be returned in parts
-    /// by invoking the `callback`. Body parts will be delivered in order.
+    /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] (for
+    /// async users) or [Iterator} (for sync users) of body parts of the object, which will be
+    /// delivered in order.
     pub(super) fn get_object(
         &self,
         bucket: &str,

@@ -23,11 +23,11 @@ use thiserror::Error;
 use tracing::{error, trace};
 
 use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient};
-use crate::s3_client::get::{GetObjectError, GetObjectRequest};
+use crate::s3_client::get_object::{GetObjectError, GetObjectRequest};
 use crate::s3_client::head_object::HeadObjectError;
 use crate::s3_client::list_objects::ListObjectsError;
 
-pub(crate) mod get;
+pub(crate) mod get_object;
 pub(crate) mod head_bucket;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
@@ -49,9 +49,6 @@ pub struct S3Client {
 
 impl S3Client {
     pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
-        // Safety arguments in this function are mostly pretty boring (singletons, constructors that
-        // copy from pointers, etc), so safety annotations only on interesting cases.
-
         let mut allocator = Allocator::default();
 
         let mut event_loop_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
