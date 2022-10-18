@@ -54,7 +54,7 @@ pub struct MockObject {
 }
 
 impl MockObject {
-    fn read(&self, offset: u64, size: usize) -> Box<[u8]> {
+    pub fn read(&self, offset: u64, size: usize) -> Box<[u8]> {
         (self.generator)(offset, size)
     }
 
@@ -73,8 +73,12 @@ impl MockObject {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.size
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
     }
 }
 

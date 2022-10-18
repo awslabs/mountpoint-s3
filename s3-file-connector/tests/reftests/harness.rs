@@ -1,6 +1,5 @@
-use crate::reftests::make_test_filesystem;
 use crate::reftests::reference::{Node, Reference};
-use fuser::FileType;
+use crate::reftests::{make_test_filesystem, ReadReply};
 use futures::future::{BoxFuture, FutureExt};
 use s3_client::mock_client::{MockClient, MockObject};
 use s3_file_connector::{
@@ -85,8 +84,8 @@ impl Harness {
                                 "for file {:?} expecting {:?} found {:?}",
                                 name, ref_kind, fs_kind
                             );
-                            if matches!(fs_kind, FileType::RegularFile) {
-                                // TODO compare file contents
+                            if let Node::File(ref_object) = node {
+                                self.compare_file(reply.ino, ref_object).await;
                             } else {
                                 // Recurse into directory
                                 self.compare_contents_recursive(fs_dir, reply.ino, node).await;
@@ -112,6 +111,33 @@ impl Harness {
             // self.fs.releasedir(dir_handle).unwrap();
         }
         .boxed()
+    }
+
+    async fn compare_file<'a>(&'a self, fs_file: Inode, ref_file: &'a MockObject) {
+        let fh = self.fs.open(fs_file, 0x8000).await.unwrap().fh;
+        let mut offset = 0;
+        const MAX_READ_SIZE: usize = 4_096;
+        let file_size = ref_file.len();
+        while offset < file_size {
+            let mut read = Err(0);
+            let num_bytes = MAX_READ_SIZE.min(file_size - offset);
+            self.fs
+                .read(
+                    fs_file,
+                    fh,
+                    offset as i64,
+                    num_bytes as u32,
+                    0,
+                    None,
+                    ReadReply(&mut read),
+                )
+                .await;
+            let fs_bytes = read.unwrap();
+            assert_eq!(fs_bytes.len(), num_bytes);
+            let ref_bytes = ref_file.read(offset as u64, num_bytes);
+            assert_eq!(ref_bytes, fs_bytes);
+            offset += num_bytes;
+        }
     }
 
     async fn compare_contents(&self) {
