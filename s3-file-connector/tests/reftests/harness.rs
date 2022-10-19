@@ -1,5 +1,5 @@
+use crate::common::{make_test_filesystem, ReadReply};
 use crate::reftests::reference::{Node, Reference};
-use crate::reftests::{make_test_filesystem, ReadReply};
 use futures::future::{BoxFuture, FutureExt};
 use s3_client::mock_client::{MockClient, MockObject};
 use s3_file_connector::{

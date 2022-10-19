@@ -1,84 +1,16 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
-use std::ffi::{OsStr, OsString};
-use std::os::unix::prelude::OsStrExt;
-use std::sync::Arc;
-use std::time::Duration;
-
-use fuser::{FileAttr, FileType};
+use fuser::FileType;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
-use s3_file_connector::fs::{DirectoryReplier, ReadReplier, FUSE_ROOT_INODE};
-use s3_file_connector::{S3Filesystem, S3FilesystemConfig};
+use s3_client::mock_client::MockObject;
+use s3_file_connector::fs::FUSE_ROOT_INODE;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::prelude::OsStrExt;
 use test_case::test_case;
 
 mod common;
-
-pub fn make_test_filesystem(
-    bucket: &str,
-    prefix: &str,
-    config: S3FilesystemConfig,
-) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
-    let client_config = MockClientConfig {
-        bucket: bucket.to_string(),
-        part_size: 1024 * 1024,
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
-
-    let fs = S3Filesystem::new(Arc::clone(&client), bucket, prefix, config);
-
-    (client, fs)
-}
-
-#[derive(Debug)]
-struct DirectoryEntry {
-    ino: u64,
-    offset: i64,
-    attr: FileAttr,
-    name: OsString,
-}
-
-#[derive(Debug, Default)]
-struct DirectoryReply {
-    entries: Vec<DirectoryEntry>,
-}
-
-impl DirectoryReplier for &mut DirectoryReply {
-    fn add<T: AsRef<OsStr>>(
-        &mut self,
-        ino: u64,
-        offset: i64,
-        name: T,
-        attr: FileAttr,
-        _generation: u64,
-        _ttl: Duration,
-    ) -> bool {
-        self.entries.push(DirectoryEntry {
-            ino,
-            offset,
-            attr,
-            name: name.as_ref().to_os_string(),
-        });
-        // TODO test full replies
-        false
-    }
-}
-
-struct ReadReply<'a>(&'a mut Result<Box<[u8]>, libc::c_int>);
-
-impl<'a> ReadReplier for ReadReply<'a> {
-    type Replied = ();
-
-    fn data(self, data: &[u8]) -> Self::Replied {
-        *self.0 = Ok(data.into());
-    }
-
-    fn error(self, error: libc::c_int) -> Self::Replied {
-        *self.0 = Err(error);
-    }
-}
+use common::{make_test_filesystem, ReadReply};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
