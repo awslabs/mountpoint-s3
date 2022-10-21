@@ -1,3 +1,4 @@
+use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{S3Client, S3ClientConfig};
@@ -9,8 +10,24 @@ use std::{
     time::Instant,
 };
 use tempfile::tempdir;
+use tracing_subscriber::fmt::Subscriber;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+
+fn init_tracing_subscriber() {
+    RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+
+    let subscriber = Subscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .finish();
+
+    subscriber.try_init().expect("unable to install global subscriber");
+}
 
 fn main() -> io::Result<()> {
+    init_tracing_subscriber();
+
     const KB: usize = 1 << 10;
     const MB: usize = 1 << 20;
     const DEFAULT_BUF_CAP: usize = 128;

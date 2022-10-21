@@ -1,3 +1,4 @@
+use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use fuser::{BackgroundSession, MountOption, Session};
 use rand::rngs::OsRng;
@@ -11,6 +12,21 @@ use std::{
     time::Duration,
 };
 use tempfile::tempdir;
+use tracing_subscriber::fmt::Subscriber;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+
+/// Like `tracing_subscriber::fmt::init` but sends logs to stderr
+fn init_tracing_subscriber() {
+    RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+
+    let subscriber = Subscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .finish();
+
+    subscriber.try_init().expect("unable to install global subscriber");
+}
 
 fn get_test_client() -> S3Client {
     S3Client::new(&get_test_region(), Default::default()).expect("could not create test client")
@@ -41,7 +57,9 @@ fn get_bench_file() -> String {
 
 fn get_buffer_cap() -> usize {
     let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or("128".to_string());
-    buf_cap.parse::<usize>().expect("Buffer capacity must be able to convert to usize")
+    buf_cap
+        .parse::<usize>()
+        .expect("Buffer capacity must be able to convert to usize")
 }
 
 fn mount_file_system() -> BackgroundSession {
@@ -66,6 +84,8 @@ fn mount_file_system() -> BackgroundSession {
 }
 
 pub fn read_file_benchmark(c: &mut Criterion) {
+    init_tracing_subscriber();
+
     const KB: usize = 1 << 10;
 
     let file_path = &get_bench_file();
