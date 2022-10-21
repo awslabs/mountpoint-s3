@@ -3,16 +3,14 @@ use crate::s3_client::S3RequestError;
 use crate::S3Client;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Header, Headers, HeadersError, Message};
-use aws_crt_s3::s3::client::MetaRequestOptions;
 use aws_crt_s3_sys::aws_s3_meta_request_type;
-use futures::channel::oneshot;
 use std::ffi::OsString;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
-use tracing::{error, trace};
+use tracing::{debug, error};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -80,7 +78,8 @@ impl S3Client {
             message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
 
             // Don't URI encode the key, since "/" needs to be preserved
-            message.set_request_path(format!("/{key}"))?;
+            let key = key.to_string();
+            message.set_request_path(format!("/{}", key))?;
 
             let bucket = bucket.to_string();
 
@@ -89,51 +88,24 @@ impl S3Client {
             let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
             let header1 = header.clone();
 
-            let (tx, rx) = oneshot::channel::<Result<HeadObjectResult, S3RequestError<HeadObjectError>>>();
+            let span = request_span!(self, "head_object");
+            span.in_scope(|| debug!(?key, "new request"));
 
-            let key = key.to_string();
-            let mut options = MetaRequestOptions::new();
-            options
-                .message(message)
-                .on_headers(move |headers, status| {
-                    trace!(status = status, "HeadObject headers received",);
-
+            self.make_meta_request(
+                message,
+                aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT,
+                span,
+                move |headers, _status| {
                     let mut header = header1.lock().unwrap();
                     *header = Some(HeadObjectResult::parse_from_hdr(
                         bucket.to_string(),
-                        key.clone(),
+                        key.to_string(),
                         headers,
                     ));
-                })
-                .on_finish(move |result| {
-                    trace!("HeadObject finished");
-
-                    let result = if !result.is_err() {
-                        header
-                            .lock()
-                            .unwrap()
-                            .take()
-                            .unwrap()
-                            .map_err(|e| S3RequestError::ServiceError(e.into()))
-                    } else {
-                        Err(S3RequestError::ResponseError(result))
-                    };
-                    let _ = tx.send(result);
-                })
-                .request_type(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
-
-            let request = self
-                .s3_client
-                .make_meta_request(options)
-                .map(|_| ()) // Discard the MetaRequest since it's not Send
-                .map_err(S3RequestError::ConstructionFailure);
-
-            async {
-                request?;
-
-                rx.await
-                    .unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err))))
-            }
+                },
+                |_, _| (),
+                move |_result| header.lock().unwrap().take().unwrap().map_err(|e| e.into()),
+            )?
         };
 
         request.await

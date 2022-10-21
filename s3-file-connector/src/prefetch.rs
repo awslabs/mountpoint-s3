@@ -21,7 +21,7 @@ use bytes::{Bytes, BytesMut};
 use futures::pin_mut;
 use futures::stream::StreamExt;
 use s3_client::ObjectClient;
-use tracing::{debug_span, error, instrument, trace, Instrument};
+use tracing::{debug_span, error, trace, Instrument};
 
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{PartQueue, PartReadError};
@@ -106,7 +106,6 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
     /// Read some bytes from the object. Blocks until the desired bytes are available or EOF. This
     /// function will always return exactly `size` bytes, except at the end of the object where it
     /// will return however many bytes are left (including possibly 0 bytes).
-    #[instrument(skip(self), fields(self=?&*self as *const _))]
     pub fn read(&mut self, offset: u64, length: usize) -> Bytes {
         trace!(
             offset,
@@ -217,7 +216,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
             let bucket = self.bucket.to_owned();
             let key = self.key.to_owned();
 
-            let span = debug_span!("Request", task=?&*part_queue as *const _, range=?range);
+            let span = debug_span!("prefetch", range=?range);
 
             async move {
                 let request = client

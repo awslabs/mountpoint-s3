@@ -1,12 +1,18 @@
+use std::ffi::OsStr;
 use std::future::Future;
 use std::ops::Range;
+use std::os::unix::prelude::OsStrExt;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+use std::time::Instant;
 
 use async_trait::async_trait;
 
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::http::request_response::Message;
+use aws_crt_s3::http::request_response::{Headers, Message};
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::futures::FutureSpawner;
@@ -18,14 +24,22 @@ use aws_crt_s3_sys::aws_s3_meta_request_type;
 
 use futures::channel::oneshot;
 
+use pin_project::pin_project;
 use thiserror::Error;
 
-use tracing::{error, trace};
+use tracing::{debug, error, trace, warn, Span};
 
 use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient};
 use crate::s3_client::get_object::{GetObjectError, GetObjectRequest};
 use crate::s3_client::head_object::HeadObjectError;
 use crate::s3_client::list_objects::ListObjectsError;
+
+macro_rules! request_span {
+    ($self:expr, $method:expr) => {{
+        let counter = $self.next_request_counter();
+        tracing::debug_span!($method, id = counter)
+    }};
+}
 
 pub(crate) mod get_object;
 pub(crate) mod head_bucket;
@@ -45,6 +59,7 @@ pub struct S3Client {
     region: String,
     _allocator: Allocator,
     throughput_target_gbps: f64,
+    next_request_counter: AtomicU64,
 }
 
 impl S3Client {
@@ -99,6 +114,7 @@ impl S3Client {
             event_loop_group,
             region: region.to_owned(),
             throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
+            next_request_counter: AtomicU64::new(0),
         })
     }
 
@@ -106,65 +122,119 @@ impl S3Client {
         self.throughput_target_gbps
     }
 
-    /// Make an HTTP request using this S3 client. Returns the body of the HTTP response on success.
-    fn make_http_request<E: std::error::Error + Send + 'static>(
+    /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
+    /// makes progress. The `on_finish` callback is invoked only if the request succeeds.
+    fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
         message: Message,
-    ) -> impl Future<Output = Result<Vec<u8>, S3RequestError<E>>> + Send {
-        let (tx, rx) = oneshot::channel::<Result<Vec<u8>, S3RequestError<E>>>();
+        meta_request_type: aws_s3_meta_request_type,
+        request_span: Span,
+        mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
+        mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
+        on_finish: impl FnOnce(MetaRequestResult) -> Result<T, E> + Send + 'static,
+    ) -> Result<S3HttpRequest<T, E>, S3RequestError<E>> {
+        let (tx, rx) = oneshot::channel::<Result<T, S3RequestError<E>>>();
 
-        // Accumulate the body of the response into this Vec<u8>.
-        let body: Arc<Mutex<Vec<u8>>> = Default::default();
+        let span_body = request_span.clone();
+        let span_finish = request_span;
 
-        let body1 = body.clone();
+        let request_id = Arc::new(Mutex::new(None));
+        let request_id_clone = Arc::clone(&request_id);
+        let start_time = Instant::now();
 
         let mut options = MetaRequestOptions::new();
         options
             .message(message)
+            .on_headers(move |headers, response_status| {
+                if let Ok(id) = headers.get("x-amz-request-id") {
+                    *request_id.lock().unwrap() = Some(id.value().clone());
+                }
+                (on_headers)(headers, response_status);
+            })
             .on_body(move |range_start, data| {
+                let _guard = span_body.enter();
+
                 trace!(
                     start = range_start,
                     length = data.len(),
-                    "S3 request body part received"
+                    "body part received"
                 );
 
-                let mut body = body1.lock().unwrap();
-
-                // TODO: are we guaranteed to receive parts in order like this?
-                assert_eq!(range_start as usize, body.len());
-                body.extend_from_slice(data);
+                (on_body)(range_start, data);
             })
             .on_finish(move |request_result| {
-                let mut body = body.lock().unwrap();
+                let _guard = span_finish.enter();
 
-                trace!(body_size = body.len(), "S3 request finished");
+                debug!(
+                    request_id=?request_id_clone.lock().unwrap().as_deref().unwrap_or_else(|| OsStr::from_bytes("unknown".as_bytes())),
+                    duration=?start_time.elapsed(),
+                    "request finished"
+                );
 
                 let result = if !request_result.is_err() {
-                    Ok(std::mem::take(&mut *body))
+                    on_finish(request_result).map_err(|e| S3RequestError::ServiceError(e))
                 } else {
-                    error!(?request_result, "S3 request failed");
+                    warn!(?request_result, "request failed");
                     Err(S3RequestError::ResponseError(request_result))
                 };
 
                 let _ = tx.send(result);
             })
-            .request_type(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
+            .request_type(meta_request_type);
 
-        // Issue the HTTP request using the CRT's S3 meta request API.
-        let req = self
-            .s3_client
+        // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
+        // the resulting meta request, as it's a reference-counted object.
+        self.s3_client
             .make_meta_request(options)
-            .map(|_| ()) // Discard the MetaRequest since it's not Send.
-            .map_err(S3RequestError::ConstructionFailure);
+            .map_err(S3RequestError::ConstructionFailure)?;
 
-        async {
-            // Check that the request was successfully constructed. Has to be in the async block.
-            req?;
+        Ok(S3HttpRequest { receiver: rx })
+    }
 
-            // Wait on the rx channel until the callbacks are all done.
-            rx.await
-                .unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err))))
-        }
+    /// Make an HTTP request using this S3 client that returns the body on success
+    fn make_simple_http_request<E: std::error::Error + Send + 'static>(
+        &self,
+        message: Message,
+        request_span: Span,
+    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError<E>> {
+        // Accumulate the body of the response into this Vec<u8>
+        let body: Arc<Mutex<Vec<u8>>> = Default::default();
+        let body_clone = Arc::clone(&body);
+
+        self.make_meta_request(
+            message,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT,
+            request_span,
+            |_, _| (),
+            move |offset, data| {
+                let mut body = body_clone.lock().unwrap();
+                assert_eq!(offset as usize, body.len());
+                body.extend_from_slice(data);
+            },
+            move |_result| Ok(std::mem::take(&mut *body.lock().unwrap())),
+        )
+    }
+
+    fn next_request_counter(&self) -> u64 {
+        self.next_request_counter.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+#[derive(Debug)]
+#[pin_project]
+struct S3HttpRequest<T, E: std::error::Error> {
+    #[pin]
+    receiver: oneshot::Receiver<Result<T, S3RequestError<E>>>,
+}
+
+impl<T: Send, E: std::error::Error + Send + 'static> Future for S3HttpRequest<T, E> {
+    type Output = Result<T, S3RequestError<E>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        this.receiver
+            .poll(cx)
+            .map(|result| result.unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err)))))
     }
 }
 

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::ffi::OsStr;
 use std::time::Duration;
+use tracing::instrument;
 
 use crate::fs::{DirectoryReplier, Inode, ReadReplier, S3Filesystem, S3FilesystemConfig};
 use fuser::{FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, Request};
@@ -26,6 +27,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         self.fs.init(config).await
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, name=?name))]
     async fn lookup(&self, _req: &Request<'_>, parent: Inode, name: &OsStr, reply: ReplyEntry) {
         match self.fs.lookup(parent, name).await {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
@@ -33,6 +35,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
     async fn getattr(&self, _req: &Request<'_>, ino: Inode, reply: ReplyAttr) {
         match self.fs.getattr(ino).await {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
@@ -40,6 +43,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
     async fn open(&self, _req: &Request<'_>, ino: Inode, flags: i32, reply: ReplyOpen) {
         match self.fs.open(ino, flags).await {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
@@ -47,6 +51,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size))]
     async fn read(
         &self,
         _req: &Request<'_>,
@@ -83,6 +88,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         // return value of read is proof a reply was sent
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent))]
     async fn opendir(&self, _req: &Request<'_>, parent: Inode, flags: i32, reply: ReplyOpen) {
         match self.fs.opendir(parent, flags).await {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
@@ -90,6 +96,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
     async fn readdir(&self, _req: &Request<'_>, parent: Inode, fh: u64, offset: i64, mut reply: fuser::ReplyDirectory) {
         struct ReplyDirectory<'a> {
             inner: &'a mut fuser::ReplyDirectory,
@@ -117,6 +124,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
     async fn readdirplus(
         &self,
         _req: &Request<'_>,
@@ -151,6 +159,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
     async fn release(
         &self,
         _req: &Request<'_>,

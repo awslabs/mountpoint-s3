@@ -3,7 +3,7 @@ use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3::s3::client::MetaRequestResult;
 use thiserror::Error;
-use tracing::error;
+use tracing::debug;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -28,7 +28,10 @@ impl S3Client {
                 .unwrap();
             message.set_request_path("/").unwrap();
 
-            self.make_http_request(message)
+            let span = request_span!(self, "head_bucket");
+            span.in_scope(|| debug!(?bucket, region = self.region, "new request"));
+
+            self.make_simple_http_request(message, span)?
         };
 
         body.await.map(|_| ()).map_err(|err| match err {

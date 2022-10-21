@@ -1,20 +1,20 @@
+use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::{Header, Message};
-use aws_crt_s3::s3::client::MetaRequestOptions;
 use aws_crt_s3_sys::aws_s3_meta_request_type;
 use futures::channel::mpsc::UnboundedReceiver;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use pin_project::pin_project;
 use thiserror::Error;
-use tracing::{error, trace};
+use tracing::{debug, error};
 
 use crate::object_client::GetBodyPart;
+use crate::s3_client::S3HttpRequest;
 use crate::{S3Client, S3RequestError};
 
 impl S3Client {
@@ -27,6 +27,9 @@ impl S3Client {
         key: &str,
         range: Option<Range<u64>>,
     ) -> Result<GetObjectRequest, S3RequestError<GetObjectError>> {
+        let span = request_span!(self, "get_object");
+        span.in_scope(|| debug!(?key, ?range, "new request"));
+
         let mut message = Message::new_request(&mut Allocator::default()).unwrap();
 
         let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
@@ -49,50 +52,23 @@ impl S3Client {
         let key = format!("/{}", key);
         message.set_request_path(key).unwrap();
 
-        // TODO find a better way to do this. We want to arrange for the channel to close either
-        // when the finish callback runs or when any body part returns an error. We do that now by/
-        // sharing a single sender and dropping it in either callback.
         let (sender, receiver) = futures::channel::mpsc::unbounded();
-        let sender = Arc::new(Mutex::new(Some(sender)));
-        let sender_clone = Arc::clone(&sender);
 
-        let mut options = MetaRequestOptions::new();
-
-        options
-            .message(message)
-            .request_type(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT)
-            .on_body(move |range_start, body| {
-                trace!(
-                    offset = range_start,
-                    length = body.len(),
-                    "GetObjectRequest received body part",
-                );
-                let mut sender = sender.lock().unwrap();
-                if let Some(sender) = sender.as_mut() {
-                    let _ = sender.unbounded_send(Ok((range_start, body.into())));
-                }
-            })
-            .on_finish(move |request_result| {
-                trace!("GetObjectRequest finished");
-
-                let mut sender = sender_clone.lock().unwrap();
-
-                if let Some(error_body) = request_result.error_response_body.as_ref() {
-                    error!(error = ?error_body, "GetObjectRequest error");
-                    let _ = sender
-                        .as_mut()
-                        .map(|sender| sender.unbounded_send(Err(request_result.crt_error)));
-                }
-
-                sender.take().expect("request should only finish once");
-            });
-
-        self.s3_client
-            .make_meta_request(options)
-            .expect("failed to make GET request");
+        let request = self.make_meta_request(
+            message,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
+            span,
+            |_, _| (),
+            move |offset, data| {
+                let _ = sender.unbounded_send(Ok((offset, data.into())));
+            },
+            move |_result| Ok(()),
+        )?;
 
         Ok(GetObjectRequest {
+            request,
             finish_receiver: receiver,
+            finished: false,
         })
     }
 }
@@ -108,26 +84,36 @@ pub enum GetObjectError {
 #[pin_project]
 pub struct GetObjectRequest {
     #[pin]
+    request: S3HttpRequest<(), GetObjectError>,
+    #[pin]
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
+    finished: bool,
 }
 
 impl Stream for GetObjectRequest {
     type Item = Result<GetBodyPart, S3RequestError<GetObjectError>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        self.project()
-            .finish_receiver
-            .poll_next(cx)
-            .map(|maybe_result| maybe_result.map(|result| result.map_err(|e| e.into())))
-    }
-}
+        if self.finished {
+            return Poll::Ready(None);
+        }
 
-impl Iterator for GetObjectRequest {
-    type Item = Result<GetBodyPart, GetObjectError>;
+        let this = self.project();
 
-    fn next(&mut self) -> Option<Self::Item> {
-        // Safety: no one ever moves out of `GetObjectRequest`
-        let this = unsafe { Pin::new_unchecked(self) };
-        futures::executor::block_on(this.project().finish_receiver.next()).map(|result| result.map_err(|e| e.into()))
+        if let Poll::Ready(Some(val)) = this.finish_receiver.poll_next(cx) {
+            return Poll::Ready(Some(val.map_err(|e| e.into())));
+        }
+
+        match this.request.poll(cx) {
+            Poll::Ready(Ok(_)) => {
+                *this.finished = true;
+                Poll::Ready(None)
+            }
+            Poll::Ready(Err(e)) => {
+                *this.finished = true;
+                Poll::Ready(Some(Err(e)))
+            }
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

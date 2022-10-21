@@ -7,7 +7,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tracing::error;
+use tracing::{debug, error};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -163,7 +163,18 @@ impl S3Client {
 
             message.set_request_path(request)?;
 
-            self.make_http_request(message)
+            let span = request_span!(self, "list_objects");
+            span.in_scope(|| {
+                debug!(
+                    ?prefix,
+                    ?delimiter,
+                    ?max_keys,
+                    continued = continuation_token.is_some(),
+                    "new request"
+                )
+            });
+
+            self.make_simple_http_request(message, span)?
         };
 
         let body = body.await?;
