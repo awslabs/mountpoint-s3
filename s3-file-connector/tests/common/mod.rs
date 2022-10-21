@@ -49,7 +49,7 @@ impl DirectoryReplier for &mut DirectoryReply {
         _generation: u64,
         _ttl: Duration,
     ) -> bool {
-        if self.readdir_limit > 0 && self.entries.len() > 0 && self.entries.len() % self.readdir_limit == 0 {
+        if self.readdir_limit > 0 && !self.entries.is_empty() && self.entries.len() % self.readdir_limit == 0 {
             true
         } else {
             self.entries.push_back(DirectoryEntry {
