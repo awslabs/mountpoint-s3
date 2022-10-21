@@ -1,6 +1,9 @@
 use crate::common::{make_test_filesystem, ReadReply};
+use crate::reftests::gen_tree::gen_tree;
 use crate::reftests::reference::{Node, Reference};
+use fuser::FileType;
 use futures::future::{BoxFuture, FutureExt};
+use proptest::prelude::*;
 use s3_client::mock_client::{MockClient, MockObject};
 use s3_file_connector::{
     fs::{Inode, FUSE_ROOT_INODE},
@@ -11,7 +14,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use test_case::test_case;
 
-struct Harness {
+pub struct Harness {
     prefix: &'static str,
     reference: Reference,
     client: Arc<MockClient>,
@@ -76,6 +79,9 @@ impl Harness {
                     let name = &reply.name.as_os_str().to_str().unwrap().to_string();
                     let fs_kind = reply.attr.kind;
 
+                    let lkup = self.fs.lookup(fs_dir, &reply.name).await.unwrap();
+                    let attr = lkup.attr;
+
                     match children.get(name) {
                         Some(node) => {
                             let ref_kind = node.file_type();
@@ -84,9 +90,12 @@ impl Harness {
                                 "for file {:?} expecting {:?} found {:?}",
                                 name, ref_kind, fs_kind
                             );
+                            assert_eq!(attr.ino, reply.ino);
                             if let Node::File(ref_object) = node {
+                                assert_eq!(attr.kind, FileType::RegularFile);
                                 self.compare_file(reply.ino, ref_object).await;
                             } else {
+                                assert_eq!(attr.kind, FileType::Directory);
                                 // Recurse into directory
                                 self.compare_contents_recursive(fs_dir, reply.ino, node).await;
                             }
@@ -164,4 +173,23 @@ async fn reference_smoke_test(prefix: &'static str) {
     }
 
     harness.compare_contents().await;
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: None,
+        .. ProptestConfig::default()
+    })]
+    #[test]
+    fn reftest_random_tree(tree in gen_tree(5, 500, 5, 20)) {
+        let config = S3FilesystemConfig {
+            readdir_size: 5,
+            ..Default::default()
+        };
+        let mut harness = Harness::new("test_prefix/", config);
+        harness.populate_from_tree("".to_string(), &tree);
+        futures::executor::block_on(async move {
+            harness.compare_contents().await;
+        });
+    }
 }

@@ -42,6 +42,22 @@ impl Reference {
         &self.root
     }
 
+    fn depth_recursive(&self, node: &Node) -> usize {
+        if let Node::Directory(map) = node {
+            let mut depth = 0usize;
+            for child in map.values() {
+                depth = depth.max(1 + self.depth_recursive(child));
+            }
+            depth
+        } else {
+            0
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth_recursive(&self.root)
+    }
+
     // Add file to the reference, creating internal nodes as necessary
     pub fn add_file(&mut self, path: &str, pattern: u8, length: usize) {
         let path = Path::new(path);
@@ -68,4 +84,15 @@ impl Reference {
             };
         }
     }
+}
+
+#[test]
+fn depth_test() {
+    let mut r = Reference::new();
+
+    assert_eq!(r.depth(), 0);
+
+    r.add_file("/a/b/c1", 0, 0);
+    r.add_file("/a/b/c2", 0, 0);
+    assert_eq!(r.depth(), 3);
 }
