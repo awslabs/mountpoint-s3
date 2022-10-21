@@ -1,14 +1,16 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use fuser::{BackgroundSession, MountOption, Session};
+use libc::O_DIRECT;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use s3_client::S3Client;
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{BufRead, BufReader},
+    os::unix::prelude::OpenOptionsExt,
     time::Duration,
 };
 use tempfile::tempdir;
@@ -56,7 +58,7 @@ fn get_bench_file() -> String {
 }
 
 fn get_buffer_cap() -> usize {
-    let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or("128".to_string());
+    let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or_else(|_| "128".to_string());
     buf_cap
         .parse::<usize>()
         .expect("Buffer capacity must be able to convert to usize")
@@ -118,5 +120,42 @@ pub fn read_file_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, read_file_benchmark);
+pub fn read_file_benchmark_direct_io(c: &mut Criterion) {
+    const KB: usize = 1 << 10;
+
+    let file_path = &get_bench_file();
+    let buffer_cap = get_buffer_cap();
+    println!("Buffer cap: {buffer_cap} KB");
+
+    let session = mount_file_system();
+    let mountpoint = &session.mountpoint;
+
+    let mut group = c.benchmark_group("read_file_benchmark");
+    group.sample_size(10);
+    group.measurement_time(Duration::new(10, 0));
+    group.bench_function("read_file_direct_io", |b| {
+        b.iter(|| {
+            let file_path = mountpoint.join(file_path);
+            let file = OpenOptions::new()
+                .read(true)
+                .custom_flags(O_DIRECT)
+                .open(file_path)
+                .unwrap();
+            let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
+            loop {
+                let length = {
+                    let buffer = reader.fill_buf().unwrap();
+                    buffer.len()
+                };
+                if length == 0 {
+                    break;
+                }
+                reader.consume(length);
+            }
+            black_box(1);
+        })
+    });
+}
+
+criterion_group!(benches, read_file_benchmark, read_file_benchmark_direct_io);
 criterion_main!(benches);

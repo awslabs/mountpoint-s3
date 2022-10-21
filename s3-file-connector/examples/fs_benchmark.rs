@@ -1,12 +1,15 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
 use fuser::{BackgroundSession, MountOption, Session};
+use libc::O_DIRECT;
 use s3_client::{S3Client, S3ClientConfig};
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
 use std::{
     fs::File,
+    fs::OpenOptions,
     io::{self, BufRead, BufReader},
+    os::unix::prelude::OpenOptionsExt,
     time::Instant,
 };
 use tempfile::tempdir;
@@ -47,6 +50,12 @@ fn main() -> io::Result<()> {
                 .takes_value(true),
         )
         .arg(
+            Arg::new("direct")
+                .long("direct")
+                .help("Open file with O_DIRECT option")
+                .takes_value(false),
+        )
+        .arg(
             Arg::new("throughput-target-gbps")
                 .long("throughput-target-gbps")
                 .help("Desired throughput in Gbps")
@@ -66,6 +75,7 @@ fn main() -> io::Result<()> {
     let buffer_capacity = matches
         .get_one::<String>("buffer-capacity-kb")
         .map(|s| s.parse::<usize>().expect("buffer capacity must be a number"));
+    let direct = matches.is_present("direct");
     let throughput_target_gbps = matches
         .get_one::<String>("throughput-target-gbps")
         .map(|s| s.parse::<f64>().expect("throughput target must be an f64"));
@@ -79,7 +89,11 @@ fn main() -> io::Result<()> {
 
     for i in 0..iterations.unwrap_or(1) {
         let file_path = mountpoint.join(file_path);
-        let file = File::open(file_path)?;
+        let file = if direct {
+            OpenOptions::new().read(true).custom_flags(O_DIRECT).open(file_path)?
+        } else {
+            File::open(file_path)?
+        };
         let mut received_size: u64 = 0;
         let mut op_counter: u64 = 0;
 
