@@ -39,6 +39,11 @@ fn get_bench_file() -> String {
     std::env::var("S3_BUCKET_BENCH_FILE").expect("Set S3_BUCKET_BENCH_FILE to run this benchmark")
 }
 
+fn get_buffer_cap() -> usize {
+    let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or("128".to_string());
+    buf_cap.parse::<usize>().expect("Buffer capacity must be able to convert to usize")
+}
+
 fn mount_file_system() -> BackgroundSession {
     let (bucket, _) = get_test_bucket_and_prefix("read_file");
     let temp_dir = tempdir().expect("Should be able to create temp directory");
@@ -61,9 +66,11 @@ fn mount_file_system() -> BackgroundSession {
 }
 
 pub fn read_file_benchmark(c: &mut Criterion) {
-    const DEFAULT_BUF_CAP: usize = 128;
+    const KB: usize = 1 << 10;
 
     let file_path = &get_bench_file();
+    let buffer_cap = get_buffer_cap();
+    println!("Buffer cap: {buffer_cap} KB");
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -75,7 +82,7 @@ pub fn read_file_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let mut reader = BufReader::with_capacity(DEFAULT_BUF_CAP, file);
+            let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
             loop {
                 let length = {
                     let buffer = reader.fill_buf().unwrap();
