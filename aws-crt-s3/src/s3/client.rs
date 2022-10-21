@@ -241,11 +241,10 @@ impl MetaRequestOptions {
     }
 
     /// Set the type of this request
-    /// TODO: wrap aws_s3_meta_request_type
-    pub fn request_type(&mut self, request_type: aws_s3_meta_request_type) -> &mut Self {
+    pub fn request_type(&mut self, request_type: MetaRequestType) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
-        options.inner.type_ = request_type;
+        options.inner.type_ = request_type.into();
         self
     }
 }
@@ -253,6 +252,31 @@ impl MetaRequestOptions {
 impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// What transformation to apply to a single [MetaRequest] to transform it into a collection of
+/// requests to S3.
+#[derive(Debug)]
+pub enum MetaRequestType {
+    /// Send the request as-is (no transformation)
+    Default,
+    /// Split the GetObject request into a series of ranged requests executed in parallel
+    GetObject,
+    /// Split the PutObject request into multi-part uploads executed in parallel
+    PutObject,
+    /// Perform a multi-part copy using multiple UploadPartCopy requests executed in parallel
+    CopyObject,
+}
+
+impl From<MetaRequestType> for aws_s3_meta_request_type {
+    fn from(typ: MetaRequestType) -> Self {
+        match typ {
+            MetaRequestType::Default => aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT,
+            MetaRequestType::GetObject => aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
+            MetaRequestType::PutObject => aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT,
+            MetaRequestType::CopyObject => aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_COPY_OBJECT,
+        }
     }
 }
 

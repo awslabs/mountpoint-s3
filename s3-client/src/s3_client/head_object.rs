@@ -3,7 +3,7 @@ use crate::s3_client::S3RequestError;
 use crate::S3Client;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Header, Headers, HeadersError, Message};
-use aws_crt_s3_sys::aws_s3_meta_request_type;
+use aws_crt_s3::s3::client::MetaRequestType;
 use std::ffi::OsString;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -93,7 +93,7 @@ impl S3Client {
 
             self.make_meta_request(
                 message,
-                aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT,
+                MetaRequestType::Default,
                 span,
                 move |headers, _status| {
                     let mut header = header1.lock().unwrap();

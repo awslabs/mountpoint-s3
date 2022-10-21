@@ -8,8 +8,6 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use async_trait::async_trait;
-
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Headers, Message};
@@ -18,15 +16,13 @@ use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::futures::FutureSpawner;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::s3::client::{
-    init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult,
+    init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
 };
-use aws_crt_s3_sys::aws_s3_meta_request_type;
 
+use async_trait::async_trait;
 use futures::channel::oneshot;
-
 use pin_project::pin_project;
 use thiserror::Error;
-
 use tracing::{debug, error, trace, warn, Span};
 
 use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient};
@@ -127,7 +123,7 @@ impl S3Client {
     fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
         message: Message,
-        meta_request_type: aws_s3_meta_request_type,
+        meta_request_type: MetaRequestType,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
@@ -203,7 +199,7 @@ impl S3Client {
 
         self.make_meta_request(
             message,
-            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT,
+            MetaRequestType::Default,
             request_span,
             |_, _| (),
             move |offset, data| {

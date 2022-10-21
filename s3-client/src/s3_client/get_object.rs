@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::{Header, Message};
-use aws_crt_s3_sys::aws_s3_meta_request_type;
+use aws_crt_s3::s3::client::MetaRequestType;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
 use pin_project::pin_project;
@@ -56,7 +56,7 @@ impl S3Client {
 
         let request = self.make_meta_request(
             message,
-            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
+            MetaRequestType::GetObject,
             span,
             |_, _| (),
             move |offset, data| {
