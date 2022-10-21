@@ -1,4 +1,4 @@
-use crate::common::{make_test_filesystem, ReadReply};
+use crate::common::{make_test_filesystem, DirectoryReply, ReadReply};
 use crate::reftests::gen_tree::gen_tree;
 use crate::reftests::reference::{Node, Reference};
 use fuser::FileType;
@@ -15,6 +15,7 @@ use std::sync::Arc;
 use test_case::test_case;
 
 pub struct Harness {
+    readdir_limit: usize, // max number of entries that a readdir will return; 0 means no limit
     prefix: &'static str,
     reference: Reference,
     client: Arc<MockClient>,
@@ -32,10 +33,11 @@ impl Debug for Harness {
 }
 
 impl Harness {
-    fn new(prefix: &'static str, config: S3FilesystemConfig) -> Self {
+    fn new(prefix: &'static str, config: S3FilesystemConfig, readdir_limit: usize) -> Self {
         let reference = Reference::new();
         let (client, fs) = make_test_filesystem("harness", prefix, config);
         Self {
+            readdir_limit,
             prefix,
             reference,
             client,
@@ -60,19 +62,30 @@ impl Harness {
             let children = ref_dir.children();
             let mut keys = children.keys().cloned().collect::<HashSet<_>>();
 
-            let mut reply = Default::default();
+            let mut reply = DirectoryReply::new(self.readdir_limit);
             let _reply = self.fs.readdir(fs_dir, dir_handle, 0, &mut reply).await.unwrap();
 
             // TODO `stat` on these needs to work
             let e0 = reply.entries.pop_front().unwrap();
             assert_eq!(e0.name, ".");
             assert_eq!(e0.ino, fs_dir);
+            let mut offset = e0.offset;
+
+            if reply.entries.is_empty() {
+                reply.clear();
+                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
+            }
 
             let e1 = reply.entries.pop_front().unwrap();
             assert_eq!(e1.name, "..");
             assert_eq!(e1.ino, fs_parent);
+            offset = offset.max(e1.offset);
 
-            let mut offset = e0.offset.max(e1.offset);
+            if reply.entries.is_empty() {
+                reply.clear();
+                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await;
+                _reply.unwrap();
+            }
 
             while !reply.entries.is_empty() {
                 while let Some(reply) = reply.entries.pop_front() {
@@ -106,7 +119,7 @@ impl Harness {
 
                     offset = offset.max(reply.offset);
                 }
-                reply = Default::default();
+                reply.clear();
                 let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
@@ -165,7 +178,7 @@ async fn reference_smoke_test(prefix: &'static str) {
         readdir_size: 5,
         ..Default::default()
     };
-    let mut harness = Harness::new(prefix, config);
+    let mut harness = Harness::new(prefix, config, 0);
 
     for i in 0..15 {
         let key = format!("foo/file{}.txt", i);
@@ -181,12 +194,12 @@ proptest! {
         .. ProptestConfig::default()
     })]
     #[test]
-    fn reftest_random_tree(tree in gen_tree(5, 500, 5, 20)) {
+    fn reftest_random_tree(readdir_limit in 0..10usize, tree in gen_tree(5, 500, 5, 20)) {
         let config = S3FilesystemConfig {
             readdir_size: 5,
             ..Default::default()
         };
-        let mut harness = Harness::new("test_prefix/", config);
+        let mut harness = Harness::new("test_prefix/", config, readdir_limit);
         harness.populate_from_tree("".to_string(), &tree);
         futures::executor::block_on(async move {
             harness.compare_contents().await;

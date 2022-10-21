@@ -35,6 +35,7 @@ pub struct DirectoryEntry {
 
 #[derive(Debug, Default)]
 pub struct DirectoryReply {
+    readdir_limit: usize,
     pub entries: VecDeque<DirectoryEntry>,
 }
 
@@ -48,14 +49,30 @@ impl DirectoryReplier for &mut DirectoryReply {
         _generation: u64,
         _ttl: Duration,
     ) -> bool {
-        self.entries.push_back(DirectoryEntry {
-            ino,
-            offset,
-            attr,
-            name: name.as_ref().to_os_string(),
-        });
-        // TODO test full replies
-        false
+        if self.readdir_limit > 0 && self.entries.len() > 0 && self.entries.len() % self.readdir_limit == 0 {
+            true
+        } else {
+            self.entries.push_back(DirectoryEntry {
+                ino,
+                offset,
+                attr,
+                name: name.as_ref().to_os_string(),
+            });
+            false
+        }
+    }
+}
+
+impl DirectoryReply {
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            readdir_limit: max_entries,
+            ..Default::default()
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
     }
 }
 
