@@ -3,8 +3,9 @@
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
 use std::sync::Arc;
+use std::time::Duration;
 
-use fuser::FileType;
+use fuser::{FileAttr, FileType};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
@@ -35,7 +36,7 @@ pub fn make_test_filesystem(
 struct DirectoryEntry {
     ino: u64,
     offset: i64,
-    kind: FileType,
+    attr: FileAttr,
     name: OsString,
 }
 
@@ -45,11 +46,19 @@ struct DirectoryReply {
 }
 
 impl DirectoryReplier for &mut DirectoryReply {
-    fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
+    fn add<T: AsRef<OsStr>>(
+        &mut self,
+        ino: u64,
+        offset: i64,
+        name: T,
+        attr: FileAttr,
+        _generation: u64,
+        _ttl: Duration,
+    ) -> bool {
         self.entries.push(DirectoryEntry {
             ino,
             offset,
-            kind,
+            attr,
             name: name.as_ref().to_os_string(),
         });
         // TODO test full replies
@@ -98,7 +107,7 @@ async fn test_read_dir_root(prefix: &str) {
     for (i, reply) in reply.entries.iter().skip(2).enumerate() {
         let expected: OsString = format!("file{}.txt", i + 1).into();
         assert_eq!(reply.name, expected);
-        assert_eq!(reply.kind, FileType::RegularFile);
+        assert_eq!(reply.attr.kind, FileType::RegularFile);
         assert!(reply.ino > 1);
 
         let attr = fs.getattr(reply.ino).await.unwrap();
@@ -159,7 +168,7 @@ async fn test_read_dir_nested(prefix: &str) {
     for (i, reply) in reply.entries.iter().skip(2).enumerate() {
         let expected: OsString = format!("file{}.txt", i + 1).into();
         assert_eq!(reply.name, expected);
-        assert_eq!(reply.kind, FileType::RegularFile);
+        assert_eq!(reply.attr.kind, FileType::RegularFile);
         assert!(reply.ino > 1);
 
         let attr = fs.getattr(reply.ino).await.unwrap();
@@ -254,7 +263,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     assert_eq!(reply.entries[1].ino, FUSE_ROOT_INODE);
 
     assert_eq!(reply.entries[2].name, "file2.txt");
-    assert_eq!(reply.entries[2].kind, FileType::RegularFile);
+    assert_eq!(reply.entries[2].attr.kind, FileType::RegularFile);
 
     let fh = fs.open(reply.entries[2].ino, 0x8000).await.unwrap().fh;
     let mut read = Err(0);

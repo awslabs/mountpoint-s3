@@ -74,7 +74,7 @@ impl Harness {
             while !reply.entries.is_empty() {
                 while let Some(reply) = reply.entries.pop_front() {
                     let name = &reply.name.as_os_str().to_str().unwrap().to_string();
-                    let fs_kind = reply.kind;
+                    let fs_kind = reply.attr.kind;
 
                     match children.get(name) {
                         Some(node) => {

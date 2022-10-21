@@ -1,12 +1,13 @@
 mod harness;
 mod reference;
-use fuser::FileType;
+use fuser::FileAttr;
 use s3_client::mock_client::{MockClient, MockClientConfig};
 use s3_file_connector::fs::{DirectoryReplier, ReadReplier};
 use s3_file_connector::{S3Filesystem, S3FilesystemConfig};
 use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub fn make_test_filesystem(
     bucket: &str,
@@ -29,7 +30,7 @@ pub fn make_test_filesystem(
 pub struct DirectoryEntry {
     pub ino: u64,
     pub offset: i64,
-    pub kind: FileType,
+    pub attr: FileAttr,
     pub name: OsString,
 }
 
@@ -39,11 +40,19 @@ pub struct DirectoryReply {
 }
 
 impl DirectoryReplier for &mut DirectoryReply {
-    fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
+    fn add<T: AsRef<OsStr>>(
+        &mut self,
+        ino: u64,
+        offset: i64,
+        name: T,
+        attr: FileAttr,
+        _generation: u64,
+        _ttl: Duration,
+    ) -> bool {
         self.entries.push_back(DirectoryEntry {
             ino,
             offset,
-            kind,
+            attr,
             name: name.as_ref().to_os_string(),
         });
         // TODO test full replies

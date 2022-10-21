@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use std::ffi::OsStr;
+use std::time::Duration;
 
 use crate::fs::{DirectoryReplier, Inode, ReadReplier, S3Filesystem, S3FilesystemConfig};
-use fuser::{FileType, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, Request};
+use fuser::{FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, Request};
 use s3_client::ObjectClient;
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
@@ -95,12 +96,54 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         }
 
         impl<'a> DirectoryReplier for ReplyDirectory<'a> {
-            fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool {
-                self.inner.add(ino, offset, kind, name)
+            fn add<T: AsRef<OsStr>>(
+                &mut self,
+                ino: u64,
+                offset: i64,
+                name: T,
+                attr: FileAttr,
+                _generation: u64,
+                _ttl: Duration,
+            ) -> bool {
+                self.inner.add(ino, offset, attr.kind, name)
             }
         }
 
         let replier = ReplyDirectory { inner: &mut reply };
+
+        match self.fs.readdir(parent, fh, offset, replier).await {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e),
+        }
+    }
+
+    async fn readdirplus(
+        &self,
+        _req: &Request<'_>,
+        parent: u64,
+        fh: u64,
+        offset: i64,
+        mut reply: fuser::ReplyDirectoryPlus,
+    ) {
+        struct ReplyDirectoryPlus<'a> {
+            inner: &'a mut fuser::ReplyDirectoryPlus,
+        }
+
+        impl<'a> DirectoryReplier for ReplyDirectoryPlus<'a> {
+            fn add<T: AsRef<OsStr>>(
+                &mut self,
+                ino: u64,
+                offset: i64,
+                name: T,
+                attr: FileAttr,
+                generation: u64,
+                ttl: Duration,
+            ) -> bool {
+                self.inner.add(ino, offset, name, &ttl, &attr, generation)
+            }
+        }
+
+        let replier = ReplyDirectoryPlus { inner: &mut reply };
 
         match self.fs.readdir(parent, fh, offset, replier).await {
             Ok(_) => reply.ok(),

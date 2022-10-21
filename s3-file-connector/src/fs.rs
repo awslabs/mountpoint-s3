@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{error, trace};
 
-use fuser::{FileAttr, FileType, KernelConfig};
+use fuser::{FileAttr, KernelConfig};
 use s3_client::ObjectClient;
 
 use crate::inode::{InodeError, InodeNo, InodeStat, InodeStatKind, ReaddirHandle, Superblock};
@@ -52,14 +52,18 @@ struct FileHandle<Client: ObjectClient> {
 }
 
 pub struct S3FilesystemConfig {
-    pub ttl_zero: Duration,
+    pub stat_ttl: Duration,
     pub readdir_size: usize,
 }
 
 impl Default for S3FilesystemConfig {
     fn default() -> Self {
         Self {
-            ttl_zero: Duration::from_secs(0),
+            // We'd like to use 0 here but FUSE behaves badly when the TTL is exactly 0 -- it
+            // repeatedly `lookup`s the same inode within the same `readdir` request. So we apply a
+            // very small TTL, enough to debounce the FUSE requests while being much much smaller
+            // than S3 ListObjects latency.
+            stat_ttl: Duration::from_millis(1),
             readdir_size: 100,
         }
     }
@@ -69,7 +73,7 @@ pub struct S3Filesystem<Client: ObjectClient> {
     config: S3FilesystemConfig,
     client: Arc<Client>,
     superblock: Superblock,
-    streaming_get_manager: Prefetcher<Client>,
+    prefetcher: Prefetcher<Client>,
     bucket: String,
     #[allow(unused)]
     prefix: String,
@@ -90,13 +94,13 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         let client = Arc::new(client);
 
-        let streaming_get_manager = Prefetcher::new(client.clone(), Default::default());
+        let prefetcher = Prefetcher::new(client.clone(), Default::default());
 
         Self {
             config,
             client,
             superblock,
-            streaming_get_manager,
+            prefetcher,
             bucket: bucket.to_string(),
             prefix: prefix.to_string(),
             next_handle: AtomicU64::new(1),
@@ -153,10 +157,18 @@ pub struct Opened {
     pub flags: u32,
 }
 
-/// Reply to a `readdir` call
+/// Reply to a `readdir` or `readdirplus` call
 pub trait DirectoryReplier {
     /// Add a new dentry to the reply. Returns true if the buffer was full.
-    fn add<T: AsRef<OsStr>>(&mut self, ino: u64, offset: i64, kind: FileType, name: T) -> bool;
+    fn add<T: AsRef<OsStr>>(
+        &mut self,
+        ino: u64,
+        offset: i64,
+        name: T,
+        attr: FileAttr,
+        generation: u64,
+        ttl: Duration,
+    ) -> bool;
 }
 
 /// Reply to a `read` call. This is funky because we want the reply to happen with only a borrow of
@@ -175,6 +187,7 @@ pub trait ReadReplier {
 impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.set_max_readahead(0);
+        let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
         Ok(())
     }
 
@@ -184,7 +197,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
         let stat = self.superblock.lookup(&self.client, parent, name).await?;
 
         Ok(Entry {
-            ttl: self.config.ttl_zero,
+            ttl: self.config.stat_ttl,
             attr: make_attr(stat.ino, &stat.stat),
             generation: 0,
         })
@@ -196,7 +209,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
         let lookup = self.superblock.getattr(&self.client, ino).await?;
 
         Ok(Attr {
-            ttl: self.config.ttl_zero,
+            ttl: self.config.stat_ttl,
             attr: make_attr(ino, &lookup.stat),
         })
     }
@@ -246,7 +259,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
             let mut request = handle.request.lock().unwrap();
             if request.is_none() {
                 let key = std::str::from_utf8(handle.full_key.as_bytes()).unwrap();
-                *request = Some(self.streaming_get_manager.get(&self.bucket, key, handle.object_size));
+                *request = Some(self.prefetcher.get(&self.bucket, key, handle.object_size));
             }
             let body = request.as_mut().unwrap().read(offset as u64, size as usize);
             reply.data(&body)
@@ -297,13 +310,24 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
         }
 
         if handle.offset() < 1 {
-            if reply.add(parent, handle.offset() + 1, FileType::Directory, ".") {
+            let stat = self.superblock.getattr(&self.client, parent).await?;
+            let attr = make_attr(stat.ino, &stat.stat);
+            if reply.add(parent, handle.offset() + 1, ".", attr, 0u64, self.config.stat_ttl) {
                 return Ok(reply);
             }
             handle.next_offset();
         }
         if handle.offset() < 2 {
-            if reply.add(handle.handle.parent(), handle.offset() + 1, FileType::Directory, "..") {
+            let stat = self.superblock.getattr(&self.client, handle.handle.parent()).await?;
+            let attr = make_attr(stat.ino, &stat.stat);
+            if reply.add(
+                handle.handle.parent(),
+                handle.offset() + 1,
+                "..",
+                attr,
+                0u64,
+                self.config.stat_ttl,
+            ) {
                 return Ok(reply);
             }
             handle.next_offset();
@@ -315,11 +339,14 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
                 Some(next) => next,
             };
 
+            let attr = make_attr(next.ino, &next.stat);
             if reply.add(
                 next.ino,
                 handle.offset() + 1,
-                (&next.stat.kind).into(),
                 next.name.clone(),
+                attr,
+                0u64,
+                self.config.stat_ttl,
             ) {
                 handle.handle.readd(next);
                 return Ok(reply);
