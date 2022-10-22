@@ -1,6 +1,6 @@
 use crate::common::{make_test_filesystem, DirectoryReply, ReadReply};
-use crate::reftests::gen_tree::gen_tree;
-use crate::reftests::reference::{Node, Reference};
+use crate::reftests::gen_tree::{flatten_tree, gen_tree, Content, FileSize, Name, TreeNode};
+use crate::reftests::reference::{build_reference, Node, Reference};
 use fuser::FileType;
 use futures::future::{BoxFuture, FutureExt};
 use proptest::prelude::*;
@@ -9,46 +9,26 @@ use s3_file_connector::{
     fs::{Inode, FUSE_ROOT_INODE},
     {S3Filesystem, S3FilesystemConfig},
 };
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::os::unix::prelude::OsStrExt;
 use std::sync::Arc;
-use test_case::test_case;
 
+#[derive(Debug)]
 pub struct Harness {
     readdir_limit: usize, // max number of entries that a readdir will return; 0 means no limit
-    prefix: &'static str,
     reference: Reference,
-    client: Arc<MockClient>,
     fs: S3Filesystem<Arc<MockClient>>,
 }
 
-impl Debug for Harness {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Harness")
-            .field("prefix", &self.prefix)
-            .field("reference", &self.reference)
-            .field("client", &self.client)
-            .finish()
-    }
-}
-
 impl Harness {
-    fn new(prefix: &'static str, config: S3FilesystemConfig, readdir_limit: usize) -> Self {
-        let reference = Reference::new();
-        let (client, fs) = make_test_filesystem("harness", prefix, config);
+    fn new(fs: S3Filesystem<Arc<MockClient>>, reference: Reference, readdir_limit: usize) -> Self {
         Self {
             readdir_limit,
-            prefix,
             reference,
-            client,
             fs,
         }
-    }
-
-    pub fn add_file(&mut self, path: &str, pattern: u8, length: usize) {
-        self.reference.add_file(&format!("/{}", path), pattern, length);
-        let object = MockObject::constant(pattern, length);
-        self.client.add_object(&format!("{}{}", self.prefix, path), object);
     }
 
     fn compare_contents_recursive<'a>(
@@ -89,6 +69,8 @@ impl Harness {
 
             while !reply.entries.is_empty() {
                 while let Some(reply) = reply.entries.pop_front() {
+                    offset = offset.max(reply.offset);
+
                     let name = &reply.name.as_os_str().to_str().unwrap().to_string();
                     let fs_kind = reply.attr.kind;
 
@@ -103,7 +85,11 @@ impl Harness {
                                 "for file {:?} expecting {:?} found {:?}",
                                 name, ref_kind, fs_kind
                             );
-                            assert_eq!(attr.ino, reply.ino);
+                            assert_eq!(
+                                attr.ino, reply.ino,
+                                "for file {:?} readdir ino {:?} lookup ino {:?}",
+                                name, reply.ino, attr.ino
+                            );
                             if let Node::File(ref_object) = node {
                                 assert_eq!(attr.kind, FileType::RegularFile);
                                 self.compare_file(reply.ino, ref_object).await;
@@ -116,8 +102,6 @@ impl Harness {
                         }
                         None => panic!("file {:?} not found in the reference", name),
                     }
-
-                    offset = offset.max(reply.offset);
                 }
                 reply.clear();
                 let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
@@ -162,30 +146,88 @@ impl Harness {
         }
     }
 
+    /// Walk the filesystem tree and check that at each level, contents match the reference
     async fn compare_contents(&self) {
-        // Walk the filesystem tree and check that at each level, contents match the reference
         let root = self.reference.root();
         self.compare_contents_recursive(FUSE_ROOT_INODE, FUSE_ROOT_INODE, root)
             .await;
     }
+
+    /// Walk a single path through the filesystem tree and ensure each node matches the reference.
+    /// Compared to [compare_contents], this avoids doing a `readdir` before `lookup`, and so tests
+    /// a different path through the inode code.
+    async fn compare_single_path(&self, idx: usize) {
+        let inodes = self.reference.list_recursive();
+        if inodes.is_empty() {
+            return;
+        }
+        let (path, node) = &inodes[idx % inodes.len()];
+
+        let mut parent = FUSE_ROOT_INODE;
+        let mut seen_inos = HashSet::from([FUSE_ROOT_INODE]);
+        for name in path.iter().take(path.len().saturating_sub(1)) {
+            let lookup = self
+                .fs
+                .lookup(parent, OsStr::from_bytes(name.as_bytes()))
+                .await
+                .unwrap();
+            assert_eq!(lookup.attr.kind, FileType::Directory);
+            assert!(seen_inos.insert(lookup.attr.ino));
+            parent = lookup.attr.ino;
+        }
+
+        let lookup = self
+            .fs
+            .lookup(parent, OsStr::from_bytes(path.last().unwrap().as_bytes()))
+            .await
+            .unwrap();
+        assert!(seen_inos.insert(lookup.attr.ino));
+        match node {
+            Node::Directory(_) => {
+                assert_eq!(lookup.attr.kind, FileType::Directory);
+            }
+            Node::File(content) => {
+                assert_eq!(lookup.attr.kind, FileType::RegularFile);
+                self.compare_file(lookup.attr.ino, content).await;
+            }
+        }
+    }
 }
 
-#[test_case(""; "unprefixed")]
-#[test_case("test_prefix/"; "prefixed")]
-#[tokio::test]
-async fn reference_smoke_test(prefix: &'static str) {
+#[derive(Debug)]
+enum CheckType {
+    /// Traverse the entire tree recursively with `readdir` and compare the results of every node
+    FullTree,
+    /// Do a lookup along a single path and compare the leaf node
+    SinglePath {
+        /// Index into the list of all nodes in the file system
+        path_index: usize,
+    },
+}
+
+fn run_test(tree: TreeNode, check: CheckType, readdir_limit: usize) {
+    let test_prefix = "test_prefix/";
     let config = S3FilesystemConfig {
         readdir_size: 5,
         ..Default::default()
     };
-    let mut harness = Harness::new(prefix, config, 0);
+    let (client, fs) = make_test_filesystem("harness", test_prefix, config);
 
-    for i in 0..15 {
-        let key = format!("foo/file{}.txt", i);
-        harness.add_file(&key, 0xa0 + i as u8, 15 + i);
+    let namespace = flatten_tree(tree);
+    for (key, object) in namespace.iter() {
+        client.add_object(&format!("{}{}", test_prefix, key), object.to_mock_object());
     }
 
-    harness.compare_contents().await;
+    let reference = build_reference(namespace);
+
+    let harness = Harness::new(fs, reference, readdir_limit);
+
+    futures::executor::block_on(async move {
+        match check {
+            CheckType::FullTree => harness.compare_contents().await,
+            CheckType::SinglePath { path_index } => harness.compare_single_path(path_index).await,
+        }
+    });
 }
 
 proptest! {
@@ -193,16 +235,107 @@ proptest! {
         failure_persistence: None,
         .. ProptestConfig::default()
     })]
+
     #[test]
-    fn reftest_random_tree(readdir_limit in 0..10usize, tree in gen_tree(5, 500, 5, 20)) {
-        let config = S3FilesystemConfig {
-            readdir_size: 5,
-            ..Default::default()
-        };
-        let mut harness = Harness::new("test_prefix/", config, readdir_limit);
-        harness.populate_from_tree("".to_string(), &tree);
-        futures::executor::block_on(async move {
-            harness.compare_contents().await;
-        });
+    fn reftest_random_tree_full(readdir_limit in 0..10usize, tree in gen_tree(5, 100, 5, 20)) {
+        run_test(tree, CheckType::FullTree, readdir_limit);
     }
+
+    #[test]
+    fn reftest_random_tree_single(tree in gen_tree(5, 100, 5, 20), path_index: usize) {
+        run_test(tree, CheckType::SinglePath { path_index }, 0);
+    }
+}
+
+#[test]
+fn random_tree_regression_basic() {
+    run_test(
+        TreeNode::Directory(BTreeMap::from([(
+            Name("-".to_string()),
+            TreeNode::Directory(BTreeMap::from([(
+                Name("-".to_string()),
+                TreeNode::File(Content(0, FileSize::Small(0))),
+            )])),
+        )])),
+        CheckType::FullTree,
+        0,
+    );
+}
+
+#[test]
+fn random_tree_regression_directory_order() {
+    run_test(
+        TreeNode::Directory(BTreeMap::from([
+            (Name("-a-".to_string()), TreeNode::File(Content(0, FileSize::Small(0)))),
+            (
+                Name("-a".to_string()),
+                TreeNode::Directory(BTreeMap::from([(
+                    Name("-".to_string()),
+                    TreeNode::File(Content(0, FileSize::Small(0))),
+                )])),
+            ),
+        ])),
+        CheckType::FullTree,
+        0,
+    );
+}
+
+#[test]
+fn random_tree_regression_invalid_name1() {
+    run_test(
+        TreeNode::Directory(BTreeMap::from([(
+            Name("-".to_string()),
+            TreeNode::Directory(BTreeMap::from([(
+                Name(".".to_string()),
+                TreeNode::File(Content(0, FileSize::Small(0))),
+            )])),
+        )])),
+        CheckType::FullTree,
+        0,
+    );
+}
+
+#[test]
+fn random_tree_regression_invalid_name2() {
+    run_test(
+        TreeNode::Directory(BTreeMap::from([(
+            Name("-".to_string()),
+            TreeNode::Directory(BTreeMap::from([(
+                Name("a/".to_string()),
+                TreeNode::File(Content(0, FileSize::Small(0))),
+            )])),
+        )])),
+        CheckType::FullTree,
+        0,
+    )
+}
+
+#[test]
+fn random_tree_regression_directory_shadow() {
+    run_test(
+        TreeNode::Directory(BTreeMap::from([(
+            Name("a".to_string()),
+            TreeNode::Directory(BTreeMap::from([
+                (Name("a/".to_string()), TreeNode::File(Content(0, FileSize::Small(0)))),
+                (Name("a".to_string()), TreeNode::File(Content(0, FileSize::Small(0)))),
+            ])),
+        )])),
+        CheckType::FullTree,
+        0,
+    )
+}
+
+#[test]
+fn random_tree_regression_directory_shadow_lookup() {
+    run_test(
+        TreeNode::Directory(BTreeMap::from([(
+            Name("a".to_string()),
+            TreeNode::Directory(BTreeMap::from([
+                (Name("a/".to_string()), TreeNode::File(Content(0, FileSize::Small(0)))),
+                (Name("a".to_string()), TreeNode::File(Content(0, FileSize::Small(0)))),
+            ])),
+        )])),
+        CheckType::SinglePath { path_index: 1 },
+        0,
+    )
 }

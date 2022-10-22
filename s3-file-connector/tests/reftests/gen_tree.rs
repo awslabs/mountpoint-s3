@@ -1,24 +1,32 @@
-use crate::reftests::harness::Harness;
 use proptest::prelude::*;
+use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
-use std::collections::HashMap;
+use s3_client::mock_client::MockObject;
+use std::collections::BTreeMap;
 
-// Generate names with special characters '-' (ASCII 0x2d) and 'a' (ASCII 0x61)
-// which come before and after '/' (ASCII 0x2f)
-#[derive(Clone, Debug, Arbitrary, PartialEq, Eq, Hash)]
-pub struct Name(#[proptest(strategy = "\"[a-]{1,3}\"")] String);
+fn name_strategy() -> impl Strategy<Value = String> {
+    prop_oneof![
+        // Valid keys
+        5 => string_regex("[a-]{1,3}").unwrap(),
+        // Potentially invalid keys
+        1 => string_regex("[a\\-\\./\0]{1,3}").unwrap(),
+    ]
+}
 
-#[derive(Clone, Debug, Arbitrary)]
+#[derive(Clone, Debug, Arbitrary, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Name(#[proptest(strategy = "name_strategy()")] pub String);
+
+#[derive(Clone, Copy, Debug, Arbitrary)]
 pub enum FileSize {
     Small(u8),
     Large(#[proptest(strategy = "128*1024..2*1024*1024usize")] usize),
 }
 
-impl From<&FileSize> for usize {
-    fn from(f: &FileSize) -> usize {
+impl From<FileSize> for usize {
+    fn from(f: FileSize) -> usize {
         match f {
-            FileSize::Small(n) => *n as usize,
-            FileSize::Large(n) => *n as usize,
+            FileSize::Small(n) => n as usize,
+            FileSize::Large(n) => n as usize,
         }
     }
 }
@@ -26,10 +34,16 @@ impl From<&FileSize> for usize {
 #[derive(Clone, Debug, Arbitrary)]
 pub struct Content(pub u8, pub FileSize);
 
+impl Content {
+    pub fn to_mock_object(&self) -> MockObject {
+        MockObject::constant(self.0, self.1.into())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum TreeNode {
     File(Content),
-    Directory(HashMap<Name, TreeNode>),
+    Directory(BTreeMap<Name, TreeNode>),
 }
 
 pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> impl Strategy<Value = TreeNode> {
@@ -41,26 +55,32 @@ pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> 
         move |inner| {
             prop_oneof![
                 // Take the inner strategy and make the recursive cases.
-                prop::collection::hash_map(any::<Name>(), inner, 0..max_width).prop_map(TreeNode::Directory),
+                prop::collection::btree_map(any::<Name>(), inner, 0..max_width).prop_map(TreeNode::Directory),
             ]
         },
     )
 }
 
-impl Harness {
-    pub fn populate_from_tree(&mut self, path: String, node: &TreeNode) {
+/// Take a generated tree and create the corresponding S3 namespace (list of keys)
+pub fn flatten_tree(node: TreeNode) -> Vec<(String, Content)> {
+    fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, Content)>) {
         match node {
-            TreeNode::File(content) => self.add_file(&path, content.0, usize::from(&content.1)),
-            TreeNode::Directory(children) => {
-                for (name, node) in children {
+            TreeNode::File(content) => {
+                acc.push((path, content));
+            }
+            TreeNode::Directory(contents) => {
+                for (name, child) in contents {
                     let path = if path.is_empty() {
-                        name.0.clone()
+                        name.0
                     } else {
-                        format!("{}/{}", path, name.0.clone())
+                        format!("{}/{}", path, name.0)
                     };
-                    self.populate_from_tree(path, node);
+                    aux(child, path, acc);
                 }
             }
         }
     }
+    let mut ret = vec![];
+    aux(node, String::new(), &mut ret);
+    ret
 }

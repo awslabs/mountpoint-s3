@@ -51,6 +51,7 @@ struct FileHandle<Client: ObjectClient> {
     request: Mutex<Option<PrefetchGetObject<Client>>>,
 }
 
+#[derive(Debug)]
 pub struct S3FilesystemConfig {
     pub stat_ttl: Duration,
     pub readdir_size: usize,
@@ -69,6 +70,7 @@ impl Default for S3FilesystemConfig {
     }
 }
 
+#[derive(Debug)]
 pub struct S3Filesystem<Client: ObjectClient> {
     config: S3FilesystemConfig,
     client: Arc<Client>,
@@ -379,6 +381,7 @@ impl From<InodeError> for i32 {
             InodeError::InodeDoesNotExist(_) => libc::ENOENT,
             InodeError::InvalidFileName(_) => libc::EINVAL,
             InodeError::NotADirectory(_) => libc::ENOTDIR,
+            InodeError::ShadowedByDirectory(_, _) => libc::ENOENT,
         }
     }
 }

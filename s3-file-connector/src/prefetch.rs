@@ -47,6 +47,7 @@ impl Default for PrefetcherConfig {
 }
 
 /// A [Prefetcher] creates and manages prefetching GetObject requests to objects.
+#[derive(Debug)]
 pub struct Prefetcher<Client: ObjectClient> {
     inner: Arc<PrefetcherInner<Client>>,
 }

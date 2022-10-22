@@ -30,11 +30,24 @@ use fuser::FileType;
 use futures::{select_biased, FutureExt};
 use s3_client::ObjectClient;
 use thiserror::Error;
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 
 pub type InodeNo = u64;
 
 pub const ROOT_INODE_NO: InodeNo = 1;
+
+pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
+    let name = name.as_ref();
+    // Names cannot be empty
+    !name.is_empty() &&
+    // "." and ".." are reserved names (presented by the filesystem layer)
+    name != "." &&
+    name != ".." &&
+    // The delimiter / can never appear in a name
+    !name.as_bytes().contains(&0x2fu8) &&
+    // NUL is invalid in POSIX names
+    !name.as_bytes().contains(&0x0)
+}
 
 /// Superblock is the root object of the file system
 #[derive(Debug)]
@@ -116,16 +129,28 @@ impl Superblock {
         let mut full_path_suffixed = full_path.clone();
         full_path_suffixed.push("/");
 
-        // We need to try two ListObjects requests, one with and one without a "/" suffix. This is
-        // to deal with a namespace like this:
-        //   dir/
-        //     foo
-        //   dir-1/
-        //     bar
-        // Here, if we lookup("dir"), and only looked at the unsuffixed ListObjects, we'd get back
-        // the common prefix "dir-1/", because that precedes "dir/" in lexicographic order. Doing
-        // the suffixed lookup concurrently makes sure we have a chance to find out that "dir" also
-        // exists, by listing starting from "dir/".
+        // We need to try two ListObjects requests, one with and one without a "/" suffix. There's a
+        // few different cases we need to cover this way:
+        //   (1) Consider this namespace with two keys:
+        //           dir-1/foo
+        //           dir/ bar
+        //       Here, if we lookup("dir"), and only looked at the unsuffixed ListObjects, we'd get
+        //       back the common prefix "dir-1/", because that precedes "dir/" in lexicographic
+        //       order. Doing the suffixed ListObjects concurrently makes sure we have a chance to
+        //       find out that "dir" actually also exists, by listing starting from "dir/".
+        //   (2) Consider this namespace with two keys:
+        //           a
+        //           a/b
+        //       Here we need to make a choice about whether to make `a` visible as a file or as a
+        //       directory. We choose to make it a directory. If we lookup("a") and only look at the
+        //       unsuffixed ListObjects, we'd see the object `a`, but we have to shadow that object
+        //       with a directory. Doing the suffixed ListObjects concurrently lets us find out that
+        //       `a` needs to be a directory and so we should suppress the file lookup.
+        //   (3) Consider this namespace with two keys, similar to (2):
+        //           a
+        //           a/
+        //       This has the same problem as (2), except that we also need to warn the user that
+        //       the key `a/` will be inaccessible.
         let mut lookup_unsuffixed = client
             .list_objects(&self.inner.bucket, None, "/", 1, full_path.to_str().unwrap())
             .fuse();
@@ -133,67 +158,88 @@ impl Superblock {
             .list_objects(&self.inner.bucket, None, "/", 1, full_path_suffixed.to_str().unwrap())
             .fuse();
 
+        let mut file_state = None;
+
         for _ in 0..2 {
             select_biased! {
                 result = lookup_unsuffixed => {
                     let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
-                    let maybe_inode = if result
+
+                    if result
                         .common_prefixes
                         .get(0)
                         .map(|prefix| &prefix[..prefix.len() - 1] == full_path.to_str().unwrap())
                         .unwrap_or(false)
                     {
-                        Some((
-                            InodeKind::Directory,
-                            InodeStat {
-                                kind: InodeStatKind::Directory {},
-                                size: 0,
-                            },
-                        ))
-                    } else if result
+                        trace!(?parent, ?name, "unsuffixed lookup found a directory");
+
+                        let stat = InodeStat {
+                            kind: InodeStatKind::Directory {},
+                            size: 0,
+                        };
+                        let ino =
+                            self.inner
+                                .update_or_insert(parent, name, InodeKind::Directory, stat.clone(), Instant::now())?;
+                        return Ok(Lookup {
+                            ino,
+                            stat,
+                            full_key: full_path_clone,
+                        });
+                    }
+
+                    if result
                         .objects
                         .get(0)
                         .map(|object| object.key == full_path.to_str().unwrap())
                         .unwrap_or(false)
                     {
-                        Some((
-                            InodeKind::File,
-                            InodeStat {
-                                kind: InodeStatKind::File {},
-                                size: result.objects[0].size as usize,
-                            },
-                        ))
-                    } else {
-                        None
-                    };
-
-                    if let Some((kind, stat)) = maybe_inode {
-                        trace!(?parent, ?name, ?kind, "unprefixed lookup success");
-                        let ino = self
-                            .inner
-                            .update_or_insert(parent, name, kind, stat.clone(), Instant::now())?;
-                        return Ok(Lookup {
-                            ino,
-                            stat,
-                            full_key: full_path_clone,
-                        })
+                        let stat = InodeStat {
+                            kind: InodeStatKind::File {},
+                            size: result.objects[0].size as usize,
+                        };
+                        file_state = Some(stat);
                     }
                 }
+
                 result = lookup_suffixed => {
                     let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
-                    if result
+
+                    let found_directory = if result
                         .common_prefixes
                         .get(0)
                         .map(|prefix| prefix.starts_with(full_path_suffixed.to_str().unwrap()))
-                        .or_else(|| {
-                            result
-                                .objects
-                                .get(0)
-                                .map(|object| object.key.starts_with(full_path_suffixed.to_str().unwrap()))
-                        })
                         .unwrap_or(false)
                     {
-                        trace!(?parent, ?name, "prefixed lookup success");
+                        true
+                    } else if result
+                        .objects
+                        .get(0)
+                        .map(|object| object.key.starts_with(full_path_suffixed.to_str().unwrap()))
+                        .unwrap_or(false)
+                    {
+                        if result.objects[0].key == full_path_suffixed.to_str().unwrap() {
+                            trace!(
+                                ?parent,
+                                ?name,
+                                size = result.objects[0].size,
+                                "found a directory that shadows this name"
+                            );
+                            // The S3 Console creates zero-sized keys for explicit directories, so
+                            // let's not warn about those cases.
+                            if result.objects[0].size > 0 {
+                                warn!(
+                                    "key {:?} is not a valid filename (ends in `/`); will be hidden and unavailable",
+                                    full_path_suffixed
+                                );
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    };
+
+                    if found_directory {
+                        trace!(?parent, ?name, kind=?InodeKind::Directory, "suffixed lookup found a directory");
                         let stat = InodeStat {
                             kind: InodeStatKind::Directory {},
                             size: 0,
@@ -211,8 +257,21 @@ impl Superblock {
             }
         }
 
-        // If we made it here, both requests failed to find the object, so it must not exist
-        Err(InodeError::FileDoesNotExist)
+        // If we reach here, the suffixed lookup didn't hit a shadowing directory, so we know we
+        // either have a valid file, or both requests failed to find the object so it must not exist
+        if let Some(stat) = file_state {
+            trace!(?parent, ?name, "found a regular file");
+            let ino = self
+                .inner
+                .update_or_insert(parent, name, InodeKind::File, stat.clone(), Instant::now())?;
+            Ok(Lookup {
+                ino,
+                stat,
+                full_key: full_path_clone,
+            })
+        } else {
+            Err(InodeError::FileDoesNotExist)
+        }
     }
 
     /// Retrieve the attributes for an inode
@@ -277,6 +336,16 @@ impl SuperblockInner {
         stat: InodeStat,
         stat_ttl: Instant,
     ) -> Result<InodeNo, InodeError> {
+        if !valid_inode_name(name) {
+            let kind = if kind == InodeKind::Directory {
+                "directory"
+            } else {
+                "file"
+            };
+            warn!(?name, "invalid file name; {} will not be available", kind);
+            return Err(InodeError::InvalidFileName(name.to_os_string()));
+        }
+
         let mut ino = {
             let inodes = self.inodes.read().unwrap();
             let parent_inode = self.get(&inodes, parent)?;
@@ -293,9 +362,14 @@ impl SuperblockInner {
                                 assert_eq!(inode.ino, *expected_ino);
                                 Some(inode.ino)
                             } else {
-                                // TODO decide what to do in this case
-                                warn!(?parent, ?name, ino=?expected_ino, expected_kind=?kind, actual_kind=?inode.kind(), "inode changed kind, will recreate it");
-                                None
+                                // TODO we probably need to check that the directory still exists
+                                if inode.kind() == InodeKind::Directory {
+                                    let full_key = self.full_key_for(&*inodes, inode, false)?;
+                                    return Err(InodeError::ShadowedByDirectory(full_key, inode.ino));
+                                } else {
+                                    warn!(?parent, ?name, ino=?expected_ino, expected_kind=?kind, actual_kind=?inode.kind(), "inode changed kind, will recreate it");
+                                    None
+                                }
                             }
                         } else {
                             warn!(
@@ -420,7 +494,7 @@ impl ReaddirStreamState {
 
 impl ReaddirHandle {
     pub async fn next<OC: ObjectClient>(&self, client: &OC) -> Result<Option<DirEntryPlus>, InodeError> {
-        if self.results.read().unwrap().is_empty() {
+        while self.results.read().unwrap().is_empty() {
             let continuation_token = {
                 let mut next_token = self.next_continuation_token.lock().unwrap();
                 if *next_token == ReaddirStreamState::Finished {
@@ -448,54 +522,65 @@ impl ReaddirHandle {
                 None => ReaddirStreamState::Finished,
             };
 
-            let prefixes = result.common_prefixes.into_iter().map(|prefix| {
-                let prefix_trimmed = &prefix[self.full_path.len()..prefix.len() - 1];
-                let stat = InodeStat {
-                    kind: InodeStatKind::Directory {},
-                    size: 0,
-                };
-                let stat_clone = stat.clone();
-
-                self.inner
-                    .update_or_insert(
-                        self.dir_ino,
-                        &OsString::from(prefix_trimmed),
-                        InodeKind::Directory,
-                        stat,
-                        Instant::now(),
-                    )
-                    .map(|ino| DirEntryPlus {
-                        name: OsString::from(prefix_trimmed),
-                        ino,
-                        stat: stat_clone,
-                    })
-            });
-            let objects = result
-                .objects
+            let prefixes = result
+                .common_prefixes
                 .into_iter()
-                // Hide keys that end with '/', since they can be confused with directories
-                .filter(|object| !object.key.ends_with('/'))
-                .map(|object| {
-                    let name = &object.key[self.full_path.len()..];
+                .map(|prefix| OsString::from(&prefix[self.full_path.len()..prefix.len() - 1]))
+                .filter(|name| valid_inode_name(name))
+                .map(|name| {
                     let stat = InodeStat {
-                        kind: InodeStatKind::File {},
-                        size: object.size as usize,
+                        kind: InodeStatKind::Directory {},
+                        size: 0,
                     };
                     let stat_clone = stat.clone();
 
                     self.inner
                         .update_or_insert(
                             self.dir_ino,
-                            &OsString::from(name),
-                            InodeKind::File,
+                            name.as_os_str(),
+                            InodeKind::Directory,
                             stat,
                             Instant::now(),
                         )
                         .map(|ino| DirEntryPlus {
-                            name: OsString::from(name),
+                            name,
                             ino,
                             stat: stat_clone,
                         })
+                });
+            let objects = result
+                .objects
+                .into_iter()
+                .map(|object| (OsString::from(&object.key[self.full_path.len()..]), object))
+                // Hide keys that end with '/', since they can be confused with directories
+                .filter(|(name, _object)| valid_inode_name(name))
+                .flat_map(|(name, object)| {
+                    let stat = InodeStat {
+                        kind: InodeStatKind::File {},
+                        size: object.size as usize,
+                    };
+                    let stat_clone = stat.clone();
+
+                    let result = self
+                        .inner
+                        .update_or_insert(self.dir_ino, name.as_os_str(), InodeKind::File, stat, Instant::now())
+                        .map(|ino| DirEntryPlus {
+                            name,
+                            ino,
+                            stat: stat_clone,
+                        });
+                    // Skip over keys that are shadowed by a directory. We can do this here because
+                    // common prefixes are iterated first, and the `sort_by` below is stable.
+                    match result {
+                        Err(InodeError::ShadowedByDirectory(_, _)) => {
+                            warn!(
+                                "key {:?} is shadowed by a directory with the same name and will be unavailable",
+                                object.key
+                            );
+                            None
+                        }
+                        _ => Some(result),
+                    }
                 });
 
             // TODO would be nice to do this as a merge sort but the Result makes it messy
@@ -504,7 +589,10 @@ impl ReaddirHandle {
                     new_results.sort_by(|left, right| left.name.cmp(&right.name));
                     self.results.write().unwrap().extend(new_results);
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    error!(error=?e, "readdir failed");
+                    return Err(e);
+                }
             }
         }
 
@@ -624,6 +712,8 @@ pub enum InodeError {
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]
     InvalidFileName(OsString),
+    #[error("file {0:?} is shadowed by a directory with inode {1}")]
+    ShadowedByDirectory(OsString, InodeNo),
     #[error("inode {0} is not a directory")]
     NotADirectory(InodeNo),
 }
@@ -862,5 +952,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(dir.full_key, OsString::from("dir"));
+    }
+
+    #[tokio::test]
+    async fn test_invalid_names() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        // The only valid key here is "dir1/a", so we should see a directory called "dir1" and a
+        // file inside it called "a".
+        client.add_object("dir1/", MockObject::constant(0xaa, 30));
+        client.add_object("dir1//", MockObject::constant(0xaa, 30));
+        client.add_object("dir1/a", MockObject::constant(0xaa, 30));
+        client.add_object("dir1/.", MockObject::constant(0xaa, 30));
+        client.add_object("dir1/./a", MockObject::constant(0xaa, 30));
+
+        let superblock = Superblock::new("test_bucket".to_string(), OsString::new());
+        let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        assert_eq!(entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(), &["dir1"]);
+
+        let dir1_ino = entries[0].ino;
+        let dir_handle = superblock.readdir(&client, dir1_ino, 2).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        assert_eq!(entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(), &["a"]);
+
+        // Neither of these keys should exist in the directory
+        for key in ["/", "."] {
+            let lookup = superblock
+                .lookup(&client, dir1_ino, OsStr::from_bytes(key.as_bytes()))
+                .await;
+            assert!(matches!(lookup, Err(InodeError::InvalidFileName(_))));
+        }
     }
 }
