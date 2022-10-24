@@ -49,7 +49,7 @@ jobs:
 
   bench:
     name: Benchmark
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
 
     permissions:
       id-token: write
@@ -65,10 +65,18 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Update package list
+      run: sudo apt-get update
+    - name: Install dependencies
+      run: sudo apt-get -y install cmake libclang-dev libunwind-dev pkg-config
     - name: Install fuse
-      run: sudo apt-get install fuse libfuse-dev
+      run: sudo apt-get -y install fuse libfuse-dev
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Install Rust
+      run: cargo --version || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    - name: Update PATH
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     - name: Run benchmark
       run: cargo bench -- --output-format bencher | tee output.txt
     - name: Store benchmark result
