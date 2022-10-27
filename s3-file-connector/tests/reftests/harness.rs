@@ -32,6 +32,12 @@ impl Harness {
         }
     }
 
+    pub fn add_file(&mut self, path: &str, pattern: u8, length: usize) {
+        self.reference.add_file(&format!("/{}", path), pattern, length);
+        let object = MockObject::ramp(pattern, length);
+        self.client.add_object(&format!("{}{}", self.prefix, path), object);
+    }
+
     fn compare_contents_recursive<'a>(
         &'a self,
         fs_parent: Inode,

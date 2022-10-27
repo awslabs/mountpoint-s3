@@ -172,6 +172,7 @@ where
             let part_bytes = part
                 .into_bytes(OsStr::from_bytes(self.key.as_bytes()), self.next_sequential_read_offset)
                 .unwrap();
+
             self.next_sequential_read_offset += part_bytes.len() as u64;
             if response.is_empty() && part_bytes.len() == to_read as usize {
                 return part_bytes;
@@ -313,6 +314,16 @@ mod tests {
         client_part_size: usize,
     }
 
+    fn get_ramp_bytes(start: u8, offset: u64, length: usize) -> Vec<u8> {
+        let mut vec = Vec::with_capacity(length);
+        let mut byte = (start as u64 + offset) as u8;
+        for _ in 0..length {
+            vec.push(byte);
+            byte = byte.wrapping_add(1u8);
+        }
+        vec
+    }
+
     fn run_sequential_read_test(size: u64, read_size: usize, test_config: TestConfig) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -320,7 +331,7 @@ mod tests {
         };
         let client = MockClient::new(config);
 
-        client.add_object("hello", MockObject::constant(0xaa, size as usize));
+        client.add_object("hello", MockObject::ramp(0xaa, size as usize));
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
@@ -332,13 +343,13 @@ mod tests {
 
         let mut request = prefetcher.get("test-bucket", "hello", size as u64);
 
-        let expected = vec![0xaa; read_size];
         let mut next_offset = 0;
         loop {
             let buf = request.read(next_offset, read_size);
             if buf.is_empty() {
                 break;
             }
+            let expected = get_ramp_bytes(0xaa, next_offset, buf.len());
             assert_eq!(&buf[..], &expected[..buf.len()]);
             next_offset += buf.len() as u64;
         }
@@ -403,7 +414,7 @@ mod tests {
         let client = MockClient::new(config);
 
         // TODO non-constant object so we can actually tell if we're getting the right bytes
-        client.add_object("hello", MockObject::constant(0xaa, object_size as usize));
+        client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
@@ -418,7 +429,7 @@ mod tests {
         for (offset, length) in reads {
             assert!(offset < object_size);
             assert!(offset + length as u64 <= object_size);
-            let expected = vec![0xaa; length];
+            let expected = get_ramp_bytes(0xaa, offset, length);
             let buf = request.read(offset, length);
             assert_eq!(buf.len(), expected.len());
             // Don't spew the giant buffer if this test fails

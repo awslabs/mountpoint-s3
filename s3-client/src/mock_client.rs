@@ -69,6 +69,22 @@ impl MockObject {
         }
     }
 
+    pub fn ramp(seed: u8, size: usize) -> Self {
+        Self {
+            generator: Box::new(move |offset, size| {
+                // TODO make this more efficient for large arrays
+                // e.g., by creating a 256 byte array and copying slices
+
+                // Byte at offset k is (seed + k) % 256
+                (0..size as u64)
+                    .map(|k| ((seed as u64 + offset + k) % 256) as u8)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            }),
+            size,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.size
     }
@@ -508,5 +524,14 @@ mod tests {
         check_continuation!("", 6, "", &keys[6..], &[]);
         check_continuation!("/", 1, "dirs/", &[], &["dirs/dir2/"]);
         check_continuation!("/", 2, "dirs/dir2/", &keys[7..9], &[]);
+    }
+
+    #[test]
+    fn test_ramp() {
+        let obj = MockObject::ramp(200, 1024);
+        let r = obj.read(50, 10);
+        for i in 0..10 {
+            assert_eq!(r[i], ((250 + i) % 256) as u8);
+        }
     }
 }

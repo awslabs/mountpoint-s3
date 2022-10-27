@@ -97,7 +97,7 @@ impl Reference {
                     let dir = dir.as_os_str().to_str().unwrap().to_string();
                     if children.get(&dir).is_none() {
                         let data = if components.peek().is_none() {
-                            Node::File(MockObject::constant(pattern, length))
+                            Node::File(MockObject::ramp(pattern, length))
                         } else {
                             Node::Directory(BTreeMap::new())
                         };
