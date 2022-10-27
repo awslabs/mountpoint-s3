@@ -300,7 +300,7 @@ mod tests {
     use proptest::sample::SizeRange;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockObject};
 
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
@@ -312,16 +312,6 @@ mod tests {
         sequential_prefetch_multiplier: usize,
         #[proptest(strategy = "16usize..8*1024*1024")]
         client_part_size: usize,
-    }
-
-    fn get_ramp_bytes(start: u8, offset: u64, length: usize) -> Vec<u8> {
-        let mut vec = Vec::with_capacity(length);
-        let mut byte = (start as u64 + offset) as u8;
-        for _ in 0..length {
-            vec.push(byte);
-            byte = byte.wrapping_add(1u8);
-        }
-        vec
     }
 
     fn run_sequential_read_test(size: u64, read_size: usize, test_config: TestConfig) {
@@ -349,7 +339,7 @@ mod tests {
             if buf.is_empty() {
                 break;
             }
-            let expected = get_ramp_bytes(0xaa, next_offset, buf.len());
+            let expected = ramp_bytes((0xaa + next_offset) as usize, buf.len());
             assert_eq!(&buf[..], &expected[..buf.len()]);
             next_offset += buf.len() as u64;
         }
@@ -429,7 +419,7 @@ mod tests {
         for (offset, length) in reads {
             assert!(offset < object_size);
             assert!(offset + length as u64 <= object_size);
-            let expected = get_ramp_bytes(0xaa, offset, length);
+            let expected = ramp_bytes((0xaa + offset) as usize, length);
             let buf = request.read(offset, length);
             assert_eq!(buf.len(), expected.len());
             // Don't spew the giant buffer if this test fails

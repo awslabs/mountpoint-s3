@@ -2154,6 +2154,7 @@ dependencies = [
  "clap",
  "ctor",
  "futures",
+ "lazy_static",
  "libc",
  "libc-stdhandle",
  "metrics",

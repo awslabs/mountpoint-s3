@@ -6,12 +6,34 @@ use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use futures::Stream;
+use lazy_static::lazy_static;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::object_client::{GetBodyPart, HeadObjectResult, ListObjectsResult, ObjectInfo};
 use crate::ObjectClient;
+
+pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
+static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
+
+const RAMP_BUFFER_SIZE: usize = 16 * 1024 * RAMP_MODULUS; // around 4 MiB
+static_assertions::const_assert!(RAMP_BUFFER_SIZE % RAMP_MODULUS == 0);
+
+// Return a ramping pattern of bytes modulo RAMP_MODULUS.  The seed is the first byte.
+pub fn ramp_bytes(seed: usize, size: usize) -> Vec<u8> {
+    let mut bytes: Vec<u8> = Vec::with_capacity(size);
+    for i in 0..size {
+        bytes.push(((seed + i) % RAMP_MODULUS) as u8);
+    }
+    bytes
+}
+
+lazy_static! {
+    // Generate bytes for ramping pattern (currently, just a simple linear ramp).
+    // Request RAMP_MODULUS extra bytes so we can read from any offset (modulo RAMP_MODULUS)
+    static ref RAMP_BYTES: Vec<u8> = ramp_bytes(0, RAMP_BUFFER_SIZE + RAMP_MODULUS);
+}
 
 #[derive(Debug, Default)]
 pub struct MockClientConfig {
@@ -51,7 +73,8 @@ pub struct MockObject {
 
 impl MockObject {
     pub fn read(&self, offset: u64, size: usize) -> Box<[u8]> {
-        (self.generator)(offset, size)
+        let read_size = self.size.saturating_sub(offset as usize);
+        (self.generator)(offset, size.min(read_size))
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
@@ -71,15 +94,16 @@ impl MockObject {
 
     pub fn ramp(seed: u8, size: usize) -> Self {
         Self {
-            generator: Box::new(move |offset, size| {
-                // TODO make this more efficient for large arrays
-                // e.g., by creating a 256 byte array and copying slices
-
-                // Byte at offset k is (seed + k) % 256
-                (0..size as u64)
-                    .map(|k| ((seed as u64 + offset + k) % 256) as u8)
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice()
+            generator: Box::new(move |offset, mut size| {
+                // Byte at offset k is (seed + k) % RAMP_MODULUS
+                let mut vec = Vec::with_capacity(size);
+                let offs = (offset as usize + seed as usize) % RAMP_MODULUS;
+                while size > 0 {
+                    let nbyte = size.min(RAMP_BUFFER_SIZE);
+                    vec.extend_from_slice(&RAMP_BYTES[offs..offs + nbyte]);
+                    size -= nbyte;
+                }
+                vec.into_boxed_slice()
             }),
             size,
         }
@@ -124,6 +148,7 @@ impl Stream for GetObjectResult {
 
         let next_part_size = self.part_size.min(self.length);
         let next_part = self.object.read(self.next_offset, next_part_size);
+
         let result = (self.next_offset, next_part);
         self.next_offset += next_part_size as u64;
         self.length -= next_part_size;
@@ -526,12 +551,14 @@ mod tests {
         check_continuation!("/", 2, "dirs/dir2/", &keys[7..9], &[]);
     }
 
-    #[test]
-    fn test_ramp() {
-        let obj = MockObject::ramp(200, 1024);
-        let r = obj.read(50, 10);
-        for i in 0..10 {
-            assert_eq!(r[i], ((250 + i) % 256) as u8);
+    proptest::proptest! {
+        #[test]
+        fn test_ramp(size in 1..2*RAMP_BUFFER_SIZE, read_size in 1..2*RAMP_BUFFER_SIZE, offset in 0..RAMP_BUFFER_SIZE) {
+            let obj = MockObject::ramp(0xaa, size);
+            let r = obj.read(offset as u64, read_size);
+            let expected_len = size.saturating_sub(offset).min(read_size);
+            let expected = ramp_bytes(0xaa + offset, expected_len);
+            assert_eq!(&r[..], &expected[..]);
         }
     }
 }
