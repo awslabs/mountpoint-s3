@@ -6,6 +6,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
+use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, StringExt};
 use aws_crt_s3_sys::*;
@@ -45,6 +46,11 @@ pub struct ClientConfig {
 
     /// The [SigningConfig] configuration for signing API requests to S3
     signing_config: Option<SigningConfig>,
+
+    /// The [RetryStrategy] to use to reschedule failed requests to S3. This is reference counted,
+    /// so we only need to hold onto it until this [ClientConfig] is consumed, at which point the
+    /// client will take ownership.
+    retry_strategy: Option<RetryStrategy>,
 }
 
 impl ClientConfig {
@@ -55,16 +61,23 @@ impl ClientConfig {
 
     /// Signing options to be used for each request. Leave out to not sign requests.
     pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
-        self.signing_config = Some(signing_config);
         // Safety: Cast the signing config to mut pointer since we know creating the client won't modify it.
-        self.inner.signing_config = self.signing_config.as_ref().unwrap().to_inner_ptr() as *mut aws_signing_config_aws;
+        self.inner.signing_config = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;
+        self.signing_config = Some(signing_config);
         self
     }
 
     /// Client bootstrap used for common staples such as event loop group, host resolver, etc.
     pub fn client_bootstrap(&mut self, client_bootstrap: ClientBootstrap) -> &mut Self {
+        self.inner.client_bootstrap = client_bootstrap.inner.as_ptr();
         self.client_bootstrap = Some(client_bootstrap);
-        self.inner.client_bootstrap = self.client_bootstrap.as_ref().unwrap().inner.as_ptr();
+        self
+    }
+
+    /// Retry strategy used to reschedule failed requests
+    pub fn retry_strategy(&mut self, retry_strategy: RetryStrategy) -> &mut Self {
+        self.inner.retry_strategy = retry_strategy.inner.as_ptr();
+        self.retry_strategy = Some(retry_strategy);
         self
     }
 

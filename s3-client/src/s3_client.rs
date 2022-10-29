@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::common::allocator::Allocator;
@@ -15,6 +15,7 @@ use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions}
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::futures::FutureSpawner;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
+use aws_crt_s3::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use aws_crt_s3::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
 };
@@ -83,8 +84,15 @@ impl S3Client {
         };
 
         let mut creds_provider = CredentialsProvider::new_chain_default(&mut allocator, &creds_options).unwrap();
-
         let signing_config = init_default_signing_config(region, &mut creds_provider);
+
+        let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
+        // Match the SDK "legacy" retry strategies
+        retry_strategy_options.backoff_retry_options.max_retries = 3;
+        retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
+        retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
+        let retry_strategy = RetryStrategy::standard(&mut allocator, &retry_strategy_options).unwrap();
+
         let throughput_target_gbps = config.throughput_target_gbps;
         let part_size = config.part_size;
 
@@ -92,7 +100,8 @@ impl S3Client {
 
         client_config
             .client_bootstrap(client_bootstrap)
-            .signing_config(signing_config);
+            .signing_config(signing_config)
+            .retry_strategy(retry_strategy);
 
         if let Some(throughput_target_gbps) = throughput_target_gbps {
             client_config.throughput_target_gbps(throughput_target_gbps);
