@@ -20,6 +20,7 @@ use std::time::Duration;
 use bytes::{Bytes, BytesMut};
 use futures::pin_mut;
 use futures::stream::StreamExt;
+use metrics::counter;
 use s3_client::ObjectClient;
 use tracing::{debug_span, error, trace, Instrument};
 
@@ -128,6 +129,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
                 actual = offset,
                 "out-of-order read, resetting prefetch"
             );
+            counter!("prefetch.out_of_order", 1);
             // TODO cancel inflight requests
             // TODO see if we can reuse any inflight requests rather than dropping them immediately
             self.current_task = None;

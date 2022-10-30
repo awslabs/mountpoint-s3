@@ -28,7 +28,9 @@ impl S3Client {
         range: Option<Range<u64>>,
     ) -> Result<GetObjectRequest, S3RequestError<GetObjectError>> {
         let span = request_span!(self, "get_object");
-        span.in_scope(|| debug!(?key, ?range, "new request"));
+        span.in_scope(
+            || debug!(?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
+        );
 
         let mut message = Message::new_request(&mut Allocator::default()).unwrap();
 

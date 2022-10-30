@@ -23,6 +23,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3FuseFilesystem<Client> {
 
 #[async_trait]
 impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesystem<Client> {
+    #[instrument(level = "debug", skip_all)]
     async fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         self.fs.init(config).await
     }
@@ -63,17 +64,21 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
         lock: Option<u64>,
         reply: ReplyData,
     ) {
+        let mut bytes_sent = 0;
+
         struct Replied(());
 
-        struct ReplyRead {
+        struct ReplyRead<'a> {
             inner: fuser::ReplyData,
+            bytes_sent: &'a mut usize,
         }
 
-        impl ReadReplier for ReplyRead {
+        impl ReadReplier for ReplyRead<'_> {
             type Replied = Replied;
 
             fn data(self, data: &[u8]) -> Replied {
                 self.inner.data(data);
+                *self.bytes_sent = data.len();
                 Replied(())
             }
 
@@ -83,9 +88,14 @@ impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesyst
             }
         }
 
-        let replier = ReplyRead { inner: reply };
+        let replier = ReplyRead {
+            inner: reply,
+            bytes_sent: &mut bytes_sent,
+        };
         self.fs.read(ino, fh, offset, size, flags, lock, replier).await;
         // return value of read is proof a reply was sent
+
+        metrics::counter!("fuse.bytes_read", bytes_sent as u64);
     }
 
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent))]

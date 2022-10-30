@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
@@ -27,12 +27,24 @@ impl PartQueue {
     /// or reallocate to make the return value contiguous. This function blocks only if the queue is
     /// empty.
     pub fn read(&self, length: usize, timeout: Duration) -> Result<Part, PartReadError> {
-        let (mut buffers, timed_out) = self
-            .queue_signal
-            .wait_timeout_while(self.buffers.lock().unwrap(), timeout, |buffers| buffers.is_empty())
-            .unwrap();
-        if timed_out.timed_out() {
-            return Err(PartReadError::TimedOut);
+        let mut buffers = self.buffers.lock().unwrap();
+
+        // This code looks a little funky because we want to (1) only emit the starved metric once
+        // even under spurious wakes and (2) emit the metric even if we time out waiting.
+        if buffers.is_empty() {
+            let start = Instant::now();
+            let ret = loop {
+                let (guard, timed_out) = self.queue_signal.wait_timeout(buffers, timeout).unwrap();
+                buffers = guard;
+                if timed_out.timed_out() {
+                    break Err(PartReadError::TimedOut);
+                }
+                if !buffers.is_empty() {
+                    break Ok(());
+                }
+            };
+            metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
+            ret?;
         }
 
         let part = buffers.front_mut().expect("buffers is not empty");

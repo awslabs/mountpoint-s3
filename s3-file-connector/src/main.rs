@@ -8,6 +8,10 @@ use s3_client::{HeadBucketError, S3Client, S3ClientConfig, S3RequestError};
 
 use s3_file_connector::fs::S3FilesystemConfig;
 use s3_file_connector::fuse::S3FuseFilesystem;
+use s3_file_connector::metrics::{metrics_tracing_span_layer, MetricsSink};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
@@ -18,9 +22,13 @@ fn init_tracing_subscriber() {
         std::env::set_var("RUST_LOG", "info,awscrt=off,fuser=error");
     }
 
-    tracing_subscriber::fmt()
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
-        .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
+        .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
+
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(metrics_tracing_span_layer())
         .init();
 }
 
@@ -78,6 +86,9 @@ fn main() -> anyhow::Result<()> {
         throughput_target_gbps,
         part_size: args.part_size.map(|t| t as usize),
     };
+
+    let _metrics = MetricsSink::init();
+
     let client = create_client_for_bucket(&args.bucket_name, &args.region, client_config)
         .context("Failed to create S3 client")?;
 

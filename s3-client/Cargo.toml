@@ -14,6 +14,7 @@ auto_impl = "1.0.1"
 futures = { version = "0.3.24", features = ["thread-pool"] }
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
+metrics = "0.20.1"
 pin-project = "1.0.12"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"

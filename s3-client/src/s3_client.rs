@@ -146,6 +146,7 @@ impl S3Client {
         let request_id = Arc::new(Mutex::new(None));
         let request_id_clone = Arc::clone(&request_id);
         let start_time = Instant::now();
+        let mut first_body_part = true;
 
         let mut options = MetaRequestOptions::new();
         options
@@ -158,6 +159,13 @@ impl S3Client {
             })
             .on_body(move |range_start, data| {
                 let _guard = span_body.enter();
+
+                if first_body_part {
+                    first_body_part = false;
+                    let latency = start_time.elapsed().as_micros() as f64;
+                    let op = span_body.metadata().map(|m| m.name()).unwrap_or("unknown");
+                    metrics::histogram!("s3.first_byte_latency_us", latency, "op" => op);
+                }
 
                 trace!(
                     start = range_start,
