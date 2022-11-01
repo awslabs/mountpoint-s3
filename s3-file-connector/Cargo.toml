@@ -47,3 +47,11 @@ s3_tests = []
 [[bench]]
 name = "fs_bench"
 harness = false
+
+[lib]
+bench = false
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+bench = false

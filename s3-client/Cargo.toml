@@ -38,6 +38,7 @@ tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
 [lib]
 doctest = false
+bench = false
 
 [features]
 s3_tests = []

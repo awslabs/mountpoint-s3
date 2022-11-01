@@ -22,3 +22,6 @@ tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 [[bench]]
 name = "event_loop_future"
 harness = false
+
+[lib]
+bench = false

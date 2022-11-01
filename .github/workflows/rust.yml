@@ -70,7 +70,19 @@ jobs:
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Run benchmark
-      run: cargo bench
+      run: cargo bench -- --output-format bencher | tee output.txt
+    - name: Store benchmark result
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'cargo'
+        output-file-path: output.txt
+        alert-threshold: "200%"
+        fail-on-alert: true
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Push and deploy GitHub pages branch automatically
+        auto-push: true
+        comment-on-alert: true
 
   check:
     name: Check all targets
