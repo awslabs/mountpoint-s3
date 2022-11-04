@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667569675746,
+  "lastUpdate": 1667583288745,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -209,6 +209,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 2507559628,
             "range": "± 219724533",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "distinct": true,
+          "id": "53b1ce432e2626f5a08102e8db82d0a6c56a64bb",
+          "message": "Add quick instructions for building and using the connector",
+          "timestamp": "2022-11-04T17:21:51Z",
+          "tree_id": "a35fd8f89239f84deba28a095ad399dcff72fe97",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/53b1ce432e2626f5a08102e8db82d0a6c56a64bb"
+        },
+        "date": 1667583284145,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 59571,
+            "range": "± 2272",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 2584493026,
+            "range": "± 336477606",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 2439673882,
+            "range": "± 144130554",
             "unit": "ns/iter"
           }
         ]
