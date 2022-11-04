@@ -52,6 +52,6 @@ harness = false
 bench = false
 
 [[bin]]
-name = "main"
+name = "s3-file-connector"
 path = "src/main.rs"
 bench = false
