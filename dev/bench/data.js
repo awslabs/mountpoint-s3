@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667511823022,
+  "lastUpdate": 1667569675746,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -167,6 +167,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 2313406390,
             "range": "± 72350376",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "44d5572c3bdfa2d3d9a6056c706a1063be9ca702",
+          "message": "Change binary name back to s3-file-connector",
+          "timestamp": "2022-11-04T13:36:03Z",
+          "tree_id": "7ea96f1a6cb30f791b1d1dc93fcbe605e0426961",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/44d5572c3bdfa2d3d9a6056c706a1063be9ca702"
+        },
+        "date": 1667569670884,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 64383,
+            "range": "± 5408",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 2632047154,
+            "range": "± 238600391",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 2507559628,
+            "range": "± 219724533",
             "unit": "ns/iter"
           }
         ]
