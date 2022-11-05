@@ -145,6 +145,7 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
         part_size,
     };
     let client = S3Client::new(region, config).expect("Failed to create S3 client");
+    let runtime = client.event_loop_group();
 
     let mut options = vec![MountOption::RO, MountOption::FSName("fuse_sync".to_string())];
     options.push(MountOption::AutoUnmount);
@@ -157,7 +158,7 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
         mountpoint.to_str().unwrap()
     );
     let session = Session::new(
-        S3FuseFilesystem::new(client, bucket_name, "", filesystem_config),
+        S3FuseFilesystem::new(client, runtime, bucket_name, "", filesystem_config),
         mountpoint,
         &options,
     )

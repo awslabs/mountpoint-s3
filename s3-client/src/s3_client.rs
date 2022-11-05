@@ -13,7 +13,6 @@ use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Headers, Message};
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use aws_crt_s3::io::event_loop::EventLoopGroup;
-use aws_crt_s3::io::futures::FutureSpawner;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use aws_crt_s3::s3::client::{
@@ -55,7 +54,6 @@ pub struct S3Client {
     event_loop_group: EventLoopGroup,
     region: String,
     _allocator: Allocator,
-    throughput_target_gbps: f64,
     next_request_counter: AtomicU64,
 }
 
@@ -93,9 +91,6 @@ impl S3Client {
         retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
         let retry_strategy = RetryStrategy::standard(&mut allocator, &retry_strategy_options).unwrap();
 
-        let throughput_target_gbps = config.throughput_target_gbps;
-        let part_size = config.part_size;
-
         let mut client_config = ClientConfig::new();
 
         client_config
@@ -103,11 +98,11 @@ impl S3Client {
             .signing_config(signing_config)
             .retry_strategy(retry_strategy);
 
-        if let Some(throughput_target_gbps) = throughput_target_gbps {
+        if let Some(throughput_target_gbps) = config.throughput_target_gbps {
             client_config.throughput_target_gbps(throughput_target_gbps);
         }
 
-        if let Some(part_size) = part_size {
+        if let Some(part_size) = config.part_size {
             client_config.part_size(part_size);
         }
 
@@ -118,13 +113,12 @@ impl S3Client {
             s3_client,
             event_loop_group,
             region: region.to_owned(),
-            throughput_target_gbps: throughput_target_gbps.unwrap_or(0.0),
             next_request_counter: AtomicU64::new(0),
         })
     }
 
-    pub fn throughput_target_gbps(&self) -> f64 {
-        self.throughput_target_gbps
+    pub fn event_loop_group(&self) -> EventLoopGroup {
+        self.event_loop_group.clone()
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
@@ -313,12 +307,5 @@ impl ObjectClient for S3Client {
 
     async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
         self.head_object(bucket, key).await
-    }
-
-    /// Run the provided future to completion
-    // TODO this belongs on a trait i guess, since StreamingGetObject wants to spawn tasks and is generic
-    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) {
-        // TODO give this a proper JoinHandle-esque return type
-        self.event_loop_group.spawn_future(future);
     }
 }

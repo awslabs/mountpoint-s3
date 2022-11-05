@@ -10,12 +10,14 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use aws_crt_s3_sys::*;
+use futures::task::{FutureObj, Spawn, SpawnError};
 use thiserror::Error;
 
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
 use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
+use crate::io::futures::FutureSpawner;
 use crate::io::io_library_init;
 use crate::CrtError as _;
 use crate::ResultExt;
@@ -156,6 +158,13 @@ impl TaskScheduler for EventLoopGroup {
     fn schedule_task_now(&self, task: Task) -> Result<(), Error> {
         let event_loop = self.get_next_loop()?;
         event_loop.schedule_task_now(task)
+    }
+}
+
+impl Spawn for EventLoopGroup {
+    fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
+        let _handle = self.spawn_future(future);
+        Ok(())
     }
 }
 

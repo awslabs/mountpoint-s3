@@ -14,6 +14,7 @@ mod mock_session {
 
     use std::sync::Arc;
 
+    use futures::executor::ThreadPool;
     use s3_client::mock_client::{MockClient, MockClientConfig};
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
@@ -39,8 +40,10 @@ mod mock_session {
             MountOption::AutoUnmount,
         ];
 
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+
         let session = Session::new(
-            S3FuseFilesystem::new(Arc::clone(&client), bucket, &prefix, filesystem_config),
+            S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
         )
@@ -79,6 +82,7 @@ mod s3_session {
 
         let client_config: S3ClientConfig = Default::default();
         let client = S3Client::new(&region, client_config).unwrap();
+        let runtime = client.event_loop_group();
 
         let options = vec![
             MountOption::RO,
@@ -87,7 +91,7 @@ mod s3_session {
         ];
 
         let session = Session::new(
-            S3FuseFilesystem::new(client, &bucket, &prefix, filesystem_config),
+            S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
         )

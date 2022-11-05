@@ -1,3 +1,4 @@
+use futures::task::Spawn;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
@@ -43,12 +44,12 @@ impl DirHandle {
 }
 
 #[derive(Debug)]
-struct FileHandle<Client: ObjectClient> {
+struct FileHandle<Client, Runtime> {
     #[allow(unused)]
     ino: InodeNo,
     full_key: OsString,
     object_size: u64,
-    request: Mutex<Option<PrefetchGetObject<Client>>>,
+    request: Mutex<Option<PrefetchGetObject<Client, Runtime>>>,
 }
 
 #[derive(Debug)]
@@ -71,21 +72,25 @@ impl Default for S3FilesystemConfig {
 }
 
 #[derive(Debug)]
-pub struct S3Filesystem<Client: ObjectClient> {
+pub struct S3Filesystem<Client, Runtime> {
     config: S3FilesystemConfig,
     client: Arc<Client>,
     superblock: Superblock,
-    prefetcher: Prefetcher<Client>,
+    prefetcher: Prefetcher<Client, Runtime>,
     bucket: String,
     #[allow(unused)]
     prefix: String,
     next_handle: AtomicU64,
     dir_handles: RwLock<HashMap<u64, Arc<DirHandle>>>,
-    file_handles: RwLock<HashMap<u64, FileHandle<Client>>>,
+    file_handles: RwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
-    pub fn new(client: Client, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
+impl<Client, Runtime> S3Filesystem<Client, Runtime>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync,
+{
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
         // TODO is this required?
         assert!(
             prefix.is_empty() || prefix.ends_with('/'),
@@ -96,7 +101,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
 
         let client = Arc::new(client);
 
-        let prefetcher = Prefetcher::new(client.clone(), Default::default());
+        let prefetcher = Prefetcher::new(client.clone(), runtime, Default::default());
 
         Self {
             config,
@@ -186,7 +191,11 @@ pub trait ReadReplier {
     fn error(self, error: libc::c_int) -> Self::Replied;
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> S3Filesystem<Client> {
+impl<Client, Runtime> S3Filesystem<Client, Runtime>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync,
+{
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.set_max_readahead(0);
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);

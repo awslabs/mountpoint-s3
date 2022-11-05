@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
+use futures::executor::ThreadPool;
 use s3_client::{S3Client, S3ClientConfig};
 use s3_file_connector::prefetch::Prefetcher;
 use tracing_subscriber::fmt::Subscriber;
@@ -76,7 +77,8 @@ fn main() {
     let client = Arc::new(S3Client::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {
-        let manager = Prefetcher::new(client.clone(), Default::default());
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let manager = Prefetcher::new(client.clone(), runtime, Default::default());
         let received_size = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();

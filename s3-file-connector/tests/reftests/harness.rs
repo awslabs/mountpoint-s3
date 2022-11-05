@@ -2,6 +2,7 @@ use crate::common::{make_test_filesystem, DirectoryReply, ReadReply};
 use crate::reftests::gen_tree::{flatten_tree, gen_tree, Content, FileSize, Name, TreeNode};
 use crate::reftests::reference::{build_reference, Node, Reference};
 use fuser::FileType;
+use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
 use proptest::prelude::*;
 use s3_client::mock_client::{MockClient, MockObject};
@@ -19,11 +20,11 @@ use std::sync::Arc;
 pub struct Harness {
     readdir_limit: usize, // max number of entries that a readdir will return; 0 means no limit
     reference: Reference,
-    fs: S3Filesystem<Arc<MockClient>>,
+    fs: S3Filesystem<Arc<MockClient>, ThreadPool>,
 }
 
 impl Harness {
-    fn new(fs: S3Filesystem<Arc<MockClient>>, reference: Reference, readdir_limit: usize) -> Self {
+    fn new(fs: S3Filesystem<Arc<MockClient>, ThreadPool>, reference: Reference, readdir_limit: usize) -> Self {
         Self {
             readdir_limit,
             reference,

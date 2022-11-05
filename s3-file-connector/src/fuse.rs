@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures::task::Spawn;
 use std::ffi::OsStr;
 use std::time::Duration;
 use tracing::instrument;
@@ -9,20 +10,28 @@ use s3_client::ObjectClient;
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
 /// so that we can test our actual filesystem implementation without having actual FUSE in the loop.
-pub struct S3FuseFilesystem<Client: ObjectClient> {
-    fs: S3Filesystem<Client>,
+pub struct S3FuseFilesystem<Client, Runtime> {
+    fs: S3Filesystem<Client, Runtime>,
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> S3FuseFilesystem<Client> {
-    pub fn new(client: Client, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
-        let fs = S3Filesystem::new(client, bucket, prefix, config);
+impl<Client, Runtime> S3FuseFilesystem<Client, Runtime>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync,
+{
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
+        let fs = S3Filesystem::new(client, runtime, bucket, prefix, config);
 
         Self { fs }
     }
 }
 
 #[async_trait]
-impl<Client: ObjectClient + Send + Sync + 'static> Filesystem for S3FuseFilesystem<Client> {
+impl<Client, Runtime> Filesystem for S3FuseFilesystem<Client, Runtime>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync,
+{
     #[instrument(level = "debug", skip_all)]
     async fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         self.fs.init(config).await

@@ -91,9 +91,11 @@ fn main() -> anyhow::Result<()> {
 
     let client = create_client_for_bucket(&args.bucket_name, &args.region, client_config)
         .context("Failed to create S3 client")?;
+    let runtime = client.event_loop_group();
 
     let fs = S3FuseFilesystem::new(
         client,
+        runtime,
         &args.bucket_name,
         args.prefix.as_deref().unwrap_or(""),
         filesystem_config,

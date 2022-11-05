@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::ops::Range;
 
 use async_trait::async_trait;
@@ -40,10 +39,6 @@ pub trait ObjectClient {
 
     /// Retrieve object metadata without retrieving the object contents
     async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError>;
-
-    // TODO this should live on some separate trait. It exists mostly so StreamingGetObject knows
-    // how to spawn tasks.
-    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static);
 }
 
 /// Result of a [ObjectClient::list_objects] request

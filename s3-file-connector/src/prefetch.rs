@@ -20,6 +20,7 @@ use std::time::Duration;
 use bytes::{Bytes, BytesMut};
 use futures::pin_mut;
 use futures::stream::StreamExt;
+use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
 use s3_client::ObjectClient;
 use tracing::{debug_span, error, trace, Instrument};
@@ -49,26 +50,35 @@ impl Default for PrefetcherConfig {
 
 /// A [Prefetcher] creates and manages prefetching GetObject requests to objects.
 #[derive(Debug)]
-pub struct Prefetcher<Client: ObjectClient> {
-    inner: Arc<PrefetcherInner<Client>>,
+pub struct Prefetcher<Client, Runtime> {
+    inner: Arc<PrefetcherInner<Client, Runtime>>,
 }
 
 #[derive(Debug)]
-struct PrefetcherInner<Client: ObjectClient> {
+struct PrefetcherInner<Client, Runtime> {
     client: Arc<Client>,
     config: PrefetcherConfig,
+    runtime: Runtime,
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> Prefetcher<Client> {
+impl<Client, Runtime> Prefetcher<Client, Runtime>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn,
+{
     /// Create a new [Prefetcher] that will make requests to the given client.
-    pub fn new(client: Arc<Client>, config: PrefetcherConfig) -> Self {
-        let inner = PrefetcherInner { client, config };
+    pub fn new(client: Arc<Client>, runtime: Runtime, config: PrefetcherConfig) -> Self {
+        let inner = PrefetcherInner {
+            client,
+            config,
+            runtime,
+        };
 
         Self { inner: Arc::new(inner) }
     }
 
     /// Start a new get request to the specified object.
-    pub fn get(&self, bucket: &str, key: &str, size: u64) -> PrefetchGetObject<Client> {
+    pub fn get(&self, bucket: &str, key: &str, size: u64) -> PrefetchGetObject<Client, Runtime> {
         PrefetchGetObject::new(Arc::clone(&self.inner), bucket, key, size)
     }
 }
@@ -76,8 +86,8 @@ impl<Client: ObjectClient + Send + Sync + 'static> Prefetcher<Client> {
 /// A GetObject request that divides the desired range of the object into chunks that it prefetches
 /// in a way that maximizes throughput from S3.
 #[derive(Debug)]
-pub struct PrefetchGetObject<Client: ObjectClient> {
-    inner: Arc<PrefetcherInner<Client>>,
+pub struct PrefetchGetObject<Client, Runtime> {
+    inner: Arc<PrefetcherInner<Client, Runtime>>,
     current_task: Option<RequestTask>,
     // Currently we only every spawn at most one future task (see [spawn_next_request])
     future_tasks: Arc<RwLock<VecDeque<RequestTask>>>,
@@ -89,9 +99,13 @@ pub struct PrefetchGetObject<Client: ObjectClient> {
     size: u64,
 }
 
-impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
+impl<Client, Runtime> PrefetchGetObject<Client, Runtime>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn,
+{
     /// Create and spawn a new prefetching request for an object
-    fn new(inner: Arc<PrefetcherInner<Client>>, bucket: &str, key: &str, size: u64) -> Self {
+    fn new(inner: Arc<PrefetcherInner<Client, Runtime>>, bucket: &str, key: &str, size: u64) -> Self {
         PrefetchGetObject {
             inner: inner.clone(),
             current_task: None,
@@ -246,7 +260,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
         };
 
         // TODO hold onto this so we can cancel the task
-        self.inner.client.spawn(request_task);
+        self.inner.runtime.spawn(request_task).unwrap();
 
         // [read] will reset these if the reader stops making sequential requests
         self.next_request_offset += size;
@@ -280,6 +294,7 @@ impl RequestTask {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::executor::ThreadPool;
     use proptest::proptest;
     use proptest::sample::SizeRange;
     use proptest::strategy::{Just, Strategy};
@@ -312,7 +327,8 @@ mod tests {
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
         };
-        let prefetcher = Prefetcher::new(Arc::new(client), test_config);
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", size as u64);
 
@@ -394,7 +410,8 @@ mod tests {
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
         };
-        let prefetcher = Prefetcher::new(Arc::new(client), test_config);
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", object_size);
 

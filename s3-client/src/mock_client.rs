@@ -1,13 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
-use futures::executor::{ThreadPool, ThreadPoolBuilder};
-use futures::{FutureExt, Stream};
+use futures::Stream;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
@@ -29,7 +27,6 @@ pub struct MockClientConfig {
 pub struct MockClient {
     config: MockClientConfig,
     objects: RwLock<BTreeMap<String, Arc<MockObject>>>,
-    executor: ThreadPool,
 }
 
 impl MockClient {
@@ -38,7 +35,6 @@ impl MockClient {
         Self {
             config,
             objects: Default::default(),
-            executor: ThreadPoolBuilder::new().pool_size(1).create().unwrap(),
         }
     }
 
@@ -311,10 +307,6 @@ impl ObjectClient for MockClient {
             common_prefixes,
             next_continuation_token,
         })
-    }
-
-    fn spawn<T: Send + 'static>(&self, future: impl Future<Output = T> + Send + 'static) {
-        self.executor.spawn_ok(future.map(|_| ()));
     }
 }
 

@@ -1,5 +1,6 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use fuser::FileAttr;
+use futures::executor::ThreadPool;
 use s3_client::mock_client::{MockClient, MockClientConfig};
 use s3_file_connector::fs::{DirectoryReplier, ReadReplier};
 use s3_file_connector::{S3Filesystem, S3FilesystemConfig};
@@ -12,15 +13,16 @@ pub fn make_test_filesystem(
     bucket: &str,
     prefix: &str,
     config: S3FilesystemConfig,
-) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
+) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>, ThreadPool>) {
     let client_config = MockClientConfig {
         bucket: bucket.to_string(),
         part_size: 1024 * 1024,
     };
 
     let client = Arc::new(MockClient::new(client_config));
+    let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
 
-    let fs = S3Filesystem::new(Arc::clone(&client), bucket, prefix, config);
+    let fs = S3Filesystem::new(Arc::clone(&client), runtime, bucket, prefix, config);
 
     (client, fs)
 }

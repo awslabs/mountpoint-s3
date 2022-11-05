@@ -70,13 +70,14 @@ fn mount_file_system() -> BackgroundSession {
     let mountpoint = temp_dir.path();
 
     let client = get_test_client();
+    let runtime = client.event_loop_group();
 
     let mut options = vec![MountOption::RO, MountOption::FSName("fuse_sync".to_string())];
     options.push(MountOption::AutoUnmount);
 
     let filesystem_config = S3FilesystemConfig::default();
     let session = Session::new(
-        S3FuseFilesystem::new(client, &bucket, "", filesystem_config),
+        S3FuseFilesystem::new(client, runtime, &bucket, "", filesystem_config),
         mountpoint,
         &options,
     )
