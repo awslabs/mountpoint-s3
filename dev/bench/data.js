@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667692412171,
+  "lastUpdate": 1667692423389,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -335,6 +335,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 2325753458,
             "range": "± 348035541",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@cs.utexas.edu",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "bornholt@cs.utexas.edu",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "95ab7a3f0a77e89e5bb18a98bc38db4dcae9fc88",
+          "message": "Sick new Clippy lints just dropped",
+          "timestamp": "2022-11-05T18:41:26-05:00",
+          "tree_id": "22e3d9dd90d004f6acbff5142d69f2719e8e45c5",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/95ab7a3f0a77e89e5bb18a98bc38db4dcae9fc88"
+        },
+        "date": 1667692418550,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 66560,
+            "range": "± 5278",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 2585538693,
+            "range": "± 278717067",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 2326695731,
+            "range": "± 318388307",
             "unit": "ns/iter"
           }
         ]
