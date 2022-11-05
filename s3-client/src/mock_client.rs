@@ -253,7 +253,7 @@ impl ObjectClient for MockClient {
             }
 
             // Skip keys that do not start with the specified prefix
-            if !key.starts_with(&prefix) {
+            if !key.starts_with(prefix) {
                 continue;
             }
 

@@ -64,13 +64,13 @@ impl MetricsSink {
                 loop {
                     match rx.recv_timeout(AGGREGATION_PERIOD) {
                         Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
-                        Err(RecvTimeoutError::Timeout) => Self::aggregate_and_publish(&*threads),
+                        Err(RecvTimeoutError::Timeout) => Self::aggregate_and_publish(&threads),
                     }
                 }
                 // Drain metrics one more time before shutting down. This has a chance of missing
                 // any new metrics data after the sink shuts down, but we assume a clean shutdown
                 // stops generating new metrics before shutting down the sink.
-                Self::aggregate_and_publish(&*threads);
+                Self::aggregate_and_publish(&threads);
             })
         };
 
@@ -192,7 +192,7 @@ mod tests {
         metrics::counter!("test_counter", 3, "type" => "get");
         metrics::counter!("test_counter", 4, "type" => "put");
 
-        let metrics = MetricsSink::aggregate(&*threads);
+        let metrics = MetricsSink::aggregate(&threads);
         assert_eq!(metrics.iter().count(), 2);
         for (key, data) in metrics.iter() {
             assert_eq!(key.name(), "test_counter");

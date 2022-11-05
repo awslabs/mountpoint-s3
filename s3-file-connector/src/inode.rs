@@ -120,11 +120,11 @@ impl Superblock {
 
         let mut full_path = {
             let inodes = self.inner.inodes.read().unwrap();
-            let parent_inode = self.inner.get(&*inodes, parent)?;
-            self.inner.full_key_for(&*inodes, parent_inode, true)?
+            let parent_inode = self.inner.get(&inodes, parent)?;
+            self.inner.full_key_for(&inodes, parent_inode, true)?
         };
         assert!(full_path.is_empty() || full_path.to_str().unwrap().ends_with('/'));
-        full_path.push(&name);
+        full_path.push(name);
         let full_path_clone = full_path.clone();
         let mut full_path_suffixed = full_path.clone();
         full_path_suffixed.push("/");
@@ -277,10 +277,10 @@ impl Superblock {
     /// Retrieve the attributes for an inode
     pub async fn getattr<OC: ObjectClient>(&self, _client: &OC, ino: InodeNo) -> Result<Lookup, InodeError> {
         let inodes = self.inner.inodes.read().unwrap();
-        let inode = self.inner.get(&*inodes, ino)?;
+        let inode = self.inner.get(&inodes, ino)?;
         let full_key = self
             .inner
-            .full_key_for(&*inodes, inode, inode.kind() == InodeKind::Directory)?;
+            .full_key_for(&inodes, inode, inode.kind() == InodeKind::Directory)?;
         let stat = inode.stat_cache.read().unwrap();
         // TODO revalidate if expired
         Ok(Lookup {
@@ -303,11 +303,11 @@ impl Superblock {
 
         let (parent_ino, full_path) = {
             let inodes = self.inner.inodes.read().unwrap();
-            let dir_inode = self.inner.get(&*inodes, dir)?;
+            let dir_inode = self.inner.get(&inodes, dir)?;
             if dir_inode.kind() != InodeKind::Directory {
                 return Err(InodeError::NotADirectory(dir));
             }
-            (dir_inode.parent, self.inner.full_key_for(&*inodes, dir_inode, true)?)
+            (dir_inode.parent, self.inner.full_key_for(&inodes, dir_inode, true)?)
         };
         assert!(full_path.is_empty() || full_path.to_str().unwrap().ends_with('/'));
 
@@ -364,7 +364,7 @@ impl SuperblockInner {
                             } else {
                                 // TODO we probably need to check that the directory still exists
                                 if inode.kind() == InodeKind::Directory {
-                                    let full_key = self.full_key_for(&*inodes, inode, false)?;
+                                    let full_key = self.full_key_for(&inodes, inode, false)?;
                                     return Err(InodeError::ShadowedByDirectory(full_key, inode.ino));
                                 } else {
                                     warn!(?parent, ?name, ino=?expected_ino, expected_kind=?kind, actual_kind=?inode.kind(), "inode changed kind, will recreate it");

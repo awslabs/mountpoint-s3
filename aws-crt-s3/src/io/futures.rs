@@ -112,7 +112,7 @@ impl<S: TaskScheduler, T: Send + 'static> FutureTaskWaker<S, T> {
         if let Some(mut inner) = locked.take() {
             // Otherwise poll the client-provided future.
             let waker = futures::task::waker_ref(arc_self);
-            let context = &mut Context::from_waker(&*waker);
+            let context = &mut Context::from_waker(&waker);
 
             match Future::poll(inner.future.as_mut(), context) {
                 Poll::Ready(value) => {

@@ -29,6 +29,18 @@ impl Node {
             Self::File(_) => panic!("unexpected file"),
         }
     }
+
+    pub fn depth(&self) -> usize {
+        if let Node::Directory(map) = self {
+            let mut depth = 0usize;
+            for child in map.values() {
+                depth = depth.max(1 + child.depth());
+            }
+            depth
+        } else {
+            0
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -67,20 +79,8 @@ impl Reference {
         ret
     }
 
-    fn depth_recursive(&self, node: &Node) -> usize {
-        if let Node::Directory(map) = node {
-            let mut depth = 0usize;
-            for child in map.values() {
-                depth = depth.max(1 + self.depth_recursive(child));
-            }
-            depth
-        } else {
-            0
-        }
-    }
-
     pub fn depth(&self) -> usize {
-        self.depth_recursive(&self.root)
+        self.root.depth()
     }
 
     // Add file to the reference, creating internal nodes as necessary
