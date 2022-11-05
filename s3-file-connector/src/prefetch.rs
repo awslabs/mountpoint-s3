@@ -34,7 +34,7 @@ pub struct PrefetcherConfig {
     /// Maximum size of a single prefetch request
     pub max_request_size: usize,
     /// Factor to increase the request size by whenever the reader continues making sequential reads
-    pub sequential_prefetch_multipler: usize,
+    pub sequential_prefetch_multiplier: usize,
 }
 
 impl Default for PrefetcherConfig {
@@ -42,7 +42,7 @@ impl Default for PrefetcherConfig {
         Self {
             first_request_size: 256 * 1024,
             max_request_size: 2 * 1024 * 1024 * 1024,
-            sequential_prefetch_multipler: 8,
+            sequential_prefetch_multiplier: 8,
         }
     }
 }
@@ -250,7 +250,7 @@ impl<Client: ObjectClient + Send + Sync + 'static> PrefetchGetObject<Client> {
 
         // [read] will reset these if the reader stops making sequential requests
         self.next_request_offset += size;
-        self.next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multipler)
+        self.next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multiplier)
             .min(self.inner.config.max_request_size);
 
         Some(RequestTask {
@@ -310,7 +310,7 @@ mod tests {
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
-            sequential_prefetch_multipler: test_config.sequential_prefetch_multiplier,
+            sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
         };
         let prefetcher = Prefetcher::new(Arc::new(client), test_config);
 
@@ -392,7 +392,7 @@ mod tests {
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
-            sequential_prefetch_multipler: test_config.sequential_prefetch_multiplier,
+            sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
         };
         let prefetcher = Prefetcher::new(Arc::new(client), test_config);
 
