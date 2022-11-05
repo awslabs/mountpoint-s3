@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667689431331,
+  "lastUpdate": 1667692412171,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -293,6 +293,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 2295699490,
             "range": "± 176348359",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@cs.utexas.edu",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "bornholt@cs.utexas.edu",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "737609a06dd39569eb5dcc78902e3f5818d795d8",
+          "message": "Factor out async runtime",
+          "timestamp": "2022-11-05T18:41:56-05:00",
+          "tree_id": "1c17beb0652934f58bdee0e7908e272446493e45",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/737609a06dd39569eb5dcc78902e3f5818d795d8"
+        },
+        "date": 1667692408954,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 65020,
+            "range": "± 5340",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 2505537339,
+            "range": "± 214991532",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 2325753458,
+            "range": "± 348035541",
             "unit": "ns/iter"
           }
         ]
