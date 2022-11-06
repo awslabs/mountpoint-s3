@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667695333996,
+  "lastUpdate": 1667695944263,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -545,6 +545,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 8045782902,
             "range": "± 1413930385",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@cs.utexas.edu",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "bornholt@cs.utexas.edu",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": false,
+          "id": "29b4b22a7a4777631184a1c399c2156053a76f0d",
+          "message": "Add some Shuttle tests for prefetching\n\nThis is just a rough first pass. We'd like to also have Shuttle\ntests for `inode.rs`, tests that fail requests, etc.",
+          "timestamp": "2022-11-05T19:24:05-05:00",
+          "tree_id": "2ccc1b69d0c4197d789c217646a42c003bc16097",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/29b4b22a7a4777631184a1c399c2156053a76f0d"
+        },
+        "date": 1667695939397,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 71761,
+            "range": "± 7528",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 3032752300,
+            "range": "± 166412041",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 2690770352,
+            "range": "± 408115380",
             "unit": "ns/iter"
           }
         ]
