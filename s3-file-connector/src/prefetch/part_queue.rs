@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
-use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
 use crate::prefetch::part::Part;
+use crate::sync::{Condvar, Mutex};
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.

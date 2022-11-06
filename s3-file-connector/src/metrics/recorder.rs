@@ -1,9 +1,8 @@
-use std::sync::Arc;
-
 use metrics::{Counter, CounterFn, Gauge, Histogram, HistogramFn, Key, KeyName, Recorder, SharedString, Unit};
 
 use crate::metrics::data::MetricType;
 use crate::metrics::ThreadMetricsSinkHandle;
+use crate::sync::Arc;
 
 /// An implementation of the [metrics::Recorder] trait that emits metrics to a thread-local metrics
 /// sink.

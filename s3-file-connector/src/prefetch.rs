@@ -14,7 +14,6 @@ use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::os::unix::prelude::OsStrExt;
-use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
@@ -27,6 +26,7 @@ use tracing::{debug_span, error, trace, Instrument};
 
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{PartQueue, PartReadError};
+use crate::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrefetcherConfig {
@@ -471,5 +471,121 @@ mod tests {
             client_part_size: 516882,
         };
         run_random_read_test(object_size, reads, config);
+    }
+
+    #[cfg(feature = "shuttle")]
+    mod shuttle_tests {
+        use super::*;
+        use futures::task::{FutureObj, SpawnError};
+        use shuttle::rand::Rng;
+        use shuttle::{check_pct, check_random};
+
+        struct ShuttleRuntime;
+        impl Spawn for ShuttleRuntime {
+            fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
+                shuttle::future::spawn(future);
+                Ok(())
+            }
+        }
+
+        fn sequential_read_stress_helper() {
+            let mut rng = shuttle::rand::thread_rng();
+            let object_size = rng.gen_range(1u64, 5 * 1024 * 1024);
+            let first_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
+            let max_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
+            let sequential_prefetch_multiplier = rng.gen_range(1usize, 16);
+            let part_size = rng.gen_range(16usize, 8 * 1024 * 1024);
+
+            let config = MockClientConfig {
+                bucket: "test-bucket".to_string(),
+                part_size,
+            };
+            let client = MockClient::new(config);
+
+            client.add_object("hello", MockObject::constant(0xaa, object_size as usize));
+
+            let test_config = PrefetcherConfig {
+                first_request_size,
+                max_request_size,
+                sequential_prefetch_multiplier,
+            };
+
+            let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
+
+            let mut request = prefetcher.get("test-bucket", "hello", object_size as u64);
+
+            let expected = vec![0xaa; object_size as usize];
+            let mut next_offset = 0;
+            loop {
+                let read_size = rng.gen_range(1usize, 5 * 1024 * 1024);
+                let buf = request.read(next_offset, read_size);
+                if buf.is_empty() {
+                    break;
+                }
+                assert_eq!(&buf[..], &expected[..buf.len()]);
+                next_offset += buf.len() as u64;
+            }
+            assert_eq!(next_offset, object_size as u64);
+        }
+
+        #[test]
+        fn sequential_read_stress() {
+            check_random(sequential_read_stress_helper, 1000);
+            check_pct(sequential_read_stress_helper, 1000, 3);
+        }
+
+        fn random_read_stress_helper() {
+            let mut rng = shuttle::rand::thread_rng();
+            let object_size = rng.gen_range(1u64, 5 * 1024 * 1024);
+            let first_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
+            let max_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
+            let sequential_prefetch_multiplier = rng.gen_range(1usize, 16);
+            let part_size = rng.gen_range(16usize, 8 * 1024 * 1024);
+
+            let config = MockClientConfig {
+                bucket: "test-bucket".to_string(),
+                part_size,
+            };
+            let client = MockClient::new(config);
+
+            // TODO non-constant object so we can actually tell if we're getting the right bytes
+            client.add_object("hello", MockObject::constant(0xaa, object_size as usize));
+
+            let test_config = PrefetcherConfig {
+                first_request_size,
+                max_request_size,
+                sequential_prefetch_multiplier,
+            };
+
+            let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
+
+            let mut request = prefetcher.get("test-bucket", "hello", object_size as u64);
+
+            let num_reads = rng.gen_range(10usize, 50);
+            for _ in 0..num_reads {
+                let offset = rng.gen_range(0u64, object_size);
+                let length = rng.gen_range(1usize, (object_size - offset + 1) as usize);
+                let expected = vec![0xaa; length];
+                let buf = request.read(offset, length);
+                assert_eq!(buf.len(), expected.len());
+                // Don't spew the giant buffer if this test fails
+                if buf[..] != expected[..] {
+                    for i in 0..buf.len() {
+                        if buf[i] != expected[i] {
+                            panic!(
+                                "buffer mismatch at offset {}, saw {} expected {}",
+                                i, buf[i], expected[i]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn random_read_stress() {
+            check_random(random_read_stress_helper, 1000);
+            check_pct(random_read_stress_helper, 1000, 3);
+        }
     }
 }

@@ -5,12 +5,13 @@
 //! because it needs to work with CRT threads, so we can't rely on, for example, knowing which
 //! threads are "request processors" (the FUSE daemon threads).
 
-use std::sync::mpsc::{RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use once_cell::sync::OnceCell;
+
+use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use crate::sync::{Arc, Mutex};
 
 mod data;
 use data::*;
@@ -56,7 +57,7 @@ impl MetricsSink {
     pub fn init() -> MetricsSinkHandle {
         let sink = Self::new();
 
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = channel();
 
         let publisher_thread = {
             let threads = Arc::clone(&sink.threads);

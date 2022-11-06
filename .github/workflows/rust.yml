@@ -98,6 +98,20 @@ jobs:
     - name: Check all targets
       run: cargo check --all-targets --features $RUST_FEATURES
 
+  shuttle:
+    name: Shuttle tests
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install fuse
+      run: sudo apt-get install fuse libfuse-dev
+    - name: Run Shuttle tests
+      run: cargo test -p s3-file-connector --features shuttle -- shuttle
+
   asan:
     name: Address sanitizer
     runs-on: ubuntu-22.04

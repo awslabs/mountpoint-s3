@@ -2,8 +2,6 @@ use futures::task::Spawn;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{error, trace};
 
@@ -12,6 +10,8 @@ use s3_client::ObjectClient;
 
 use crate::inode::{InodeError, InodeNo, InodeStat, InodeStatKind, ReaddirHandle, Superblock};
 use crate::prefetch::{PrefetchGetObject, Prefetcher};
+use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use crate::sync::{Arc, Mutex, RwLock};
 
 // FIXME Use newtype here? Will add a bunch of .into()s...
 pub type Inode = u64;

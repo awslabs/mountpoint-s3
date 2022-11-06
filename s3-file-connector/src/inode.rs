@@ -22,8 +22,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use fuser::FileType;
@@ -31,6 +29,9 @@ use futures::{select_biased, FutureExt};
 use s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::{error, trace, warn};
+
+use crate::sync::atomic::{AtomicU64, Ordering};
+use crate::sync::{Arc, Mutex, RwLock};
 
 pub type InodeNo = u64;
 
