@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667840410867,
+  "lastUpdate": 1667843176555,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -671,6 +671,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 961800672,
             "range": "± 848568707",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "e6ee42a9fe4b9d8b1bb581d4a82a63c0ff37c9b2",
+          "message": "Fix build on macOS",
+          "timestamp": "2022-11-07T11:39:44-06:00",
+          "tree_id": "bfecce3a0960c0b111baf4526ffd85621df998e8",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/e6ee42a9fe4b9d8b1bb581d4a82a63c0ff37c9b2"
+        },
+        "date": 1667843174785,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 70156,
+            "range": "± 1101",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 1075045061,
+            "range": "± 3225279076",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 966299862,
+            "range": "± 109651349",
             "unit": "ns/iter"
           }
         ]
