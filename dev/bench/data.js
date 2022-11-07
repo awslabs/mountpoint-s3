@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667838750519,
+  "lastUpdate": 1667840410867,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -629,6 +629,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 848239297,
             "range": "± 48699028",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": false,
+          "id": "b0daf2a5d94aab4d510fecbbaa0d218376544561",
+          "message": "Move bench job to self-hosted runner",
+          "timestamp": "2022-11-07T16:25:08Z",
+          "tree_id": "f610e225e02094c9db2c2a2b41528983616b564c",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/b0daf2a5d94aab4d510fecbbaa0d218376544561"
+        },
+        "date": 1667840409301,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 69945,
+            "range": "± 995",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 1183195800,
+            "range": "± 355138712",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 961800672,
+            "range": "± 848568707",
             "unit": "ns/iter"
           }
         ]
