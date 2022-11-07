@@ -1,7 +1,6 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use fuser::{BackgroundSession, MountOption, Session};
-use libc::O_DIRECT;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use s3_client::S3Client;
@@ -10,13 +9,15 @@ use s3_file_connector::S3FilesystemConfig;
 use std::{
     fs::{File, OpenOptions},
     io::{BufRead, BufReader},
-    os::unix::prelude::OpenOptionsExt,
     time::Duration,
 };
 use tempfile::tempdir;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::OpenOptionsExt;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
@@ -137,11 +138,11 @@ pub fn read_file_benchmark_direct_io(c: &mut Criterion) {
     group.bench_function("read_file_direct_io", |b| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
-            let file = OpenOptions::new()
-                .read(true)
-                .custom_flags(O_DIRECT)
-                .open(file_path)
-                .unwrap();
+            let mut open = OpenOptions::new();
+            open.read(true);
+            #[cfg(target_os = "linux")]
+            open.custom_flags(libc::O_DIRECT);
+            let file = open.open(file_path).unwrap();
             let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
             loop {
                 let length = {

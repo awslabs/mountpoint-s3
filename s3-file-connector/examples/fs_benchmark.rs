@@ -1,7 +1,6 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
 use fuser::{BackgroundSession, MountOption, Session};
-use libc::O_DIRECT;
 use s3_client::{S3Client, S3ClientConfig};
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
@@ -9,13 +8,15 @@ use std::{
     fs::File,
     fs::OpenOptions,
     io::{self, BufRead, BufReader},
-    os::unix::prelude::OpenOptionsExt,
     time::Instant,
 };
 use tempfile::tempdir;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::OpenOptionsExt;
 
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
@@ -87,10 +88,19 @@ fn main() -> io::Result<()> {
     let session = mount_file_system(bucket_name, region, throughput_target_gbps);
     let mountpoint = &session.mountpoint;
 
+    #[cfg(not(target_os = "linux"))]
+    if direct {
+        panic!("O_DIRECT only supported on Linux");
+    }
+
     for i in 0..iterations.unwrap_or(1) {
         let file_path = mountpoint.join(file_path);
         let file = if direct {
-            OpenOptions::new().read(true).custom_flags(O_DIRECT).open(file_path)?
+            let mut open = OpenOptions::new();
+            open.read(true);
+            #[cfg(target_os = "linux")]
+            open.custom_flags(libc::O_DIRECT);
+            open.open(file_path)?
         } else {
             File::open(file_path)?
         };
