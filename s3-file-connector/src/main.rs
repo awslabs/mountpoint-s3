@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::anyhow;
 use anyhow::Context as _;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::Parser;
@@ -35,11 +36,11 @@ fn init_tracing_subscriber() {
 #[derive(Parser)]
 #[clap(about = "S3 FS Connector")]
 struct CliArgs {
-    #[clap(help = "Mount point for file system")]
-    pub mount_point: PathBuf,
-
     #[clap(help = "Name of bucket to mount")]
     pub bucket_name: String,
+
+    #[clap(help = "Mount point for file system")]
+    pub mount_point: PathBuf,
 
     #[clap(
         long,
@@ -70,6 +71,14 @@ fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
 
     let args = CliArgs::parse();
+
+    // validate mount point
+    if !args.mount_point.exists() || !args.mount_point.is_dir() {
+        return Err(anyhow!(
+            "Mount point {} does not exist or it is not a directory",
+            args.mount_point.display()
+        ));
+    }
 
     let mut options = vec![MountOption::RO, MountOption::FSName("fuse_sync".to_string())];
     if args.auto_unmount {
