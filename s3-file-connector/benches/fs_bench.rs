@@ -20,8 +20,13 @@ use tracing_subscriber::EnvFilter;
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;
 
-const KB: usize = 1 << 10;
-const MB: usize = 1 << 20;
+const KB: u64 = 1 << 10;
+const MB: u64 = 1 << 20;
+
+enum IoType {
+    SequentialRead,
+    RandomRead
+}
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
@@ -62,11 +67,15 @@ fn get_bench_file() -> String {
     std::env::var("S3_BUCKET_BENCH_FILE").expect("Set S3_BUCKET_BENCH_FILE to run this benchmark")
 }
 
+fn get_small_bench_file() -> String {
+    std::env::var("S3_BUCKET_SMALL_BENCH_FILE").expect("Set S3_BUCKET_SMALL_BENCH_FILE to run this benchmark")
+}
+
 fn get_buffer_cap() -> usize {
-    let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or_else(|_| "128".to_string());
+    let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or_else(|_| "256".to_string());
     buf_cap
         .parse::<usize>()
-        .expect("Buffer capacity must be able to convert to usize")
+        .expect("Buffer capacity must be able to convert to usize") * KB as usize
 }
 
 fn mount_file_system() -> BackgroundSession {
@@ -91,12 +100,44 @@ fn mount_file_system() -> BackgroundSession {
     BackgroundSession::new(session).expect("Should have started FUSE session successfully")
 }
 
+fn read_from_file(file: File, io_type: IoType, io_size: u64) {
+    let buffer_cap = get_buffer_cap();
+    let file_size = file.metadata().unwrap().len();
+    let mut reader = BufReader::with_capacity(buffer_cap, file);
+    let mut total_read: u64 = 0;
+    loop {
+        // if this is a random read, get a random position in the file and seek to that position
+        if let IoType::RandomRead = io_type {
+            let offset = rand::thread_rng().gen_range(0..file_size);
+            let _ = reader.seek(SeekFrom::Start(offset));
+        }
+
+        // read data into buffer
+        let length = {
+            let buffer = reader.fill_buf().unwrap();
+            total_read += buffer.len() as u64;
+            buffer.len()
+        };
+
+        // read until io_size is reached
+        if total_read >= io_size {
+            break;
+        }
+
+        if length == 0 {
+            // reach the end of the file, reset the cursor
+            let _ = reader.seek(SeekFrom::Start(0));
+        } else {
+            reader.consume(length);
+        }
+    }
+}
+
 // sequential read from the start to the end of the file
 pub fn sequential_read(c: &mut Criterion) {
     init_tracing_subscriber();
 
     let file_path = &get_bench_file();
-    let buffer_cap = get_buffer_cap();
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -108,20 +149,8 @@ pub fn sequential_read(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
-            loop {
-                // read data into buffer
-                let length = {
-                    let buffer = reader.fill_buf().unwrap();
-                    buffer.len()
-                };
-
-                // read to the end of file
-                if length == 0 {
-                    break;
-                }
-                reader.consume(length);
-            }
+            let file_size = file.metadata().unwrap().len();
+            read_from_file(file, IoType::SequentialRead, file_size);
             black_box(1);
         })
     });
@@ -131,7 +160,6 @@ pub fn sequential_read(c: &mut Criterion) {
 // simulate a situation where we mount a file system and leave it for a while before start using it, this should give CRT some time to warm up.
 pub fn sequential_read_delayed_start(c: &mut Criterion) {
     let file_path = &get_bench_file();
-    let buffer_cap = get_buffer_cap();
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -146,20 +174,8 @@ pub fn sequential_read_delayed_start(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
-            loop {
-                // read data into buffer
-                let length = {
-                    let buffer = reader.fill_buf().unwrap();
-                    buffer.len()
-                };
-
-                // read to the end of file
-                if length == 0 {
-                    break;
-                }
-                reader.consume(length);
-            }
+            let file_size = file.metadata().unwrap().len();
+            read_from_file(file, IoType::SequentialRead, file_size);
             black_box(1);
         })
     });
@@ -168,7 +184,6 @@ pub fn sequential_read_delayed_start(c: &mut Criterion) {
 // sequential read with linux page cache disabled by using O_DIRECT flag when open a file to read
 pub fn sequential_read_direct_io(c: &mut Criterion) {
     let file_path = &get_bench_file();
-    let buffer_cap = get_buffer_cap();
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -184,32 +199,19 @@ pub fn sequential_read_direct_io(c: &mut Criterion) {
             #[cfg(target_os = "linux")]
             open.custom_flags(libc::O_DIRECT);
             let file = open.open(file_path).unwrap();
-            let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
-            loop {
-                // read data into buffer
-                let length = {
-                    let buffer = reader.fill_buf().unwrap();
-                    buffer.len()
-                };
-
-                // read to the end of file
-                if length == 0 {
-                    break;
-                }
-                reader.consume(length);
-            }
+            let file_size = file.metadata().unwrap().len();
+            read_from_file(file, IoType::SequentialRead, file_size);
             black_box(1);
         })
     });
 }
 
 // randomly read from different positions in a file until desired IO size is reached
-pub fn random_read(c: &mut Criterion) {
-    let file_path = &get_bench_file();
-    let buffer_cap = get_buffer_cap();
+pub fn random_read_small_file(c: &mut Criterion) {
+    let file_path = &get_small_bench_file();
 
     // total size of data to be read
-    let io_size = 10 * MB;
+    let io_size: u64 = 10 * MB;
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -217,31 +219,34 @@ pub fn random_read(c: &mut Criterion) {
     let mut group = c.benchmark_group("read_file_benchmark");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("random_read", |b| {
+    group.bench_function("random_read_small_file", |b| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let file_len = file.metadata().unwrap().len();
-            let mut reader = BufReader::with_capacity(buffer_cap * KB, file);
-            let mut total_read = 0;
-            loop {
-                // get a random position in the file and seek to that position
-                let pos = rand::thread_rng().gen_range(0..file_len);
-                let _ = reader.seek(SeekFrom::Start(pos));
+            read_from_file(file, IoType::RandomRead, io_size);
+            black_box(1);
+        })
+    });
+}
 
-                // read data into buffer
-                let length = {
-                    let buffer = reader.fill_buf().unwrap();
-                    total_read += buffer.len();
-                    buffer.len()
-                };
+// randomly read from different positions in a file until desired IO size is reached
+pub fn random_read_big_file(c: &mut Criterion) {
+    let file_path = &get_bench_file();
 
-                // read until io_size is reached
-                if total_read >= io_size {
-                    break;
-                }
-                reader.consume(length);
-            }
+    // total size of data to be read
+    let io_size: u64 = 10 * MB;
+
+    let session = mount_file_system();
+    let mountpoint = &session.mountpoint;
+
+    let mut group = c.benchmark_group("read_file_benchmark");
+    group.sample_size(10);
+    group.measurement_time(Duration::new(10, 0));
+    group.bench_function("random_read_big_file", |b| {
+        b.iter(|| {
+            let file_path = mountpoint.join(file_path);
+            let file = File::open(file_path).unwrap();
+            read_from_file(file, IoType::RandomRead, io_size);
             black_box(1);
         })
     });
@@ -252,6 +257,7 @@ criterion_group!(
     sequential_read,
     sequential_read_delayed_start,
     sequential_read_direct_io,
-    random_read
+    random_read_small_file,
+    random_read_big_file
 );
 criterion_main!(benches);
