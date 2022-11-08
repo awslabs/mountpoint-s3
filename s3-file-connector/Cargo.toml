@@ -26,11 +26,14 @@ tracing = { version = "0.1.35", default-features = false, features = ["std", "lo
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
 [dev-dependencies]
+assert_cmd = "2.0.6"
+assert_fs = "1.0.9"
 aws-config = "0.48.0"
 aws-sdk-s3 = "0.18.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
 criterion = "0.4.0"
 ctor = "0.1.23"
+predicates = "2.1.2"
 proptest = "1.0.0"
 proptest-derive = "0.3.0"
 rand = "0.8.5"
