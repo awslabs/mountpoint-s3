@@ -1,8 +1,7 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use fuser::{BackgroundSession, MountOption, Session};
-use rand::{rngs::OsRng, Rng};
-use rand::RngCore;
+use rand::{rngs::OsRng, Rng, RngCore};
 use s3_client::S3Client;
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
@@ -210,7 +209,7 @@ pub fn random_read(c: &mut Criterion) {
     let buffer_cap = get_buffer_cap();
 
     // total size of data to be read
-    let io_size = 100 * MB;
+    let io_size = 10 * MB;
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -252,7 +251,7 @@ criterion_group!(
     benches,
     sequential_read,
     sequential_read_delayed_start,
-    sequential_read_direct_io
-    // random_read
+    sequential_read_direct_io,
+    random_read
 );
 criterion_main!(benches);
