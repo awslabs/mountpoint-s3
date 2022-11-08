@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667918751153,
+  "lastUpdate": 1667919990032,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -971,6 +971,60 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/sequential_read_direct_io",
             "value": 907584472,
             "range": "± 70718746",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "8b8b8d349299beb1d7e2f67799a574c9fe02e406",
+          "message": "Use smaller io size",
+          "timestamp": "2022-11-08T14:56:57Z",
+          "tree_id": "cdf6a7a95e0fa62ac47987c9271af5f5737afb16",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/8b8b8d349299beb1d7e2f67799a574c9fe02e406"
+        },
+        "date": 1667919988221,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 69627,
+            "range": "± 2203",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read",
+            "value": 1170707010,
+            "range": "± 251796180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read_delayed_start",
+            "value": 1096763355,
+            "range": "± 82045118",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read_direct_io",
+            "value": 985249494,
+            "range": "± 150676175",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/random_read",
+            "value": 9343052769,
+            "range": "± 509703173",
             "unit": "ns/iter"
           }
         ]
