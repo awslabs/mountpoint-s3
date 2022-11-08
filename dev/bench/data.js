@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667851684642,
+  "lastUpdate": 1667904357624,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -755,6 +755,48 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/read_file_direct_io",
             "value": 991729211,
             "range": "± 171461092",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "2b2a6f21b5e492952673ca1319a520431e807c8d",
+          "message": "Swap arguments order and validate mount point first",
+          "timestamp": "2022-11-08T10:39:24Z",
+          "tree_id": "3ed8a7dc74fff8d1e31455561ebba6221aed36c3",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/2b2a6f21b5e492952673ca1319a520431e807c8d"
+        },
+        "date": 1667904355813,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 67260,
+            "range": "± 2079",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 1091692263,
+            "range": "± 253521270",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 912032459,
+            "range": "± 108594748",
             "unit": "ns/iter"
           }
         ]
