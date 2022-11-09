@@ -25,7 +25,7 @@ const MB: u64 = 1 << 20;
 
 enum IoType {
     SequentialRead,
-    RandomRead
+    RandomRead,
 }
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
@@ -75,7 +75,8 @@ fn get_buffer_cap() -> usize {
     let buf_cap = std::env::var("FS_BENCH_BUF_CAP").unwrap_or_else(|_| "256".to_string());
     buf_cap
         .parse::<usize>()
-        .expect("Buffer capacity must be able to convert to usize") * KB as usize
+        .expect("Buffer capacity must be able to convert to usize")
+        * KB as usize
 }
 
 fn mount_file_system() -> BackgroundSession {
@@ -100,10 +101,11 @@ fn mount_file_system() -> BackgroundSession {
     BackgroundSession::new(session).expect("Should have started FUSE session successfully")
 }
 
-fn read_from_file(file: File, io_type: IoType, io_size: u64) {
+fn read_from_file(file: File, io_type: IoType, io_size: u64, starting_offset: u64) {
     let buffer_cap = get_buffer_cap();
     let file_size = file.metadata().unwrap().len();
     let mut reader = BufReader::with_capacity(buffer_cap, file);
+    let _ = reader.seek(SeekFrom::Start(starting_offset));
     let mut total_read: u64 = 0;
     loop {
         // if this is a random read, get a random position in the file and seek to that position
@@ -149,8 +151,36 @@ pub fn sequential_read(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let file_size = file.metadata().unwrap().len();
-            read_from_file(file, IoType::SequentialRead, file_size);
+            let io_size = file.metadata().unwrap().len();
+            read_from_file(file, IoType::SequentialRead, io_size, 0);
+            black_box(1);
+        })
+    });
+}
+
+pub fn sequential_read_four_threads(c: &mut Criterion) {
+    let file_path = &get_bench_file();
+
+    let session = mount_file_system();
+    let mountpoint = &session.mountpoint;
+
+    let mut group = c.benchmark_group("read_file_benchmark");
+    group.sample_size(10);
+    group.measurement_time(Duration::new(10, 0));
+    group.bench_function("sequential_read_four_threads", |b| {
+        b.iter(|| {
+            let thread_count = 4;
+            thread::scope(|scope| {
+                for i in 0..thread_count {
+                    scope.spawn(move || {
+                        let full_path = mountpoint.join(file_path);
+                        let file = File::open(full_path).unwrap();
+                        let io_size = file.metadata().unwrap().len();
+                        let part_size = io_size / thread_count;
+                        read_from_file(file, IoType::SequentialRead, part_size, part_size * i);
+                    });
+                }
+            });
             black_box(1);
         })
     });
@@ -174,8 +204,8 @@ pub fn sequential_read_delayed_start(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let file_size = file.metadata().unwrap().len();
-            read_from_file(file, IoType::SequentialRead, file_size);
+            let io_size = file.metadata().unwrap().len();
+            read_from_file(file, IoType::SequentialRead, io_size, 0);
             black_box(1);
         })
     });
@@ -199,8 +229,8 @@ pub fn sequential_read_direct_io(c: &mut Criterion) {
             #[cfg(target_os = "linux")]
             open.custom_flags(libc::O_DIRECT);
             let file = open.open(file_path).unwrap();
-            let file_size = file.metadata().unwrap().len();
-            read_from_file(file, IoType::SequentialRead, file_size);
+            let io_size = file.metadata().unwrap().len();
+            read_from_file(file, IoType::SequentialRead, io_size, 0);
             black_box(1);
         })
     });
@@ -223,7 +253,7 @@ pub fn random_read_small_file(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            read_from_file(file, IoType::RandomRead, io_size);
+            read_from_file(file, IoType::RandomRead, io_size, 0);
             black_box(1);
         })
     });
@@ -246,7 +276,7 @@ pub fn random_read_big_file(c: &mut Criterion) {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            read_from_file(file, IoType::RandomRead, io_size);
+            read_from_file(file, IoType::RandomRead, io_size, 0);
             black_box(1);
         })
     });
@@ -255,6 +285,7 @@ pub fn random_read_big_file(c: &mut Criterion) {
 criterion_group!(
     benches,
     sequential_read,
+    sequential_read_four_threads,
     sequential_read_delayed_start,
     sequential_read_direct_io,
     random_read_small_file,
