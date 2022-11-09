@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667999715708,
+  "lastUpdate": 1668001036082,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1115,6 +1115,72 @@ window.BENCHMARK_DATA = {
             "name": "event_loop_future",
             "value": 74937,
             "range": "± 1465",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "fa2ffd6e341f559b16bc7ffe3a648b46dccfb0bf",
+          "message": "Add multiple threads read benchmark",
+          "timestamp": "2022-11-09T13:30:05Z",
+          "tree_id": "b4ee79d700f84684da120a127d30e92f69f43099",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/fa2ffd6e341f559b16bc7ffe3a648b46dccfb0bf"
+        },
+        "date": 1668001034310,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 70162,
+            "range": "± 1157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read",
+            "value": 1185792443,
+            "range": "± 198722755",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read_four_threads",
+            "value": 1963356615,
+            "range": "± 425139963",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read_delayed_start",
+            "value": 1054885390,
+            "range": "± 194018159",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/sequential_read_direct_io",
+            "value": 916484959,
+            "range": "± 84286536",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/random_read_small_file",
+            "value": 1221796434,
+            "range": "± 175325394",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/random_read_big_file",
+            "value": 4084748574,
+            "range": "± 197665674",
             "unit": "ns/iter"
           }
         ]
