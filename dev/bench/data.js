@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1667931543795,
+  "lastUpdate": 1667999715708,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1085,6 +1085,36 @@ window.BENCHMARK_DATA = {
             "name": "read_file_benchmark/random_read_big_file",
             "value": 4709380897,
             "range": "± 498772781",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "97e9d57813240816f039a6bd212ea0cd3762a53f",
+          "message": "Add multiple threads read benchmark",
+          "timestamp": "2022-11-09T13:05:55Z",
+          "tree_id": "0a83df3826e4d69df6d9c936cc7d1668200a06b1",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/97e9d57813240816f039a6bd212ea0cd3762a53f"
+        },
+        "date": 1667999713866,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 74937,
+            "range": "± 1465",
             "unit": "ns/iter"
           }
         ]
