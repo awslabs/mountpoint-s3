@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668176037641,
+  "lastUpdate": 1668177116608,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1386,6 +1386,48 @@ window.BENCHMARK_DATA = {
             "name": "fs/random_read_big_file",
             "value": 2.2662,
             "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "committer": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "distinct": true,
+          "id": "83a1585ef46d06a9785b4c1eed308cc4b0931f83",
+          "message": "Remove proptests from asan",
+          "timestamp": "2022-11-11T14:25:28Z",
+          "tree_id": "d0773afec7ed93bafc5e8b9cff9384b2da79691a",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/83a1585ef46d06a9785b4c1eed308cc4b0931f83"
+        },
+        "date": 1668177114873,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 73491,
+            "range": "± 2046",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 1030135962,
+            "range": "± 345969817",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 872060183,
+            "range": "± 117440179",
+            "unit": "ns/iter"
           }
         ]
       }
