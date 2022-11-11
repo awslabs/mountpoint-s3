@@ -1,5 +1,5 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use fuser::{BackgroundSession, MountOption, Session};
 use rand::{rngs::OsRng, Rng, RngCore};
 use s3_client::S3Client;
@@ -141,33 +141,39 @@ pub fn sequential_read(c: &mut Criterion) {
 
     let file_path = &get_bench_file();
 
+    // total size of data to be read
+    let io_size: u64 = 1024 * MB;
+
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
 
-    let mut group = c.benchmark_group("read_file_benchmark");
+    let mut group = c.benchmark_group("fs");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("sequential_read", |b| {
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("sequential_read", &io_size, |b, &io_size| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let io_size = file.metadata().unwrap().len();
             read_from_file(file, IoType::SequentialRead, io_size, 0);
-            black_box(1);
-        })
+        });
     });
 }
 
 pub fn sequential_read_four_threads(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
+    // total size of data to be read
+    let io_size: u64 = 1024 * MB;
+
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
 
-    let mut group = c.benchmark_group("read_file_benchmark");
+    let mut group = c.benchmark_group("fs");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("sequential_read_four_threads", |b| {
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("sequential_read_four_threads", &io_size, |b, &io_size| {
         b.iter(|| {
             let thread_count = 4;
             thread::scope(|scope| {
@@ -175,14 +181,12 @@ pub fn sequential_read_four_threads(c: &mut Criterion) {
                     scope.spawn(move || {
                         let full_path = mountpoint.join(file_path);
                         let file = File::open(full_path).unwrap();
-                        let io_size = file.metadata().unwrap().len();
                         let part_size = io_size / thread_count;
                         read_from_file(file, IoType::SequentialRead, part_size, part_size * i);
                     });
                 }
             });
-            black_box(1);
-        })
+        });
     });
 }
 
@@ -191,23 +195,25 @@ pub fn sequential_read_four_threads(c: &mut Criterion) {
 pub fn sequential_read_delayed_start(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
+    // total size of data to be read
+    let io_size: u64 = 1024 * MB;
+
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
 
     // sleep for 60 seconds after file system is mounted before start reading
     thread::sleep(Duration::from_secs(60));
 
-    let mut group = c.benchmark_group("read_file_benchmark");
+    let mut group = c.benchmark_group("fs");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("sequential_read_delayed_start", |b| {
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("sequential_read_delayed_start", &io_size, |b, &io_size| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
-            let io_size = file.metadata().unwrap().len();
             read_from_file(file, IoType::SequentialRead, io_size, 0);
-            black_box(1);
-        })
+        });
     });
 }
 
@@ -215,13 +221,17 @@ pub fn sequential_read_delayed_start(c: &mut Criterion) {
 pub fn sequential_read_direct_io(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
+    // total size of data to be read
+    let io_size: u64 = 1024 * MB;
+
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
 
-    let mut group = c.benchmark_group("read_file_benchmark");
+    let mut group = c.benchmark_group("fs");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("sequential_read_direct_io", |b| {
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("sequential_read_direct_io", &io_size, |b, &io_size| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let mut open = OpenOptions::new();
@@ -229,10 +239,8 @@ pub fn sequential_read_direct_io(c: &mut Criterion) {
             #[cfg(target_os = "linux")]
             open.custom_flags(libc::O_DIRECT);
             let file = open.open(file_path).unwrap();
-            let io_size = file.metadata().unwrap().len();
             read_from_file(file, IoType::SequentialRead, io_size, 0);
-            black_box(1);
-        })
+        });
     });
 }
 
@@ -246,16 +254,17 @@ pub fn random_read_small_file(c: &mut Criterion) {
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
 
-    let mut group = c.benchmark_group("read_file_benchmark");
+    let mut group = c.benchmark_group("fs");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("random_read_small_file", |b| {
+
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("random_read_small_file", &io_size, |b, &io_size| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
             read_from_file(file, IoType::RandomRead, io_size, 0);
-            black_box(1);
-        })
+        });
     });
 }
 
@@ -269,16 +278,16 @@ pub fn random_read_big_file(c: &mut Criterion) {
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
 
-    let mut group = c.benchmark_group("read_file_benchmark");
+    let mut group = c.benchmark_group("fs");
     group.sample_size(10);
     group.measurement_time(Duration::new(10, 0));
-    group.bench_function("random_read_big_file", |b| {
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("random_read_big_file", &io_size, |b, &io_size| {
         b.iter(|| {
             let file_path = mountpoint.join(file_path);
             let file = File::open(file_path).unwrap();
             read_from_file(file, IoType::RandomRead, io_size, 0);
-            black_box(1);
-        })
+        });
     });
 }
 
