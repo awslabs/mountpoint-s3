@@ -37,7 +37,7 @@ test-asan:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
 	RUSTFLAGS="-Zsanitizer=address" \
-	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages
+	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages -- --skip reftest_ --skip proptest_
 
 .PHONY: fmt
 fmt:
