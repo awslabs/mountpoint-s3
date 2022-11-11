@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668179826936,
+  "lastUpdate": 1668183543459,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1481,6 +1481,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 2.5049,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "committer": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "distinct": true,
+          "id": "440f4c62b0eb6555a488bc6016f1b972f1dd7cdc",
+          "message": "Don't run reftests or proptests with asan",
+          "timestamp": "2022-11-11T16:01:55Z",
+          "tree_id": "88bd3ca8451a855459f540a842903c3f92bb5218",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/440f4c62b0eb6555a488bc6016f1b972f1dd7cdc"
+        },
+        "date": 1668183541693,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 865.73,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 521.74,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 949.97,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1199.2064,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 6.4446,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.2179,
             "unit": "MiB/s"
           }
         ]
