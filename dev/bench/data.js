@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668177116608,
+  "lastUpdate": 1668179826936,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1428,6 +1428,60 @@ window.BENCHMARK_DATA = {
             "value": 872060183,
             "range": "± 117440179",
             "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "committer": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "distinct": true,
+          "id": "08361626362fdec52e26fc2920121a1f4e8955fe",
+          "message": "Really remove proptests from asan",
+          "timestamp": "2022-11-11T15:07:02Z",
+          "tree_id": "88bd3ca8451a855459f540a842903c3f92bb5218",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/08361626362fdec52e26fc2920121a1f4e8955fe"
+        },
+        "date": 1668179825013,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 813.82,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 583.74,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 901.43,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1092.5056,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 9.6673,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.5049,
+            "unit": "MiB/s"
           }
         ]
       }
