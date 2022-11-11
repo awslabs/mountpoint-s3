@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668188292542,
+  "lastUpdate": 1668189288846,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1643,6 +1643,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 2.5573,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "8381226d6b2e587cb08f26d266938302ca3ce396",
+          "message": "Update vendored fuser to bb3c123",
+          "timestamp": "2022-11-11T17:46:19Z",
+          "tree_id": "93895244d8d34dc333bcb5d504cc3dc7e211cb68",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/8381226d6b2e587cb08f26d266938302ca3ce396"
+        },
+        "date": 1668189287148,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 925.26,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 593.33,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 992.81,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1314.7136,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 9.3785,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.6107,
             "unit": "MiB/s"
           }
         ]
