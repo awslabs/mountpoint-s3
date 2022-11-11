@@ -2,7 +2,7 @@ use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use fuser::{BackgroundSession, MountOption, Session};
 use rand::{rngs::OsRng, Rng, RngCore};
-use s3_client::S3Client;
+use s3_client::{S3Client, S3ClientConfig};
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
 use std::io::{Seek, SeekFrom};
@@ -41,7 +41,13 @@ fn init_tracing_subscriber() {
 }
 
 fn get_test_client() -> S3Client {
-    S3Client::new(&get_test_region(), Default::default()).expect("could not create test client")
+    let throughput_target_gbps = Some(100.0);
+    let part_size = None;
+    let config = S3ClientConfig {
+        throughput_target_gbps,
+        part_size,
+    };
+    S3Client::new(&get_test_region(), config).expect("could not create test client")
 }
 
 fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
