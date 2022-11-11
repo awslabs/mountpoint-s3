@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668175129311,
+  "lastUpdate": 1668175207941,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1278,6 +1278,60 @@ window.BENCHMARK_DATA = {
             "value": 946205536,
             "range": "± 101725575",
             "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "monthonk@amazon.co.uk",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "4009e9b4b9c7002e1390ed93abf62af628be01e6",
+          "message": "Collect bench result as throughput instead of ns/iter",
+          "timestamp": "2022-11-11T13:51:29Z",
+          "tree_id": "314617aadc9d37ee67e72755adee92114e8baa44",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/4009e9b4b9c7002e1390ed93abf62af628be01e6"
+        },
+        "date": 1668175205376,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 968.91,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 575.16,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 1000.2,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1202.7904,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 7.5693,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.5026,
+            "unit": "MiB/s"
           }
         ]
       }
