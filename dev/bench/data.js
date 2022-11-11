@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668167405088,
+  "lastUpdate": 1668175129311,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1236,6 +1236,48 @@ window.BENCHMARK_DATA = {
             "name": "fs/random_read_big_file",
             "value": 2.3885,
             "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "committer": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "distinct": true,
+          "id": "141920db672b2a4ebb89a39fab73a3cb7ce12f3b",
+          "message": "Don't run reftests with asan",
+          "timestamp": "2022-11-11T13:54:08Z",
+          "tree_id": "16c9200b13c591c6e5f84a467bf2f0558b90acc9",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/141920db672b2a4ebb89a39fab73a3cb7ce12f3b"
+        },
+        "date": 1668175127532,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_loop_future",
+            "value": 72233,
+            "range": "± 2170",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file",
+            "value": 1005249162,
+            "range": "± 69690892",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "read_file_benchmark/read_file_direct_io",
+            "value": 946205536,
+            "range": "± 101725575",
+            "unit": "ns/iter"
           }
         ]
       }
