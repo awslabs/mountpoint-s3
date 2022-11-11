@@ -115,6 +115,8 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
     where
         FS: 'static,
     {
+        #[cfg(target_os = "linux")]
+        info!("new session thread with TID {}", unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t });
         let session = &*self;
         loop {
             // Read the next request from the given channel to kernel driver
