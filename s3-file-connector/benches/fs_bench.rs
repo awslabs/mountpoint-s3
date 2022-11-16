@@ -1,7 +1,7 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use fuser::{BackgroundSession, MountOption, Session};
-use rand::{rngs::OsRng, Rng, RngCore};
+use rand::Rng;
 use s3_client::{S3Client, S3ClientConfig};
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
@@ -50,17 +50,12 @@ fn get_test_client() -> S3Client {
     S3Client::new(&get_test_region(), config).expect("could not create test client")
 }
 
-fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
+fn get_test_bucket_and_prefix() -> (String, String) {
     let bucket = std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run this benchmark");
-
-    // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
 
     // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run this benchmark");
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
-
-    let prefix = format!("{}{}/{}/", prefix, test_name, nonce);
 
     (bucket, prefix)
 }
@@ -86,7 +81,7 @@ fn get_buffer_cap() -> usize {
 }
 
 fn mount_file_system() -> BackgroundSession {
-    let (bucket, _) = get_test_bucket_and_prefix("read_file");
+    let (bucket, prefix) = get_test_bucket_and_prefix();
     let temp_dir = tempdir().expect("Should be able to create temp directory");
     let mountpoint = temp_dir.path();
 
@@ -98,7 +93,7 @@ fn mount_file_system() -> BackgroundSession {
 
     let filesystem_config = S3FilesystemConfig::default();
     let session = Session::new(
-        S3FuseFilesystem::new(client, runtime, &bucket, "", filesystem_config),
+        S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
         mountpoint,
         &options,
     )
