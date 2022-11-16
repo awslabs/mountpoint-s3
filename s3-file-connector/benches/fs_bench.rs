@@ -86,7 +86,7 @@ fn get_buffer_cap() -> usize {
 }
 
 fn mount_file_system() -> BackgroundSession {
-    let (bucket, _) = get_test_bucket_and_prefix("read_file");
+    let (bucket, prefix) = get_test_bucket_and_prefix("read_file");
     let temp_dir = tempdir().expect("Should be able to create temp directory");
     let mountpoint = temp_dir.path();
 
@@ -98,7 +98,7 @@ fn mount_file_system() -> BackgroundSession {
 
     let filesystem_config = S3FilesystemConfig::default();
     let session = Session::new(
-        S3FuseFilesystem::new(client, runtime, &bucket, "", filesystem_config),
+        S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
         mountpoint,
         &options,
     )
