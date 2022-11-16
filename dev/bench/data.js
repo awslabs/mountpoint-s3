@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668605313577,
+  "lastUpdate": 1668609879694,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1797,6 +1797,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 2.4118,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "47974768+monthonk@users.noreply.github.com",
+            "name": "monthonk",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3253a10262bc2504807b23dfdc4729016bef8747",
+          "message": "Merge pull request #17 from awslabs/bench-ci\n\nCreate a separate ci for benchmark",
+          "timestamp": "2022-11-16T14:36:06Z",
+          "tree_id": "bf7fa9424f78c0bb0bb316436ef17fb232c37ba1",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/3253a10262bc2504807b23dfdc4729016bef8747"
+        },
+        "date": 1668609877900,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 860.67,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 565.63,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 867.38,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1044.5824,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 8.1083,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.64,
             "unit": "MiB/s"
           }
         ]
