@@ -359,7 +359,6 @@ mod tests {
 
     use super::*;
 
-    #[track_caller]
     async fn test_get_object(key: &str, size: usize, range: Option<Range<u64>>) {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
