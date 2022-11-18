@@ -2353,9 +2353,9 @@ checksum = "43b2853a4d09f215c24cc5489c992ce46052d359b5109343cbafbf26bc62f8a3"
 
 [[package]]
 name = "shuttle"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9cf6e2264335cd79852f6aef04c675042084a74c048c1c66ecbd5249feb85af"
+checksum = "ae3516ebcc451de38f280f5d84de93ac871b7bb7590f34efccaa91e2c964d093"
 dependencies = [
  "bitvec",
  "generator",
