@@ -1,3 +1,4 @@
+mod failure_client;
 pub mod mock_client;
 mod object_client;
 mod s3_client;
