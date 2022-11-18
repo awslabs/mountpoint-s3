@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668609879694,
+  "lastUpdate": 1668811321179,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1851,6 +1851,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 2.64,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "jamesbornholt@gmail.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "e257d71e4f9d69b5003d7d8d45e71377610a4734",
+          "message": "Fixes for address sanitizer tests\n\ntrack_caller is unstable and seems to now be guarded behind a feature flag:\nhttps://github.com/rust-lang/rust/issues/74042\n\nWe also have one test for large objects that is very slow under ASan.",
+          "timestamp": "2022-11-18T16:33:21-06:00",
+          "tree_id": "8b35782ad26483106f06bd74f46de92b623c1217",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/e257d71e4f9d69b5003d7d8d45e71377610a4734"
+        },
+        "date": 1668811319750,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 999.05,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 613.12,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 915.66,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1309.2864,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 7.0325,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.1935,
             "unit": "MiB/s"
           }
         ]
