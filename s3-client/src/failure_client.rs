@@ -1,7 +1,7 @@
 use crate::object_client::HeadObjectResult;
 use crate::{ListObjectsResult, ObjectClient};
 use async_trait::async_trait;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Mutex;
 
@@ -125,7 +125,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
 mod tests {
     use super::*;
     use crate::mock_client::{GetObjectError, MockClient, MockClientConfig, MockObject};
-    use std::sync::Mutex;
+    use std::collections::HashSet;
 
     #[tokio::test]
     async fn fail_client_sanity_check() {

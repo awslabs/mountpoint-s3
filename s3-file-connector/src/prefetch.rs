@@ -300,7 +300,9 @@ mod tests {
     use proptest::sample::SizeRange;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockObject};
+    use s3_client::failure_client::countdown_failure_client;
+    use s3_client::mock_client::{ramp_bytes, GetObjectError, MockClient, MockClientConfig, MockObject};
+    use std::collections::HashMap;
 
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
@@ -377,6 +379,59 @@ mod tests {
             client_part_size: 8 * 1024 * 1024,
         };
         run_sequential_read_test(4 * 1024 * 1024 * 1024 + 111, 1024 * 1024, config);
+    }
+
+    fn fail_sequential_read_test(
+        size: u64,
+        read_size: usize,
+        test_config: TestConfig,
+        get_failures: HashMap<usize, GetObjectError>,
+    ) {
+        let config = MockClientConfig {
+            bucket: "test-bucket".to_string(),
+            part_size: test_config.client_part_size,
+        };
+        let client = MockClient::new(config);
+        client.add_object("hello", MockObject::ramp(0xaa, size as usize));
+
+        let client = countdown_failure_client(client, get_failures, HashMap::new(), HashMap::new());
+
+        let test_config = PrefetcherConfig {
+            first_request_size: test_config.first_request_size,
+            max_request_size: test_config.max_request_size,
+            sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
+        };
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
+
+        let mut request = prefetcher.get("test-bucket", "hello", size as u64);
+
+        let mut next_offset = 0;
+        loop {
+            let buf = request.read(next_offset, read_size);
+            if buf.is_empty() {
+                break;
+            }
+            let expected = ramp_bytes((0xaa + next_offset) as usize, buf.len());
+            assert_eq!(&buf[..], &expected[..buf.len()]);
+            next_offset += buf.len() as u64;
+        }
+        assert!(next_offset <= size as u64);
+    }
+
+    #[test]
+    fn fail_sequential_small() {
+        let config = TestConfig {
+            first_request_size: 256 * 1024,
+            max_request_size: 1024 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 8 * 1024 * 1024,
+        };
+
+        let mut get_failures = HashMap::new();
+        get_failures.insert(2, s3_client::mock_client::GetObjectError::InvalidRange(42));
+
+        fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
 
     proptest! {
