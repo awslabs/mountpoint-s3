@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1668811321179,
+  "lastUpdate": 1668824862723,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -1905,6 +1905,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 2.1935,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "committer": {
+            "email": "43651355+jorajeev@users.noreply.github.com",
+            "name": "Rajeev Joshi",
+            "username": "jorajeev"
+          },
+          "distinct": true,
+          "id": "9708447929e726a6597e0c082c1e8ce8849aec6d",
+          "message": "Added failing test",
+          "timestamp": "2022-11-19T02:16:24Z",
+          "tree_id": "f3762a09ea82e0f14935fae26c9c2731d3f4e5e0",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/9708447929e726a6597e0c082c1e8ce8849aec6d"
+        },
+        "date": 1668824860910,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 439.44,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 532.66,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 905.38,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 1057.0752,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 6.5746,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 2.0319,
             "unit": "MiB/s"
           }
         ]
