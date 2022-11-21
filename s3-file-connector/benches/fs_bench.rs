@@ -143,7 +143,7 @@ pub fn sequential_read(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
     // total size of data to be read
-    let io_size: u64 = 1024 * MB;
+    let io_size: u64 = 20480 * MB;
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -165,7 +165,7 @@ pub fn sequential_read_four_threads(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
     // total size of data to be read
-    let io_size: u64 = 1024 * MB;
+    let io_size: u64 = 20480 * MB;
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -197,7 +197,7 @@ pub fn sequential_read_delayed_start(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
     // total size of data to be read
-    let io_size: u64 = 1024 * MB;
+    let io_size: u64 = 20480 * MB;
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;
@@ -223,7 +223,7 @@ pub fn sequential_read_direct_io(c: &mut Criterion) {
     let file_path = &get_bench_file();
 
     // total size of data to be read
-    let io_size: u64 = 1024 * MB;
+    let io_size: u64 = 20480 * MB;
 
     let session = mount_file_system();
     let mountpoint = &session.mountpoint;

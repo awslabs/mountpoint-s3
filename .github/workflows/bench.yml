@@ -14,7 +14,7 @@ env:
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket
   S3_BUCKET_TEST_PREFIX: read-only-mount-test/
-  S3_BUCKET_BENCH_FILE: bench1GB.bin
+  S3_BUCKET_BENCH_FILE: bench100GB.bin
   S3_BUCKET_SMALL_BENCH_FILE: bench5MB.bin
   # A bucket our IAM role has no access to, but is in the right region, for permissions tests
   S3_FORBIDDEN_BUCKET_NAME: s3-file-connector-github-test-bucket-forbidden
