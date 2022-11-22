@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669136944250,
+  "lastUpdate": 1669138456426,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2009,6 +2009,61 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 1.9878,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "committer": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "id": "2bef171c6e7586f07b692ee0943291ab9f75a2ae",
+          "message": "Increase IO size for benchmark to 20GB",
+          "timestamp": "2022-11-08T13:28:21Z",
+          "url": "https://github.com/awslabs/s3-file-connector/pull/20/commits/2bef171c6e7586f07b692ee0943291ab9f75a2ae"
+        },
+        "date": 1669138454811,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 1711.616,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 1397.6576,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 1470.2592,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 2830.0288,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads_direct_io",
+            "value": 2158.592,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 7.1176,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 0.72,
             "unit": "MiB/s"
           }
         ]
