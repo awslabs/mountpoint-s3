@@ -9,7 +9,7 @@ use fuser::{FileAttr, KernelConfig};
 use s3_client::ObjectClient;
 
 use crate::inode::{InodeError, InodeNo, InodeStat, InodeStatKind, ReaddirHandle, Superblock};
-use crate::prefetch::{PrefetchGetObject, Prefetcher};
+use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 
@@ -44,7 +44,7 @@ impl DirHandle {
 }
 
 #[derive(Debug)]
-struct FileHandle<Client, Runtime> {
+struct FileHandle<Client: ObjectClient, Runtime> {
     #[allow(unused)]
     ino: InodeNo,
     full_key: OsString,
@@ -72,7 +72,7 @@ impl Default for S3FilesystemConfig {
 }
 
 #[derive(Debug)]
-pub struct S3Filesystem<Client, Runtime> {
+pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     config: S3FilesystemConfig,
     client: Arc<Client>,
     superblock: Superblock,
@@ -272,8 +272,11 @@ where
                 let key = std::str::from_utf8(handle.full_key.as_bytes()).unwrap();
                 *request = Some(self.prefetcher.get(&self.bucket, key, handle.object_size));
             }
-            let body = request.as_mut().unwrap().read(offset as u64, size as usize);
-            reply.data(&body)
+            match request.as_mut().unwrap().read(offset as u64, size as usize) {
+                Ok(body) => reply.data(&body),
+                Err(PrefetchReadError::TimedOut) => reply.error(libc::ETIMEDOUT),
+                Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
+            }
         } else {
             reply.error(libc::EBADF)
         }

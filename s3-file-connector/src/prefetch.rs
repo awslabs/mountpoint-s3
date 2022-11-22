@@ -22,10 +22,11 @@ use futures::stream::StreamExt;
 use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
 use s3_client::ObjectClient;
+use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::prefetch::part::Part;
-use crate::prefetch::part_queue::{PartQueue, PartReadError};
+use crate::prefetch::part_queue::PartQueue;
 use crate::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +37,8 @@ pub struct PrefetcherConfig {
     pub max_request_size: usize,
     /// Factor to increase the request size by whenever the reader continues making sequential reads
     pub sequential_prefetch_multiplier: usize,
+    /// Timeout to wait for a part to become available
+    pub read_timeout: Duration,
 }
 
 impl Default for PrefetcherConfig {
@@ -44,6 +47,7 @@ impl Default for PrefetcherConfig {
             first_request_size: 256 * 1024,
             max_request_size: 2 * 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
+            read_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -86,11 +90,11 @@ where
 /// A GetObject request that divides the desired range of the object into chunks that it prefetches
 /// in a way that maximizes throughput from S3.
 #[derive(Debug)]
-pub struct PrefetchGetObject<Client, Runtime> {
+pub struct PrefetchGetObject<Client: ObjectClient, Runtime> {
     inner: Arc<PrefetcherInner<Client, Runtime>>,
-    current_task: Option<RequestTask>,
+    current_task: Option<RequestTask<Client::GetObjectError>>,
     // Currently we only every spawn at most one future task (see [spawn_next_request])
-    future_tasks: Arc<RwLock<VecDeque<RequestTask>>>,
+    future_tasks: Arc<RwLock<VecDeque<RequestTask<Client::GetObjectError>>>>,
     bucket: String,
     key: String,
     next_sequential_read_offset: u64,
@@ -122,7 +126,7 @@ where
     /// Read some bytes from the object. Blocks until the desired bytes are available or EOF. This
     /// function will always return exactly `size` bytes, except at the end of the object where it
     /// will return however many bytes are left (including possibly 0 bytes).
-    pub fn read(&mut self, offset: u64, length: usize) -> Bytes {
+    pub fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<Client::GetObjectError>> {
         trace!(
             offset,
             length,
@@ -132,7 +136,7 @@ where
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
-            return Bytes::new();
+            return Ok(Bytes::new());
         }
         let mut to_read = (length as u64).min(remaining);
 
@@ -160,22 +164,30 @@ where
         // object.
         if self.current_task.is_none() {
             trace!(offset, length, "read beyond object size");
-            return Bytes::new();
+            return Ok(Bytes::new());
         }
 
         let mut response = BytesMut::new();
         while to_read > 0 {
             let current_task = self.current_task.as_mut().unwrap();
             debug_assert!(current_task.remaining > 0);
-            // TODO handle timeouts
-            let part = current_task.read(to_read as usize, Duration::from_secs(60)).unwrap();
+
+            let part = match current_task.read(to_read as usize, self.inner.config.read_timeout) {
+                Err(e) => {
+                    // cancel inflight tasks
+                    self.current_task = None;
+                    self.future_tasks.write().unwrap().drain(..);
+                    return Err(e);
+                }
+                Ok(part) => part,
+            };
             let part_bytes = part
                 .into_bytes(OsStr::from_bytes(self.key.as_bytes()), self.next_sequential_read_offset)
                 .unwrap();
 
             self.next_sequential_read_offset += part_bytes.len() as u64;
             if response.is_empty() && part_bytes.len() == to_read as usize {
-                return part_bytes;
+                return Ok(part_bytes);
             }
             response.extend_from_slice(&part_bytes[..]);
             to_read -= part_bytes.len() as u64;
@@ -187,7 +199,7 @@ where
             }
         }
 
-        response.freeze()
+        Ok(response.freeze())
     }
 
     /// Runs on every read to prepare and spawn any requests our prefetching logic requires
@@ -214,7 +226,7 @@ where
     }
 
     /// Spawn the next required request
-    fn spawn_next_request(&mut self) -> Option<RequestTask> {
+    fn spawn_next_request(&mut self) -> Option<RequestTask<Client::GetObjectError>> {
         let start = self.next_request_offset;
         let end = (start + self.next_request_size as u64).min(self.size);
 
@@ -237,25 +249,29 @@ where
             let span = debug_span!("prefetch", range=?range);
 
             async move {
-                let request = client
-                    .get_object(&bucket, &key, Some(range.clone()))
-                    .await
-                    .expect("get object failed");
-                pin_mut!(request);
-                loop {
-                    match request.next().await {
-                        Some(Ok((offset, body))) => {
-                            let part = Part::new(OsString::from(&key), offset, body.into());
-                            part_queue.push(part);
+                match client.get_object(&bucket, &key, Some(range.clone())).await {
+                    Err(e) => {
+                        error!(error=?e, "RequestTask get object failed");
+                        part_queue.push(Err(e));
+                    }
+                    Ok(request) => {
+                        pin_mut!(request);
+                        loop {
+                            match request.next().await {
+                                Some(Ok((offset, body))) => {
+                                    let part = Part::new(OsString::from(&key), offset, body.into());
+                                    part_queue.push(Ok(part));
+                                }
+                                Some(Err(e)) => {
+                                    error!(error=?e, "RequestTask body part failed");
+                                    break;
+                                }
+                                None => break,
+                            }
                         }
-                        Some(Err(e)) => {
-                            error!(error=?e, "RequestTask body part failed");
-                            break;
-                        }
-                        None => break,
+                        trace!("finished");
                     }
                 }
-                trace!("finished");
             }
             .instrument(span)
         };
@@ -277,19 +293,27 @@ where
 }
 
 #[derive(Debug)]
-struct RequestTask {
+struct RequestTask<E> {
     remaining: usize,
     total_size: usize,
-    part_queue: Arc<PartQueue>,
+    part_queue: Arc<PartQueue<E>>,
 }
 
-impl RequestTask {
-    fn read(&mut self, length: usize, timeout: Duration) -> Result<Part, PartReadError> {
+impl<E: std::error::Error + Send + Sync> RequestTask<E> {
+    fn read(&mut self, length: usize, timeout: Duration) -> Result<Part, PrefetchReadError<E>> {
         let part = self.part_queue.read(length, timeout)?;
         debug_assert!(part.len() <= self.remaining);
         self.remaining -= part.len();
         Ok(part)
     }
+}
+
+#[derive(Debug, Error)]
+pub enum PrefetchReadError<E: std::error::Error> {
+    #[error("timed out waiting to read")]
+    TimedOut,
+    #[error("get request failed")]
+    GetRequestFailed(#[from] E),
 }
 
 #[cfg(test)]
@@ -329,6 +353,7 @@ mod tests {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
+            ..Default::default()
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -337,7 +362,7 @@ mod tests {
 
         let mut next_offset = 0;
         loop {
-            let buf = request.read(next_offset, read_size);
+            let buf = request.read(next_offset, read_size).unwrap();
             if buf.is_empty() {
                 break;
             }
@@ -400,6 +425,7 @@ mod tests {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
+            ..Default::default()
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -408,7 +434,11 @@ mod tests {
 
         let mut next_offset = 0;
         loop {
-            let buf = request.read(next_offset, read_size);
+            let buf = match request.read(next_offset, read_size) {
+                Ok(buf) => buf,
+                Err(_) => break,
+            };
+
             if buf.is_empty() {
                 break;
             }
@@ -464,6 +494,7 @@ mod tests {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
+            ..Default::default()
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -474,7 +505,7 @@ mod tests {
             assert!(offset < object_size);
             assert!(offset + length as u64 <= object_size);
             let expected = ramp_bytes((0xaa + offset) as usize, length);
-            let buf = request.read(offset, length);
+            let buf = request.read(offset, length).unwrap();
             assert_eq!(buf.len(), expected.len());
             // Don't spew the giant buffer if this test fails
             if buf[..] != expected[..] {
@@ -563,6 +594,7 @@ mod tests {
                 first_request_size,
                 max_request_size,
                 sequential_prefetch_multiplier,
+                ..Default::default()
             };
 
             let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
@@ -612,6 +644,7 @@ mod tests {
                 first_request_size,
                 max_request_size,
                 sequential_prefetch_multiplier,
+                ..Default::default()
             };
 
             let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);

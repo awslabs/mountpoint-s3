@@ -89,7 +89,7 @@ fn main() {
             if offset >= size {
                 break;
             }
-            let bytes = request.read(offset, 1 << 20);
+            let bytes = request.read(offset, 1 << 20).unwrap();
             received_size.fetch_add(bytes.len() as u64, Ordering::SeqCst);
         }
 

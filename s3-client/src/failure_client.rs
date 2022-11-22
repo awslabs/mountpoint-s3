@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Mutex;
 
+#[allow(clippy::type_complexity)]
 pub struct FailureClient<Client: ObjectClient, State> {
     pub client: Client,
     pub state: Mutex<State>,
-    pub get_object_cb: Option<fn(&mut State, &str, &str, Option<Range<u64>>) -> Result<(), Client::GetObjectError>>,
-    pub head_object_cb: Option<fn(&mut State, &str, &str) -> Result<(), Client::HeadObjectError>>,
-    pub list_objects_cb:
-        Option<fn(&mut State, &str, Option<&str>, &str, usize, &str) -> Result<(), Client::ListObjectsError>>,
+    pub get_object_cb: fn(&mut State, &str, &str, Option<Range<u64>>) -> Result<(), Client::GetObjectError>,
+    pub head_object_cb: fn(&mut State, &str, &str) -> Result<(), Client::HeadObjectError>,
+    pub list_objects_cb: fn(&mut State, &str, Option<&str>, &str, usize, &str) -> Result<(), Client::ListObjectsError>,
 }
 
 #[async_trait]
@@ -31,10 +31,7 @@ where
         key: &str,
         range: Option<Range<u64>>,
     ) -> Result<Self::GetObjectResult, Self::GetObjectError> {
-        if let Some(f) = self.get_object_cb {
-            let mut state = self.state.lock().unwrap();
-            f(&mut state, bucket, key, range.clone())?;
-        }
+        (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, range.clone())?;
         self.client.get_object(bucket, key, range).await
     }
 
@@ -46,20 +43,22 @@ where
         max_keys: usize,
         prefix: &str,
     ) -> Result<ListObjectsResult, Self::ListObjectsError> {
-        if let Some(f) = self.list_objects_cb {
-            let mut state = self.state.lock().unwrap();
-            f(&mut state, bucket, continuation_token, delimiter, max_keys, prefix)?;
-        }
+        (self.list_objects_cb)(
+            &mut *self.state.lock().unwrap(),
+            bucket,
+            continuation_token,
+            delimiter,
+            max_keys,
+            prefix,
+        )?;
+
         self.client
             .list_objects(bucket, continuation_token, delimiter, max_keys, prefix)
             .await
     }
 
     async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
-        if let Some(f) = self.head_object_cb {
-            let mut state = self.state.lock().unwrap();
-            f(&mut state, bucket, key)?;
-        }
+        (self.head_object_cb)(&mut *self.state.lock().unwrap(), bucket, key)?;
         self.client.head_object(bucket, key).await
     }
 }
@@ -94,30 +93,30 @@ pub fn countdown_failure_client<Client: ObjectClient>(
     FailureClient {
         client,
         state,
-        get_object_cb: Some(|state, _bucket, _key, _range| {
+        get_object_cb: |state, _bucket, _key, _range| {
             state.get_count += 1;
             if let Some(error) = state.get_failures.remove(&state.get_count) {
                 Err(error)
             } else {
                 Ok(())
             }
-        }),
-        head_object_cb: Some(|state, _bucket, _key| {
+        },
+        head_object_cb: |state, _bucket, _key| {
             state.head_count += 1;
             if let Some(error) = state.head_failures.remove(&state.head_count) {
                 Err(error)
             } else {
                 Ok(())
             }
-        }),
-        list_objects_cb: Some(|state, _bucket, _ct, _delim, _max_keys, _prefix| {
+        },
+        list_objects_cb: |state, _bucket, _ct, _delim, _max_keys, _prefix| {
             state.list_count += 1;
             if let Some(error) = state.list_failures.remove(&state.list_count) {
                 Err(error)
             } else {
                 Ok(())
             }
-        }),
+        },
     }
 }
 
@@ -138,7 +137,7 @@ mod tests {
         });
 
         let body = vec![0u8; 50];
-        client.add_object(key.clone(), MockObject::from_bytes(&body));
+        client.add_object(key, MockObject::from_bytes(&body));
 
         let mut get_failures = HashMap::new();
         get_failures.insert(2, GetObjectError::InvalidRange(3));

@@ -10,7 +10,7 @@ use s3_client::ObjectClient;
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
 /// so that we can test our actual filesystem implementation without having actual FUSE in the loop.
-pub struct S3FuseFilesystem<Client, Runtime> {
+pub struct S3FuseFilesystem<Client: ObjectClient, Runtime> {
     fs: S3Filesystem<Client, Runtime>,
 }
 
