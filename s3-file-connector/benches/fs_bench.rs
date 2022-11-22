@@ -245,6 +245,40 @@ pub fn sequential_read_direct_io(c: &mut Criterion) {
     });
 }
 
+pub fn sequential_read_four_threads_direct_io(c: &mut Criterion) {
+    let file_path = &get_bench_file();
+
+    // total size of data to be read
+    let io_size: u64 = 20480 * MB;
+
+    let session = mount_file_system();
+    let mountpoint = &session.mountpoint;
+
+    let mut group = c.benchmark_group("fs");
+    group.sample_size(10);
+    group.measurement_time(Duration::new(10, 0));
+    group.throughput(Throughput::Bytes(io_size));
+    group.bench_with_input("sequential_read_four_threads_direct_io", &io_size, |b, &io_size| {
+        b.iter(|| {
+            let thread_count = 4;
+            thread::scope(|scope| {
+                for i in 0..thread_count {
+                    scope.spawn(move || {
+                        let full_path = mountpoint.join(file_path);
+                        let mut open = OpenOptions::new();
+                        open.read(true);
+                        #[cfg(target_os = "linux")]
+                        open.custom_flags(libc::O_DIRECT);
+                        let file = open.open(full_path).unwrap();
+                        let part_size = io_size / thread_count;
+                        read_from_file(file, IoType::SequentialRead, part_size, part_size * i);
+                    });
+                }
+            });
+        });
+    });
+}
+
 // randomly read from different positions in a file until desired IO size is reached
 pub fn random_read_small_file(c: &mut Criterion) {
     let file_path = &get_small_bench_file();
@@ -298,6 +332,7 @@ criterion_group!(
     sequential_read_four_threads,
     sequential_read_delayed_start,
     sequential_read_direct_io,
+    sequential_read_four_threads_direct_io,
     random_read_small_file,
     random_read_big_file
 );
