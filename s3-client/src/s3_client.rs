@@ -1,7 +1,5 @@
-use std::ffi::OsStr;
 use std::future::Future;
 use std::ops::Range;
-use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -147,7 +145,8 @@ impl S3Client {
             .message(message)
             .on_headers(move |headers, response_status| {
                 if let Ok(id) = headers.get("x-amz-request-id") {
-                    *request_id.lock().unwrap() = Some(id.value().clone());
+                    let id = id.value().to_string_lossy().to_string();
+                    *request_id.lock().unwrap() = Some(id);
                 }
                 (on_headers)(headers, response_status);
             })
@@ -172,16 +171,33 @@ impl S3Client {
             .on_finish(move |request_result| {
                 let _guard = span_finish.enter();
 
-                debug!(
-                    request_id=?request_id_clone.lock().unwrap().as_deref().unwrap_or_else(|| OsStr::from_bytes("unknown".as_bytes())),
-                    duration=?start_time.elapsed(),
-                    "request finished"
-                );
+                // Header callback won't be invoked concurrently, so we can hold onto this lock
+                let request_id = request_id_clone.lock().unwrap();
+                let op = span_finish.metadata().map(|m| m.name()).unwrap_or("unknown");
+
+                metrics::counter!("s3.meta_requests", 1, "op" => op);
 
                 let result = if !request_result.is_err() {
+                    debug!(
+                        request_id=request_id.as_deref().unwrap_or("unknown"),
+                        duration_us=start_time.elapsed().as_micros(),
+                        "request finished"
+                    );
                     on_finish(request_result).map_err(|e| S3RequestError::ServiceError(e))
                 } else {
-                    warn!(?request_result, "request failed");
+                    warn!(
+                        request_id=request_id.as_deref().unwrap_or("unknown"),
+                        duration_us=start_time.elapsed().as_micros(),
+                        ?request_result,
+                        "request failed"
+                    );
+                    // If it's not a real HTTP status, encode the CRT error instead
+                    let error_status = if request_result.response_status >= 100 {
+                        request_result.response_status
+                    } else {
+                        -request_result.crt_error.raw_error()
+                    };
+                    metrics::counter!("s3.meta_request_failures", 1, "op" => op, "status" => format!("{}", error_status));
                     Err(S3RequestError::ResponseError(request_result))
                 };
 
