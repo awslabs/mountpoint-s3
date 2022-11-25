@@ -33,6 +33,11 @@ impl Error {
     pub fn is_err(&self) -> bool {
         self.0 != AWS_OP_SUCCESS
     }
+
+    /// Return the raw CRT error code
+    pub fn raw_error(&self) -> i32 {
+        self.0
+    }
 }
 
 /// Return a formatted description of this error suitable for debugging
