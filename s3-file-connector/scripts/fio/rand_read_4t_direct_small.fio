@@ -1,0 +1,14 @@
+[global]
+name=fs_bench
+bs=256k
+runtime=30s
+time_based
+group_reporting
+
+[random_read_four_threads_direct_io_small_file]
+size=5m
+rw=randread
+ioengine=sync
+fallocate=none
+direct=1
+numjobs=4
