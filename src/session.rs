@@ -9,6 +9,7 @@ use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{info, warn};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
@@ -42,7 +43,7 @@ pub struct Session<FS: Filesystem> {
     /// Communication channel to the kernel driver
     ch: Channel,
     /// Handle to the mount.  Dropping this unmounts.
-    mount: Option<Mount>,
+    mount: Arc<Mutex<Option<Mount>>>,
     /// Mount point
     mountpoint: PathBuf,
     /// Whether to restrict access to owner, root + owner, or unrestricted
@@ -95,7 +96,7 @@ impl<FS: Filesystem> Session<FS> {
         Ok(Session {
             filesystem,
             ch,
-            mount: Some(mount),
+            mount: Arc::new(Mutex::new(Some(mount))),
             mountpoint: mountpoint.to_owned(),
             allowed,
             session_owner: unsafe { libc::geteuid() },
@@ -152,7 +153,28 @@ impl<FS: Filesystem> Session<FS> {
 
     /// Unmount the filesystem
     pub fn unmount(&mut self) {
-        drop(std::mem::take(&mut self.mount));
+        drop(std::mem::take(&mut *self.mount.lock().unwrap()));
+    }
+
+    /// Returns a thread-safe object that can be used to unmount the Filesystem
+    pub fn unmount_callable(&mut self) -> SessionUnmounter {
+        SessionUnmounter {
+            mount: self.mount.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+/// A thread-safe object that can be used to unmount a Filesystem
+pub struct SessionUnmounter {
+    mount: Arc<Mutex<Option<Mount>>>,
+}
+
+impl SessionUnmounter {
+    /// Unmount the filesystem
+    pub fn unmount(&mut self) -> io::Result<()> {
+        drop(std::mem::take(&mut *self.mount.lock().unwrap()));
+        Ok(())
     }
 }
 
@@ -201,7 +223,7 @@ impl BackgroundSession {
     ) -> io::Result<BackgroundSession> {
         let mountpoint = se.mountpoint().to_path_buf();
         // Take the fuse_session, so that we can unmount it
-        let mount = std::mem::take(&mut se.mount);
+        let mount = std::mem::take(&mut *se.mount.lock().unwrap());
         let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
         let guard = thread::spawn(move || {
             let mut se = se;
