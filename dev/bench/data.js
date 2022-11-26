@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669174673596,
+  "lastUpdate": 1669476304069,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2123,6 +2123,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 0.7,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "47974768+monthonk@users.noreply.github.com",
+            "name": "monthonk",
+            "username": "monthonk"
+          },
+          "distinct": true,
+          "id": "b03451b5b8b2ea66ed489fe6ca2f5bebb31e8d04",
+          "message": "Add S3 request failure metrics",
+          "timestamp": "2022-11-26T15:04:44Z",
+          "tree_id": "2dcf25a0b6eeb1e7dcd203f2310acc1973cafdd6",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/b03451b5b8b2ea66ed489fe6ca2f5bebb31e8d04"
+        },
+        "date": 1669476302589,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 1391.104,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 1388.4416,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 1556.6848,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 2117.4272,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads_direct_io",
+            "value": 2189.4144,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 6.7157,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 0.77,
             "unit": "MiB/s"
           }
         ]
