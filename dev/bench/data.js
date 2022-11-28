@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669597503713,
+  "lastUpdate": 1669647258946,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2241,6 +2241,61 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 0.76,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "committer": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "id": "6d8b6bcb6f0bbdfaf84b8ef9cde197acf17b32b1",
+          "message": "Replace criterion with fio benchmark",
+          "timestamp": "2022-11-08T13:28:21Z",
+          "url": "https://github.com/awslabs/s3-file-connector/pull/23/commits/6d8b6bcb6f0bbdfaf84b8ef9cde197acf17b32b1"
+        },
+        "date": 1669647257474,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 1709.1584,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 1369.3952,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 1344.2048,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 3021.7216,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads_direct_io",
+            "value": 2180.5056,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 6.7853,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 0.8,
             "unit": "MiB/s"
           }
         ]
