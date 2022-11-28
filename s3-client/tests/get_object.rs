@@ -6,26 +6,7 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;
-use futures::{pin_mut, Stream};
-use s3_client::{GetObjectError, ObjectClient, S3Client, S3RequestError};
-use std::ops::Range;
-
-async fn check_get_result(
-    result: impl Stream<Item = Result<(u64, Box<[u8]>), S3RequestError<GetObjectError>>>,
-    range: Option<Range<u64>>,
-    expected: &[u8],
-) {
-    let mut accum = vec![];
-    let mut next_offset = range.map(|r| r.start).unwrap_or(0);
-    pin_mut!(result);
-    while let Some(r) = result.next().await {
-        let (offset, body) = r.expect("get_object body part failed");
-        assert_eq!(offset, next_offset, "wrong body part offset");
-        next_offset += body.len() as u64;
-        accum.extend_from_slice(&body[..]);
-    }
-    assert_eq!(&accum[..], expected, "body does not match");
-}
+use s3_client::{ObjectClient, S3Client};
 
 #[tokio::test]
 async fn test_get_object() {

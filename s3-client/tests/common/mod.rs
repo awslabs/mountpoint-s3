@@ -3,10 +3,12 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use aws_sdk_s3 as s3;
 use bytes::Bytes;
+use futures::{pin_mut, Stream, StreamExt};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use s3::Region;
 use s3_client::S3Client;
+use std::ops::Range;
 
 /// Enable tracing and CRT logging when running unit tests.
 #[ctor::ctor]
@@ -79,4 +81,61 @@ async fn test_sdk_create_object() {
         .unwrap();
 
     println!("{:?}", response);
+}
+
+/// Check the result of a GET against expected bytes.
+pub async fn check_get_result<E: std::fmt::Debug>(
+    result: impl Stream<Item = Result<(u64, Box<[u8]>), E>>,
+    range: Option<Range<u64>>,
+    expected: &[u8],
+) {
+    let mut accum = vec![];
+    let mut next_offset = range.map(|r| r.start).unwrap_or(0);
+    pin_mut!(result);
+    while let Some(r) = result.next().await {
+        let (offset, body) = r.expect("get_object body part failed");
+        assert_eq!(offset, next_offset, "wrong body part offset");
+        next_offset += body.len() as u64;
+        accum.extend_from_slice(&body[..]);
+    }
+    assert_eq!(&accum[..], expected, "body does not match");
+}
+
+/// Create a test suite that will execute a test that works over a generic [ObjectClient] against
+/// both the Rust CRT as well and the mock object client implementations.
+///
+/// To use, define a function that takes an [ObjectClient], and a bucket and prefix to use for testing:
+/// `async fn my_test_fn(client: &impl ObjectClient, bucket: &str, prefix: &str) { ... }`.
+/// Then invoke this macro with the identifier for the function:
+/// `object_client_test!(my_test_fn);`
+#[macro_export]
+macro_rules! object_client_test {
+    ($test_fn_identifier:ident) => {
+        mod $test_fn_identifier {
+            use super::$test_fn_identifier;
+            use s3_client::mock_client::{MockClient, MockClientConfig};
+            use $crate::{get_test_bucket_and_prefix, get_test_client};
+
+            #[tokio::test]
+            async fn mock() {
+                let (bucket, prefix) = get_test_bucket_and_prefix(stringify!($test_fn_identifier));
+
+                let client = MockClient::new(MockClientConfig {
+                    bucket: bucket.to_string(),
+                    part_size: 1024,
+                });
+
+                $test_fn_identifier(&client, &bucket, &prefix).await;
+            }
+
+            #[tokio::test]
+            async fn rust_crt() {
+                let (bucket, prefix) = get_test_bucket_and_prefix(stringify!($test_fn_identifier));
+
+                let client = get_test_client();
+
+                $test_fn_identifier(&client, &bucket, &prefix).await;
+            }
+        }
+    };
 }
