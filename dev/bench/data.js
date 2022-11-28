@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669476304069,
+  "lastUpdate": 1669597503713,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2182,6 +2182,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 0.77,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lukernel@amazon.com",
+            "name": "Luke Nelson",
+            "username": "lukenels"
+          },
+          "committer": {
+            "email": "jamesbornholt@gmail.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "84020c9ff79b9b4eb821676f3b8b71060e9d6fe6",
+          "message": "S3Client: Implement a basic put_object\n\nFor now, the implementation does not support streaming; it accumulates\nthe entire object in memory before issuing the PUT request. Once\nthe CRT supports multi-part PUT without requiring the Content-Length\nto be known ahead of time, this can be changed.",
+          "timestamp": "2022-11-27T18:44:04-06:00",
+          "tree_id": "3807dedf2ecc665a60e11cb79bfa268349ae9c0f",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/84020c9ff79b9b4eb821676f3b8b71060e9d6fe6"
+        },
+        "date": 1669597501654,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 1716.4288,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 1369.8048,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 1376.3584,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 2866.4832,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads_direct_io",
+            "value": 2155.8272,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 6.7477,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 0.76,
             "unit": "MiB/s"
           }
         ]
