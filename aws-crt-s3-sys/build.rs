@@ -82,6 +82,8 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         builder = builder.header(header_path.to_str().unwrap());
     }
 
+    builder = builder.header("crt/aws-c-s3/include/aws/s3/private/s3_client_impl.h");
+
     builder.generate()
 }
 

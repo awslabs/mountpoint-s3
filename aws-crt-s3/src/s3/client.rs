@@ -380,6 +380,92 @@ impl Drop for MetaRequest {
     }
 }
 
+/// Client metrics
+#[derive(Debug, Default)]
+pub struct ClientMetrics {
+    /// Approximate number of overall requests currently being processed by the client.
+    total_approx_requests: u32,
+
+    /// Exact number of overall requests currently being processed by the client.
+    num_requests_tracked_requests: u32,
+
+    /// Number of requests currently being prepared.
+    num_requests_being_prepared: u32,
+
+    /// Number of requests in the request_queue linked_list.
+    request_queue_size: u32,
+
+    /// Number of requests being sent/received over network for meta request type GET.
+    num_auto_ranged_get_network_io: u32,
+
+    /// Number of requests being sent/received over network for meta request type PUT.
+    num_auto_ranged_put_network_io: u32,
+
+    /// Number of requests being sent/received over network for meta request type DEFAULT.
+    num_auto_default_network_io: u32,
+
+    /// Total number of requests being sent/received over network.
+    num_requests_network_io: u32,
+
+    /// Number of requests sitting in their meta request priority queue, waiting to be streamed.
+    num_requests_stream_queued_waiting: u32,
+
+    /// Number of requests currently scheduled to be streamed or are actively being streamed.
+    num_requests_streaming: u32,
+}
+
+impl ClientMetrics {
+    /// Get total_approx_requests
+    pub fn total_approx_requests(&self) -> u32 {
+        self.total_approx_requests
+    }
+
+    /// Get num_requests_tracked_requests
+    pub fn num_requests_tracked_requests(&self) -> u32 {
+        self.num_requests_tracked_requests
+    }
+
+    /// Get num_requests_being_prepared
+    pub fn num_requests_being_prepared(&self) -> u32 {
+        self.num_requests_being_prepared
+    }
+
+    /// Get request_queue_size
+    pub fn request_queue_size(&self) -> u32 {
+        self.request_queue_size
+    }
+
+    /// Get num_auto_ranged_get_network_io
+    pub fn num_auto_ranged_get_network_io(&self) -> u32 {
+        self.num_auto_ranged_get_network_io
+    }
+
+    /// Get num_auto_ranged_put_network_io
+    pub fn num_auto_ranged_put_network_io(&self) -> u32 {
+        self.num_auto_ranged_put_network_io
+    }    
+
+    /// Get num_auto_default_network_io
+    pub fn num_auto_default_network_io(&self) -> u32 {
+        self.num_auto_default_network_io
+    }
+
+    /// Get num_requests_network_io
+    pub fn num_requests_network_io(&self) -> u32 {
+        self.num_requests_network_io
+    }
+
+    /// Get num_requests_stream_queued_waiting
+    pub fn num_requests_stream_queued_waiting(&self) -> u32 {
+        self.num_requests_stream_queued_waiting
+    }
+
+    /// Get num_requests_streaming
+    pub fn num_requests_streaming(&self) -> u32 {
+        self.num_requests_streaming
+    }
+}
+
 impl Client {
     /// Create a new S3 [Client].
     pub fn new(allocator: &Allocator, config: ClientConfig) -> Result<Self, Error> {
@@ -423,6 +509,73 @@ impl Client {
 
             Ok(MetaRequest { inner })
         }
+    }
+
+    /// Poll [ClientMetrics] from underlying CRT client.
+    pub fn poll_client_metrics(&self) -> ClientMetrics {
+        unsafe {
+            let client = self.inner.as_ref();
+            let stats = client.stats;
+
+            let num_requests_tracked_requests = stats.num_requests_in_flight.value as u32;
+
+            let num_auto_ranged_get_network_io =
+                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT);
+
+            let num_auto_ranged_put_network_io =
+                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT);
+
+            let num_auto_default_network_io =
+                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
+
+            let num_requests_network_io =
+                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX);
+
+            let num_requests_stream_queued_waiting = stats.num_requests_stream_queued_waiting.value as u32;
+
+            let num_requests_streaming = stats.num_requests_streaming.value as u32;
+
+            let num_requests_being_prepared = client.threaded_data.num_requests_being_prepared;
+
+            let request_queue_size = client.threaded_data.request_queue_size;
+
+            let total_approx_requests = num_requests_network_io
+                + num_requests_stream_queued_waiting
+                + num_requests_streaming
+                + num_requests_being_prepared
+                + request_queue_size;
+
+            ClientMetrics {
+                total_approx_requests,
+                num_requests_tracked_requests,
+                num_requests_being_prepared,
+                request_queue_size,
+                num_auto_ranged_get_network_io,
+                num_auto_ranged_put_network_io,
+                num_auto_default_network_io,
+                num_requests_network_io,
+                num_requests_stream_queued_waiting,
+                num_requests_streaming,
+            }
+        }
+    }
+
+    fn get_num_requests_network_io(&self, meta_request_type: aws_s3_meta_request_type) -> u32 {
+        let mut num_requests_network_io: u32 = 0;
+        unsafe {
+            let client = self.inner.as_ref();
+
+            if meta_request_type == aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX {
+                let max_req_type = aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX as usize;
+                for i in 0..max_req_type {
+                    num_requests_network_io += client.stats.num_requests_network_io[i].value as u32;
+                }
+            } else {
+                let meta_request_type = meta_request_type as usize;
+                num_requests_network_io = client.stats.num_requests_network_io[meta_request_type].value as u32
+            }
+        }
+        return num_requests_network_io;
     }
 }
 
