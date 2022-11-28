@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669647258946,
+  "lastUpdate": 1669648295839,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2296,6 +2296,86 @@ window.BENCHMARK_DATA = {
           {
             "name": "fs/random_read_big_file",
             "value": 0.8,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "committer": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "id": "c0a893e08ba9dce5aa3d2e5b01bfaef98ca15103",
+          "message": "Replace criterion with fio benchmark",
+          "timestamp": "2022-11-08T13:28:21Z",
+          "url": "https://github.com/awslabs/s3-file-connector/pull/23/commits/c0a893e08ba9dce5aa3d2e5b01bfaef98ca15103"
+        },
+        "date": 1669648294082,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.48046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.6708984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 12.1015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.3701171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.8740234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.6669921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1037.6533203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 8.109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6551.3056640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1045.431640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2065.9140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 26.5732421875,
             "unit": "MiB/s"
           }
         ]
