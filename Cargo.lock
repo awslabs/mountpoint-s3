@@ -2188,7 +2188,6 @@ dependencies = [
  "base16ct",
  "bytes",
  "clap",
- "criterion",
  "ctor",
  "ctrlc",
  "fuser",
