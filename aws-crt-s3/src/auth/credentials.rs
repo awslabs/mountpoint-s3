@@ -25,7 +25,7 @@ pub struct CredentialsProvider {
 impl CredentialsProvider {
     /// Creates the default credential provider chain as used by most AWS SDKs
     pub fn new_chain_default(
-        allocator: &mut Allocator,
+        allocator: &Allocator,
         options: &CredentialsProviderChainDefaultOptions,
     ) -> Result<Self, Error> {
         auth_library_init(allocator);

@@ -1,6 +1,4 @@
 use crate::{S3Client, S3RequestError};
-use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
 use tracing::debug;
@@ -18,18 +16,11 @@ pub enum HeadBucketError {
 impl S3Client {
     pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
         let body = {
-            let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
-
-            let mut message = Message::new_request(&mut Allocator::default()).unwrap();
-            message.set_request_method("HEAD").unwrap();
-            message.add_header(&Header::new("Host", &endpoint)).unwrap();
-            message
-                .add_header(&Header::new("user-agent", "aws-s3-crt-rust"))
-                .unwrap();
+            let mut message = self.new_request_template("HEAD", bucket)?;
             message.set_request_path("/").unwrap();
 
             let span = request_span!(self, "head_bucket");
-            span.in_scope(|| debug!(?bucket, region = self.region, "new request"));
+            span.in_scope(|| debug!(?bucket, "new request"));
 
             self.make_simple_http_request(message, MetaRequestType::Default, span)?
         };

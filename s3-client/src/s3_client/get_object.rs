@@ -3,9 +3,8 @@ use std::ops::Range;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::common::error::Error;
-use aws_crt_s3::http::request_response::{Header, Message};
+use aws_crt_s3::http::request_response::Header;
 use aws_crt_s3::s3::client::MetaRequestType;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
@@ -29,27 +28,19 @@ impl S3Client {
     ) -> Result<GetObjectRequest, S3RequestError<GetObjectError>> {
         let span = request_span!(self, "get_object");
         span.in_scope(
-            || debug!(?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
+            || debug!(?bucket, ?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
-        let mut message = Message::new_request(&mut Allocator::default()).unwrap();
+        let mut message = self.new_request_template("GET", bucket)?;
 
-        let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
-        message.add_header(&Header::new("Host", &endpoint)).unwrap();
-
-        message.add_header(&Header::new("accept", "*/*")).unwrap();
-
-        message
-            .add_header(&Header::new("user-agent", "aws-s3-crt-rust"))
-            .unwrap();
+        // Overwrite "accept" header since this returns raw object data.
+        message.add_header(&Header::new("accept", "*/*"))?;
 
         if let Some(range) = range {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
-            message.add_header(&Header::new("Range", &range_value)).unwrap();
+            message.add_header(&Header::new("Range", range_value)).unwrap();
         }
-
-        message.set_request_method("GET").unwrap();
 
         let key = format!("/{}", key);
         message.set_request_path(key).unwrap();

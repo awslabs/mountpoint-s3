@@ -20,7 +20,7 @@ impl RustLogAdapter {
     /// installed for the lifetime of the program, so this returns Err if a logger has already been
     /// installed.
     pub fn try_init() -> Result<(), LoggerInitError> {
-        let logger = Logger::new(&mut Allocator::default(), Self);
+        let logger = Logger::new(&Allocator::default(), Self);
         logger.try_init()
     }
 }

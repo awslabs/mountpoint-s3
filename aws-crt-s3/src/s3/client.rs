@@ -382,7 +382,7 @@ impl Drop for MetaRequest {
 
 impl Client {
     /// Create a new S3 [Client].
-    pub fn new(allocator: &mut Allocator, config: ClientConfig) -> Result<Self, Error> {
+    pub fn new(allocator: &Allocator, config: ClientConfig) -> Result<Self, Error> {
         s3_library_init(allocator);
 
         // SAFETY: `config` is moved into the [Client] on success, so `config.inner` (and the values

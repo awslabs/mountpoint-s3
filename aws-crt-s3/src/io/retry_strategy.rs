@@ -22,7 +22,7 @@ pub struct RetryStrategy {
 impl RetryStrategy {
     /// Create a new standard retry strategy that uses exponential backoff and jittering to schedule
     /// retries, and separates failing endpoints into partitions.
-    pub fn standard(allocator: &mut Allocator, options: &StandardRetryOptions<'_>) -> Result<Self, Error> {
+    pub fn standard(allocator: &Allocator, options: &StandardRetryOptions<'_>) -> Result<Self, Error> {
         let options = options.to_inner();
 
         // Safety: `options.backoff_retry_options.event_loop_group` is a reference counted object,

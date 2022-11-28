@@ -27,7 +27,7 @@ pub struct HostResolver {
 
 impl HostResolver {
     /// Create a new [HostResolver] with the default behavior
-    pub fn new_default(allocator: &mut Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {
+    pub fn new_default(allocator: &Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {
         io_library_init(allocator);
 
         let mut inner_options = aws_host_resolver_default_options {

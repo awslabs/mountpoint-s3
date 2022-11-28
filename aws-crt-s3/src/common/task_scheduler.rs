@@ -86,8 +86,8 @@ pub struct Task(Pin<Box<TaskInner>>);
 impl Task {
     /// Create a new Task from some user data and a callback function.
     /// `type_tag` must be [CString]-compatible (i.e., must not contain any null bytes)
-    pub fn init(callback: impl FnOnce(TaskStatus) + Send + 'static, type_tag: &str) -> Self {
-        common_library_init(&mut Allocator::default());
+    pub fn init(allocator: &Allocator, callback: impl FnOnce(TaskStatus) + Send + 'static, type_tag: &str) -> Self {
+        common_library_init(allocator);
 
         let mut task: Box<TaskInner> = Box::new(TaskInner {
             inner: Default::default(),
@@ -200,6 +200,7 @@ mod test {
         let start_num: u32 = 4;
 
         let my_task = Task::init(
+            &Allocator::default(),
             move |_| {
                 tx.send(start_num + 1).unwrap();
             },

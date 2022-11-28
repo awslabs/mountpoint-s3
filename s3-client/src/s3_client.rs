@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::http::request_response::{Headers, Message};
+use aws_crt_s3::http::request_response::{Header, Headers, Message};
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
@@ -53,35 +53,35 @@ pub struct S3Client {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
     region: String,
-    _allocator: Allocator,
+    allocator: Allocator,
     next_request_counter: AtomicU64,
 }
 
 impl S3Client {
     pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
-        let mut allocator = Allocator::default();
+        let allocator = Allocator::default();
 
-        let mut event_loop_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         let resolver_options = HostResolverDefaultOptions {
             max_entries: 8,
             event_loop_group: &mut event_loop_group,
         };
 
-        let mut host_resolver = HostResolver::new_default(&mut allocator, &resolver_options).unwrap();
+        let mut host_resolver = HostResolver::new_default(&allocator, &resolver_options).unwrap();
 
         let bootstrap_options = ClientBootstrapOptions {
             event_loop_group: &mut event_loop_group,
             host_resolver: &mut host_resolver,
         };
 
-        let mut client_bootstrap = ClientBootstrap::new(&mut allocator, &bootstrap_options).unwrap();
+        let mut client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
 
         let creds_options = CredentialsProviderChainDefaultOptions {
             bootstrap: &mut client_bootstrap,
         };
 
-        let mut creds_provider = CredentialsProvider::new_chain_default(&mut allocator, &creds_options).unwrap();
+        let mut creds_provider = CredentialsProvider::new_chain_default(&allocator, &creds_options).unwrap();
         let signing_config = init_default_signing_config(region, &mut creds_provider);
 
         let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
@@ -89,7 +89,7 @@ impl S3Client {
         retry_strategy_options.backoff_retry_options.max_retries = 3;
         retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
         retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
-        let retry_strategy = RetryStrategy::standard(&mut allocator, &retry_strategy_options).unwrap();
+        let retry_strategy = RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap();
 
         let mut client_config = ClientConfig::new();
 
@@ -106,10 +106,10 @@ impl S3Client {
             client_config.part_size(part_size);
         }
 
-        let s3_client = Client::new(&mut allocator, client_config).unwrap();
+        let s3_client = Client::new(&allocator, client_config).unwrap();
 
         Ok(Self {
-            _allocator: allocator,
+            allocator,
             s3_client,
             event_loop_group,
             region: region.to_owned(),
@@ -119,6 +119,32 @@ impl S3Client {
 
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.event_loop_group.clone()
+    }
+
+    /// Create a new HTTP request template for the given HTTP method and S3 bucket name.
+    /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
+    /// response should be XML; this header should be overwritten for requests like GET that return
+    /// object data.
+    fn new_request_template<T: std::error::Error>(
+        &self,
+        method: &str,
+        bucket: &str,
+    ) -> Result<Message, S3RequestError<T>> {
+        // Wrap the Result in a nested block, so that we can map the CRT errors into `ConstructionFailure`
+        // rather than the `From` impl for `S3RequestError`, which maps to `CrtError`.
+        let message = {
+            let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
+
+            let mut message = Message::new_request(&self.allocator)?;
+            message.set_request_method(method)?;
+            message.add_header(&Header::new("Host", endpoint))?;
+            message.add_header(&Header::new("accept", "application/xml"))?;
+            message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
+
+            Ok(message)
+        };
+
+        message.map_err(S3RequestError::ConstructionFailure)
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
@@ -334,7 +360,7 @@ impl ObjectClient for S3Client {
         bucket: &str,
         key: &str,
         params: &PutObjectParams,
-        contents: impl futures::Stream<Item = impl Deref<Target = [u8]> + Send> + Send,
+        contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> Result<PutObjectResult, Self::PutObjectError> {
         self.put_object(bucket, key, params, contents).await
     }

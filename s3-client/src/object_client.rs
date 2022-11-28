@@ -1,9 +1,7 @@
-use std::ops::Range;
-
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
-use std::ops::Deref;
+use std::ops::Range;
 use time::OffsetDateTime;
 
 /// A single element of the [ObjectClient::get_object] response is a pair of offset within the
@@ -49,7 +47,7 @@ pub trait ObjectClient {
         bucket: &str,
         key: &str,
         params: &PutObjectParams,
-        contents: impl Stream<Item = impl Deref<Target = [u8]> + Send> + Send,
+        contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> Result<PutObjectResult, Self::PutObjectError>;
 }
 

@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
@@ -364,7 +364,7 @@ impl ObjectClient for MockClient {
         bucket: &str,
         key: &str,
         _params: &PutObjectParams,
-        contents: impl Stream<Item = impl Deref<Target = [u8]> + Send> + Send,
+        contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> Result<PutObjectResult, PutObjectError> {
         trace!(bucket, key, "PutObject");
 

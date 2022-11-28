@@ -105,7 +105,7 @@ impl EventLoopGroup {
     /// max_threads: use None for the CRT default
     /// on_shutdown will be called when the event loop group shuts down.
     pub fn new_default(
-        allocator: &mut Allocator,
+        allocator: &Allocator,
         max_threads: Option<u16>,
         on_shutdown: impl FnOnce() + Send + 'static,
     ) -> Result<Self, Error> {
@@ -266,6 +266,7 @@ impl Future for EventLoopTimer {
 
         self.event_loop.schedule_task_future(
             Task::init(
+                &Allocator::default(),
                 move |status| {
                     // Compute the new state the timer should move into. If the [Task] was canceled,
                     // the the timer Future should complete with an error.
@@ -320,8 +321,8 @@ mod test {
     fn test_schedule_tasks_default_el_group() {
         const NUM_TASKS: i32 = 2_000;
 
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let allocator = Allocator::default();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         let counter = Arc::new(AtomicI32::new(0));
 
@@ -334,6 +335,7 @@ mod test {
             let tx = tx.clone();
 
             let task = Task::init(
+                &allocator,
                 move |_| {
                     counter.fetch_add(1, Ordering::SeqCst);
                     tx.send(id).unwrap();
@@ -356,12 +358,12 @@ mod test {
     /// Test that the event loop group shutdown callback works.
     #[test]
     fn test_event_loop_group_shutdown() {
-        let mut allocator = Allocator::default();
+        let allocator = Allocator::default();
 
         let (tx, rx) = mpsc::channel();
 
         {
-            let _el_group = EventLoopGroup::new_default(&mut allocator, None, move || tx.send(()).unwrap()).unwrap();
+            let _el_group = EventLoopGroup::new_default(&allocator, None, move || tx.send(()).unwrap()).unwrap();
         }
 
         // Wait until the event loop group's shutdown callback fires.
@@ -371,9 +373,9 @@ mod test {
     /// Test [EventLoopGroup::get_loop_count]
     #[test]
     fn test_event_loop_group_get_loop_count() {
-        let mut allocator = Allocator::default();
+        let allocator = Allocator::default();
 
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         assert!(el_group.get_loop_count() > 0);
     }
@@ -384,18 +386,18 @@ mod test {
     #[test]
     #[ignore]
     fn test_new_event_loop_group_max_threads_fails() {
-        let mut allocator = Allocator::default();
+        let allocator = Allocator::default();
 
-        EventLoopGroup::new_default(&mut allocator, Some(u16::MAX), || {})
+        EventLoopGroup::new_default(&allocator, Some(u16::MAX), || {})
             .expect_err("creating an event loop group with u16::MAX threads should fail");
     }
 
     /// Test the EventLoopTimer with some simple timers.
     #[test]
     fn test_timer_future() {
-        let mut allocator = Allocator::default();
+        let allocator = Allocator::default();
 
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
         let event_loop = el_group.get_next_loop().unwrap();
 
         // Create two timers, each delaying 1 second. They won't start timing until they're awaited.

@@ -1,8 +1,7 @@
 use crate::object_client::{HeadObjectResult, ObjectInfo};
 use crate::s3_client::S3RequestError;
 use crate::S3Client;
-use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::http::request_response::{Header, Headers, HeadersError, Message};
+use aws_crt_s3::http::request_response::{Headers, HeadersError};
 use aws_crt_s3::s3::client::MetaRequestType;
 use std::ffi::OsString;
 use std::str::FromStr;
@@ -70,18 +69,13 @@ impl S3Client {
         key: &str,
     ) -> Result<HeadObjectResult, S3RequestError<HeadObjectError>> {
         let request = {
-            let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
-
-            let mut message = Message::new_request(&mut Allocator::default())?;
-            message.set_request_method("HEAD")?;
-            message.add_header(&Header::new("Host", &endpoint))?;
-            message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
+            let mut message = self.new_request_template("HEAD", bucket)?;
 
             // Don't URI encode the key, since "/" needs to be preserved
             let key = key.to_string();
             message.set_request_path(format!("/{}", key))?;
 
-            let bucket = bucket.to_string();
+            let bucket = bucket.to_owned();
 
             // We use this header to stash the response from the head_object during the on_headers
             // callback, and send it back on the oneshot when we finish.
@@ -89,7 +83,7 @@ impl S3Client {
             let header1 = header.clone();
 
             let span = request_span!(self, "head_object");
-            span.in_scope(|| debug!(?key, "new request"));
+            span.in_scope(|| debug!(?bucket, ?key, "new request"));
 
             self.make_meta_request(
                 message,

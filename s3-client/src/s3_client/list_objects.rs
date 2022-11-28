@@ -1,8 +1,6 @@
 use crate::object_client::{ListObjectsResult, ObjectInfo};
 use crate::s3_client::S3RequestError;
 use crate::S3Client;
-use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::http::request_response::{Header, Message};
 use aws_crt_s3::s3::client::MetaRequestType;
 use std::str::FromStr;
 use thiserror::Error;
@@ -145,13 +143,7 @@ impl S3Client {
     ) -> Result<ListObjectsResult, S3RequestError<ListObjectsError>> {
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
-            let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
-
-            let mut message = Message::new_request(&mut Allocator::default())?;
-            message.set_request_method("GET")?;
-            message.add_header(&Header::new("Host", &endpoint))?;
-            message.add_header(&Header::new("accept", "application/xml"))?;
-            message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
+            let mut message = self.new_request_template("GET", bucket)?;
 
             // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
             let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");
@@ -167,10 +159,11 @@ impl S3Client {
             let span = request_span!(self, "list_objects");
             span.in_scope(|| {
                 debug!(
-                    ?prefix,
+                    ?bucket,
+                    continued = continuation_token.is_some(),
                     ?delimiter,
                     ?max_keys,
-                    continued = continuation_token.is_some(),
+                    ?prefix,
                     "new request"
                 )
             });
