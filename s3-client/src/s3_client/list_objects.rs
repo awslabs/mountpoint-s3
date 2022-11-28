@@ -3,6 +3,7 @@ use crate::s3_client::S3RequestError;
 use crate::S3Client;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Header, Message};
+use aws_crt_s3::s3::client::MetaRequestType;
 use std::str::FromStr;
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
@@ -174,7 +175,7 @@ impl S3Client {
                 )
             });
 
-            self.make_simple_http_request(message, span)?
+            self.make_simple_http_request(message, MetaRequestType::Default, span)?
         };
 
         let body = body.await?;

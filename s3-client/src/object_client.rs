@@ -3,6 +3,7 @@ use std::ops::Range;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
+use std::ops::Deref;
 use time::OffsetDateTime;
 
 /// A single element of the [ObjectClient::get_object] response is a pair of offset within the
@@ -17,6 +18,7 @@ pub trait ObjectClient {
     type GetObjectError: std::error::Error + Send + Sync + 'static;
     type HeadObjectError: std::error::Error + Send + Sync + 'static;
     type ListObjectsError: std::error::Error + Send + Sync + 'static;
+    type PutObjectError: std::error::Error + Send + Sync + 'static;
 
     /// Get an object from the object store. Returns a stream of body parts of the object. Parts are
     /// guaranteed to be returned by the stream in order and contiguously.
@@ -39,6 +41,16 @@ pub trait ObjectClient {
 
     /// Retrieve object metadata without retrieving the object contents
     async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError>;
+
+    /// Put an object into the object store.
+    /// The contents are provided by the client as an async stream of buffers.
+    async fn put_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectParams,
+        contents: impl Stream<Item = impl Deref<Target = [u8]> + Send> + Send,
+    ) -> Result<PutObjectResult, Self::PutObjectError>;
 }
 
 /// Result of a [ObjectClient::list_objects] request
@@ -67,6 +79,16 @@ pub struct HeadObjectResult {
     /// Object metadata
     pub object: ObjectInfo,
 }
+
+/// Parameters to a [ObjectClient::put_object] request
+/// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
+#[derive(Debug, Default)]
+pub struct PutObjectParams {}
+
+/// Result of a [ObjectClient::put_object] request
+/// TODO: Populate this struct with return fields from the S3 API, e.g., etag.
+#[derive(Debug)]
+pub struct PutObjectResult {}
 
 /// Metadata about a single S3 object.
 /// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html for more details.

@@ -1,17 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
 
-use crate::object_client::{GetBodyPart, HeadObjectResult, ListObjectsResult, ObjectInfo};
+use crate::object_client::{
+    GetBodyPart, HeadObjectResult, ListObjectsResult, ObjectInfo, PutObjectParams, PutObjectResult,
+};
 use crate::ObjectClient;
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
@@ -180,12 +182,19 @@ pub enum HeadObjectError {
     NoSuchObject,
 }
 
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PutObjectError {
+    #[error("bucket does not exist")]
+    NoSuchBucket,
+}
+
 #[async_trait]
 impl ObjectClient for MockClient {
     type GetObjectResult = GetObjectResult;
     type GetObjectError = GetObjectError;
     type HeadObjectError = HeadObjectError;
     type ListObjectsError = ListObjectsError;
+    type PutObjectError = PutObjectError;
 
     async fn get_object(
         &self,
@@ -349,12 +358,40 @@ impl ObjectClient for MockClient {
             next_continuation_token,
         })
     }
+
+    async fn put_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        _params: &PutObjectParams,
+        contents: impl Stream<Item = impl Deref<Target = [u8]> + Send> + Send,
+    ) -> Result<PutObjectResult, PutObjectError> {
+        trace!(bucket, key, "PutObject");
+
+        if bucket != self.config.bucket {
+            return Err(PutObjectError::NoSuchBucket);
+        }
+
+        let mut buffer = vec![];
+
+        // Accumulate the stream contents into a buffer.
+        contents
+            .for_each(|b| {
+                buffer.extend_from_slice(b.as_ref());
+                std::future::ready(())
+            })
+            .await;
+
+        self.add_object(key, buffer.into());
+
+        Ok(PutObjectResult {})
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use futures::StreamExt;
-    use rand::{RngCore, SeedableRng};
+    use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
 
     use super::*;
@@ -548,6 +585,50 @@ mod tests {
         check_continuation!("", 6, "", &keys[6..], &[]);
         check_continuation!("/", 1, "dirs/", &[], &["dirs/dir2/"]);
         check_continuation!("/", 2, "dirs/dir2/", &keys[7..9], &[]);
+    }
+
+    #[tokio::test]
+    async fn test_put_object() {
+        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+
+        let obj = MockObject::ramp(0xaa, RAMP_BUFFER_SIZE);
+
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+        });
+
+        // Construct a stream of randomly sized parts to feed into put_object.
+        let mut next_offset = 0;
+        let contents_stream = futures::stream::iter(std::iter::from_fn(|| {
+            if next_offset < obj.len() {
+                let part_size = rng.gen_range(0..=obj.len() - next_offset);
+                let result = obj.read(next_offset as u64, part_size);
+                next_offset += part_size;
+                Some(result)
+            } else {
+                None
+            }
+        }));
+
+        client
+            .put_object("test_bucket", "key1", &Default::default(), contents_stream)
+            .await
+            .expect("put_object failed");
+
+        let mut get_request = client
+            .get_object("test_bucket", "key1", None)
+            .await
+            .expect("get_object failed");
+
+        // Check that the result of get_object is correct.
+        let mut next_offset = 0;
+        while let Some(r) = get_request.next().await {
+            let (offset, body) = r.expect("get_object body part failed");
+            assert_eq!(offset, next_offset, "wrong body part offset");
+            next_offset += body.len() as u64;
+            assert_eq!(body, obj.read(offset, body.len()));
+        }
     }
 
     proptest::proptest! {

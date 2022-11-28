@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -23,10 +23,11 @@ use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{debug, error, trace, warn, Span};
 
-use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient};
+use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient, PutObjectParams, PutObjectResult};
 use crate::s3_client::get_object::{GetObjectError, GetObjectRequest};
 use crate::s3_client::head_object::HeadObjectError;
 use crate::s3_client::list_objects::ListObjectsError;
+use crate::s3_client::put_object::PutObjectError;
 
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
@@ -39,6 +40,7 @@ pub(crate) mod get_object;
 pub(crate) mod head_bucket;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
+pub(crate) mod put_object;
 
 #[derive(Debug, Clone, Default)]
 pub struct S3ClientConfig {
@@ -218,6 +220,7 @@ impl S3Client {
     fn make_simple_http_request<E: std::error::Error + Send + 'static>(
         &self,
         message: Message,
+        request_type: MetaRequestType,
         request_span: Span,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError<E>> {
         // Accumulate the body of the response into this Vec<u8>
@@ -226,7 +229,7 @@ impl S3Client {
 
         self.make_meta_request(
             message,
-            MetaRequestType::Default,
+            request_type,
             request_span,
             |_, _| (),
             move |offset, data| {
@@ -299,6 +302,7 @@ impl ObjectClient for S3Client {
     type GetObjectError = S3RequestError<GetObjectError>;
     type HeadObjectError = S3RequestError<HeadObjectError>;
     type ListObjectsError = S3RequestError<ListObjectsError>;
+    type PutObjectError = S3RequestError<PutObjectError>;
 
     async fn get_object(
         &self,
@@ -323,5 +327,15 @@ impl ObjectClient for S3Client {
 
     async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
         self.head_object(bucket, key).await
+    }
+
+    async fn put_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectParams,
+        contents: impl futures::Stream<Item = impl Deref<Target = [u8]> + Send> + Send,
+    ) -> Result<PutObjectResult, Self::PutObjectError> {
+        self.put_object(bucket, key, params, contents).await
     }
 }

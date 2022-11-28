@@ -15,16 +15,15 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct InputStream<'a> {
     /// The inner aws_input_stream
-    inner: NonNull<aws_input_stream>,
+    pub(crate) inner: NonNull<aws_input_stream>,
 
     /// Phantom data to keep the lifetimes correct, for example, if this stream is created from an
     /// aws_byte_cursor that has some lifetime.
     _phantom: PhantomData<&'a [u8]>,
 }
 
-impl InputStream<'static> {
-    /// Creates a stream that operates on a (not-yet-opened) file.
-    /// Destruction closes the file.
+impl<'a> InputStream<'a> {
+    /// Creates a stream that operates on a file opened from the provided path.
     pub fn new_from_file<P: AsRef<Path>>(allocator: &mut Allocator, path: &P) -> Result<Self, Error> {
         let path = CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
 
@@ -39,8 +38,8 @@ impl InputStream<'static> {
     }
 
     /// Convert a [GenericInputStream] into an [InputStream] that we can use with CRT functions. The
-    /// returned stream uses a vtable that "knows" how to call the trait methods for the stream object.
-    /// It also knows how to map the CRT's acquire/release for proper reference counting.
+    /// returned stream uses a vtable that "knows" how to call the trait methods for the stream
+    /// object. It also knows how to map the CRT's acquire/release for proper reference counting.
     pub fn from_boxed_generic(stream: Box<dyn GenericInputStream>) -> Self {
         let ptr = Arc::new(GenericInputStreamWrapper {
             inner: aws_input_stream {
@@ -81,10 +80,9 @@ impl InputStream<'static> {
     pub fn from_generic<S: GenericInputStream + 'static>(stream: S) -> Self {
         Self::from_boxed_generic(Box::new(stream))
     }
-}
 
-impl<'a> InputStream<'a> {
-    /// Create a new input stream from a slice (internallly converting to an aws byte cursor).
+    /// Create a new [InputStream] from a slice. The slice is not copied, and so the resulting
+    /// [InputStream] cannot outlive the slice (enforced by a lifetime restriction on the [InputStream].
     pub fn new_from_slice(allocator: &mut Allocator, buffer: &'a [u8]) -> Result<Self, Error> {
         let cursor = aws_byte_cursor {
             len: buffer.len(),
