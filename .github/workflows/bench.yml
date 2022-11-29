@@ -53,7 +53,7 @@ jobs:
     - name: Update PATH
       run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     - name: Build
-      run: cargo build --release && cp target/release/s3-file-connector $HOME/.cargo/bin/
+      run: cargo build --release
     - name: Run Benchmark
       run: s3-file-connector/scripts/fs_bench.sh
     - name: Store benchmark result
