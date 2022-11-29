@@ -125,26 +125,18 @@ impl S3Client {
     /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
-    fn new_request_template<T: std::error::Error>(
-        &self,
-        method: &str,
-        bucket: &str,
-    ) -> Result<Message, S3RequestError<T>> {
+    fn new_request_template(&self, method: &str, bucket: &str) -> Result<Message, RequestConstructionError> {
         // Wrap the Result in a nested block, so that we can map the CRT errors into `ConstructionFailure`
         // rather than the `From` impl for `S3RequestError`, which maps to `CrtError`.
-        let message = {
-            let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
+        let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
 
-            let mut message = Message::new_request(&self.allocator)?;
-            message.set_request_method(method)?;
-            message.add_header(&Header::new("Host", endpoint))?;
-            message.add_header(&Header::new("accept", "application/xml"))?;
-            message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
+        let mut message = Message::new_request(&self.allocator)?;
+        message.set_request_method(method)?;
+        message.add_header(&Header::new("Host", endpoint))?;
+        message.add_header(&Header::new("accept", "application/xml"))?;
+        message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
 
-            Ok(message)
-        };
-
-        message.map_err(S3RequestError::ConstructionFailure)
+        Ok(message)
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
@@ -297,7 +289,6 @@ pub enum NewClientError {
     // Currently, client construction is actually infallible, but this reserves the ability for us
     // to do fallible stuff at construction time.
 }
-
 /// Failed S3 request results
 #[derive(Error, Debug)]
 pub enum S3RequestError<E: std::error::Error> {
@@ -320,6 +311,16 @@ pub enum S3RequestError<E: std::error::Error> {
     /// The request was sent and the service returned an error.
     #[error("Error received from S3: {0:?}")]
     ServiceError(#[source] E),
+}
+
+#[derive(Error, Debug)]
+#[error("Failed to construct request: {0}")]
+struct RequestConstructionError(#[from] aws_crt_s3::common::error::Error);
+
+impl<E: std::error::Error> From<RequestConstructionError> for S3RequestError<E> {
+    fn from(err: RequestConstructionError) -> Self {
+        Self::ConstructionFailure(err.0)
+    }
 }
 
 #[async_trait]

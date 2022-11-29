@@ -32,10 +32,14 @@ impl S3Client {
 
         let body = {
             let mut message = self.new_request_template("PUT", bucket)?;
-            message.add_header(&Header::new("Content-Length", buffer.len().to_string()))?;
+            message
+                .add_header(&Header::new("Content-Length", buffer.len().to_string()))
+                .map_err(S3RequestError::ConstructionFailure)?;
 
             let key = format!("/{}", key);
-            message.set_request_path(&key)?;
+            message
+                .set_request_path(&key)
+                .map_err(S3RequestError::ConstructionFailure)?;
 
             let body_input_stream = InputStream::new_from_slice(&self.allocator, &buffer)?;
             message.set_body_stream(Some(body_input_stream));

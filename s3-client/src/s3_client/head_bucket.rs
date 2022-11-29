@@ -17,10 +17,12 @@ impl S3Client {
     pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
         let body = {
             let mut message = self.new_request_template("HEAD", bucket)?;
-            message.set_request_path("/").unwrap();
+            message
+                .set_request_path("/")
+                .map_err(S3RequestError::ConstructionFailure)?;
 
             let span = request_span!(self, "head_bucket");
-            span.in_scope(|| debug!(?bucket, "new request"));
+            span.in_scope(|| debug!(?bucket, region = self.region, "new request"));
 
             self.make_simple_http_request(message, MetaRequestType::Default, span)?
         };

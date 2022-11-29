@@ -151,10 +151,12 @@ impl S3Client {
             if let Some(continuation_token) = continuation_token {
                 // DO URI encode the continuation token, since "/" in it needs to become "%2F"
                 let continuation_token = urlencoding::encode(continuation_token);
-                request = request + &format!("&continuation-token={continuation_token}");
+                request = format!("{request}&continuation-token={continuation_token}");
             }
 
-            message.set_request_path(request)?;
+            message
+                .set_request_path(request)
+                .map_err(S3RequestError::ConstructionFailure)?;
 
             let span = request_span!(self, "list_objects");
             span.in_scope(|| {

@@ -39,11 +39,15 @@ impl S3Client {
         if let Some(range) = range {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
-            message.add_header(&Header::new("Range", range_value)).unwrap();
+            message
+                .add_header(&Header::new("Range", range_value))
+                .map_err(S3RequestError::ConstructionFailure)?;
         }
 
         let key = format!("/{}", key);
-        message.set_request_path(key).unwrap();
+        message
+            .set_request_path(key)
+            .map_err(S3RequestError::ConstructionFailure)?;
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
 
