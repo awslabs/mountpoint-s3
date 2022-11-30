@@ -16,7 +16,10 @@ pub enum HeadBucketError {
 impl S3Client {
     pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
         let body = {
-            let mut message = self.new_request_template("HEAD", bucket)?;
+            let mut message = self
+                .new_request_template("HEAD", bucket)
+                .map_err(S3RequestError::ConstructionFailure)?;
+
             message
                 .set_request_path("/")
                 .map_err(S3RequestError::ConstructionFailure)?;

@@ -143,7 +143,9 @@ impl S3Client {
     ) -> Result<ListObjectsResult, S3RequestError<ListObjectsError>> {
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
-            let mut message = self.new_request_template("GET", bucket)?;
+            let mut message = self
+                .new_request_template("GET", bucket)
+                .map_err(S3RequestError::ConstructionFailure)?;
 
             // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
             let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");

@@ -31,7 +31,10 @@ impl S3Client {
             .await;
 
         let body = {
-            let mut message = self.new_request_template("PUT", bucket)?;
+            let mut message = self
+                .new_request_template("PUT", bucket)
+                .map_err(S3RequestError::ConstructionFailure)?;
+
             message
                 .add_header(&Header::new("Content-Length", buffer.len().to_string()))
                 .map_err(S3RequestError::ConstructionFailure)?;

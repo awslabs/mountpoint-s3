@@ -69,7 +69,9 @@ impl S3Client {
         key: &str,
     ) -> Result<HeadObjectResult, S3RequestError<HeadObjectError>> {
         let request = {
-            let mut message = self.new_request_template("HEAD", bucket)?;
+            let mut message = self
+                .new_request_template("HEAD", bucket)
+                .map_err(S3RequestError::ConstructionFailure)?;
 
             // Don't URI encode the key, since "/" needs to be preserved
             let key = key.to_string();

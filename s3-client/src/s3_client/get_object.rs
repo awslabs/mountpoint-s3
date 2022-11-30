@@ -31,7 +31,9 @@ impl S3Client {
             || debug!(?bucket, ?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
-        let mut message = self.new_request_template("GET", bucket)?;
+        let mut message = self
+            .new_request_template("GET", bucket)
+            .map_err(S3RequestError::ConstructionFailure)?;
 
         // Overwrite "accept" header since this returns raw object data.
         message.add_header(&Header::new("accept", "*/*"))?;

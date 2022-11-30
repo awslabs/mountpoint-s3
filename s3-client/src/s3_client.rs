@@ -125,7 +125,7 @@ impl S3Client {
     /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
-    fn new_request_template(&self, method: &str, bucket: &str) -> Result<Message, RequestConstructionError> {
+    fn new_request_template(&self, method: &str, bucket: &str) -> Result<Message, aws_crt_s3::common::error::Error> {
         // Wrap the Result in a nested block, so that we can map the CRT errors into `ConstructionFailure`
         // rather than the `From` impl for `S3RequestError`, which maps to `CrtError`.
         let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
@@ -311,16 +311,6 @@ pub enum S3RequestError<E: std::error::Error> {
     /// The request was sent and the service returned an error.
     #[error("Error received from S3: {0:?}")]
     ServiceError(#[source] E),
-}
-
-#[derive(Error, Debug)]
-#[error("Failed to construct request: {0}")]
-struct RequestConstructionError(#[from] aws_crt_s3::common::error::Error);
-
-impl<E: std::error::Error> From<RequestConstructionError> for S3RequestError<E> {
-    fn from(err: RequestConstructionError) -> Self {
-        Self::ConstructionFailure(err.0)
-    }
 }
 
 #[async_trait]
