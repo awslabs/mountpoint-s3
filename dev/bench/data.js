@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669733832947,
+  "lastUpdate": 1669850737209,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2736,6 +2736,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 25.2763671875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lukernel@amazon.com",
+            "name": "Luke Nelson",
+            "username": "lukenels"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7b134aade57973bc2b68eb0142fcd0bd493fdd2",
+          "message": "Various cleanup / refactoring in S3Client and Rust CRT bindings (#24)\n\n* Various cleanup / refactoring in S3Client and Rust CRT bindings\r\n\r\nThis commit is a hodgepodge of various fixes / cleanups each of which is\r\npretty small. Among the changes are:\r\n\r\n- Added a `new_request_template` to S3Client so that we don't have to\r\n  keep repeating the header construction for Host, User-Agent, etc.\r\n\r\n- Changed `&mut Allocator` to be `&Allocator` everywhere: the former\r\n  made it impossible to use the allocator from non-mut references to\r\n  the S3Client. Having allocators take non-mut references is standard in\r\n  Rust, for example, see the standard\r\n  [Allocator trait](https://doc.rust-lang.org/std/alloc/trait.Allocator.html),\r\n\r\n- Added a test for the CRT's file path input stream.\r\n\r\n- Added more [Headers] methods for erasing headers and checking if a\r\n  header is present. Fixed the errors returned when a header is not\r\n  present. Modified the semantics of add_header to overwrite any\r\n  existing headers with the same name (instead of ignoring all but the\r\n  one that was first set.)\r\n  + Added more [Headers] tests to cover these cases.\r\n  + Also change [Header] to allow name and value types to vary.\r\n    This means we can do `message.add_headers(\"name\", value)` even if\r\n    `value` is a `String` and not an `&str` like the literal is.\r\n\r\n- Changed debug! in S3Client requests to be more standard (printing\r\n  all arguments to the method, in order).\r\n\r\n- Added wrappers SeekBasis and StreamStatus in input_stream.rs\r\n\r\n* Fix errors and trace\r\n\r\n* Remove RequestConstructionError",
+          "timestamp": "2022-11-30T15:05:31-08:00",
+          "tree_id": "729ef18886db520744e94f365514356bf66abc39",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/a7b134aade57973bc2b68eb0142fcd0bd493fdd2"
+        },
+        "date": 1669850735980,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "fs/sequential_read",
+            "value": 1426.1248,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads",
+            "value": 1363.968,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_delayed_start",
+            "value": 1690.9312,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_direct_io",
+            "value": 2634.4448,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/sequential_read_four_threads_direct_io",
+            "value": 2120.3968,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_small_file",
+            "value": 6.5996,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "fs/random_read_big_file",
+            "value": 0.74,
             "unit": "MiB/s"
           }
         ]
