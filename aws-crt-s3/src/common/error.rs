@@ -7,7 +7,7 @@ use aws_crt_s3_sys::{aws_error_debug_str, aws_last_error, aws_raise_error_privat
 use thiserror::Error;
 
 /// An error reported by the AWS Common Runtime
-#[derive(Error, Clone, Copy)]
+#[derive(Error, Clone, Copy, PartialEq, Eq)]
 #[error("CRT error: {0}")]
 pub struct Error(i32);
 

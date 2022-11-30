@@ -16,15 +16,15 @@ use crate::{aws_byte_cursor_as_slice, CrtError, StringExt};
 
 /// An HTTP header.
 #[derive(Debug)]
-pub struct Header<P: AsRef<OsStr>> {
+pub struct Header<N: AsRef<OsStr>, V: AsRef<OsStr>> {
     inner: aws_http_header,
-    name: P,
-    value: P,
+    name: N,
+    value: V,
 }
 
-impl<P: AsRef<OsStr>> Header<P> {
+impl<N: AsRef<OsStr>, V: AsRef<OsStr>> Header<N, V> {
     /// Create a new header.
-    pub fn new(name: P, value: P) -> Self {
+    pub fn new(name: N, value: V) -> Self {
         // SAFETY: this struct will own `name` and `value` so they will live as long as the byte
         // cursors do.
         let inner = unsafe {
@@ -39,12 +39,12 @@ impl<P: AsRef<OsStr>> Header<P> {
     }
 
     /// Get the name of this header
-    pub fn name(&self) -> &P {
+    pub fn name(&self) -> &N {
         &self.name
     }
 
     /// Get the value of this header
-    pub fn value(&self) -> &P {
+    pub fn value(&self) -> &V {
         &self.value
     }
 }
@@ -63,7 +63,7 @@ unsafe impl Send for Headers {}
 unsafe impl Sync for Headers {}
 
 /// Errors returned by operations on [Headers]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum HeadersError {
     /// The header was not found
     #[error("Header not found")]
@@ -71,7 +71,18 @@ pub enum HeadersError {
 
     /// Internal CRT error
     #[error("CRT error: {0:?}")]
-    CrtError(#[from] Error),
+    CrtError(#[source] Error),
+}
+
+// Convert CRT error into HeadersError, mapping the HEADER_NOT_FOUND to HeadersError::HeaderNotFound.
+impl From<Error> for HeadersError {
+    fn from(err: Error) -> Self {
+        if err == (aws_http_errors::AWS_ERROR_HTTP_HEADER_NOT_FOUND as i32).into() {
+            Self::HeaderNotFound
+        } else {
+            Self::CrtError(err)
+        }
+    }
 }
 
 impl Headers {
@@ -86,7 +97,7 @@ impl Headers {
     }
 
     /// Create a new [Headers] object in the given allocator.
-    pub fn new(allocator: &mut Allocator) -> Result<Self, HeadersError> {
+    pub fn new(allocator: &Allocator) -> Result<Self, HeadersError> {
         // SAFETY: allocator is a valid aws_allocator, and we check the return is non-null.
         let inner = unsafe { aws_http_headers_new(allocator.inner.as_ptr()).ok_or_last_error()? };
 
@@ -101,7 +112,7 @@ impl Headers {
     }
 
     /// Get the header at the specified index.
-    pub fn get_index(&self, index: usize) -> Result<Header<OsString>, HeadersError> {
+    pub fn get_index(&self, index: usize) -> Result<Header<OsString, OsString>, HeadersError> {
         // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get_index`
         // promises to initialize the output `struct aws_http_header *out_header` on success.
         let header = unsafe {
@@ -122,8 +133,17 @@ impl Headers {
         Ok(Header::new(name, value))
     }
 
-    /// Add a [Header] to this [Headers].
-    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>>) -> Result<(), HeadersError> {
+    /// Add a [Header] to these [Headers]. Overrides any existing header with the same name.
+    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>) -> Result<(), HeadersError> {
+        // CRT's default behavior is to always use the first header set with a given name, and
+        // ignore any later-added headers with that name. But this is non-obvious to users and could
+        // be a source of tricky bugs, so we tweak the semantics so that any existing headers with
+        // the same name are erased. This also makes the behavior match the behavior of
+        // `headers.iter().collect()` into a data structure like a HashMap or RbTree.
+        if self.has_header(header.name()) {
+            self.erase_header(header.name())?;
+        }
+
         // SAFETY: `aws_http_headers_add_header` makes a copy of the underlying strings.
         // Also, this function takes a mut reference to `self`, since this function modifies the headers.
         unsafe {
@@ -133,8 +153,26 @@ impl Headers {
         Ok(())
     }
 
+    /// Returns whether a header with the given name is present in these [Headers].
+    pub fn has_header(&self, name: impl AsRef<OsStr>) -> bool {
+        // SAFETY: `aws_http_headers_has` doesn't hold on to a copy of the name we pass in, so it's
+        // okay to call with with an `aws_byte_cursor` that may not outlive this `Headers`.
+        unsafe { aws_http_headers_has(self.inner.as_ptr(), name.as_ref().as_aws_byte_cursor()) }
+    }
+
+    /// Erases a header with the given name from these [Headers].
+    pub fn erase_header(&self, name: impl AsRef<OsStr>) -> Result<(), HeadersError> {
+        // SAFETY: `aws_http_headers_erase` doesn't hold on to a copy of the name we pass in, so it's
+        // okay to call with with an `aws_byte_cursor` that may not outlive this `Headers`.
+        unsafe {
+            aws_http_headers_erase(self.inner.as_ptr(), name.as_ref().as_aws_byte_cursor()).ok_or_last_error()?;
+        }
+
+        Ok(())
+    }
+
     /// Get a single header by name from this block of headers
-    pub fn get<H: AsRef<OsStr>>(&self, name: H) -> Result<Header<OsString>, HeadersError> {
+    pub fn get<H: AsRef<OsStr>>(&self, name: H) -> Result<Header<OsString, OsString>, HeadersError> {
         // SAFETY: `self.inner` is a valid aws_http_headers, and `aws_http_headers_get` promises to
         // initialize the output `struct aws_byte_cursor *out_value` on success.
         let value = unsafe {
@@ -213,7 +251,7 @@ pub struct Message<'a> {
 
 impl<'a> Message<'a> {
     /// Creates a new HTTP/1.1 request message.
-    pub fn new_request(allocator: &mut Allocator) -> Result<Self, Error> {
+    pub fn new_request(allocator: &Allocator) -> Result<Self, Error> {
         // TODO: figure out a better place to call this
         http_library_init(allocator);
 
@@ -227,7 +265,7 @@ impl<'a> Message<'a> {
     }
 
     /// Add a header to this message.
-    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>>) -> Result<(), Error> {
+    pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>) -> Result<(), Error> {
         // SAFETY: `aws_http_message_add_header` makes a copy of the values in `header`.
         unsafe { aws_http_message_add_header(self.inner.as_ptr(), header.inner).ok_or_last_error() }
     }
@@ -288,15 +326,17 @@ mod test {
     /// Test various parts of the [Headers] API.
     #[test]
     fn test_headers() {
-        let mut allocator = Allocator::default();
-
-        let mut headers = Headers::new(&mut allocator).expect("failed to create headers");
+        let mut headers = Headers::new(&Allocator::default()).expect("failed to create headers");
 
         headers.add_header(&Header::new("a", "1")).unwrap();
         headers.add_header(&Header::new("b", "2")).unwrap();
         headers.add_header(&Header::new("c", "3")).unwrap();
 
         assert_eq!(headers.count(), 3);
+
+        assert!(headers.has_header("a"));
+        assert!(headers.has_header("b"));
+        assert!(headers.has_header("c"));
 
         assert_eq!(headers.get("a").unwrap().name(), "a");
         assert_eq!(headers.get("a").unwrap().value(), "1");
@@ -305,5 +345,50 @@ mod test {
 
         assert_eq!(map.len(), 3);
         assert_eq!(map.get(OsStr::new("a")), Some(&OsString::from("1")));
+    }
+
+    /// Test the error returned when a requested header is not present.
+    #[test]
+    fn test_header_not_present() {
+        let headers = Headers::new(&Allocator::default()).expect("failed to create headers");
+        assert!(!headers.has_header("a"));
+        let error = headers.get("a").expect_err("should fail because header is not present");
+        assert_eq!(error, HeadersError::HeaderNotFound, "should fail with HeaderNotFound");
+    }
+
+    /// Test setting the same header twice, which should overwrite with the second value.
+    #[test]
+    fn test_headers_overwrite() {
+        let mut headers = Headers::new(&Allocator::default()).expect("failed to create headers");
+
+        headers.add_header(&Header::new("a", "1")).unwrap();
+        headers.add_header(&Header::new("a", "2")).unwrap();
+
+        assert_eq!(headers.count(), 1);
+
+        assert_eq!(headers.get("a").unwrap().name(), "a");
+        assert_eq!(headers.get("a").unwrap().value(), "2");
+
+        let map: HashMap<OsString, OsString> = headers.iter().collect();
+
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(OsStr::new("a")), Some(&OsString::from("2")));
+    }
+
+    /// Test erasing a header.
+    #[test]
+    fn test_headers_erase() {
+        let mut headers = Headers::new(&Allocator::default()).expect("failed to create headers");
+
+        headers.add_header(&Header::new("a", "1")).unwrap();
+        assert_eq!(headers.count(), 1);
+
+        headers.erase_header("a").unwrap();
+
+        assert_eq!(headers.count(), 0);
+
+        let map: HashMap<OsString, OsString> = headers.iter().collect();
+
+        assert_eq!(map.len(), 0);
     }
 }

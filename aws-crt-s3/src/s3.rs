@@ -11,11 +11,11 @@ pub mod client;
 static S3_LIBRARY_INIT: Once = Once::new();
 
 /// Set up the aws-c-io library using the given allocator.
-fn s3_library_init(allocator: &mut Allocator) {
+fn s3_library_init(allocator: &Allocator) {
     S3_LIBRARY_INIT.call_once(|| {
         // Safety: the CRT ensures this call happens only once.
         unsafe {
-            aws_s3_library_init(allocator.inner.as_mut());
+            aws_s3_library_init(allocator.inner.as_ptr());
         }
     });
 }

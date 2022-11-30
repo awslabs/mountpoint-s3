@@ -30,7 +30,7 @@ impl Debug for Logger {
 
 impl Logger {
     /// Create a new Logger that will dispatch log messages to the given implementation
-    pub fn new(allocator: &mut Allocator, impl_: impl LoggerImpl + 'static) -> Self {
+    pub fn new(allocator: &Allocator, impl_: impl LoggerImpl + 'static) -> Self {
         common_library_init(allocator);
 
         let mut impl_: Pin<Box<Box<dyn LoggerImpl>>> = Box::pin(Box::new(impl_));
@@ -42,8 +42,7 @@ impl Logger {
         });
         let logger = Box::pin(aws_logger {
             vtable: &mut *vtable.as_mut() as *mut _,
-            // SAFETY: `allocator.inner` is a valid `aws_allocator`.
-            allocator: unsafe { allocator.inner.as_mut() },
+            allocator: allocator.inner.as_ptr(),
             p_impl: &mut *impl_.as_mut() as *mut Box<dyn LoggerImpl> as *mut _,
         });
 

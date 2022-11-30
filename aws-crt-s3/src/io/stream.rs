@@ -10,6 +10,59 @@ use std::path::Path;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+/// Status of an [InputStream].
+#[derive(Debug)]
+pub struct StreamStatus {
+    is_valid: bool,
+    is_end_of_stream: bool,
+}
+
+impl From<aws_stream_status> for StreamStatus {
+    fn from(status: aws_stream_status) -> Self {
+        Self {
+            is_valid: status.is_valid,
+            is_end_of_stream: status.is_end_of_stream,
+        }
+    }
+}
+
+impl From<StreamStatus> for aws_stream_status {
+    fn from(status: StreamStatus) -> Self {
+        Self {
+            is_valid: status.is_valid,
+            is_end_of_stream: status.is_end_of_stream,
+        }
+    }
+}
+
+/// Specifies where to seek from in an [InputStream].
+#[derive(Debug)]
+pub enum SeekBasis {
+    /// Seek from the beginning of the stream.
+    Begin,
+    /// Seek from the end of the stream.
+    End,
+}
+
+impl From<aws_stream_seek_basis> for SeekBasis {
+    fn from(value: aws_stream_seek_basis) -> Self {
+        match value {
+            aws_stream_seek_basis::AWS_SSB_BEGIN => Self::Begin,
+            aws_stream_seek_basis::AWS_SSB_END => Self::End,
+            _ => panic!("invalid stream seek basis: {:?}", value),
+        }
+    }
+}
+
+impl From<SeekBasis> for aws_stream_seek_basis {
+    fn from(value: SeekBasis) -> Self {
+        match value {
+            SeekBasis::Begin => aws_stream_seek_basis::AWS_SSB_BEGIN,
+            SeekBasis::End => aws_stream_seek_basis::AWS_SSB_END,
+        }
+    }
+}
+
 /// An [InputStream] is a way to read bytes. They can be obtained either from CRT functions,
 /// or by creating a new one based on a Rust type that implements the [GenericInputStream] trait.
 #[derive(Debug)]
@@ -24,7 +77,7 @@ pub struct InputStream<'a> {
 
 impl<'a> InputStream<'a> {
     /// Creates a stream that operates on a file opened from the provided path.
-    pub fn new_from_file<P: AsRef<Path>>(allocator: &mut Allocator, path: &P) -> Result<Self, Error> {
+    pub fn new_from_file_path(allocator: &Allocator, path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
 
         let inner =
@@ -83,7 +136,7 @@ impl<'a> InputStream<'a> {
 
     /// Create a new [InputStream] from a slice. The slice is not copied, and so the resulting
     /// [InputStream] cannot outlive the slice (enforced by a lifetime restriction on the [InputStream].
-    pub fn new_from_slice(allocator: &mut Allocator, buffer: &'a [u8]) -> Result<Self, Error> {
+    pub fn new_from_slice(allocator: &Allocator, buffer: &'a [u8]) -> Result<Self, Error> {
         let cursor = aws_byte_cursor {
             len: buffer.len(),
             ptr: buffer.as_ptr() as *mut u8,
@@ -115,13 +168,13 @@ impl<'a> Drop for InputStream<'a> {
 /// This allows Rust client code to define new ways of creating [InputStream]s.
 pub trait GenericInputStream {
     /// Seek to the given offset. Basis is either BEGIN or END, and describes where to seek from.
-    fn seek(&self, offset: i64, basis: aws_stream_seek_basis) -> Result<(), Error>;
+    fn seek(&self, offset: i64, basis: SeekBasis) -> Result<(), Error>;
 
     /// Read some data into `buffer`, and return how many bytes were read.
     fn read(&self, buffer: &mut [u8]) -> Result<usize, Error>;
 
     /// Get the status of this stream. Can be used to indicate if stream is at the EOF.
-    fn get_status(&self) -> Result<aws_stream_status, Error>;
+    fn get_status(&self) -> Result<StreamStatus, Error>;
 
     /// Get the length of this input stream, in bytes. If a length cannot be determined, return Err.
     fn get_length(&self) -> Result<usize, Error>;
@@ -180,7 +233,7 @@ unsafe fn input_stream_to_generic_stream(stream: *mut aws_input_stream) -> *mut 
 unsafe extern "C" fn generic_seek(stream: *mut aws_input_stream, offset: i64, basis: aws_stream_seek_basis) -> i32 {
     let generic_stream = &*input_stream_to_generic_stream(stream);
 
-    match generic_stream.stream.seek(offset, basis) {
+    match generic_stream.stream.seek(offset, basis.into()) {
         Ok(()) => AWS_OP_SUCCESS,
         Err(err) => err.raise_error(),
     }
@@ -222,7 +275,7 @@ unsafe extern "C" fn generic_get_status(stream: *mut aws_input_stream, out_statu
 
     match generic_stream.stream.get_status() {
         Ok(status) => {
-            *out_status = status;
+            *out_status = status.into();
             AWS_OP_SUCCESS
         }
 
@@ -260,9 +313,9 @@ unsafe extern "C" fn generic_release(stream: *mut aws_input_stream) {
 // We can implement [GenericInputStream] for [InputStream] so that we can use CRT-defined
 // input streams using a nice Rust interface.
 impl<'a> GenericInputStream for InputStream<'a> {
-    fn seek(&self, offset: i64, basis: aws_stream_seek_basis) -> Result<(), Error> {
+    fn seek(&self, offset: i64, basis: SeekBasis) -> Result<(), Error> {
         // SAFETY: self.inner is a valid input stream.
-        unsafe { aws_input_stream_seek(self.inner.as_ptr(), offset, basis).ok_or_last_error() }
+        unsafe { aws_input_stream_seek(self.inner.as_ptr(), offset, basis.into()).ok_or_last_error() }
     }
 
     fn read(&self, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -289,7 +342,7 @@ impl<'a> GenericInputStream for InputStream<'a> {
         Ok(byte_buf.len)
     }
 
-    fn get_status(&self) -> Result<aws_stream_status, Error> {
+    fn get_status(&self) -> Result<StreamStatus, Error> {
         let mut status: aws_stream_status = Default::default();
 
         // SAFETY: self.inner is a valid input stream and status is a local variable.
@@ -297,7 +350,7 @@ impl<'a> GenericInputStream for InputStream<'a> {
             aws_input_stream_get_status(self.inner.as_ptr(), &mut status).ok_or_last_error()?;
         }
 
-        Ok(status)
+        Ok(status.into())
     }
 
     fn get_length(&self) -> Result<usize, Error> {
@@ -323,7 +376,7 @@ mod test {
     struct ZeroStream;
 
     impl GenericInputStream for ZeroStream {
-        fn seek(&self, _offset: i64, _basis: aws_stream_seek_basis) -> Result<(), Error> {
+        fn seek(&self, _offset: i64, _basis: SeekBasis) -> Result<(), Error> {
             Ok(())
         }
 
@@ -332,8 +385,8 @@ mod test {
             Ok(buffer.len())
         }
 
-        fn get_status(&self) -> Result<aws_stream_status, Error> {
-            Ok(aws_stream_status {
+        fn get_status(&self) -> Result<StreamStatus, Error> {
+            Ok(StreamStatus {
                 is_end_of_stream: false,
                 is_valid: true,
             })
@@ -347,13 +400,13 @@ mod test {
 
     #[test]
     fn test_slice_cursor() {
-        let mut allocator = Allocator::default();
+        let allocator = Allocator::default();
 
         let bytes = b"Hello world!".to_vec();
 
         // Create a new CRT input stream from this slice.
         let stream =
-            InputStream::new_from_slice(&mut allocator, &bytes[..]).expect("failed to make input stream from slice");
+            InputStream::new_from_slice(&allocator, &bytes[..]).expect("failed to make input stream from slice");
 
         let mut buffer = vec![0u8; 40];
 
@@ -369,6 +422,52 @@ mod test {
         let length = stream.get_length().expect("get_length failed");
 
         assert_eq!(length, bytes.len());
+    }
+
+    #[test]
+    fn test_file_input_stream() {
+        let allocator = Allocator::default();
+
+        let temp_path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+
+        // Write some contents to the temporary file.
+        let contents = b"Hello World!";
+        std::fs::write(&temp_path, contents).unwrap();
+
+        let stream = InputStream::new_from_file_path(&allocator, &temp_path).unwrap();
+        assert!(stream.get_status().unwrap().is_valid);
+
+        // NB: EOF flag is only set if we try to read past end of file, so this buffer needs to be
+        // one byte larger than the contents we started with.
+        let mut buffer = vec![0u8; contents.len() + 1];
+
+        let mut offset = 0;
+
+        let mut status = stream.get_status().unwrap();
+        while status.is_valid && !status.is_end_of_stream {
+            // Try to read up to two bytes at a time.
+            let offset_end = (offset + 2).max(buffer.len());
+
+            let actually_read = stream.read(&mut buffer[offset..offset_end]).unwrap();
+
+            if actually_read == 0 {
+                break;
+            }
+
+            offset += actually_read;
+            status = stream.get_status().unwrap();
+        }
+
+        assert_eq!(offset, contents.len());
+
+        // Can drop the temp_path (and delete the file) at this point.
+        std::mem::drop(temp_path);
+
+        assert_eq!(
+            contents,
+            &buffer[..contents.len()],
+            "buffer should match contents written to file"
+        );
     }
 
     /// Test that the generic stream API works by making a really deep stack of

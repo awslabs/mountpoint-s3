@@ -26,7 +26,7 @@ pub struct ClientBootstrapOptions<'a> {
 
 impl ClientBootstrap {
     /// Create a [ClientBootstrap] with the given options
-    pub fn new(allocator: &mut Allocator, options: &ClientBootstrapOptions) -> Result<Self, Error> {
+    pub fn new(allocator: &Allocator, options: &ClientBootstrapOptions) -> Result<Self, Error> {
         io_library_init(allocator);
 
         let inner_options = aws_client_bootstrap_options {

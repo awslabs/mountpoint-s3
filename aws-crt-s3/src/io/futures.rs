@@ -12,6 +12,7 @@ use futures::task::ArcWake;
 use futures::{FutureExt, TryFutureExt};
 use thiserror::Error;
 
+use crate::common::allocator::Allocator;
 use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
 
 /// Handle to a spawned future. Can be converted into a [Future] that completes when the task finishes.
@@ -141,6 +142,7 @@ impl<S: TaskScheduler, T: Send + 'static> ArcWake for FutureTaskWaker<S, T> {
         // Create a [Task] that calls poll. If the CRT tells us that the task is canceled, finishes
         // the future with an error.
         let task = Task::init(
+            &Allocator::default(),
             move |status| match status {
                 TaskStatus::RunReady => FutureTaskWaker::poll(&task_arc_self),
                 TaskStatus::Canceled => FutureTaskWaker::finish_with_error(&task_arc_self, JoinError::Canceled),
@@ -233,8 +235,8 @@ mod test {
     /// Test that running a small future on an event loop works correctly.
     #[test]
     fn test_simple_future() {
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let allocator = Allocator::default();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         let handle = el_group.spawn_future(async {
             println!("Hello from the future");
@@ -276,8 +278,8 @@ mod test {
     /// test_join_all_futures using a pinned EventLoop.
     #[test]
     fn test_join_all_futures_event_loop() {
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let allocator = Allocator::default();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
         let event_loop = el_group.get_next_loop().unwrap();
 
         test_join_all_futures(&event_loop);
@@ -286,8 +288,8 @@ mod test {
     /// test_join_all_futures using an EventLoopGroup.
     #[test]
     fn test_join_all_futures_event_loop_group() {
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let allocator = Allocator::default();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         test_join_all_futures(&el_group);
     }
@@ -295,8 +297,8 @@ mod test {
     /// Test that cancelling a future works.
     #[test]
     fn test_cancel_future() {
-        let mut allocator = Allocator::default();
-        let el_group = EventLoopGroup::new_default(&mut allocator, None, || {}).unwrap();
+        let allocator = Allocator::default();
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         // Create a long timer to delay the future for some time.
         let timer = EventLoopTimer::new(&el_group.get_next_loop().unwrap(), Duration::from_secs(20));

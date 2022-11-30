@@ -16,7 +16,7 @@ pub mod task_scheduler;
 static COMMON_LIBRARY_INIT: Once = Once::new();
 
 /// Set up the aws-c-common library using the given allocator.
-fn common_library_init(allocator: &mut Allocator) {
+fn common_library_init(allocator: &Allocator) {
     COMMON_LIBRARY_INIT.call_once(|| {
         // Safety: the CRT ensures this call happens only once.
         unsafe {

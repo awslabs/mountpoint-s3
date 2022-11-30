@@ -160,6 +160,7 @@ dependencies = [
  "log",
  "smallstr",
  "static_assertions",
+ "tempfile",
  "thiserror",
  "tracing-subscriber",
 ]
