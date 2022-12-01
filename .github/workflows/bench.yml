@@ -43,7 +43,7 @@ jobs:
     - name: Update package list
       run: sudo apt-get update
     - name: Install dependencies
-      run: sudo apt-get -y install cmake libclang-dev libunwind-dev pkg-config
+      run: sudo apt-get -y install cmake libclang-dev libunwind-dev pkg-config jq fio
     - name: Install fuse
       run: sudo apt-get -y install fuse libfuse-dev
     - name: Configure fuse
@@ -52,13 +52,15 @@ jobs:
       run: cargo --version || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     - name: Update PATH
       run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    - name: Run benchmark
-      run: cargo bench -- fs --verbose | s3-file-connector/scripts/bench_parser.sh | tee output.txt
+    - name: Build
+      run: cargo build --release
+    - name: Run Benchmark
+      run: s3-file-connector/scripts/fs_bench.sh
     - name: Store benchmark result
       uses: benchmark-action/github-action-benchmark@v1
       with:
         tool: 'customBiggerIsBetter'
-        output-file-path: output.txt
+        output-file-path: results/output.json
         alert-threshold: "200%"
         fail-on-alert: true
         # GitHub API token to make a commit comment

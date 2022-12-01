@@ -1,0 +1,13 @@
+[global]
+name=fs_bench
+bs=256k
+runtime=30s
+time_based
+group_reporting
+
+[sequential_read_direct_io_small_file]
+size=5m
+rw=read
+ioengine=sync
+fallocate=none
+direct=1

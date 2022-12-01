@@ -31,7 +31,6 @@ assert_fs = "1.0.9"
 aws-config = "0.48.0"
 aws-sdk-s3 = "0.18.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
-criterion = "0.4.0"
 ctor = "0.1.23"
 predicates = "2.1.2"
 proptest = "1.0.0"
@@ -48,15 +47,3 @@ tokio = { version = "1.21.0", features = ["rt", "macros"] }
 fuse_tests = []
 s3_tests = []
 shuttle = []
-
-[[bench]]
-name = "fs_bench"
-harness = false
-
-[lib]
-bench = false
-
-[[bin]]
-name = "s3-file-connector"
-path = "src/main.rs"
-bench = false

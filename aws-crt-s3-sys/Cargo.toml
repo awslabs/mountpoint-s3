@@ -18,4 +18,3 @@ smallstr = "0.3.0"
 
 [lib]
 doctest = false
-bench = false
