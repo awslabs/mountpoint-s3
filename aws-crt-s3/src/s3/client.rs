@@ -443,7 +443,7 @@ impl ClientMetrics {
     /// Get num_auto_ranged_put_network_io
     pub fn num_auto_ranged_put_network_io(&self) -> u32 {
         self.num_auto_ranged_put_network_io
-    }    
+    }
 
     /// Get num_auto_default_network_io
     pub fn num_auto_default_network_io(&self) -> u32 {
@@ -513,69 +513,63 @@ impl Client {
 
     /// Poll [ClientMetrics] from underlying CRT client.
     pub fn poll_client_metrics(&self) -> ClientMetrics {
-        unsafe {
-            let client = self.inner.as_ref();
-            let stats = client.stats;
+        let client = unsafe { self.inner.as_ref() };
+        let stats = client.stats;
 
-            let num_requests_tracked_requests = stats.num_requests_in_flight.value as u32;
+        let num_requests_tracked_requests = stats.num_requests_in_flight.value as u32;
 
-            let num_auto_ranged_get_network_io =
-                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT);
+        let num_auto_ranged_get_network_io =
+            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT);
 
-            let num_auto_ranged_put_network_io =
-                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT);
+        let num_auto_ranged_put_network_io =
+            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT);
 
-            let num_auto_default_network_io =
-                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
+        let num_auto_default_network_io =
+            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
 
-            let num_requests_network_io =
-                self.get_num_requests_network_io(aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX);
+        let num_requests_network_io =
+            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX);
 
-            let num_requests_stream_queued_waiting = stats.num_requests_stream_queued_waiting.value as u32;
+        let num_requests_stream_queued_waiting = stats.num_requests_stream_queued_waiting.value as u32;
 
-            let num_requests_streaming = stats.num_requests_streaming.value as u32;
+        let num_requests_streaming = stats.num_requests_streaming.value as u32;
 
-            let num_requests_being_prepared = client.threaded_data.num_requests_being_prepared;
+        let num_requests_being_prepared = client.threaded_data.num_requests_being_prepared;
 
-            let request_queue_size = client.threaded_data.request_queue_size;
+        let request_queue_size = client.threaded_data.request_queue_size;
 
-            let total_approx_requests = num_requests_network_io
-                + num_requests_stream_queued_waiting
-                + num_requests_streaming
-                + num_requests_being_prepared
-                + request_queue_size;
+        let total_approx_requests = num_requests_network_io
+            + num_requests_stream_queued_waiting
+            + num_requests_streaming
+            + num_requests_being_prepared
+            + request_queue_size;
 
-            ClientMetrics {
-                total_approx_requests,
-                num_requests_tracked_requests,
-                num_requests_being_prepared,
-                request_queue_size,
-                num_auto_ranged_get_network_io,
-                num_auto_ranged_put_network_io,
-                num_auto_default_network_io,
-                num_requests_network_io,
-                num_requests_stream_queued_waiting,
-                num_requests_streaming,
-            }
+        ClientMetrics {
+            total_approx_requests,
+            num_requests_tracked_requests,
+            num_requests_being_prepared,
+            request_queue_size,
+            num_auto_ranged_get_network_io,
+            num_auto_ranged_put_network_io,
+            num_auto_default_network_io,
+            num_requests_network_io,
+            num_requests_stream_queued_waiting,
+            num_requests_streaming,
         }
     }
 
-    fn get_num_requests_network_io(&self, meta_request_type: aws_s3_meta_request_type) -> u32 {
+    fn get_num_requests_network_io(client: &aws_s3_client, meta_request_type: aws_s3_meta_request_type) -> u32 {
         let mut num_requests_network_io: u32 = 0;
-        unsafe {
-            let client = self.inner.as_ref();
-
-            if meta_request_type == aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX {
-                let max_req_type = aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX as usize;
-                for i in 0..max_req_type {
-                    num_requests_network_io += client.stats.num_requests_network_io[i].value as u32;
-                }
-            } else {
-                let meta_request_type = meta_request_type as usize;
-                num_requests_network_io = client.stats.num_requests_network_io[meta_request_type].value as u32
+        if meta_request_type == aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX {
+            let max_req_type = aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX as usize;
+            for i in 0..max_req_type {
+                num_requests_network_io += client.stats.num_requests_network_io[i].value as u32;
             }
+        } else {
+            let meta_request_type = meta_request_type as usize;
+            num_requests_network_io = client.stats.num_requests_network_io[meta_request_type].value as u32
         }
-        return num_requests_network_io;
+        num_requests_network_io
     }
 }
 
