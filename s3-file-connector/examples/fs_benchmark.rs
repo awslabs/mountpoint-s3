@@ -171,6 +171,8 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
         S3FuseFilesystem::new(client, runtime, bucket_name, "", filesystem_config),
         mountpoint,
         &options,
+        1,
+        -1,
     )
     .expect("Should have created FUSE session successfully");
 

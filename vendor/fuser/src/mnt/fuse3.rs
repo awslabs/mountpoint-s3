@@ -53,7 +53,6 @@ impl Drop for Mount {
         }
     }
 }
-
 // Safety: the pointer is never used except at Drop time, and at Drop time we know the pointer is
 // only being used by a single thread.
 unsafe impl Send for Mount {}

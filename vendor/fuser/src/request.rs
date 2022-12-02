@@ -737,4 +737,10 @@ impl<'a> Request<'a> {
     pub fn pid(&self) -> u32 {
         self.request.pid()
     }
+
+    /// Returns true if opcode == FORGET || FORGET_BATCH
+    #[inline]
+    pub fn is_forget(&self) -> bool {
+        self.request.is_forget()
+    }
 }

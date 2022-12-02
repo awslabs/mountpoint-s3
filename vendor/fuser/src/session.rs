@@ -9,7 +9,7 @@ use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{info, warn};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
@@ -54,6 +54,16 @@ pub struct Session<FS: Filesystem + Send + Sync> {
     pub(crate) initialized: std::sync::atomic::AtomicBool,
     /// True if the filesystem was destroyed (destroy operation done)
     pub(crate) destroyed: std::sync::atomic::AtomicBool,
+    /// Max number of threads
+    max_threads: i32,
+    /// Max number of idle threads
+    max_idle_threads: i32,
+    /// Current number of 
+    total_threads: std::sync::atomic::AtomicI32,
+    /// Current number of 
+    avail_threads: std::sync::atomic::AtomicI32,    
+    /// Thread guard of the background session
+    guards: Arc<Mutex<Vec<JoinHandle<io::Result<()>>>>>,
 }
 
 impl<FS: Filesystem + Send + Sync> Session<FS> {
@@ -62,6 +72,8 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
         filesystem: FS,
         mountpoint: &Path,
         options: &[MountOption],
+        max_threads: i32,
+        max_idle_threads: i32,
     ) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
         // If AutoUnmount is requested, but not AllowRoot or AllowOther we enforce the ACL
@@ -99,6 +111,11 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
             proto_minor: std::sync::atomic::AtomicU32::new(0),
             initialized: std::sync::atomic::AtomicBool::new(false),
             destroyed: std::sync::atomic::AtomicBool::new(false),
+            max_threads,
+            max_idle_threads,
+            total_threads: std::sync::atomic::AtomicI32::new(1),
+            avail_threads: std::sync::atomic::AtomicI32::new(1),
+            guards: Arc::new(Mutex::new(vec![])),
         })
     }
 
@@ -144,12 +161,99 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
                 },
             }
         }
+
+        Ok(())
+    }
+
+    /// Running session loop that spins more threads up to max_threads
+    pub fn run_mt(self: Arc<Self>) -> io::Result<()>
+    where
+        FS: 'static,
+    {
+        #[cfg(target_os = "linux")]
+        info!("new session thread with TID {}", unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t });
+        
+        let session = &*self;
+        loop {
+            // Read the next request from the given channel to kernel driver
+            // The kernel driver makes sure that we get exactly one request per read
+            let mut buffer = FuseRequestBuffer::allocate();
+            match self.ch.receive(buffer.deref_mut()) {
+                // TODO figure out the alignment stuff here ... need to chop `buffer` down to `size` + whatever padding came off the front
+                Ok(size) => match Request::new(self.ch.sender(), buffer, size) {
+                    // Dispatch request
+                    Some(req) => {
+                        let is_forget = req.is_forget();
+                        let avail_threads = &session.avail_threads;
+                        let total_threads = &session.total_threads;
+                        let max_threads = session.max_threads;
+
+                        if !is_forget { 
+                            avail_threads.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+
+                        if avail_threads.load(std::sync::atomic::Ordering::Relaxed) == 0 && 
+                            total_threads.load(std::sync::atomic::Ordering::Relaxed) < max_threads {
+                            let se = self.clone();
+                            let guard = thread::spawn(move || {
+                                se.run_mt()
+                            });
+                            session.guards.lock().unwrap().push(guard);
+                            total_threads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            avail_threads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+
+                        futures::executor::block_on(async move { req.dispatch(session).await });
+                        if !is_forget {
+                            avail_threads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+
+                        let max_idle_threads = session.max_idle_threads;
+                        if max_idle_threads != -1 && max_idle_threads < total_threads.load(std::sync::atomic::Ordering::Relaxed) {
+                            // Exit current thread when number of idle threads is more than allowed
+                            break;
+                        }
+                    },
+                    // Quit loop on illegal request
+                    None => break,
+                },
+                Err(err) => match err.raw_os_error() {
+                    // Operation interrupted. Accordingly to FUSE, this is safe to retry
+                    Some(ENOENT) => continue,
+                    // Interrupted system call, retry
+                    Some(EINTR) => continue,
+                    // Explicitly try again
+                    Some(EAGAIN) => continue,
+                    // Filesystem was unmounted, quit the loop
+                    Some(ENODEV) => break,
+                    // Unhandled error
+                    _ => return Err(err),
+                },
+            }
+        }
+
+        // reduce total number of threads
+        session.avail_threads.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        session.total_threads.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+
+        #[cfg(target_os = "linux")]
+        info!("finished thread with TID {}, threads left {}", 
+            unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t }, 
+            session.total_threads.load(std::sync::atomic::Ordering::Relaxed));
         Ok(())
     }
 
     /// Unmount the filesystem
     pub fn unmount(&mut self) {
         drop(std::mem::take(&mut self.mount));
+    }
+
+    /// Join all working threads
+    pub fn join(&mut self) {
+        let _ = self.guards.lock()
+            .unwrap()
+            .drain(..)
+            .try_for_each(|it| { it.join().unwrap() });
     }
 }
 
@@ -175,8 +279,6 @@ impl<FS: Filesystem + Send + Sync> Drop for Session<FS> {
 pub struct BackgroundSession {
     /// Path of the mounted filesystem
     pub mountpoint: PathBuf,
-    /// Thread guard of the background session
-    pub guards: Vec<JoinHandle<io::Result<()>>>,
     /// Ensures the filesystem is unmounted when the session ends
     _mount: Mount,
 }
@@ -193,49 +295,25 @@ impl BackgroundSession {
         let mount = std::mem::take(&mut se.mount);
         let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
         let se = Arc::new(se);
-        let guard = thread::spawn(move || se.run());
-        Ok(BackgroundSession {
-            mountpoint,
-            guards: vec![guard],
-            _mount: mount,
-        })
-    }
 
-    /// Like `new` but multithreaded
-    pub fn new_multi_thread<FS: Filesystem + Send + Sync + 'static>(
-        mut se: Session<FS>,
-        thread_count: usize,
-    ) -> io::Result<BackgroundSession> {
-        assert!(thread_count >= 1);
-        let mountpoint = se.mountpoint().to_path_buf();
-        // Take the fuse_session, so that we can unmount it
-        let mount = std::mem::take(&mut se.mount);
-        let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
-        let se = Arc::new(se);
-        let guards = (0..thread_count)
-            .map(|_| {
-                let se = Arc::clone(&se);
-                thread::spawn(move || se.run())
-            })
-            .collect();
-        Ok(BackgroundSession {
+        let background_session = BackgroundSession {
             mountpoint,
-            guards,
             _mount: mount,
-        })
+        };
+
+        let session = Arc::clone(&se);
+        let guard = thread::spawn(move || session.run_mt());
+        se.guards.lock().unwrap().push(guard);
+        Ok(background_session)
     }
 
     /// Unmount the filesystem and join the background thread.
     pub async fn join(self) {
         let Self {
             mountpoint: _,
-            guards,
             _mount,
         } = self;
         drop(_mount);
-        for guard in guards {
-            guard.join().unwrap().unwrap();
-        }
     }
 }
 

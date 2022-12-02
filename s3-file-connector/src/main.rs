@@ -60,8 +60,11 @@ struct CliArgs {
     #[clap(long, help = "Desired throughput in Gbps", value_name = "N (Gbps)", value_parser = clap::value_parser!(u64).range(1..))]
     pub throughput_target_gbps: Option<u64>,
 
-    #[clap(long, help = "Number of FUSE daemon threads", value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
-    pub thread_count: Option<u64>,
+    #[clap(long, help = "Max number of FUSE daemon threads", value_name = "N", value_parser = clap::value_parser!(i32).range(1..))]
+    pub thread_count: Option<i32>,
+
+    #[clap(long, help = "Max number of FUSE idle threads", value_name = "N", value_parser = clap::value_parser!(i32).range(-1..))]
+    pub idle_thread_count: Option<i32>,
 
     #[clap(long, help = "Part size for multi-part GET and PUT", value_parser = clap::value_parser!(u64).range(1..))]
     pub part_size: Option<u64>,
@@ -110,13 +113,22 @@ fn main() -> anyhow::Result<()> {
         filesystem_config,
     );
 
-    let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
+    let max_threads = args.thread_count.unwrap_or(1);
+    let idle_threads = args.idle_thread_count.unwrap_or(-1);
 
-    let session = if let Some(thread_count) = args.thread_count {
-        BackgroundSession::new_multi_thread(session, thread_count as usize)
-    } else {
-        BackgroundSession::new(session)
-    };
+    if idle_threads > max_threads {
+        return Err(anyhow!(
+            "Max number of idle threads ({max_threads}) should be less than max number of threads ({idle_threads})."
+        ));
+    }
+
+    println!("Starting with max-threads-count={max_threads} idle-threads-count={idle_threads}");
+
+    let session = Session::new(fs, &args.mount_point, &options, max_threads, idle_threads)
+        .context("Failed to create FUSE session")?;
+
+    let session = BackgroundSession::new(session);
+
     let session = session.context("Failed to start FUSE session")?;
 
     tracing::info!("successfully mounted {:?}", args.mount_point);

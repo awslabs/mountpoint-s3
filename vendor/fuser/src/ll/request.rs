@@ -2119,6 +2119,16 @@ impl<'a> AnyRequest<'a> {
         // Parse/check operation arguments
         op::parse(self.header, &opcode, self.data).ok_or(RequestError::InsufficientData)
     }
+
+    #[cfg(not(feature = "abi-7-16"))]
+    pub fn is_forget(&self) -> bool {
+        self.header.opcode == (fuse_opcode::FUSE_FORGET as u32)
+    }
+
+    #[cfg(feature = "abi-7-16")]
+    pub fn is_forget(&self) -> bool {
+        self.header.opcode == (fuse_opcode::FUSE_FORGET as u32) || self.header.opcode == (fuse_opcode::FUSE_BATCH_FORGET as u32)
+    }
 }
 
 impl<'a> fmt::Display for AnyRequest<'a> {

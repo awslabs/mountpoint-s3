@@ -46,6 +46,8 @@ mod mock_session {
             S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
+            1,
+            -1,
         )
         .unwrap();
 
@@ -94,6 +96,8 @@ mod s3_session {
             S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
+            1,
+            -1,
         )
         .unwrap();
 
