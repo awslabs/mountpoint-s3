@@ -380,89 +380,57 @@ impl Drop for MetaRequest {
     }
 }
 
-/// Client metrics
+/// Client metrics which represent current workload of a client.
+/// Overall, num_requests_tracked_requests shows total number of requests being processed by the client at a time.
+/// It can be broken down into these numbers by states of the client.
+///     (1) num_requests_being_prepared: this is the first state when CRT receives requests and begins preparing them.
+///     (2) request_queue_size: prepared requests are added into the request_queue, waiting to be assigned to connections.
+///     (3) num_total_network_io: requests are removed from the request_queue and sent over the network.
+///         We can also see number of requests by their meta request types.
+///         (3.1) num_auto_default_network_io
+///         (3.2) num_auto_ranged_get_network_io
+///         (3.3) num_auto_ranged_put_network_io
+///         (3.4) num_auto_ranged_copy_network_io
+///     (4) num_requests_stream_queued_waiting: responses from the server are added into meta request priority queue, waiting to be streamed.
+///     (5) num_requests_streaming: responses are removed from the queue and streamed back to the callers.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct ClientMetrics {
-    /// Approximate number of overall requests currently being processed by the client.
-    total_approx_requests: u32,
-
-    /// Exact number of overall requests currently being processed by the client.
-    num_requests_tracked_requests: u32,
+    /// Number of overall requests currently being processed by the client.
+    pub num_requests_tracked_requests: u32,
 
     /// Number of requests currently being prepared.
-    num_requests_being_prepared: u32,
+    pub num_requests_being_prepared: u32,
 
     /// Number of requests in the request_queue linked_list.
-    request_queue_size: u32,
-
-    /// Number of requests being sent/received over network for meta request type GET.
-    num_auto_ranged_get_network_io: u32,
-
-    /// Number of requests being sent/received over network for meta request type PUT.
-    num_auto_ranged_put_network_io: u32,
+    pub request_queue_size: u32,
 
     /// Number of requests being sent/received over network for meta request type DEFAULT.
-    num_auto_default_network_io: u32,
+    pub num_auto_default_network_io: u32,
 
-    /// Total number of requests being sent/received over network.
-    num_requests_network_io: u32,
+    /// Number of requests being sent/received over network for meta request type GET.
+    pub num_auto_ranged_get_network_io: u32,
+
+    /// Number of requests being sent/received over network for meta request type PUT.
+    pub num_auto_ranged_put_network_io: u32,
+
+    /// Number of requests being sent/received over network for meta request type COPY.
+    pub num_auto_ranged_copy_network_io: u32,
 
     /// Number of requests sitting in their meta request priority queue, waiting to be streamed.
-    num_requests_stream_queued_waiting: u32,
+    pub num_requests_stream_queued_waiting: u32,
 
     /// Number of requests currently scheduled to be streamed or are actively being streamed.
-    num_requests_streaming: u32,
+    pub num_requests_streaming: u32,
 }
 
 impl ClientMetrics {
-    /// Get total_approx_requests
-    pub fn total_approx_requests(&self) -> u32 {
-        self.total_approx_requests
-    }
-
-    /// Get num_requests_tracked_requests
-    pub fn num_requests_tracked_requests(&self) -> u32 {
-        self.num_requests_tracked_requests
-    }
-
-    /// Get num_requests_being_prepared
-    pub fn num_requests_being_prepared(&self) -> u32 {
-        self.num_requests_being_prepared
-    }
-
-    /// Get request_queue_size
-    pub fn request_queue_size(&self) -> u32 {
-        self.request_queue_size
-    }
-
-    /// Get num_auto_ranged_get_network_io
-    pub fn num_auto_ranged_get_network_io(&self) -> u32 {
-        self.num_auto_ranged_get_network_io
-    }
-
-    /// Get num_auto_ranged_put_network_io
-    pub fn num_auto_ranged_put_network_io(&self) -> u32 {
-        self.num_auto_ranged_put_network_io
-    }
-
-    /// Get num_auto_default_network_io
-    pub fn num_auto_default_network_io(&self) -> u32 {
+    /// Total number of requests being sent/received over network.
+    pub fn num_total_network_io(&self) -> u32 {
         self.num_auto_default_network_io
-    }
-
-    /// Get num_requests_network_io
-    pub fn num_requests_network_io(&self) -> u32 {
-        self.num_requests_network_io
-    }
-
-    /// Get num_requests_stream_queued_waiting
-    pub fn num_requests_stream_queued_waiting(&self) -> u32 {
-        self.num_requests_stream_queued_waiting
-    }
-
-    /// Get num_requests_streaming
-    pub fn num_requests_streaming(&self) -> u32 {
-        self.num_requests_streaming
+            + self.num_auto_ranged_get_network_io
+            + self.num_auto_ranged_put_network_io
+            + self.num_auto_ranged_copy_network_io
     }
 }
 
@@ -513,6 +481,7 @@ impl Client {
 
     /// Poll [ClientMetrics] from underlying CRT client.
     pub fn poll_client_metrics(&self) -> ClientMetrics {
+        // SAFETY: aws_s3_client is guaranteed to be initialized and dereferencable as long as Client lives
         let client = unsafe { self.inner.as_ref() };
         let stats = client.stats;
 
@@ -527,8 +496,8 @@ impl Client {
         let num_auto_default_network_io =
             Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
 
-        let num_requests_network_io =
-            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX);
+        let num_auto_ranged_copy_network_io =
+            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_COPY_OBJECT);
 
         let num_requests_stream_queued_waiting = stats.num_requests_stream_queued_waiting.value as u32;
 
@@ -538,21 +507,14 @@ impl Client {
 
         let request_queue_size = client.threaded_data.request_queue_size;
 
-        let total_approx_requests = num_requests_network_io
-            + num_requests_stream_queued_waiting
-            + num_requests_streaming
-            + num_requests_being_prepared
-            + request_queue_size;
-
         ClientMetrics {
-            total_approx_requests,
             num_requests_tracked_requests,
             num_requests_being_prepared,
             request_queue_size,
+            num_auto_default_network_io,
             num_auto_ranged_get_network_io,
             num_auto_ranged_put_network_io,
-            num_auto_default_network_io,
-            num_requests_network_io,
+            num_auto_ranged_copy_network_io,
             num_requests_stream_queued_waiting,
             num_requests_streaming,
         }
