@@ -403,7 +403,6 @@ mod tests {
         };
         let client = MockClient::new(config);
 
-        // TODO non-constant object so we can actually tell if we're getting the right bytes
         client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
         let test_config = PrefetcherConfig {
@@ -491,11 +490,11 @@ mod tests {
 
         fn sequential_read_stress_helper() {
             let mut rng = shuttle::rand::thread_rng();
-            let object_size = rng.gen_range(1u64, 5 * 1024 * 1024);
-            let first_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
-            let max_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
-            let sequential_prefetch_multiplier = rng.gen_range(1usize, 16);
-            let part_size = rng.gen_range(16usize, 8 * 1024 * 1024);
+            let object_size = rng.gen_range(1u64..5 * 1024 * 1024);
+            let first_request_size = rng.gen_range(16usize..5 * 1024 * 1024);
+            let max_request_size = rng.gen_range(16usize..5 * 1024 * 1024);
+            let sequential_prefetch_multiplier = rng.gen_range(1usize..16);
+            let part_size = rng.gen_range(16usize..8 * 1024 * 1024);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
@@ -503,7 +502,7 @@ mod tests {
             };
             let client = MockClient::new(config);
 
-            client.add_object("hello", MockObject::constant(0xaa, object_size as usize));
+            client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
             let test_config = PrefetcherConfig {
                 first_request_size,
@@ -515,14 +514,14 @@ mod tests {
 
             let mut request = prefetcher.get("test-bucket", "hello", object_size as u64);
 
-            let expected = vec![0xaa; object_size as usize];
             let mut next_offset = 0;
             loop {
-                let read_size = rng.gen_range(1usize, 5 * 1024 * 1024);
+                let read_size = rng.gen_range(1usize..5 * 1024 * 1024);
                 let buf = request.read(next_offset, read_size);
                 if buf.is_empty() {
                     break;
                 }
+                let expected = ramp_bytes((0xaa + next_offset) as usize, buf.len());
                 assert_eq!(&buf[..], &expected[..buf.len()]);
                 next_offset += buf.len() as u64;
             }
@@ -537,11 +536,14 @@ mod tests {
 
         fn random_read_stress_helper() {
             let mut rng = shuttle::rand::thread_rng();
-            let object_size = rng.gen_range(1u64, 5 * 1024 * 1024);
-            let first_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
-            let max_request_size = rng.gen_range(16usize, 5 * 1024 * 1024);
-            let sequential_prefetch_multiplier = rng.gen_range(1usize, 16);
-            let part_size = rng.gen_range(16usize, 8 * 1024 * 1024);
+            let first_request_size = rng.gen_range(16usize..32 * 1024);
+            let max_request_size = rng.gen_range(16usize..32 * 1024);
+            // Try to prevent testing very small reads of very large objects, which are easy to OOM
+            // under Shuttle (lots of concurrent tasks)
+            let max_object_size = first_request_size.min(max_request_size) * 20;
+            let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
+            let sequential_prefetch_multiplier = rng.gen_range(1usize..16);
+            let part_size = rng.gen_range(16usize..128 * 1024);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
@@ -549,8 +551,7 @@ mod tests {
             };
             let client = MockClient::new(config);
 
-            // TODO non-constant object so we can actually tell if we're getting the right bytes
-            client.add_object("hello", MockObject::constant(0xaa, object_size as usize));
+            client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
             let test_config = PrefetcherConfig {
                 first_request_size,
@@ -562,11 +563,11 @@ mod tests {
 
             let mut request = prefetcher.get("test-bucket", "hello", object_size as u64);
 
-            let num_reads = rng.gen_range(10usize, 50);
+            let num_reads = rng.gen_range(10usize..50);
             for _ in 0..num_reads {
-                let offset = rng.gen_range(0u64, object_size);
-                let length = rng.gen_range(1usize, (object_size - offset + 1) as usize);
-                let expected = vec![0xaa; length];
+                let offset = rng.gen_range(0u64..object_size);
+                let length = rng.gen_range(1usize..(object_size - offset + 1) as usize);
+                let expected = ramp_bytes((0xaa + offset) as usize, length);
                 let buf = request.read(offset, length);
                 assert_eq!(buf.len(), expected.len());
                 // Don't spew the giant buffer if this test fails
