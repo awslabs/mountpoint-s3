@@ -1,4 +1,4 @@
-use metrics::{Counter, CounterFn, Gauge, Histogram, HistogramFn, Key, KeyName, Recorder, SharedString, Unit};
+use metrics::{Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Recorder, SharedString, Unit};
 
 use crate::metrics::data::MetricType;
 use crate::metrics::ThreadMetricsSinkHandle;
@@ -19,8 +19,8 @@ impl Recorder for MetricsRecorder {
         Counter::from_arc(Arc::new(CounterImpl(key.clone())))
     }
 
-    fn register_gauge(&self, _key: &Key) -> Gauge {
-        todo!("gauges not yet implemented")
+    fn register_gauge(&self, key: &Key) -> Gauge {
+        Gauge::from_arc(Arc::new(GaugeImpl(key.clone())))
     }
 
     fn register_histogram(&self, key: &Key) -> Histogram {
@@ -37,6 +37,22 @@ impl CounterFn for CounterImpl {
 
     fn absolute(&self, _value: u64) {
         panic!("absolute counter values are not supported");
+    }
+}
+
+struct GaugeImpl(Key);
+
+impl GaugeFn for GaugeImpl {
+    fn increment(&self, _value: f64) {
+        panic!("increment gauge values are not support")
+    }
+
+    fn decrement(&self, _value: f64) {
+        panic!("decrement gauge values are not support")
+    }
+
+    fn set(&self, value: f64) {
+        ThreadMetricsSinkHandle::with(|handle| handle.set_gauge(&self.0, value))
     }
 }
 
@@ -65,5 +81,14 @@ impl ThreadMetricsSinkHandle {
             .metrics
             .get_mut(MetricType::Histogram, key)
             .increment(value);
+    }
+
+    fn set_gauge(&self, key: &Key, value: f64) {
+        self.inner
+            .lock()
+            .unwrap()
+            .metrics
+            .get_mut(MetricType::Gauge, key)
+            .set(value);
     }
 }

@@ -231,6 +231,8 @@ impl S3Client {
             .make_meta_request(options)
             .map_err(S3RequestError::ConstructionFailure)?;
 
+        Self::poll_client_metrics(&self.s3_client);
+
         Ok(S3HttpRequest { receiver: rx })
     }
 
@@ -257,6 +259,41 @@ impl S3Client {
             },
             move |_result| Ok(std::mem::take(&mut *body.lock().unwrap())),
         )
+    }
+
+    fn poll_client_metrics(s3_client: &Client) {
+        let metrics = s3_client.poll_client_metrics();
+        metrics::gauge!("s3.total_approx_requests", f64::from(metrics.total_approx_requests()));
+        metrics::gauge!(
+            "s3.num_requests_tracked_requests",
+            f64::from(metrics.num_requests_tracked_requests())
+        );
+        metrics::gauge!(
+            "s3.num_requests_being_prepared",
+            f64::from(metrics.num_requests_being_prepared())
+        );
+        metrics::gauge!("s3.request_queue_size", f64::from(metrics.request_queue_size()));
+        metrics::gauge!(
+            "s3.num_auto_ranged_get_network_io",
+            f64::from(metrics.num_auto_ranged_get_network_io())
+        );
+        metrics::gauge!(
+            "s3.num_auto_ranged_put_network_io",
+            f64::from(metrics.num_auto_ranged_put_network_io())
+        );
+        metrics::gauge!(
+            "s3.num_auto_default_network_io",
+            f64::from(metrics.num_auto_default_network_io())
+        );
+        metrics::gauge!(
+            "s3.num_requests_network_io",
+            f64::from(metrics.num_requests_network_io())
+        );
+        metrics::gauge!(
+            "s3.num_requests_stream_queued_waiting",
+            f64::from(metrics.num_requests_stream_queued_waiting())
+        );
+        metrics::gauge!("s3.num_requests_streaming", f64::from(metrics.num_requests_streaming()));
     }
 
     fn next_request_counter(&self) -> u64 {

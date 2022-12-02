@@ -193,19 +193,36 @@ mod tests {
         metrics::counter!("test_counter", 3, "type" => "get");
         metrics::counter!("test_counter", 4, "type" => "put");
 
+        metrics::gauge!("test_gauge", 5.0, "type" => "processing");
+        metrics::gauge!("test_gauge", 5.0, "type" => "in_queue");
+        metrics::gauge!("test_gauge", 2.0, "type" => "processing");
+        metrics::gauge!("test_gauge", 3.0, "type" => "in_queue");
+
         let metrics = MetricsSink::aggregate(&threads);
-        assert_eq!(metrics.iter().count(), 2);
+        assert_eq!(metrics.iter().count(), 4);
         for (key, data) in metrics.iter() {
-            assert_eq!(key.name(), "test_counter");
             assert_eq!(key.labels().count(), 1);
             match data {
                 Metric::Counter(inner) => {
+                    assert_eq!(key.name(), "test_counter");
                     assert_eq!(inner.n, 3);
                     let label = key.labels().next().unwrap();
                     if label == &Label::new("type", "get") {
                         assert_eq!(inner.sum, 6);
                     } else if label == &Label::new("type", "put") {
                         assert_eq!(inner.sum, 7);
+                    } else {
+                        panic!("wrong label");
+                    }
+                }
+                Metric::Gauge(inner) => {
+                    assert_eq!(key.name(), "test_gauge");
+                    assert_eq!(inner.n, 1);
+                    let label = key.labels().next().unwrap();
+                    if label == &Label::new("type", "processing") {
+                        assert_eq!(inner.sum, 2.0);
+                    } else if label == &Label::new("type", "in_queue") {
+                        assert_eq!(inner.sum, 3.0);
                     } else {
                         panic!("wrong label");
                     }
