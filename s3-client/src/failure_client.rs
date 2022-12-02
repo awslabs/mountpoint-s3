@@ -12,6 +12,7 @@ use pin_project::pin_project;
 use crate::object_client::{GetBodyPart, HeadObjectResult, PutObjectParams, PutObjectResult};
 use crate::{ListObjectsResult, ObjectClient};
 
+// Wrapper for injecting failures into a get stream
 pub struct FailureGetWrapper<Client: ObjectClient, GetWrapperState> {
     state: GetWrapperState,
     result_fn: fn(&mut GetWrapperState) -> Result<(), Client::GetObjectError>,
@@ -110,8 +111,8 @@ impl<Client: ObjectClient, FailState> Stream for FailureGetResult<Client, FailSt
     type Item = Result<GetBodyPart, Client::GetObjectError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-        (this.result_fn)(&mut this.state)?;
+        let this = self.project();
+        (this.result_fn)(this.state)?;
         this.get_result.poll_next(cx)
     }
 }
@@ -120,6 +121,7 @@ impl<Client: ObjectClient, FailState> Stream for FailureGetResult<Client, FailSt
 pub type CountdownFailureClient<Client> =
     FailureClient<Client, CountdownFailureClientState<Client>, CountdownFailureGetState<Client>>;
 
+#[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct CountdownFailureClientState<Client: ObjectClient> {
     get_count: usize,
@@ -137,19 +139,21 @@ pub struct CountdownFailureGetState<Client: ObjectClient> {
     error: Option<Client::GetObjectError>,
 }
 
+#[allow(clippy::type_complexity)]
 pub fn countdown_failure_client<Client: ObjectClient>(
     client: Client,
-    // For GET, map entries are interpreted as follows
-    //   (k -> Err(E) means return error E on the k'th GET.
+    // For GET, map entries are interpreted as follows (operations are numbered starting at 1):
+    //   (k -> Err(E) means return error E on the k'th GET
     //   (k -> Ok((n, E))) means return a stream object on the k'th get that
-    //       returns error E on the n'th read request from that stream
+    //       returns error E on the n'th read request from that stream, otherwise reads from the underlying stream
     // (Note: we could also define a failure client that tracks offsets, and returns an error when the offset
     // reaches a specified threshold.)
     get_results: HashMap<usize, Result<(usize, Client::GetObjectError), Client::GetObjectError>>,
-    // For HEAD and LIST, a map entry of the form (k -> E), and means
-    // inject error E on the k'th call to that operation
+    // For HEAD and LIST, map entries are interpreted as follows:
+    //   (k -> E) means inject error E on the k'th call to that operation
     head_failures: HashMap<usize, Client::HeadObjectError>,
     list_failures: HashMap<usize, Client::ListObjectsError>,
+    // TODO add put failures
 ) -> CountdownFailureClient<Client> {
     let state = Mutex::new(CountdownFailureClientState {
         get_count: 0usize,

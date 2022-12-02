@@ -264,6 +264,7 @@ where
                                 }
                                 Some(Err(e)) => {
                                     error!(error=?e, "RequestTask body part failed");
+                                    part_queue.push(Err(e));
                                     break;
                                 }
                                 None => break,
@@ -353,7 +354,7 @@ mod tests {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            ..Default::default()
+            read_timeout: Duration::from_secs(1),
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -410,7 +411,7 @@ mod tests {
         size: u64,
         read_size: usize,
         test_config: TestConfig,
-        get_failures: HashMap<usize, GetObjectError>,
+        get_failures: HashMap<usize, Result<(usize, GetObjectError), GetObjectError>>,
     ) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -446,11 +447,11 @@ mod tests {
             assert_eq!(&buf[..], &expected[..buf.len()]);
             next_offset += buf.len() as u64;
         }
-        assert!(next_offset <= size as u64);
+        assert!(next_offset < size as u64); // Since we're injecting failures, shouldn't make it to the end
     }
 
     #[test]
-    fn fail_sequential_small() {
+    fn fail_request_sequential_small() {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 1024 * 1024 * 1024,
@@ -459,7 +460,22 @@ mod tests {
         };
 
         let mut get_failures = HashMap::new();
-        get_failures.insert(2, s3_client::mock_client::GetObjectError::InvalidRange(42));
+        get_failures.insert(2, Err(s3_client::mock_client::GetObjectError::InvalidRange(42)));
+
+        fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
+    }
+
+    #[test]
+    fn fail_read_sequential_small() {
+        let config = TestConfig {
+            first_request_size: 256 * 1024,
+            max_request_size: 1024 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 8 * 1024 * 1024,
+        };
+
+        let mut get_failures = HashMap::new();
+        get_failures.insert(2, Ok((1, s3_client::mock_client::GetObjectError::InvalidRange(42))));
 
         fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
@@ -604,7 +620,7 @@ mod tests {
             let mut next_offset = 0;
             loop {
                 let read_size = rng.gen_range(1usize..5 * 1024 * 1024);
-                let buf = request.read(next_offset, read_size);
+                let buf = request.read(next_offset, read_size).unwrap();
                 if buf.is_empty() {
                     break;
                 }
@@ -656,7 +672,7 @@ mod tests {
                 let offset = rng.gen_range(0u64..object_size);
                 let length = rng.gen_range(1usize..(object_size - offset + 1) as usize);
                 let expected = ramp_bytes((0xaa + offset) as usize, length);
-                let buf = request.read(offset, length);
+                let buf = request.read(offset, length).unwrap();
                 assert_eq!(buf.len(), expected.len());
                 // Don't spew the giant buffer if this test fails
                 if buf[..] != expected[..] {
