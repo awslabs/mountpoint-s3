@@ -481,42 +481,54 @@ impl Client {
 
     /// Poll [ClientMetrics] from underlying CRT client.
     pub fn poll_client_metrics(&self) -> ClientMetrics {
-        // SAFETY: aws_s3_client is guaranteed to be initialized and dereferencable as long as Client lives
-        let client = unsafe { self.inner.as_ref() };
-        let stats = client.stats;
+        // SAFETY: The `aws_s3_client` in `self.inner` is guaranteed to be initialized and
+        // dereferencable as long as Client lives. The `aws_atomic_load_int` calls are safe because
+        // they're always `int`s, whose lifetime belongs to the stats struct.
+        unsafe {
+            let client = self.inner.as_ref();
+            let stats = client.stats;
 
-        let num_requests_tracked_requests = stats.num_requests_in_flight.value as u32;
+            let num_requests_tracked_requests = aws_atomic_load_int(&stats.num_requests_in_flight) as u32;
 
-        let num_auto_ranged_get_network_io =
-            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT);
+            let num_auto_ranged_get_network_io = Client::get_num_requests_network_io(
+                client,
+                aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT,
+            );
 
-        let num_auto_ranged_put_network_io =
-            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT);
+            let num_auto_ranged_put_network_io = Client::get_num_requests_network_io(
+                client,
+                aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT,
+            );
 
-        let num_auto_default_network_io =
-            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
+            let num_auto_default_network_io =
+                Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT);
 
-        let num_auto_ranged_copy_network_io =
-            Client::get_num_requests_network_io(client, aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_COPY_OBJECT);
+            let num_auto_ranged_copy_network_io = Client::get_num_requests_network_io(
+                client,
+                aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_COPY_OBJECT,
+            );
 
-        let num_requests_stream_queued_waiting = stats.num_requests_stream_queued_waiting.value as u32;
+            let num_requests_stream_queued_waiting =
+                aws_atomic_load_int(&stats.num_requests_stream_queued_waiting) as u32;
 
-        let num_requests_streaming = stats.num_requests_streaming.value as u32;
+            let num_requests_streaming = aws_atomic_load_int(&stats.num_requests_streaming) as u32;
 
-        let num_requests_being_prepared = client.threaded_data.num_requests_being_prepared;
+            // These are "threaded data" and so technically we don't know that it's safe to read them
+            // here, but it's just metrics data so we're not too concerned.
+            let num_requests_being_prepared = client.threaded_data.num_requests_being_prepared;
+            let request_queue_size = client.threaded_data.request_queue_size;
 
-        let request_queue_size = client.threaded_data.request_queue_size;
-
-        ClientMetrics {
-            num_requests_tracked_requests,
-            num_requests_being_prepared,
-            request_queue_size,
-            num_auto_default_network_io,
-            num_auto_ranged_get_network_io,
-            num_auto_ranged_put_network_io,
-            num_auto_ranged_copy_network_io,
-            num_requests_stream_queued_waiting,
-            num_requests_streaming,
+            ClientMetrics {
+                num_requests_tracked_requests,
+                num_requests_being_prepared,
+                request_queue_size,
+                num_auto_default_network_io,
+                num_auto_ranged_get_network_io,
+                num_auto_ranged_put_network_io,
+                num_auto_ranged_copy_network_io,
+                num_requests_stream_queued_waiting,
+                num_requests_streaming,
+            }
         }
     }
 
@@ -525,11 +537,15 @@ impl Client {
         if meta_request_type == aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX {
             let max_req_type = aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX as usize;
             for i in 0..max_req_type {
-                num_requests_network_io += client.stats.num_requests_network_io[i].value as u32;
+                // SAFETY: these atomics are known to be integers, and `client` is valid
+                num_requests_network_io +=
+                    unsafe { aws_atomic_load_int(&client.stats.num_requests_network_io[i]) } as u32;
             }
         } else {
             let meta_request_type = meta_request_type as usize;
-            num_requests_network_io = client.stats.num_requests_network_io[meta_request_type].value as u32
+            // SAFETY: these atomics are known to be integers, and `client` is valid
+            num_requests_network_io =
+                unsafe { aws_atomic_load_int(&client.stats.num_requests_network_io[meta_request_type]) } as u32
         }
         num_requests_network_io
     }
