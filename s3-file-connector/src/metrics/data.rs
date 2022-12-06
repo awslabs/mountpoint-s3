@@ -67,12 +67,14 @@ impl Metrics {
 #[derive(Debug)]
 pub enum MetricType {
     Counter,
+    Gauge,
     Histogram,
 }
 
 #[derive(Debug)]
 pub enum Metric {
-    Counter(ValueAndCount),
+    Counter(ValueAndCount<u64>),
+    Gauge(ValueAndCount<f64>),
     // We currently have a fixed scaling configuration for histograms that is tuned for
     // microsecond-scale latency timers. It saturates at 60 seconds.
     Histogram(hdrhistogram::Histogram<u64>),
@@ -82,6 +84,7 @@ impl Metric {
     fn new(typ: MetricType) -> Self {
         match typ {
             MetricType::Counter => Metric::Counter(Default::default()),
+            MetricType::Gauge => Metric::Gauge(Default::default()),
             MetricType::Histogram => {
                 Metric::Histogram(hdrhistogram::Histogram::new_with_bounds(1, 60 * 1000 * 1000, 2).unwrap())
             }
@@ -94,15 +97,33 @@ impl Metric {
                 inner.sum += value;
                 inner.n += 1;
             }
+            Metric::Gauge(_inner) => {
+                panic!("increment gauge values are not supported");
+            }
             Metric::Histogram(inner) => {
                 inner.saturating_record(value);
             }
         }
     }
 
+    pub fn set(&mut self, value: f64) {
+        match self {
+            Metric::Counter(_inner) => panic!("set counter values are not supported"),
+            Metric::Gauge(inner) => {
+                inner.sum = value;
+                inner.n = 1;
+            }
+            Metric::Histogram(_inner) => panic!("set histogram values are not supported"),
+        }
+    }
+
     fn aggregate(&mut self, other: Metric) {
         match (self, other) {
             (Metric::Counter(me), Metric::Counter(other)) => {
+                me.sum += other.sum;
+                me.n += other.n;
+            }
+            (Metric::Gauge(me), Metric::Gauge(other)) => {
                 me.sum += other.sum;
                 me.n += other.n;
             }
@@ -124,6 +145,7 @@ impl Display for Metric {
                     f.write_fmt(format_args!("{} (n={})", inner.sum, inner.n))
                 }
             }
+            Metric::Gauge(inner) => f.write_fmt(format_args!("{} (n={})", inner.sum, inner.n)),
             Metric::Histogram(inner) => f.write_fmt(format_args!(
                 "n={}: min={} p10={} p50={} avg={:.2} p90={} p99={} p99.9={} max={}",
                 inner.len(),
@@ -141,7 +163,7 @@ impl Display for Metric {
 }
 
 #[derive(Debug, Default)]
-pub struct ValueAndCount {
-    pub sum: u64,
+pub struct ValueAndCount<T> {
+    pub sum: T,
     pub n: u64,
 }

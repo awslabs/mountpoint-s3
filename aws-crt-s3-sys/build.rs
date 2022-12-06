@@ -29,6 +29,7 @@ const CRT_LIBRARIES: &[&str] = &[
 const CRT_HEADERS: &[&str] = &[
     "auth/credentials.h",
     "checksums/crc.h",
+    "common/atomics.h",
     "common/log_channel.h",
     "common/log_formatter.h",
     "common/log_writer.h",
@@ -72,6 +73,10 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         // Use `libc` for primitive C types
         .ctypes_prefix("::libc")
         .raw_line("use libc::*;")
+        // The CRT ensures that AWS_STATIC_IMPL (i.e. static inline) functions get exported so
+        // they're linkable, but bindgen ignores inline functions by default, so we manually need to
+        // mark them as exported.
+        .clang_arg("-DAWS_STATIC_IMPL=")
         .clang_args(&["-I", include_dir.to_str().unwrap(), "-I", "crt/aws-c-s3/include"]);
 
     for header in CRT_HEADERS {
@@ -81,6 +86,9 @@ fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
         }
         builder = builder.header(header_path.to_str().unwrap());
     }
+
+    // We have to include this private API in order to access CRT client stats
+    builder = builder.header("crt/aws-c-s3/include/aws/s3/private/s3_client_impl.h");
 
     builder.generate()
 }
