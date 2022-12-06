@@ -538,14 +538,14 @@ impl Client {
             let max_req_type = aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_MAX as usize;
             for i in 0..max_req_type {
                 // SAFETY: these atomics are known to be integers, and `client` is valid
-                num_requests_network_io +=
-                    unsafe { aws_atomic_load_int(&client.stats.num_requests_network_io[i]) } as u32;
+                let n = unsafe { aws_atomic_load_int(&client.stats.num_requests_network_io[i]) } as u32;
+                num_requests_network_io += n;
             }
         } else {
             let meta_request_type = meta_request_type as usize;
             // SAFETY: these atomics are known to be integers, and `client` is valid
-            num_requests_network_io =
-                unsafe { aws_atomic_load_int(&client.stats.num_requests_network_io[meta_request_type]) } as u32
+            let n = unsafe { aws_atomic_load_int(&client.stats.num_requests_network_io[meta_request_type]) } as u32;
+            num_requests_network_io = n;
         }
         num_requests_network_io
     }
