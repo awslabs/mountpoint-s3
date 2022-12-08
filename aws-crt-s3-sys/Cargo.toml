@@ -10,6 +10,7 @@ bindgen = { version = "0.60.1", default-features = false, features = ["runtime"]
 cc = "1.0.73"
 cmake = "0.1.48"
 rustflags = "0.1.1"
+which = "4.3.0"
 
 [dependencies]
 libc = "0.2.126"
