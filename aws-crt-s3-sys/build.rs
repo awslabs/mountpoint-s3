@@ -46,6 +46,14 @@ const CRT_HEADERS: &[&str] = &[
     "s3/s3_client.h",
 ];
 
+// The CRT needs cmake 3.x, but on AL2, the `cmake` binary is 2.x, and there's a separate `cmake3`.
+// If `cmake3` exists, let's use that as our CMAKE.
+fn discover_cmake3() {
+    if which::which("cmake3").is_ok() {
+        std::env::set_var("CMAKE", "cmake3");
+    }
+}
+
 fn generate_bindings(include_dir: &Path) -> Result<Bindings, BindgenError> {
     let mut builder = bindgen::Builder::default()
         // Get Default impls so we don't have to explicitly malloc/zero/ununit structs
@@ -201,6 +209,7 @@ fn compile_logging_shim(crt_include_dir: impl AsRef<Path>) {
 }
 
 fn main() {
+    discover_cmake3();
     let include_dir = compile_crt_and_bindings();
     compile_logging_shim(include_dir);
 }
