@@ -1,5 +1,6 @@
 mod lookup_test;
 mod mount_test;
+mod perm_test;
 mod readdir_test;
 
 use fuser::{BackgroundSession, MountOption, Session};
@@ -36,8 +37,10 @@ mod mock_session {
 
         let options = vec![
             MountOption::RO,
+            MountOption::DefaultPermissions,
             MountOption::FSName("s3_fuse".to_string()),
             MountOption::AutoUnmount,
+            MountOption::AllowOther,
         ];
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -86,8 +89,10 @@ mod s3_session {
 
         let options = vec![
             MountOption::RO,
+            MountOption::DefaultPermissions,
             MountOption::FSName("s3_fuse".to_string()),
             MountOption::AutoUnmount,
+            MountOption::AllowOther,
         ];
 
         let session = Session::new(

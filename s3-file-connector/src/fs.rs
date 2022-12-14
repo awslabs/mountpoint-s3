@@ -1,4 +1,5 @@
 use futures::task::Spawn;
+use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
@@ -17,11 +18,6 @@ use crate::sync::{Arc, Mutex, RwLock};
 pub type Inode = u64;
 
 pub const FUSE_ROOT_INODE: Inode = 1u64;
-
-const DIR_PERMISSIONS: u16 = 0o755;
-const FILE_PERMISSIONS: u16 = 0o644;
-const UID: u32 = 501;
-const GID: u32 = 20;
 
 const BLOCK_SIZE: u64 = 4096;
 
@@ -54,12 +50,24 @@ struct FileHandle<Client: ObjectClient, Runtime> {
 
 #[derive(Debug)]
 pub struct S3FilesystemConfig {
+    /// Stat time to live in kernel cache
     pub stat_ttl: Duration,
+    /// Readdir page size
     pub readdir_size: usize,
+    /// User id
+    pub uid: u32,
+    /// Group id
+    pub gid: u32,
+    /// Directory permissions
+    pub dir_mode: u16,
+    /// File permissions
+    pub file_mode: u16,
 }
 
 impl Default for S3FilesystemConfig {
     fn default() -> Self {
+        let uid = getuid().into();
+        let gid = getgid().into();
         Self {
             // We'd like to use 0 here but FUSE behaves badly when the TTL is exactly 0 -- it
             // repeatedly `lookup`s the same inode within the same `readdir` request. So we apply a
@@ -67,6 +75,10 @@ impl Default for S3FilesystemConfig {
             // than S3 ListObjects latency.
             stat_ttl: Duration::from_millis(1),
             readdir_size: 100,
+            uid,
+            gid,
+            dir_mode: 0o755,
+            file_mode: 0o644,
         }
     }
 }
@@ -118,30 +130,6 @@ where
 
     fn next_handle(&self) -> u64 {
         self.next_handle.fetch_add(1, Ordering::SeqCst)
-    }
-}
-
-fn make_attr(ino: Inode, stat: &InodeStat) -> FileAttr {
-    let (perm, nlink, blksize) = match stat.kind {
-        InodeStatKind::File {} => (FILE_PERMISSIONS, 1, BLOCK_SIZE as u32),
-        InodeStatKind::Directory {} => (DIR_PERMISSIONS, 2, 512),
-    };
-    FileAttr {
-        ino,
-        size: stat.size as u64,
-        blocks: stat.size as u64 / BLOCK_SIZE,
-        atime: UNIX_EPOCH,
-        mtime: UNIX_EPOCH, // TODO
-        ctime: UNIX_EPOCH,
-        crtime: UNIX_EPOCH,
-        kind: (&stat.kind).into(),
-        perm,
-        nlink,
-        uid: UID,
-        gid: GID,
-        rdev: 0,
-        flags: 0,
-        blksize,
     }
 }
 
@@ -202,6 +190,30 @@ where
         Ok(())
     }
 
+    fn make_attr(&self, ino: Inode, stat: &InodeStat) -> FileAttr {
+        let (perm, nlink, blksize) = match stat.kind {
+            InodeStatKind::File {} => (self.config.file_mode, 1, BLOCK_SIZE as u32),
+            InodeStatKind::Directory {} => (self.config.dir_mode, 2, 512),
+        };
+        FileAttr {
+            ino,
+            size: stat.size as u64,
+            blocks: stat.size as u64 / BLOCK_SIZE,
+            atime: UNIX_EPOCH,
+            mtime: UNIX_EPOCH, // TODO
+            ctime: UNIX_EPOCH,
+            crtime: UNIX_EPOCH,
+            kind: (&stat.kind).into(),
+            perm,
+            nlink,
+            uid: self.config.uid,
+            gid: self.config.gid,
+            rdev: 0,
+            flags: 0,
+            blksize,
+        }
+    }
+
     pub async fn lookup(&self, parent: Inode, name: &OsStr) -> Result<Entry, libc::c_int> {
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
@@ -209,7 +221,7 @@ where
 
         Ok(Entry {
             ttl: self.config.stat_ttl,
-            attr: make_attr(stat.ino, &stat.stat),
+            attr: self.make_attr(stat.ino, &stat.stat),
             generation: 0,
         })
     }
@@ -221,7 +233,7 @@ where
 
         Ok(Attr {
             ttl: self.config.stat_ttl,
-            attr: make_attr(ino, &lookup.stat),
+            attr: self.make_attr(ino, &lookup.stat),
         })
     }
 
@@ -325,7 +337,7 @@ where
 
         if handle.offset() < 1 {
             let stat = self.superblock.getattr(&self.client, parent).await?;
-            let attr = make_attr(stat.ino, &stat.stat);
+            let attr = self.make_attr(stat.ino, &stat.stat);
             if reply.add(parent, handle.offset() + 1, ".", attr, 0u64, self.config.stat_ttl) {
                 return Ok(reply);
             }
@@ -333,7 +345,7 @@ where
         }
         if handle.offset() < 2 {
             let stat = self.superblock.getattr(&self.client, handle.handle.parent()).await?;
-            let attr = make_attr(stat.ino, &stat.stat);
+            let attr = self.make_attr(stat.ino, &stat.stat);
             if reply.add(
                 handle.handle.parent(),
                 handle.offset() + 1,
@@ -353,7 +365,7 @@ where
                 Some(next) => next,
             };
 
-            let attr = make_attr(next.ino, &next.stat);
+            let attr = self.make_attr(next.ino, &next.stat);
             if reply.add(
                 next.ino,
                 handle.offset() + 1,

@@ -1,6 +1,7 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
+use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use s3_client::mock_client::MockObject;
@@ -10,7 +11,7 @@ use std::os::unix::prelude::OsStrExt;
 use test_case::test_case;
 
 mod common;
-use common::{make_test_filesystem, ReadReply};
+use common::{assert_attr, make_test_filesystem, ReadReply};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -22,6 +23,11 @@ async fn test_read_dir_root(prefix: &str) {
     client.add_object(&format!("{}file2.txt", prefix), MockObject::constant(0xa2, 15));
     client.add_object(&format!("{}file3.txt", prefix), MockObject::constant(0xa3, 15));
 
+    let uid = getuid().into();
+    let gid = getgid().into();
+    let dir_perm: u16 = 0o755;
+    let file_perm: u16 = 0o644;
+
     // Listing the root directory doesn't require resolving it first, can just opendir the root inode
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
@@ -32,8 +38,10 @@ async fn test_read_dir_root(prefix: &str) {
     // TODO `stat` on these needs to work
     assert_eq!(reply.entries[0].name, ".");
     assert_eq!(reply.entries[0].ino, FUSE_ROOT_INODE);
+    assert_attr(reply.entries[0].attr, FileType::Directory, 0, uid, gid, dir_perm);
     assert_eq!(reply.entries[1].name, "..");
     assert_eq!(reply.entries[1].ino, FUSE_ROOT_INODE);
+    assert_attr(reply.entries[1].attr, FileType::Directory, 0, uid, gid, dir_perm);
 
     let mut offset = reply.entries[0].offset.max(reply.entries[1].offset);
     for (i, reply) in reply.entries.iter().skip(2).enumerate() {
@@ -44,7 +52,7 @@ async fn test_read_dir_root(prefix: &str) {
 
         let attr = fs.getattr(reply.ino).await.unwrap();
         assert_eq!(attr.attr.ino, reply.ino);
-        assert_eq!(attr.attr.size, 15);
+        assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
         let fh = fs.open(reply.ino, 0x8000).await.unwrap().fh;
         let mut read = Err(0);
@@ -78,6 +86,11 @@ async fn test_read_dir_nested(prefix: &str) {
     client.add_object(&format!("{}dir1/file2.txt", prefix), MockObject::constant(0xa2, 15));
     client.add_object(&format!("{}dir2/file3.txt", prefix), MockObject::constant(0xa3, 15));
 
+    let uid = getuid().into();
+    let gid = getgid().into();
+    let dir_perm: u16 = 0o755;
+    let file_perm: u16 = 0o644;
+
     let entry = fs
         .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))
         .await
@@ -93,8 +106,10 @@ async fn test_read_dir_nested(prefix: &str) {
 
     assert_eq!(reply.entries[0].name, ".");
     assert_eq!(reply.entries[0].ino, dir_ino);
+    assert_attr(reply.entries[0].attr, FileType::Directory, 0, uid, gid, dir_perm);
     assert_eq!(reply.entries[1].name, "..");
     assert_eq!(reply.entries[1].ino, FUSE_ROOT_INODE);
+    assert_attr(reply.entries[1].attr, FileType::Directory, 0, uid, gid, dir_perm);
 
     let mut offset = reply.entries[0].offset.max(reply.entries[1].offset);
     for (i, reply) in reply.entries.iter().skip(2).enumerate() {
@@ -105,7 +120,7 @@ async fn test_read_dir_nested(prefix: &str) {
 
         let attr = fs.getattr(reply.ino).await.unwrap();
         assert_eq!(attr.attr.ino, reply.ino);
-        assert_eq!(attr.attr.size, 15);
+        assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
         let fh = fs.open(reply.ino, 0x8000).await.unwrap().fh;
         let mut read = Err(0);
