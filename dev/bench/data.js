@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1671502325612,
+  "lastUpdate": 1673042813721,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -983,6 +983,126 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 24.4716796875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "committer": {
+            "name": "awslabs",
+            "username": "awslabs"
+          },
+          "id": "91be48466358b025deb1d66d2dbecf49b6df3183",
+          "message": "Bump tokio from 1.21.2 to 1.23.1",
+          "timestamp": "2023-01-05T11:53:37Z",
+          "url": "https://github.com/awslabs/s3-file-connector/pull/36/commits/91be48466358b025deb1d66d2dbecf49b6df3183"
+        },
+        "date": 1673042812624,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.396484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.6630859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 11.494140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 35.5576171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 33.111328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.0126953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.4013671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.517578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.33984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.6572265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1145.9697265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 7.294921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6796.189453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 165.0673828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 11.2314453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1045.3896484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 21.2978515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2436.8994140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 27.0029296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 25.7177734375,
             "unit": "MiB/s"
           }
         ]
