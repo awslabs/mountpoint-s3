@@ -57,6 +57,7 @@ jobs:
     - name: Run Benchmark
       run: s3-file-connector/scripts/fs_bench.sh
     - name: Store benchmark result
+      if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
       uses: benchmark-action/github-action-benchmark@v1
       with:
         tool: 'customBiggerIsBetter'
