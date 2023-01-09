@@ -21,6 +21,8 @@ unsafe impl Sync for Allocator {}
 
 impl Allocator {
     /// The default allocator is a singleton, so this always returns the same allocator
+    // Clippy dislikes the name because it clashes with `Default` but it's the name the CRT chose
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         // SAFETY: The default allocator always exists and cannot be destroyed.
         let inner = unsafe { aws_default_allocator() };

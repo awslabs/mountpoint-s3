@@ -129,7 +129,7 @@ fn main() -> io::Result<()> {
             i,
             op_counter,
             elapsed.as_secs_f64(),
-            (op_counter as f64) / elapsed.as_secs_f64() as f64
+            (op_counter as f64) / elapsed.as_secs_f64()
         );
 
         println!(
