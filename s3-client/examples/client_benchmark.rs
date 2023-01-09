@@ -66,6 +66,7 @@ fn main() {
     let config = S3ClientConfig {
         throughput_target_gbps,
         part_size,
+        endpoint: None,
     };
     let client = Arc::new(S3CrtClient::new(region, config).expect("couldn't create client"));
 

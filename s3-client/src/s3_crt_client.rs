@@ -1,3 +1,4 @@
+use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
@@ -13,6 +14,8 @@ use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions}
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use aws_crt_s3::io::stream::InputStream;
+use aws_crt_s3::io::uri::Uri;
 use aws_crt_s3::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
 };
@@ -23,6 +26,7 @@ use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{debug, error, trace, warn, Span};
 
+use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient, PutObjectParams, PutObjectResult};
 use crate::s3_crt_client::get_object::{GetObjectError, GetObjectRequest};
 use crate::s3_crt_client::head_object::HeadObjectError;
@@ -46,13 +50,14 @@ pub(crate) mod put_object;
 pub struct S3ClientConfig {
     pub throughput_target_gbps: Option<f64>,
     pub part_size: Option<usize>,
+    pub endpoint: Option<Endpoint>,
 }
 
 #[derive(Debug)]
 pub struct S3CrtClient {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
-    region: String,
+    endpoint: Endpoint,
     allocator: Allocator,
     next_request_counter: AtomicU64,
 }
@@ -108,11 +113,17 @@ impl S3CrtClient {
 
         let s3_client = Client::new(&allocator, client_config).unwrap();
 
+        let endpoint = if let Some(endpoint) = config.endpoint {
+            endpoint
+        } else {
+            Endpoint::from_region(region, AddressingStyle::Automatic)?
+        };
+
         Ok(Self {
             allocator,
             s3_client,
             event_loop_group,
-            region: region.to_owned(),
+            endpoint,
             next_request_counter: AtomicU64::new(0),
         })
     }
@@ -125,25 +136,28 @@ impl S3CrtClient {
     /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
-    fn new_request_template(&self, method: &str, bucket: &str) -> Result<Message, aws_crt_s3::common::error::Error> {
-        // Wrap the Result in a nested block, so that we can map the CRT errors into `ConstructionFailure`
-        // rather than the `From` impl for `S3RequestError`, which maps to `CrtError`.
-        let endpoint = format!("{}.s3.{}.amazonaws.com", bucket, self.region);
+    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
+        let (uri, path_prefix) = self.endpoint.for_bucket(bucket)?;
+        let hostname = uri.host_name();
 
         let mut message = Message::new_request(&self.allocator)?;
         message.set_request_method(method)?;
-        message.add_header(&Header::new("Host", endpoint))?;
+        message.add_header(&Header::new("Host", hostname))?;
         message.add_header(&Header::new("accept", "application/xml"))?;
         message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
 
-        Ok(message)
+        Ok(S3Message {
+            inner: message,
+            uri,
+            path_prefix,
+        })
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
     /// makes progress. The `on_finish` callback is invoked only if the request succeeds.
     fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
-        message: Message,
+        message: S3Message,
         meta_request_type: MetaRequestType,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
@@ -162,7 +176,8 @@ impl S3CrtClient {
 
         let mut options = MetaRequestOptions::new();
         options
-            .message(message)
+            .message(message.inner)
+            .endpoint(message.uri)
             .on_headers(move |headers, response_status| {
                 if let Ok(id) = headers.get("x-amz-request-id") {
                     let id = id.value().to_string_lossy().to_string();
@@ -223,9 +238,7 @@ impl S3CrtClient {
 
         // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
         // the resulting meta request, as it's a reference-counted object.
-        self.s3_client
-            .make_meta_request(options)
-            .map_err(S3RequestError::ConstructionFailure)?;
+        self.s3_client.make_meta_request(options)?;
 
         Self::poll_client_metrics(&self.s3_client);
 
@@ -235,7 +248,7 @@ impl S3CrtClient {
     /// Make an HTTP request using this S3 client that returns the body on success
     fn make_simple_http_request<E: std::error::Error + Send + 'static>(
         &self,
-        message: Message,
+        message: S3Message,
         request_type: MetaRequestType,
         request_span: Span,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError<E>> {
@@ -303,6 +316,41 @@ impl S3CrtClient {
     }
 }
 
+/// A HTTP message to be sent to S3. This is a wrapper around a plain HTTP message, except that it
+/// helps us correctly configure the endpoint and "Host" header to handle both path-style and
+/// virtual-hosted-style addresses. The `path_prefix` is appended to the front of all paths, and
+/// need not be terminated with a `/`.
+#[derive(Debug)]
+struct S3Message<'a> {
+    inner: Message<'a>,
+    uri: Uri,
+    path_prefix: String,
+}
+
+impl<'a> S3Message<'a> {
+    /// Add a header to this message.
+    fn add_header(
+        &mut self,
+        header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>,
+    ) -> Result<(), aws_crt_s3::common::error::Error> {
+        self.inner.add_header(header)
+    }
+
+    /// Set the request path for this message.
+    fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), aws_crt_s3::common::error::Error> {
+        let mut full_path = OsString::with_capacity(self.path_prefix.len() + path.as_ref().len());
+        full_path.push(&self.path_prefix);
+        full_path.push(path);
+        self.inner.set_request_path(full_path)
+    }
+
+    /// Sets the body input stream for this message, and returns any previously set input stream.
+    /// If input_stream is None, unsets the body.
+    fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
+        self.inner.set_body_stream(input_stream)
+    }
+}
+
 #[derive(Debug)]
 #[pin_project]
 struct S3HttpRequest<T, E: std::error::Error> {
@@ -325,9 +373,11 @@ impl<T: Send, E: std::error::Error + Send + 'static> Future for S3HttpRequest<T,
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum NewClientError {
-    // Currently, client construction is actually infallible, but this reserves the ability for us
-    // to do fallible stuff at construction time.
+    /// Invalid S3 endpoint
+    #[error("invalid S3 endpoint")]
+    InvalidEndpoint(#[from] EndpointError),
 }
+
 /// Failed S3 request results
 #[derive(Error, Debug)]
 pub enum S3RequestError<E: std::error::Error> {
@@ -341,7 +391,7 @@ pub enum S3RequestError<E: std::error::Error> {
 
     /// An error during construction of a request. The request was not sent.
     #[error("Failed to construct request: {0}")]
-    ConstructionFailure(#[source] aws_crt_s3::common::error::Error),
+    ConstructionFailure(#[from] ConstructionError),
 
     /// The request was sent but an unknown or unhandled failure occurred while processing it.
     #[error("Unknown response error: {0:?}")]
@@ -350,6 +400,17 @@ pub enum S3RequestError<E: std::error::Error> {
     /// The request was sent and the service returned an error.
     #[error("Error received from S3: {0:?}")]
     ServiceError(#[source] E),
+}
+
+#[derive(Error, Debug)]
+pub enum ConstructionError {
+    /// CRT error while constructing the request
+    #[error("Unknown CRT error: {0}")]
+    CrtError(#[from] aws_crt_s3::common::error::Error),
+
+    /// The S3 endpoint was invalid
+    #[error("Invalid S3 endpoint: {0}")]
+    InvalidEndpoint(#[from] EndpointError),
 }
 
 #[async_trait]

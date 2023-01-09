@@ -13,7 +13,7 @@ use thiserror::Error;
 use tracing::{debug, error};
 
 use crate::object_client::GetBodyPart;
-use crate::s3_crt_client::S3HttpRequest;
+use crate::s3_crt_client::{ConstructionError, S3HttpRequest};
 use crate::{S3CrtClient, S3RequestError};
 
 impl S3CrtClient {
@@ -31,9 +31,7 @@ impl S3CrtClient {
             || debug!(?bucket, ?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
-        let mut message = self
-            .new_request_template("GET", bucket)
-            .map_err(S3RequestError::ConstructionFailure)?;
+        let mut message = self.new_request_template("GET", bucket)?;
 
         // Overwrite "accept" header since this returns raw object data.
         message.add_header(&Header::new("accept", "*/*"))?;
@@ -43,13 +41,11 @@ impl S3CrtClient {
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .add_header(&Header::new("Range", range_value))
-                .map_err(S3RequestError::ConstructionFailure)?;
+                .map_err(ConstructionError::CrtError)?;
         }
 
         let key = format!("/{key}");
-        message
-            .set_request_path(key)
-            .map_err(S3RequestError::ConstructionFailure)?;
+        message.set_request_path(key).map_err(ConstructionError::CrtError)?;
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
 

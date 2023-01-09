@@ -70,7 +70,7 @@ pub enum HeadersError {
     HeaderNotFound,
 
     /// Internal CRT error
-    #[error("CRT error: {0:?}")]
+    #[error("CRT error: {0}")]
     CrtError(#[source] Error),
 }
 

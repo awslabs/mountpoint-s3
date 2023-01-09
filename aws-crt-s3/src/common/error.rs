@@ -1,14 +1,11 @@
 //! Common error handing tools for the CRT
 
 use std::ffi::CStr;
-use std::fmt::Debug;
 
 use aws_crt_s3_sys::{aws_error_debug_str, aws_last_error, aws_raise_error_private, AWS_OP_ERR, AWS_OP_SUCCESS};
-use thiserror::Error;
 
 /// An error reported by the AWS Common Runtime
-#[derive(Error, Clone, Copy, PartialEq, Eq)]
-#[error("CRT error: {0}")]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Error(i32);
 
 impl Error {
@@ -57,7 +54,13 @@ impl From<i32> for Error {
     }
 }
 
-impl Debug for Error {
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CRT error {}: {}", self.0, err_code_to_debug_str(self.0))
+    }
+}
+
+impl std::fmt::Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("Error")
             .field(&self.0)
@@ -65,3 +68,5 @@ impl Debug for Error {
             .finish()
     }
 }
+
+impl std::error::Error for Error {}

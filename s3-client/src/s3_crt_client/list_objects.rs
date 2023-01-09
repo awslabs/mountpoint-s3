@@ -1,5 +1,5 @@
 use crate::object_client::{ListObjectsResult, ObjectInfo};
-use crate::s3_crt_client::S3RequestError;
+use crate::s3_crt_client::{ConstructionError, S3RequestError};
 use crate::S3CrtClient;
 use aws_crt_s3::s3::client::MetaRequestType;
 use std::str::FromStr;
@@ -142,9 +142,7 @@ impl S3CrtClient {
     ) -> Result<ListObjectsResult, S3RequestError<ListObjectsError>> {
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
-            let mut message = self
-                .new_request_template("GET", bucket)
-                .map_err(S3RequestError::ConstructionFailure)?;
+            let mut message = self.new_request_template("GET", bucket)?;
 
             // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
             let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");
@@ -155,9 +153,7 @@ impl S3CrtClient {
                 request = format!("{request}&continuation-token={continuation_token}");
             }
 
-            message
-                .set_request_path(request)
-                .map_err(S3RequestError::ConstructionFailure)?;
+            message.set_request_path(request).map_err(ConstructionError::CrtError)?;
 
             let span = request_span!(self, "list_objects");
             span.in_scope(|| {

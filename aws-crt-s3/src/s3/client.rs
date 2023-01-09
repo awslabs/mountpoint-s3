@@ -7,6 +7,7 @@ use crate::common::error::Error;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
+use crate::io::uri::Uri;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, StringExt};
 use aws_crt_s3_sys::*;
@@ -125,6 +126,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned copy of the message, if provided.
     message: Option<Message<'a>>,
 
+    /// Owned copy of the endpoint URI, if provided
+    endpoint: Option<Uri>,
+
     /// Owned signing config, if provided.
     signing_config: Option<SigningConfig>,
 
@@ -189,6 +193,7 @@ impl<'a> MetaRequestOptions<'a> {
                 ..Default::default()
             },
             message: None,
+            endpoint: None,
             signing_config: None,
             on_headers: None,
             on_body: None,
@@ -216,6 +221,16 @@ impl<'a> MetaRequestOptions<'a> {
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
         options.inner.message = options.message.as_mut().unwrap().inner.as_ptr();
+        self
+    }
+
+    /// Set the endpoint of the request. If set, the host portion of the endpoint URI must match the
+    /// "Host" header in the `message`.
+    pub fn endpoint(&mut self, endpoint: Uri) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.endpoint = Some(endpoint);
+        options.inner.endpoint = options.endpoint.as_mut().unwrap().to_inner_ptr() as *mut aws_uri;
         self
     }
 

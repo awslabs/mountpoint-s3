@@ -1,3 +1,4 @@
+use crate::s3_crt_client::ConstructionError;
 use crate::{S3CrtClient, S3RequestError};
 use aws_crt_s3::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
@@ -16,16 +17,12 @@ pub enum HeadBucketError {
 impl S3CrtClient {
     pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
         let body = {
-            let mut message = self
-                .new_request_template("HEAD", bucket)
-                .map_err(S3RequestError::ConstructionFailure)?;
+            let mut message = self.new_request_template("HEAD", bucket)?;
 
-            message
-                .set_request_path("/")
-                .map_err(S3RequestError::ConstructionFailure)?;
+            message.set_request_path("/").map_err(ConstructionError::CrtError)?;
 
             let span = request_span!(self, "head_bucket");
-            span.in_scope(|| debug!(?bucket, region = self.region, "new request"));
+            span.in_scope(|| debug!(?bucket, endpoint = ?self.endpoint, "new request"));
 
             self.make_simple_http_request(message, MetaRequestType::Default, span)?
         };

@@ -1,4 +1,5 @@
 use crate::object_client::{PutObjectParams, PutObjectResult};
+use crate::s3_crt_client::ConstructionError;
 use crate::{S3CrtClient, S3RequestError};
 use aws_crt_s3::http::request_response::Header;
 use aws_crt_s3::io::stream::InputStream;
@@ -31,18 +32,14 @@ impl S3CrtClient {
             .await;
 
         let body = {
-            let mut message = self
-                .new_request_template("PUT", bucket)
-                .map_err(S3RequestError::ConstructionFailure)?;
+            let mut message = self.new_request_template("PUT", bucket)?;
 
             message
                 .add_header(&Header::new("Content-Length", buffer.len().to_string()))
-                .map_err(S3RequestError::ConstructionFailure)?;
+                .map_err(ConstructionError::CrtError)?;
 
             let key = format!("/{key}");
-            message
-                .set_request_path(&key)
-                .map_err(S3RequestError::ConstructionFailure)?;
+            message.set_request_path(&key).map_err(ConstructionError::CrtError)?;
 
             let body_input_stream = InputStream::new_from_slice(&self.allocator, &buffer)?;
             message.set_body_stream(Some(body_input_stream));

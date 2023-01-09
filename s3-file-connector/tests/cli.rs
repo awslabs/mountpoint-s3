@@ -104,3 +104,16 @@ fn print_version_short() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+fn addressing_style_mutually_exclusive() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("s3-file-connector")?;
+
+    cmd.arg("test-bucket")
+        .arg("test/dir")
+        .arg("--virtual-addressing")
+        .arg("--path-addressing");
+    let error_message = "The argument '--virtual-addressing' cannot be used with '--path-addressing'";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}

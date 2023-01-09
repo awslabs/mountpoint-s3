@@ -1,5 +1,5 @@
 use crate::object_client::{HeadObjectResult, ObjectInfo};
-use crate::s3_crt_client::S3RequestError;
+use crate::s3_crt_client::{ConstructionError, S3RequestError};
 use crate::S3CrtClient;
 use aws_crt_s3::http::request_response::{Headers, HeadersError};
 use aws_crt_s3::s3::client::MetaRequestType;
@@ -69,15 +69,13 @@ impl S3CrtClient {
         key: &str,
     ) -> Result<HeadObjectResult, S3RequestError<HeadObjectError>> {
         let request = {
-            let mut message = self
-                .new_request_template("HEAD", bucket)
-                .map_err(S3RequestError::ConstructionFailure)?;
+            let mut message = self.new_request_template("HEAD", bucket)?;
 
             // Don't URI encode the key, since "/" needs to be preserved
             let key = key.to_string();
             message
                 .set_request_path(format!("/{key}"))
-                .map_err(S3RequestError::ConstructionFailure)?;
+                .map_err(ConstructionError::CrtError)?;
 
             let bucket = bucket.to_owned();
 
