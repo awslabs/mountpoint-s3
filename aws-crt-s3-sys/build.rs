@@ -42,6 +42,7 @@ const CRT_HEADERS: &[&str] = &[
     "io/event_loop.h",
     "io/host_resolver.h",
     "io/stream.h",
+    "io/uri.h",
     "s3/s3.h",
     "s3/s3_client.h",
 ];
