@@ -65,7 +65,7 @@ Basic read-only operations are fully supported, including both sequential and ra
 
 #### Writes
 
-Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In future, S3 File Connector [will support sequential reads](https://github.com/awslabs/s3-file-connector/issues/27), but with some limitations:
+Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In future, S3 File Connector [will support sequential writes](https://github.com/awslabs/s3-file-connector/issues/27), but with some limitations:
 * Random writes will not be supported.
 * Writes will only be supported to non-existent files. Appending to existing files will not be supported.
 * Truncation will not be supported.
@@ -88,11 +88,9 @@ Synchronization operations (`fsync`) on directories are not supported.
 ### File and directory metadata and permissions
 
 Reading file metadata (`stat`, `fstatat`) is supported, but with some limitations:
-* File mode will be a default value (`0775`).
+* File mode will be a default value (`0755` for files, `0644` for directories) unless you manually configure them differently.
 * File owner and group will default to the user/group that mounted the bucket.
-* Last access time will be equal to last modified time.
-* Last status change will be equal to last modified time.
-* Creation time will be equal to last modified time.
+* Last access time and last status change time will not be accurate.
 * Inode numbers are not stable and can change.
 
 Modifying file metadata (`chmod`, `chown`, `chgrp`) is not supported.
