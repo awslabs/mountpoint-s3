@@ -20,18 +20,6 @@ unsafe impl Send for Allocator {}
 unsafe impl Sync for Allocator {}
 
 impl Allocator {
-    /// The default allocator is a singleton, so this always returns the same allocator
-    // Clippy dislikes the name because it clashes with `Default` but it's the name the CRT chose
-    #[allow(clippy::should_implement_trait)]
-    pub fn default() -> Self {
-        // SAFETY: The default allocator always exists and cannot be destroyed.
-        let inner = unsafe { aws_default_allocator() };
-
-        let inner = NonNull::new(inner).expect("CRT default allocator is never null");
-
-        Self { inner, traced: false }
-    }
-
     /// Wraps an allocator and tracks all external allocations. If aws_mem_trace_dump() is called
     /// and there are still allocations active, they will be reported to the aws_logger at TRACE level.
     /// Returns the tracer allocator, which should be used for all allocations that should be tracked.
@@ -87,6 +75,11 @@ impl Allocator {
 
 impl Default for Allocator {
     fn default() -> Self {
-        Self::default()
+        // SAFETY: The default allocator always exists and cannot be destroyed.
+        let inner = unsafe { aws_default_allocator() };
+
+        let inner = NonNull::new(inner).expect("CRT default allocator is never null");
+
+        Self { inner, traced: false }
     }
 }
