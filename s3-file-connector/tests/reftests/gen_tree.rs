@@ -26,7 +26,7 @@ impl From<FileSize> for usize {
     fn from(f: FileSize) -> usize {
         match f {
             FileSize::Small(n) => n as usize,
-            FileSize::Large(n) => n as usize,
+            FileSize::Large(n) => n,
         }
     }
 }

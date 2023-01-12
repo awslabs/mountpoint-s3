@@ -359,7 +359,7 @@ mod tests {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
-        let mut request = prefetcher.get("test-bucket", "hello", size as u64);
+        let mut request = prefetcher.get("test-bucket", "hello", size);
 
         let mut next_offset = 0;
         loop {
@@ -371,7 +371,7 @@ mod tests {
             assert_eq!(&buf[..], &expected[..buf.len()]);
             next_offset += buf.len() as u64;
         }
-        assert_eq!(next_offset, size as u64);
+        assert_eq!(next_offset, size);
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
-        let mut request = prefetcher.get("test-bucket", "hello", size as u64);
+        let mut request = prefetcher.get("test-bucket", "hello", size);
 
         let mut next_offset = 0;
         loop {
@@ -447,7 +447,7 @@ mod tests {
             assert_eq!(&buf[..], &expected[..buf.len()]);
             next_offset += buf.len() as u64;
         }
-        assert!(next_offset < size as u64); // Since we're injecting failures, shouldn't make it to the end
+        assert!(next_offset < size); // Since we're injecting failures, shouldn't make it to the end
     }
 
     #[test]
@@ -615,7 +615,7 @@ mod tests {
 
             let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
 
-            let mut request = prefetcher.get("test-bucket", "hello", object_size as u64);
+            let mut request = prefetcher.get("test-bucket", "hello", object_size);
 
             let mut next_offset = 0;
             loop {
@@ -628,7 +628,7 @@ mod tests {
                 assert_eq!(&buf[..], &expected[..buf.len()]);
                 next_offset += buf.len() as u64;
             }
-            assert_eq!(next_offset, object_size as u64);
+            assert_eq!(next_offset, object_size);
         }
 
         #[test]
@@ -665,7 +665,7 @@ mod tests {
 
             let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
 
-            let mut request = prefetcher.get("test-bucket", "hello", object_size as u64);
+            let mut request = prefetcher.get("test-bucket", "hello", object_size);
 
             let num_reads = rng.gen_range(10usize..50);
             for _ in 0..num_reads {
