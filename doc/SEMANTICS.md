@@ -43,11 +43,11 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
   * `blue`
   * `blue/image.jpg`
   
-  then mounting your bucket would give a file system with a `blue` file, rather than a `blue` directory, and therefore `image.jpg` will not be accessible.
+  then mounting your bucket would give a file system with a `blue` file, rather than a `blue` directory, and therefore `image.jpg` will not be accessible. Note that this means deleting the file `blue` will cause a directory `blue/` to become visible, and make `blue/image.jpg` accessible.
 
 We test S3 File Connector against these restrictions using a [reference model](https://github.com/awslabs/s3-file-connector/blob/b720e9a5da0980977714c977128b2cef67313c81/s3-file-connector/tests/reftests/reference.rs#L121) that programatically encodes the expected mapping between S3 objects and file system structure.
 
-Windows-style path delimiters (`\`) are not currently supported.
+Windows-style path delimiters (`\`) are not supported.
 
 ## Operations on files and directories
 
@@ -58,7 +58,7 @@ S3 File Connector intentionally does not support all POSIX file system operation
 #### Reads
 
 Basic read-only operations are fully supported, including both sequential and random reads:
-* `open`, `openat`
+* `open`, `openat`, in read-only mode (`O_RDONLY`)
 * `read`, `readv`, `pread`, `preadv`
 * `lseek`
 * `close`
@@ -70,8 +70,6 @@ Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supp
 * Writes will only be supported to non-existent files. Appending to existing files will not be supported.
 * Truncation will not be supported.
 
-File deletion (`unlink`) is not currently supported.
-
 Synchronization operations (`fsync`, `fdatasync`) are currently no-ops because writes are not supported.
 
 Space allocation (`fallocate`, `posix_fallocate`) are not supported.
@@ -80,6 +78,10 @@ Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
 Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported, but with some limitations:
 * `readdir` does not offer snapshot isolation or consistency. Objects created after `opendir` may or may not appear in the output of a future `readdir`.
+
+Renaming files and directories (`rename`, `renameat`) is not currently supported.
+
+File deletion (`unlink`) is not currently supported.
 
 Empty directory removal (`rmdir`) is not supported.
 
@@ -96,8 +98,6 @@ Reading file metadata (`stat`, `fstatat`) is supported, but with some limitation
 Modifying file metadata (`chmod`, `chown`, `chgrp`) is not supported.
 
 Extended attributes (`getxattr`, `setxattr`, `listxattr`, `removexattr`) are not supported.
-
-Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
 POSIX file locks (`lockf`) are not supported.
 
