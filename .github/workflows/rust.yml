@@ -132,6 +132,8 @@ jobs:
           submodules: true
       - name: Install fuse
         run: sudo apt-get install fuse libfuse2 libfuse-dev
+      - name: Show Clippy version
+        run: cargo clippy --version
       - name: Run Clippy
         run: make clippy
 
