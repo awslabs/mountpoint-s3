@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use anyhow::Context as _;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
-use clap::Parser;
+use clap::{Parser, ValueHint};
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_client::{HeadBucketError, S3Client, S3ClientConfig, S3RequestError};
 
@@ -39,7 +39,7 @@ struct CliArgs {
     #[clap(help = "Name of bucket to mount")]
     pub bucket_name: String,
 
-    #[clap(help = "Mount point for file system")]
+    #[clap(help = "Mount point for file system", value_hint = ValueHint::DirPath)]
     pub mount_point: PathBuf,
 
     #[clap(
