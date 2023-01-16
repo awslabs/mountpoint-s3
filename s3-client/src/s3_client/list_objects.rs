@@ -114,11 +114,10 @@ impl ObjectInfo {
 
         // S3 appears to use RFC 3339 to encode this field, based on the API example here:
         // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
-
         let last_modified = OffsetDateTime::parse(&last_modified, &Rfc3339)
             .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".to_string()))?;
 
-        let storage_class = Some(get_field(element, "StorageClass")?);
+        let storage_class = get_field(element, "StorageClass").ok();
 
         let etag = get_field(element, "ETag")?;
 
