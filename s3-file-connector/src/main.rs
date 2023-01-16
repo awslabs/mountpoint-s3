@@ -57,6 +57,9 @@ struct CliArgs {
     #[clap(long, help = "Allow root user to access file system")]
     pub allow_root: bool,
 
+    #[clap(long, help = "Allow other non-root users to access file system")]
+    pub allow_other: bool,
+
     #[clap(long, help = "Desired throughput in Gbps", value_name = "N (Gbps)", value_parser = clap::value_parser!(u64).range(1..))]
     pub throughput_target_gbps: Option<u64>,
 
@@ -65,6 +68,18 @@ struct CliArgs {
 
     #[clap(long, help = "Part size for multi-part GET and PUT", value_parser = clap::value_parser!(u64).range(1..))]
     pub part_size: Option<u64>,
+
+    #[clap(long, help = "Owner UID [default: current user's UID]", value_parser = clap::value_parser!(u32).range(1..))]
+    pub uid: Option<u32>,
+
+    #[clap(long, help = "Owner GID [default: current user's GID]", value_parser = clap::value_parser!(u32).range(1..))]
+    pub gid: Option<u32>,
+
+    #[clap(long, help = "Directory permissions [default: 0755]", value_parser = parse_perm_bits)]
+    pub dir_mode: Option<u16>,
+
+    #[clap(long, help = "File permissions [default: 0644]", value_parser = parse_perm_bits)]
+    pub file_mode: Option<u16>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -80,15 +95,35 @@ fn main() -> anyhow::Result<()> {
         ));
     }
 
-    let mut options = vec![MountOption::RO, MountOption::FSName("fuse_sync".to_string())];
+    let mut options = vec![
+        MountOption::RO,
+        MountOption::DefaultPermissions,
+        MountOption::FSName("fuse_sync".to_string()),
+    ];
     if args.auto_unmount {
         options.push(MountOption::AutoUnmount);
     }
     if args.allow_root {
         options.push(MountOption::AllowRoot);
     }
+    if args.allow_other {
+        options.push(MountOption::AllowOther);
+    }
 
-    let filesystem_config = S3FilesystemConfig::default();
+    let mut filesystem_config = S3FilesystemConfig::default();
+    if let Some(uid) = args.uid {
+        filesystem_config.uid = uid;
+    }
+    if let Some(gid) = args.gid {
+        filesystem_config.gid = gid;
+    }
+    if let Some(dir_mode) = args.dir_mode {
+        filesystem_config.dir_mode = dir_mode;
+    }
+    if let Some(file_mode) = args.file_mode {
+        filesystem_config.file_mode = file_mode;
+    }
+
     let throughput_target_gbps = args.throughput_target_gbps.map(|t| t as f64);
 
     let client_config = S3ClientConfig {
@@ -164,5 +199,14 @@ fn create_client_for_bucket(
         Err(e) => {
             Err(e).with_context(|| format!("HeadBucket failed for bucket {} in region {}", bucket, supposed_region))
         }
+    }
+}
+
+fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
+    let perm = u16::from_str_radix(perm_bit_str, 8).map_err(|_| anyhow!("must be a valid octal number"))?;
+    if perm > 0o777 {
+        Err(anyhow!("only user/group/other permissions are supported"))
+    } else {
+        Ok(perm)
     }
 }

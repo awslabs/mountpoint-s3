@@ -1,5 +1,5 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
-use fuser::FileAttr;
+use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use s3_client::mock_client::{MockClient, MockClientConfig};
 use s3_file_connector::fs::{DirectoryReplier, ReadReplier};
@@ -25,6 +25,15 @@ pub fn make_test_filesystem(
     let fs = S3Filesystem::new(Arc::clone(&client), runtime, bucket, prefix, config);
 
     (client, fs)
+}
+
+#[track_caller]
+pub fn assert_attr(attr: FileAttr, ftype: FileType, size: u64, uid: u32, gid: u32, perm: u16) {
+    assert_eq!(attr.kind, ftype);
+    assert_eq!(attr.size, size);
+    assert_eq!(attr.uid, uid);
+    assert_eq!(attr.gid, gid);
+    assert_eq!(attr.perm, perm);
 }
 
 #[derive(Debug)]
