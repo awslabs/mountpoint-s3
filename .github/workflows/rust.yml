@@ -39,6 +39,11 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
     - name: Install fuse
       run: sudo apt-get install ${{ matrix.fuse }} lib${{ matrix.fuse }}-dev
     - name: Configure fuse
@@ -55,6 +60,11 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Check all targets
@@ -69,6 +79,11 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Run Shuttle tests
@@ -116,8 +131,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: Install rustfmt
-        run: rustup component add rustfmt
+      - name: Set up stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt
       - name: Check format
         run: make fmt-check
 
@@ -130,10 +149,14 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: true
+      - name: Set up stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
       - name: Install fuse
         run: sudo apt-get install fuse libfuse2 libfuse-dev
-      - name: Show Clippy version
-        run: cargo clippy --version
       - name: Run Clippy
         run: make clippy
 
@@ -146,6 +169,11 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: true
+      - name: Set up stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
       - name: Build CRT binding documentation
         run: cargo doc --no-deps -p aws-crt-s3
 
@@ -156,5 +184,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+      - name: Set up stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
       - name: Run cargo deny
         uses: EmbarkStudios/cargo-deny-action@v1
