@@ -71,6 +71,7 @@ impl MockClient {
 pub struct MockObject {
     generator: Box<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
     size: usize,
+    pub last_modified: OffsetDateTime,
 }
 
 impl MockObject {
@@ -84,6 +85,7 @@ impl MockObject {
         Self {
             size: bytes.len(),
             generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
+            last_modified: OffsetDateTime::now_utc(),
         }
     }
 
@@ -91,6 +93,7 @@ impl MockObject {
         Self {
             generator: Box::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
+            last_modified: OffsetDateTime::now_utc(),
         }
     }
 
@@ -108,7 +111,12 @@ impl MockObject {
                 vec.into_boxed_slice()
             }),
             size,
+            last_modified: OffsetDateTime::now_utc(),
         }
+    }
+
+    pub fn with_last_modified(&mut self, last_modified: OffsetDateTime) {
+        self.last_modified = last_modified;
     }
 
     pub fn len(&self) -> usize {
@@ -244,8 +252,7 @@ impl ObjectClient for MockClient {
                 object: ObjectInfo {
                     key: key.to_string(),
                     size: object.size as u64,
-                    // TODO real mtimes
-                    last_modified: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+                    last_modified: object.last_modified,
                     etag: "TODO".to_string(),
                     storage_class: None,
                 },
@@ -283,7 +290,7 @@ impl ObjectClient for MockClient {
         // start at the beginning of the bucket.
         let object_iterator = objects.range(continuation_token.unwrap_or("").to_string()..);
 
-        for (key, value) in object_iterator {
+        for (key, object) in object_iterator {
             // If the prefix is `n` characters long, and we encounter a key whose first `n`
             // characters are lexicographically larger than the prefix, then we can stop iterating.
             // Note that we cannot just do a direct comparison between the full key and prefix. For
@@ -340,9 +347,8 @@ impl ObjectClient for MockClient {
             } else {
                 object_vec.push(ObjectInfo {
                     key: key.to_string(),
-                    size: value.len() as u64,
-                    // TODO real mtimes
-                    last_modified: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+                    size: object.len() as u64,
+                    last_modified: object.last_modified,
                     etag: "TODO".to_string(),
                     storage_class: None,
                 });

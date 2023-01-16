@@ -99,6 +99,7 @@ fn main() -> anyhow::Result<()> {
         MountOption::RO,
         MountOption::DefaultPermissions,
         MountOption::FSName("fuse_sync".to_string()),
+        MountOption::NoAtime,
     ];
     if args.auto_unmount {
         options.push(MountOption::AutoUnmount);

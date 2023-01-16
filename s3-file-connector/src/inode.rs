@@ -22,7 +22,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
@@ -83,6 +83,9 @@ impl Superblock {
             stat_cache: RwLock::new(InodeStat {
                 kind: InodeStatKind::Directory {},
                 size: 0,
+                atime: UNIX_EPOCH,
+                ctime: UNIX_EPOCH,
+                mtime: UNIX_EPOCH,
             }),
             stat_cache_expiry: Instant::now(),
             data: InodeData::Directory {
@@ -177,6 +180,9 @@ impl Superblock {
                         let stat = InodeStat {
                             kind: InodeStatKind::Directory {},
                             size: 0,
+                            atime: UNIX_EPOCH,
+                            ctime: UNIX_EPOCH,
+                            mtime: UNIX_EPOCH,
                         };
                         let ino =
                             self.inner
@@ -194,9 +200,13 @@ impl Superblock {
                         .map(|object| object.key == full_path.to_str().unwrap())
                         .unwrap_or(false)
                     {
+                        let last_modified: SystemTime = result.objects[0].last_modified.into();
                         let stat = InodeStat {
                             kind: InodeStatKind::File {},
                             size: result.objects[0].size as usize,
+                            atime: last_modified,
+                            ctime: last_modified,
+                            mtime: last_modified,
                         };
                         file_state = Some(stat);
                     }
@@ -244,6 +254,9 @@ impl Superblock {
                         let stat = InodeStat {
                             kind: InodeStatKind::Directory {},
                             size: 0,
+                            atime: UNIX_EPOCH,
+                            ctime: UNIX_EPOCH,
+                            mtime: UNIX_EPOCH,
                         };
                         let ino =
                             self.inner
@@ -532,6 +545,9 @@ impl ReaddirHandle {
                     let stat = InodeStat {
                         kind: InodeStatKind::Directory {},
                         size: 0,
+                        atime: UNIX_EPOCH,
+                        ctime: UNIX_EPOCH,
+                        mtime: UNIX_EPOCH,
                     };
                     let stat_clone = stat.clone();
 
@@ -556,9 +572,13 @@ impl ReaddirHandle {
                 // Hide keys that end with '/', since they can be confused with directories
                 .filter(|(name, _object)| valid_inode_name(name))
                 .flat_map(|(name, object)| {
+                    let last_modified: SystemTime = object.last_modified.into();
                     let stat = InodeStat {
                         kind: InodeStatKind::File {},
                         size: object.size as usize,
+                        atime: last_modified,
+                        ctime: last_modified,
+                        mtime: last_modified,
                     };
                     let stat_clone = stat.clone();
 
@@ -674,8 +694,15 @@ enum InodeData {
 /// Public inode stat data that can expire
 #[derive(Debug, Clone)]
 pub struct InodeStat {
-    // common metadata: mtime, ctime, ...
+    /// Size in bytes
     pub size: usize,
+
+    /// Time of last file content modification
+    pub mtime: SystemTime,
+    /// Time of last file metadata (or content) change
+    pub ctime: SystemTime,
+    /// Time of last access
+    pub atime: SystemTime,
 
     /// Per-kind metadata
     pub kind: InodeStatKind,
@@ -730,6 +757,8 @@ pub struct DirEntryPlus {
 mod tests {
     use s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
     use test_case::test_case;
+    use time::macros::datetime;
+    use time::OffsetDateTime;
 
     use crate::fs::FUSE_ROOT_INODE;
 
@@ -759,8 +788,11 @@ mod tests {
             format!("{}dir1/sdir3/file1.txt", prefix),
         ];
 
+        const SOME_LAST_MODIFIED_TIME: OffsetDateTime = datetime!(2023-01-01 0:00 +0);
         for key in keys {
-            client.add_object(key, MockObject::constant(0xaa, 30));
+            let mut obj = MockObject::constant(0xaa, 30);
+            obj.with_last_modified(SOME_LAST_MODIFIED_TIME);
+            client.add_object(key, obj);
         }
 
         let superblock = Superblock::new("test_bucket".to_string(), OsString::from(prefix));
@@ -771,37 +803,50 @@ mod tests {
                 .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir0"))
                 .await
                 .expect("should exist");
-            assert_eq!(dir0.stat.kind, InodeStatKind::Directory {});
+
+            let dir_stat_assertions = |stat: InodeStat| {
+                assert_eq!(stat.kind, InodeStatKind::Directory {});
+                assert_eq!(stat.atime, OffsetDateTime::UNIX_EPOCH);
+                assert_eq!(stat.ctime, OffsetDateTime::UNIX_EPOCH);
+                assert_eq!(stat.mtime, OffsetDateTime::UNIX_EPOCH);
+            };
+
+            dir_stat_assertions(dir0.stat);
             assert_eq!(dir0.full_key, OsString::from(format!("{}dir0", prefix)));
+
             let dir1 = superblock
                 .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir1"))
                 .await
                 .expect("should exist");
-            assert_eq!(dir1.stat.kind, InodeStatKind::Directory {});
+            dir_stat_assertions(dir1.stat);
             assert_eq!(dir1.full_key, OsString::from(format!("{}dir1", prefix)));
+
             let sdir0 = superblock
                 .lookup(&client, dir0.ino, &OsString::from("sdir0"))
                 .await
                 .expect("should exist");
-            assert_eq!(sdir0.stat.kind, InodeStatKind::Directory {});
+            dir_stat_assertions(sdir0.stat);
             assert_eq!(sdir0.full_key, OsString::from(format!("{}dir0/sdir0", prefix)));
+
             let sdir1 = superblock
                 .lookup(&client, dir0.ino, &OsString::from("sdir1"))
                 .await
                 .expect("should exist");
-            assert_eq!(sdir1.stat.kind, InodeStatKind::Directory {});
+            dir_stat_assertions(sdir1.stat);
             assert_eq!(sdir1.full_key, OsString::from(format!("{}dir0/sdir1", prefix)));
+
             let sdir2 = superblock
                 .lookup(&client, dir1.ino, &OsString::from("sdir2"))
                 .await
                 .expect("should exist");
-            assert_eq!(sdir2.stat.kind, InodeStatKind::Directory {});
+            dir_stat_assertions(sdir2.stat);
             assert_eq!(sdir2.full_key, OsString::from(format!("{}dir1/sdir2", prefix)));
+
             let sdir3 = superblock
                 .lookup(&client, dir1.ino, &OsString::from("sdir3"))
                 .await
                 .expect("should exist");
-            assert_eq!(sdir3.stat.kind, InodeStatKind::Directory {});
+            dir_stat_assertions(sdir3.stat);
             assert_eq!(sdir3.full_key, OsString::from(format!("{}dir1/sdir3", prefix)));
 
             let file0 = superblock
@@ -809,6 +854,9 @@ mod tests {
                 .await
                 .expect("should exist");
             assert_eq!(file0.stat.kind, InodeStatKind::File {});
+            assert_eq!(file0.stat.atime, SOME_LAST_MODIFIED_TIME);
+            assert_eq!(file0.stat.ctime, SOME_LAST_MODIFIED_TIME);
+            assert_eq!(file0.stat.mtime, SOME_LAST_MODIFIED_TIME);
             assert_eq!(file0.full_key, OsString::from(format!("{}dir0/file0.txt", prefix)));
 
             for (dir, sdir, ino, n) in &[

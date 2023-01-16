@@ -199,9 +199,9 @@ where
             ino,
             size: stat.size as u64,
             blocks: stat.size as u64 / BLOCK_SIZE,
-            atime: UNIX_EPOCH,
-            mtime: UNIX_EPOCH, // TODO
-            ctime: UNIX_EPOCH,
+            atime: stat.atime,
+            mtime: stat.mtime,
+            ctime: stat.ctime,
             crtime: UNIX_EPOCH,
             kind: (&stat.kind).into(),
             perm,
