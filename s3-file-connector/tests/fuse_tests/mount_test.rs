@@ -1,5 +1,5 @@
 use std::fs::{read_dir, File, OpenOptions};
-use std::io::Read as _;
+use std::io::{Read as _, Seek, SeekFrom};
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;
@@ -66,6 +66,11 @@ where
     drop(bin);
     assert_eq!(bytes_read, 2 * 1024 * 1024);
     assert_eq!(two_mib_body, two_mib_read);
+
+    let mut hello = File::open(files[0].path()).unwrap();
+    hello.seek(SeekFrom::Start(50)).unwrap();
+    let result = hello.read(&mut [0; 4]).unwrap();
+    assert_eq!(result, 0);
 }
 
 #[cfg(feature = "s3_tests")]
