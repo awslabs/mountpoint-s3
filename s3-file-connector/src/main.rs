@@ -34,7 +34,7 @@ fn init_tracing_subscriber() {
 }
 
 #[derive(Parser)]
-#[clap(about = "S3 FS Connector")]
+#[clap(about = "S3 FS Connector", version)]
 struct CliArgs {
     #[clap(help = "Name of bucket to mount")]
     pub bucket_name: String,
