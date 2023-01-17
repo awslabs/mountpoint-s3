@@ -2,6 +2,11 @@ use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*; // Used for writing assertions
 use std::process::Command; // Run programs
 
+/// Regular expression for something that looks mostly like a SemVer version.
+/// Don't use this outside of this test - SemVer is both more restrictive and flexible.
+const VALID_VERSION_OUTPUT_PATTERN: &str =
+    "^s3-file-connector \\d+\\.\\d+\\.\\d+(?:-\\w+(?:\\.\\w+)*)*(?:\\+[\\w\\.]+)*\n$";
+
 #[test]
 fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("s3-file-connector")?;
@@ -72,6 +77,30 @@ fn invalid_file_mode() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("test-bucket").arg(dir.path()).arg("--file-mode=900");
     let error_message = "'--file-mode <FILE_MODE>': must be a valid octal number";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[test]
+fn print_version_long() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("s3-file-connector")?;
+    cmd.arg("--version");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::is_match(VALID_VERSION_OUTPUT_PATTERN).unwrap());
+
+    Ok(())
+}
+
+#[test]
+fn print_version_short() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("s3-file-connector")?;
+    cmd.arg("-V");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::is_match(VALID_VERSION_OUTPUT_PATTERN).unwrap());
 
     Ok(())
 }
