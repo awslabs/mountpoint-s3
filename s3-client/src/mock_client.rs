@@ -115,7 +115,7 @@ impl MockObject {
         }
     }
 
-    pub fn with_last_modified(&mut self, last_modified: OffsetDateTime) {
+    pub fn set_last_modified(&mut self, last_modified: OffsetDateTime) {
         self.last_modified = last_modified;
     }
 
