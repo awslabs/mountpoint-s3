@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for trying out the project and taking the time to share ideas for new features.
+        Thanks for taking the time to share ideas for new features.
   - type: textarea
     id: feature-desc
     attributes:

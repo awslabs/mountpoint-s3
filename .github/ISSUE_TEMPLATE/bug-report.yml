@@ -5,7 +5,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for trying out the project and taking the time to fill out this report.
+        Thanks for taking the time to fill out a bug report.
+  - type: markdown
+    attributes:
+      value: |
+        **Note: security issues should not be reported here.**
+        Please follow the [security policy for this repository](https://github.com/awslabs/s3-file-connector/security/policy).
   - type: input
     id: project-version
     attributes:
@@ -21,7 +26,7 @@ body:
     attributes:
       label: AWS Region
       description: Which AWS region did you experience the bug in?
-      placeholder: ex. us-east-2
+      placeholder: us-east-1
     validations:
       required: false
   - type: textarea
