@@ -1030,8 +1030,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_inodestat_constructors() {
+    #[test]
+    fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
         let file_inodestat = InodeStat::for_file(128, ts);
         assert_eq!(file_inodestat.size, 128);
