@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::Parser;
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_client::{HeadBucketError, S3Client, S3ClientConfig, S3RequestError};
+use s3_client::{HeadBucketError, S3ClientConfig, S3CrtClient, S3RequestError};
 
 use s3_file_connector::fs::S3FilesystemConfig;
 use s3_file_connector::fuse::S3FuseFilesystem;
@@ -179,8 +179,8 @@ fn create_client_for_bucket(
     bucket: &str,
     supposed_region: &str,
     client_config: S3ClientConfig,
-) -> Result<S3Client, anyhow::Error> {
-    let client = S3Client::new(supposed_region, client_config.clone())?;
+) -> Result<S3CrtClient, anyhow::Error> {
+    let client = S3CrtClient::new(supposed_region, client_config.clone())?;
     let head_request = client.head_bucket(bucket);
     match futures::executor::block_on(head_request) {
         Ok(_) => Ok(client),
@@ -191,7 +191,7 @@ fn create_client_for_bucket(
                 region,
                 supposed_region
             );
-            let new_client = S3Client::new(&region, client_config)?;
+            let new_client = S3CrtClient::new(&region, client_config)?;
             let head_request = new_client.head_bucket(bucket);
             futures::executor::block_on(head_request)
                 .map(|_| new_client)

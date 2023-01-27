@@ -5,7 +5,7 @@ pub mod common;
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
-use s3_client::S3Client;
+use s3_client::S3CrtClient;
 
 #[tokio::test]
 async fn test_head_object() {
@@ -23,7 +23,7 @@ async fn test_head_object() {
         .await
         .unwrap();
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
     let result = client.head_object(&bucket, &key).await.expect("get_object failed");
 
     assert_eq!(result.bucket, bucket);
@@ -37,7 +37,7 @@ async fn test_head_object_404() {
 
     let key = format!("{prefix}/nonexistent_key");
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     let result = client.head_object(&bucket, &key).await;
     assert!(result.is_err());

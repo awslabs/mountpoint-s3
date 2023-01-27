@@ -24,10 +24,10 @@ use thiserror::Error;
 use tracing::{debug, error, trace, warn, Span};
 
 use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient, PutObjectParams, PutObjectResult};
-use crate::s3_client::get_object::{GetObjectError, GetObjectRequest};
-use crate::s3_client::head_object::HeadObjectError;
-use crate::s3_client::list_objects::ListObjectsError;
-use crate::s3_client::put_object::PutObjectError;
+use crate::s3_crt_client::get_object::{GetObjectError, GetObjectRequest};
+use crate::s3_crt_client::head_object::HeadObjectError;
+use crate::s3_crt_client::list_objects::ListObjectsError;
+use crate::s3_crt_client::put_object::PutObjectError;
 
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
@@ -49,7 +49,7 @@ pub struct S3ClientConfig {
 }
 
 #[derive(Debug)]
-pub struct S3Client {
+pub struct S3CrtClient {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
     region: String,
@@ -57,7 +57,7 @@ pub struct S3Client {
     next_request_counter: AtomicU64,
 }
 
-impl S3Client {
+impl S3CrtClient {
     pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
@@ -353,7 +353,7 @@ pub enum S3RequestError<E: std::error::Error> {
 }
 
 #[async_trait]
-impl ObjectClient for S3Client {
+impl ObjectClient for S3CrtClient {
     type GetObjectResult = GetObjectRequest;
     type GetObjectError = S3RequestError<GetObjectError>;
     type HeadObjectError = S3RequestError<HeadObjectError>;

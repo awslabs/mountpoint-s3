@@ -1,6 +1,6 @@
 use crate::object_client::{HeadObjectResult, ObjectInfo};
-use crate::s3_client::S3RequestError;
-use crate::S3Client;
+use crate::s3_crt_client::S3RequestError;
+use crate::S3CrtClient;
 use aws_crt_s3::http::request_response::{Headers, HeadersError};
 use aws_crt_s3::s3::client::MetaRequestType;
 use std::ffi::OsString;
@@ -62,7 +62,7 @@ impl HeadObjectResult {
     }
 }
 
-impl S3Client {
+impl S3CrtClient {
     pub async fn head_object(
         &self,
         bucket: &str,

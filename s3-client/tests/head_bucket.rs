@@ -3,7 +3,7 @@
 pub mod common;
 
 use common::*;
-use s3_client::{HeadBucketError, S3Client, S3RequestError};
+use s3_client::{HeadBucketError, S3CrtClient, S3RequestError};
 
 #[tokio::test]
 async fn test_head_bucket_correct_region() {
@@ -15,7 +15,7 @@ async fn test_head_bucket_correct_region() {
 
 #[tokio::test]
 async fn test_head_bucket_wrong_region() {
-    let client = S3Client::new("ap-southeast-2", Default::default()).expect("could not create test client");
+    let client = S3CrtClient::new("ap-southeast-2", Default::default()).expect("could not create test client");
     let (bucket, _) = get_test_bucket_and_prefix("test_head_bucket_wrong_region");
     let expected_region = get_test_region();
 

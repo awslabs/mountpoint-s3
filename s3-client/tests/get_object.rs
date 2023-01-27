@@ -6,7 +6,7 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;
-use s3_client::{ObjectClient, S3Client};
+use s3_client::{ObjectClient, S3CrtClient};
 
 #[tokio::test]
 async fn test_get_object() {
@@ -25,7 +25,7 @@ async fn test_get_object() {
         .await
         .unwrap();
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     let result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
     check_get_result(result, None, &body[..]).await;
@@ -47,7 +47,7 @@ async fn test_get_object_large() {
         .await
         .unwrap();
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     let result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
     check_get_result(result, None, &body[..]).await;
@@ -71,7 +71,7 @@ async fn test_get_object_404() {
 
     let key = format!("{prefix}/nonexistent_key");
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     let mut result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");

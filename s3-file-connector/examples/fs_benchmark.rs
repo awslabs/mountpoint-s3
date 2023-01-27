@@ -1,7 +1,7 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_client::{S3Client, S3ClientConfig};
+use s3_client::{S3ClientConfig, S3CrtClient};
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::S3FilesystemConfig;
 use std::{
@@ -154,7 +154,7 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
         throughput_target_gbps,
         part_size,
     };
-    let client = S3Client::new(region, config).expect("Failed to create S3 client");
+    let client = S3CrtClient::new(region, config).expect("Failed to create S3 client");
     let runtime = client.event_loop_group();
 
     let mut options = vec![MountOption::RO, MountOption::FSName("fuse_sync".to_string())];

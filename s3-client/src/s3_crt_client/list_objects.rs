@@ -1,6 +1,6 @@
 use crate::object_client::{ListObjectsResult, ObjectInfo};
-use crate::s3_client::S3RequestError;
-use crate::S3Client;
+use crate::s3_crt_client::S3RequestError;
+use crate::S3CrtClient;
 use aws_crt_s3::s3::client::MetaRequestType;
 use std::str::FromStr;
 use thiserror::Error;
@@ -131,7 +131,7 @@ impl ObjectInfo {
     }
 }
 
-impl S3Client {
+impl S3CrtClient {
     pub async fn list_objects(
         &self,
         bucket: &str,

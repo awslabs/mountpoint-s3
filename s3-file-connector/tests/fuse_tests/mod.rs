@@ -74,7 +74,7 @@ mod s3_session {
     use aws_sdk_s3::Region;
     use rand::rngs::OsRng;
     use rand::RngCore as _;
-    use s3_client::{S3Client, S3ClientConfig};
+    use s3_client::{S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn) {
@@ -84,7 +84,7 @@ mod s3_session {
         let region = get_test_region();
 
         let client_config: S3ClientConfig = Default::default();
-        let client = S3Client::new(&region, client_config).unwrap();
+        let client = S3CrtClient::new(&region, client_config).unwrap();
         let runtime = client.event_loop_group();
 
         let options = vec![
