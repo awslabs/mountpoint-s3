@@ -76,7 +76,7 @@ impl S3Client {
             // Don't URI encode the key, since "/" needs to be preserved
             let key = key.to_string();
             message
-                .set_request_path(format!("/{}", key))
+                .set_request_path(format!("/{key}"))
                 .map_err(S3RequestError::ConstructionFailure)?;
 
             let bucket = bucket.to_owned();

@@ -39,6 +39,6 @@ fn main() {
     let result = futures::executor::block_on(client.list_objects(bucket, None, delimiter, 500, prefix)).unwrap();
 
     for object in result.objects {
-        println!("{:?}", object);
+        println!("{object:?}");
     }
 }

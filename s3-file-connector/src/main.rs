@@ -195,11 +195,9 @@ fn create_client_for_bucket(
             let head_request = new_client.head_bucket(bucket);
             futures::executor::block_on(head_request)
                 .map(|_| new_client)
-                .with_context(|| format!("HeadBucket failed for bucket {} in region {}", bucket, region))
+                .with_context(|| format!("HeadBucket failed for bucket {bucket} in region {region}"))
         }
-        Err(e) => {
-            Err(e).with_context(|| format!("HeadBucket failed for bucket {} in region {}", bucket, supposed_region))
-        }
+        Err(e) => Err(e).with_context(|| format!("HeadBucket failed for bucket {bucket} in region {supposed_region}")),
     }
 }
 

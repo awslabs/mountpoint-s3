@@ -775,17 +775,17 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let keys = &[
-            format!("{}dir0/file0.txt", prefix),
-            format!("{}dir0/sdir0/file0.txt", prefix),
-            format!("{}dir0/sdir0/file1.txt", prefix),
-            format!("{}dir0/sdir0/file2.txt", prefix),
-            format!("{}dir0/sdir1/file0.txt", prefix),
-            format!("{}dir0/sdir1/file1.txt", prefix),
-            format!("{}dir1/sdir2/file0.txt", prefix),
-            format!("{}dir1/sdir2/file1.txt", prefix),
-            format!("{}dir1/sdir2/file2.txt", prefix),
-            format!("{}dir1/sdir3/file0.txt", prefix),
-            format!("{}dir1/sdir3/file1.txt", prefix),
+            format!("{prefix}dir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file1.txt"),
+            format!("{prefix}dir0/sdir0/file2.txt"),
+            format!("{prefix}dir0/sdir1/file0.txt"),
+            format!("{prefix}dir0/sdir1/file1.txt"),
+            format!("{prefix}dir1/sdir2/file0.txt"),
+            format!("{prefix}dir1/sdir2/file1.txt"),
+            format!("{prefix}dir1/sdir2/file2.txt"),
+            format!("{prefix}dir1/sdir3/file0.txt"),
+            format!("{prefix}dir1/sdir3/file1.txt"),
         ];
 
         let object_size = 30;
@@ -806,42 +806,42 @@ mod tests {
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir0.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
-            assert_eq!(dir0.full_key, OsString::from(format!("{}dir0", prefix)));
+            assert_eq!(dir0.full_key, OsString::from(format!("{prefix}dir0")));
 
             let dir1 = superblock
                 .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir1.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
-            assert_eq!(dir1.full_key, OsString::from(format!("{}dir1", prefix)));
+            assert_eq!(dir1.full_key, OsString::from(format!("{prefix}dir1")));
 
             let sdir0 = superblock
                 .lookup(&client, dir0.ino, &OsString::from("sdir0"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir0.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
-            assert_eq!(sdir0.full_key, OsString::from(format!("{}dir0/sdir0", prefix)));
+            assert_eq!(sdir0.full_key, OsString::from(format!("{prefix}dir0/sdir0")));
 
             let sdir1 = superblock
                 .lookup(&client, dir0.ino, &OsString::from("sdir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir1.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
-            assert_eq!(sdir1.full_key, OsString::from(format!("{}dir0/sdir1", prefix)));
+            assert_eq!(sdir1.full_key, OsString::from(format!("{prefix}dir0/sdir1")));
 
             let sdir2 = superblock
                 .lookup(&client, dir1.ino, &OsString::from("sdir2"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir2.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
-            assert_eq!(sdir2.full_key, OsString::from(format!("{}dir1/sdir2", prefix)));
+            assert_eq!(sdir2.full_key, OsString::from(format!("{prefix}dir1/sdir2")));
 
             let sdir3 = superblock
                 .lookup(&client, dir1.ino, &OsString::from("sdir3"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir3.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
-            assert_eq!(sdir3.full_key, OsString::from(format!("{}dir1/sdir3", prefix)));
+            assert_eq!(sdir3.full_key, OsString::from(format!("{prefix}dir1/sdir3")));
 
             for (dir, sdir, ino, n) in &[
                 (0, 0, sdir0.ino, 3),
@@ -851,7 +851,7 @@ mod tests {
             ] {
                 for i in 0..*n {
                     let file = superblock
-                        .lookup(&client, *ino, &OsString::from(format!("file{}.txt", i)))
+                        .lookup(&client, *ino, &OsString::from(format!("file{i}.txt")))
                         .await
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
@@ -864,7 +864,7 @@ mod tests {
                     assert_inode_stat!(file.stat, InodeStatKind::File {}, modified_time, object_size);
                     assert_eq!(
                         file.full_key,
-                        OsString::from(format!("{}dir{}/sdir{}/file{}.txt", prefix, dir, sdir, i))
+                        OsString::from(format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"))
                     );
                 }
             }
@@ -882,17 +882,17 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let keys = &[
-            format!("{}dir0/file0.txt", prefix),
-            format!("{}dir0/sdir0/file0.txt", prefix),
-            format!("{}dir0/sdir0/file1.txt", prefix),
-            format!("{}dir0/sdir0/file2.txt", prefix),
-            format!("{}dir0/sdir1/file0.txt", prefix),
-            format!("{}dir0/sdir1/file1.txt", prefix),
-            format!("{}dir1/sdir2/file0.txt", prefix),
-            format!("{}dir1/sdir2/file1.txt", prefix),
-            format!("{}dir1/sdir2/file2.txt", prefix),
-            format!("{}dir1/sdir3/file0.txt", prefix),
-            format!("{}dir1/sdir3/file1.txt", prefix),
+            format!("{prefix}dir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file1.txt"),
+            format!("{prefix}dir0/sdir0/file2.txt"),
+            format!("{prefix}dir0/sdir1/file0.txt"),
+            format!("{prefix}dir0/sdir1/file1.txt"),
+            format!("{prefix}dir1/sdir2/file0.txt"),
+            format!("{prefix}dir1/sdir2/file1.txt"),
+            format!("{prefix}dir1/sdir2/file2.txt"),
+            format!("{prefix}dir1/sdir3/file0.txt"),
+            format!("{prefix}dir1/sdir3/file1.txt"),
         ];
 
         for key in keys {
@@ -976,8 +976,8 @@ mod tests {
         // common prefix when we do ListObjects with prefix = 'dir'. But `dir` comes before `dir-1`
         // in lexicographical order, so `dir` will be the first common prefix when we do ListObjects
         // with prefix = ''.
-        client.add_object(&format!("dir/{}file1.txt", subdir), MockObject::constant(0xaa, 30));
-        client.add_object(&format!("dir-1/{}file1.txt", subdir), MockObject::constant(0xaa, 30));
+        client.add_object(&format!("dir/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
+        client.add_object(&format!("dir-1/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
 
         let superblock = Superblock::new("test_bucket".to_string(), OsString::new());
 

@@ -12,7 +12,7 @@ async fn test_head_object() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
 
-    let key = format!("{}/hello", prefix);
+    let key = format!("{prefix}/hello");
     let body = b"hello world!";
     sdk_client
         .put_object()
@@ -35,7 +35,7 @@ async fn test_head_object() {
 async fn test_head_object_404() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404");
 
-    let key = format!("{}/nonexistent_key", prefix);
+    let key = format!("{prefix}/nonexistent_key");
 
     let client: S3Client = get_test_client();
 

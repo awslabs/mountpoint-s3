@@ -83,8 +83,7 @@ impl Harness {
                             let ref_kind = node.file_type();
                             assert_eq!(
                                 fs_kind, ref_kind,
-                                "for file {:?} expecting {:?} found {:?}",
-                                name, ref_kind, fs_kind
+                                "for file {name:?} expecting {ref_kind:?} found {fs_kind:?}"
                             );
                             assert_eq!(
                                 attr.ino, reply.ino,
@@ -101,7 +100,7 @@ impl Harness {
                             }
                             assert!(keys.remove(name));
                         }
-                        None => panic!("file {:?} not found in the reference", name),
+                        None => panic!("file {name:?} not found in the reference"),
                     }
                 }
                 reply.clear();
@@ -110,8 +109,7 @@ impl Harness {
 
             assert!(
                 keys.is_empty(),
-                "reference contained elements not in the filesystem: {:?}",
-                keys
+                "reference contained elements not in the filesystem: {keys:?}"
             );
 
             // Not implemented
@@ -216,7 +214,7 @@ fn run_test(tree: TreeNode, check: CheckType, readdir_limit: usize) {
 
     let namespace = flatten_tree(tree);
     for (key, object) in namespace.iter() {
-        client.add_object(&format!("{}{}", test_prefix, key), object.to_mock_object());
+        client.add_object(&format!("{test_prefix}{key}"), object.to_mock_object());
     }
 
     let reference = build_reference(namespace);

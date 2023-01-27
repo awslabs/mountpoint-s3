@@ -26,7 +26,7 @@ mod mock_session {
         let prefix = if test_name.is_empty() {
             test_name.to_string()
         } else {
-            format!("{}/", test_name)
+            format!("{test_name}/")
         };
 
         let client_config = MockClientConfig {
@@ -55,7 +55,7 @@ mod mock_session {
         let session = BackgroundSession::new(session).unwrap();
 
         let put_object = move |key: &str, value: &[u8]| {
-            let full_key = format!("{}{}", prefix, key);
+            let full_key = format!("{prefix}{key}");
             client.add_object(&full_key, value.into());
             Ok(())
         };
@@ -106,7 +106,7 @@ mod s3_session {
 
         let sdk_client = tokio_block_on(async { get_test_sdk_client(&region).await });
         let put_object = move |key: &str, value: &[u8]| {
-            let full_key = format!("{}{}", prefix, key);
+            let full_key = format!("{prefix}{key}");
             tokio_block_on(
                 sdk_client
                     .put_object()
@@ -133,7 +133,7 @@ mod s3_session {
             std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
         assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
 
-        let prefix = format!("{}{}/{}/", prefix, test_name, nonce);
+        let prefix = format!("{prefix}{test_name}/{nonce}/");
 
         (bucket, prefix)
     }

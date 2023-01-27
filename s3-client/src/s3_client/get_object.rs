@@ -46,7 +46,7 @@ impl S3Client {
                 .map_err(S3RequestError::ConstructionFailure)?;
         }
 
-        let key = format!("/{}", key);
+        let key = format!("/{key}");
         message
             .set_request_path(key)
             .map_err(S3RequestError::ConstructionFailure)?;

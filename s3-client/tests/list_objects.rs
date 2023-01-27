@@ -18,7 +18,7 @@ async fn test_list_objects() {
         .await
         .expect("ListObjects failed");
 
-    println!("{:?}", result);
+    println!("{result:?}");
     assert_eq!(result.bucket, bucket);
     assert!(result.next_continuation_token.is_none());
     assert_eq!(result.objects.len(), 1);
@@ -101,5 +101,5 @@ async fn test_invalid_list_objects() {
         .await;
 
     let err = result.expect_err("this request should have failed: we made up an invalid continuation token");
-    println!("{}", err);
+    println!("{err}");
 }

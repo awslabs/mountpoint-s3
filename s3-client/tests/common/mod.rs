@@ -31,7 +31,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
 
-    let prefix = format!("{}{}/{}/", prefix, test_name, nonce);
+    let prefix = format!("{prefix}{test_name}/{nonce}/");
 
     (bucket, prefix)
 }
@@ -74,13 +74,13 @@ async fn test_sdk_create_object() {
     let response = sdk_client
         .put_object()
         .bucket(bucket)
-        .key(format!("{}hello", prefix))
+        .key(format!("{prefix}hello"))
         .body(s3::types::ByteStream::from(Bytes::from_static(b".")))
         .send()
         .await
         .unwrap();
 
-    println!("{:?}", response);
+    println!("{response:?}");
 }
 
 /// Check the result of a GET against expected bytes.
