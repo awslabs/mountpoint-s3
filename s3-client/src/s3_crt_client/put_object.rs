@@ -1,5 +1,5 @@
 use crate::object_client::{PutObjectParams, PutObjectResult};
-use crate::{S3Client, S3RequestError};
+use crate::{S3CrtClient, S3RequestError};
 use aws_crt_s3::http::request_response::Header;
 use aws_crt_s3::io::stream::InputStream;
 use aws_crt_s3::s3::client::MetaRequestType;
@@ -11,7 +11,7 @@ use tracing::debug;
 #[non_exhaustive]
 pub enum PutObjectError {}
 
-impl S3Client {
+impl S3CrtClient {
     pub(super) async fn put_object(
         &self,
         bucket: &str,

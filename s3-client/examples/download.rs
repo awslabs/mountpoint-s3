@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
 use futures::StreamExt;
-use s3_client::{ObjectClient, S3Client};
+use s3_client::{ObjectClient, S3CrtClient};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -35,7 +35,7 @@ fn main() {
     let key = matches.get_one::<String>("key").unwrap();
     let region = matches.get_one::<String>("region").unwrap();
 
-    let client = S3Client::new(region, Default::default()).expect("couldn't create client");
+    let client = S3CrtClient::new(region, Default::default()).expect("couldn't create client");
 
     let last_offset = Arc::new(Mutex::new(None));
     let last_offset_clone = Arc::clone(&last_offset);

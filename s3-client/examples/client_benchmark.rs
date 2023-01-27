@@ -5,7 +5,7 @@ use std::time::Instant;
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
 use futures::StreamExt;
-use s3_client::{ObjectClient, S3Client, S3ClientConfig};
+use s3_client::{ObjectClient, S3ClientConfig, S3CrtClient};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -67,7 +67,7 @@ fn main() {
         throughput_target_gbps,
         part_size,
     };
-    let client = Arc::new(S3Client::new(region, config).expect("couldn't create client"));
+    let client = Arc::new(S3CrtClient::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {
         let received_size = Arc::new(AtomicU64::new(0));

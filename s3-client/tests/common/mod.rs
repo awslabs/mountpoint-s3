@@ -7,7 +7,7 @@ use futures::{pin_mut, Stream, StreamExt};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use s3::Region;
-use s3_client::S3Client;
+use s3_client::S3CrtClient;
 use std::ops::Range;
 
 /// Enable tracing and CRT logging when running unit tests.
@@ -17,8 +17,8 @@ fn init_tracing_subscriber() {
     let _ = tracing_subscriber::fmt::try_init();
 }
 
-pub fn get_test_client() -> S3Client {
-    S3Client::new(&get_test_region(), Default::default()).expect("could not create test client")
+pub fn get_test_client() -> S3CrtClient {
+    S3CrtClient::new(&get_test_region(), Default::default()).expect("could not create test client")
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {

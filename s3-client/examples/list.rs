@@ -1,5 +1,5 @@
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
-use s3_client::S3Client;
+use s3_client::S3CrtClient;
 
 use clap::{Arg, Command};
 use tracing_subscriber::fmt::Subscriber;
@@ -34,7 +34,7 @@ fn main() {
     let prefix = matches.get_one::<String>("prefix").unwrap();
     let region = matches.get_one::<String>("region").unwrap();
 
-    let client = S3Client::new(region, Default::default()).expect("couldn't create client");
+    let client = S3CrtClient::new(region, Default::default()).expect("couldn't create client");
 
     let result = futures::executor::block_on(client.list_objects(bucket, None, delimiter, 500, prefix)).unwrap();
 

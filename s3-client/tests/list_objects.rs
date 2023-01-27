@@ -3,7 +3,7 @@
 pub mod common;
 
 use common::*;
-use s3_client::S3Client;
+use s3_client::S3CrtClient;
 
 #[tokio::test]
 async fn test_list_objects() {
@@ -11,7 +11,7 @@ async fn test_list_objects() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_list_objects");
     create_objects_for_test(&sdk_client, &bucket, &prefix, &["hello", "dir/a", "dir/b"]).await;
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     let result = client
         .list_objects(&bucket, None, "/", 1000, &prefix)
@@ -43,7 +43,7 @@ async fn test_max_keys_continuation_token() {
     let keys: Vec<String> = (0..TOTAL_KEYS).map(|i| format!("object_{i}")).collect();
     create_objects_for_test(&sdk_client, &bucket, &prefix, &keys[..]).await;
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     let mut continuation_token: Option<String> = None;
     let mut keys_left = TOTAL_KEYS;
@@ -92,7 +92,7 @@ async fn test_max_keys_continuation_token() {
 async fn test_invalid_list_objects() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_invalid_list_objects");
 
-    let client: S3Client = get_test_client();
+    let client: S3CrtClient = get_test_client();
 
     // Make a ListObjects request using some made-up continuation token.
     let continuation_token = Some("Made-up invalid token here");

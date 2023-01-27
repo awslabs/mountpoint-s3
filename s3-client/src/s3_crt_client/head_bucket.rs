@@ -1,4 +1,4 @@
-use crate::{S3Client, S3RequestError};
+use crate::{S3CrtClient, S3RequestError};
 use aws_crt_s3::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
 use tracing::debug;
@@ -13,7 +13,7 @@ pub enum HeadBucketError {
     PermissionDenied(MetaRequestResult),
 }
 
-impl S3Client {
+impl S3CrtClient {
     pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
         let body = {
             let mut message = self

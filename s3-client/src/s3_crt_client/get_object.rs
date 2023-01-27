@@ -13,10 +13,10 @@ use thiserror::Error;
 use tracing::{debug, error};
 
 use crate::object_client::GetBodyPart;
-use crate::s3_client::S3HttpRequest;
-use crate::{S3Client, S3RequestError};
+use crate::s3_crt_client::S3HttpRequest;
+use crate::{S3CrtClient, S3RequestError};
 
-impl S3Client {
+impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] (for
     /// async users) or [Iterator} (for sync users) of body parts of the object, which will be
     /// delivered in order.
