@@ -25,7 +25,7 @@ async fn test_head_bucket_wrong_region() {
         Err(S3RequestError::ServiceError(HeadBucketError::IncorrectRegion(actual_region))) => {
             assert_eq!(actual_region, expected_region, "wrong region returned")
         }
-        _ => panic!("incorrect result {:?}", result),
+        _ => panic!("incorrect result {result:?}"),
     }
 }
 

@@ -180,11 +180,7 @@ impl S3Client {
                     metrics::histogram!("s3.first_byte_latency_us", latency, "op" => op);
                 }
 
-                trace!(
-                    start = range_start,
-                    length = data.len(),
-                    "body part received"
-                );
+                trace!(start = range_start, length = data.len(), "body part received");
 
                 (on_body)(range_start, data);
             })
@@ -199,15 +195,15 @@ impl S3Client {
 
                 let result = if !request_result.is_err() {
                     debug!(
-                        request_id=request_id.as_deref().unwrap_or("unknown"),
-                        duration_us=start_time.elapsed().as_micros(),
+                        request_id = request_id.as_deref().unwrap_or("unknown"),
+                        duration_us = start_time.elapsed().as_micros(),
                         "request finished"
                     );
                     on_finish(request_result).map_err(|e| S3RequestError::ServiceError(e))
                 } else {
                     warn!(
-                        request_id=request_id.as_deref().unwrap_or("unknown"),
-                        duration_us=start_time.elapsed().as_micros(),
+                        request_id = request_id.as_deref().unwrap_or("unknown"),
+                        duration_us = start_time.elapsed().as_micros(),
                         ?request_result,
                         "request failed"
                     );
@@ -217,7 +213,7 @@ impl S3Client {
                     } else {
                         -request_result.crt_error.raw_error()
                     };
-                    metrics::counter!("s3.meta_request_failures", 1, "op" => op, "status" => format!("{}", error_status));
+                    metrics::counter!("s3.meta_request_failures", 1, "op" => op, "status" => format!("{error_status}"));
                     Err(S3RequestError::ResponseError(request_result))
                 };
 

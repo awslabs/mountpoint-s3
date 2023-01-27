@@ -14,7 +14,7 @@ async fn test_get_object() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
 
     // Create one object named "hello"
-    let key = format!("{}/hello", prefix);
+    let key = format!("{prefix}/hello");
     let body = b"hello world!";
     sdk_client
         .put_object()
@@ -36,7 +36,7 @@ async fn test_get_object_large() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_large");
 
-    let key = format!("{}/large", prefix);
+    let key = format!("{prefix}/large");
     let body = vec![0x42; 30000000];
     sdk_client
         .put_object()
@@ -69,7 +69,7 @@ async fn test_get_object_large() {
 async fn test_get_object_404() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404");
 
-    let key = format!("{}/nonexistent_key", prefix);
+    let key = format!("{prefix}/nonexistent_key");
 
     let client: S3Client = get_test_client();
 

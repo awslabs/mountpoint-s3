@@ -39,7 +39,7 @@ impl S3Client {
                 .add_header(&Header::new("Content-Length", buffer.len().to_string()))
                 .map_err(S3RequestError::ConstructionFailure)?;
 
-            let key = format!("/{}", key);
+            let key = format!("/{key}");
             message
                 .set_request_path(&key)
                 .map_err(S3RequestError::ConstructionFailure)?;

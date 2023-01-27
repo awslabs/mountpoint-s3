@@ -42,7 +42,7 @@ where
 
     let mut map = HashMap::new();
     for i in 0..readdir_size * 4 {
-        map.insert(format!("file{}", i), File::new((i % 256) as u8, 10 * i));
+        map.insert(format!("file{i}"), File::new((i % 256) as u8, 10 * i));
     }
     let (mount_point, _session, put_object_fn) = creator_fn(prefix, filesystem_config);
 
@@ -57,7 +57,7 @@ where
         assert!(map.remove(name).is_some());
     }
 
-    println!("... map is {:?}", map);
+    println!("... map is {map:?}");
     assert!(map.is_empty());
 }
 

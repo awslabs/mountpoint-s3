@@ -19,9 +19,9 @@ use common::{assert_attr, make_test_filesystem, ReadReply};
 async fn test_read_dir_root(prefix: &str) {
     let (client, fs) = make_test_filesystem("test_read_dir", prefix, Default::default());
 
-    client.add_object(&format!("{}file1.txt", prefix), MockObject::constant(0xa1, 15));
-    client.add_object(&format!("{}file2.txt", prefix), MockObject::constant(0xa2, 15));
-    client.add_object(&format!("{}file3.txt", prefix), MockObject::constant(0xa3, 15));
+    client.add_object(&format!("{prefix}file1.txt"), MockObject::constant(0xa1, 15));
+    client.add_object(&format!("{prefix}file2.txt"), MockObject::constant(0xa2, 15));
+    client.add_object(&format!("{prefix}file3.txt"), MockObject::constant(0xa3, 15));
 
     let uid = getuid().into();
     let gid = getgid().into();
@@ -82,9 +82,9 @@ async fn test_read_dir_root(prefix: &str) {
 async fn test_read_dir_nested(prefix: &str) {
     let (client, fs) = make_test_filesystem("test_read_dir_nested", prefix, Default::default());
 
-    client.add_object(&format!("{}dir1/file1.txt", prefix), MockObject::constant(0xa1, 15));
-    client.add_object(&format!("{}dir1/file2.txt", prefix), MockObject::constant(0xa2, 15));
-    client.add_object(&format!("{}dir2/file3.txt", prefix), MockObject::constant(0xa3, 15));
+    client.add_object(&format!("{prefix}dir1/file1.txt"), MockObject::constant(0xa1, 15));
+    client.add_object(&format!("{prefix}dir1/file2.txt"), MockObject::constant(0xa2, 15));
+    client.add_object(&format!("{prefix}dir2/file3.txt"), MockObject::constant(0xa3, 15));
 
     let uid = getuid().into();
     let gid = getgid().into();
@@ -188,8 +188,8 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     // Make an object that matches a directory name. We want this object to be shadowed by the
     // directory.
-    client.add_object(&format!("{}dir1/", prefix), MockObject::constant(0xa1, 15));
-    client.add_object(&format!("{}dir1/file2.txt", prefix), MockObject::constant(0xa2, 15));
+    client.add_object(&format!("{prefix}dir1/"), MockObject::constant(0xa1, 15));
+    client.add_object(&format!("{prefix}dir1/file2.txt"), MockObject::constant(0xa2, 15));
 
     let entry = fs
         .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))

@@ -49,7 +49,7 @@ impl From<aws_stream_seek_basis> for SeekBasis {
         match value {
             aws_stream_seek_basis::AWS_SSB_BEGIN => Self::Begin,
             aws_stream_seek_basis::AWS_SSB_END => Self::End,
-            _ => panic!("invalid stream seek basis: {:?}", value),
+            _ => panic!("invalid stream seek basis: {value:?}"),
         }
     }
 }

@@ -129,10 +129,7 @@ fn compile_crt_and_bindings() -> PathBuf {
         let lib_build_dir = build_dir.join(lib);
 
         if !lib_source_dir.join("CMakeLists.txt").exists() {
-            panic!(
-                "missing library source for {}, perhaps you need to fetch git submodules",
-                lib
-            );
+            panic!("missing library source for {lib}, perhaps you need to fetch git submodules");
         }
         println!("cargo:rerun-if-changed={}", lib_source_dir.display());
 
@@ -189,7 +186,7 @@ fn compile_crt_and_bindings() -> PathBuf {
             "s2n-tls" => "s2n",
             lib => lib,
         };
-        println!("cargo:rustc-link-lib=static={}", lib);
+        println!("cargo:rustc-link-lib=static={lib}");
     }
 
     let include_dir = target_dir.join("include");

@@ -515,10 +515,10 @@ mod tests {
 
         let mut keys = vec![];
         for i in 0..5 {
-            keys.push(format!("dirs/dir1/file{}.txt", i));
+            keys.push(format!("dirs/dir1/file{i}.txt"));
         }
         for i in 0..5 {
-            keys.push(format!("dirs/dir2/file{}.txt", i));
+            keys.push(format!("dirs/dir2/file{i}.txt"));
         }
         for key in &keys {
             client.add_object(key, MockObject::constant(0u8, 5));

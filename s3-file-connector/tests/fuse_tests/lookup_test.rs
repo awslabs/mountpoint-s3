@@ -14,8 +14,8 @@ where
 {
     let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
 
-    put_object_fn(&format!("dir/{}hello.txt", subdir), b"hello world").unwrap();
-    put_object_fn(&format!("dir-1/{}hello.txt", subdir), b"hello world").unwrap();
+    put_object_fn(&format!("dir/{subdir}hello.txt"), b"hello world").unwrap();
+    put_object_fn(&format!("dir-1/{subdir}hello.txt"), b"hello world").unwrap();
 
     let test_dir = read_dir(mount_point.path()).unwrap();
     let dirs: Vec<_> = test_dir.map(|f| f.unwrap()).collect();

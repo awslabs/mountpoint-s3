@@ -13,7 +13,7 @@ use s3_client::ObjectClient;
 async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str) {
     let mut rng = rand::thread_rng();
 
-    let key = format!("{}/hello", prefix);
+    let key = format!("{prefix}/hello");
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -39,7 +39,7 @@ object_client_test!(test_put_object);
 async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, prefix: &str) {
     let mut rng = rand::thread_rng();
 
-    let key = format!("{}/hello", prefix);
+    let key = format!("{prefix}/hello");
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
