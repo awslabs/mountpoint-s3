@@ -1,4 +1,4 @@
-use crate::s3_crt_client::ConstructionError;
+use crate::object_client::{ObjectClientError, ObjectClientResult};
 use crate::{S3CrtClient, S3RequestError};
 use aws_crt_s3::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
@@ -15,29 +15,34 @@ pub enum HeadBucketError {
 }
 
 impl S3CrtClient {
-    pub async fn head_bucket(&self, bucket: &str) -> Result<(), S3RequestError<HeadBucketError>> {
+    pub async fn head_bucket(&self, bucket: &str) -> ObjectClientResult<(), HeadBucketError, S3RequestError> {
         let body = {
-            let mut message = self.new_request_template("HEAD", bucket)?;
+            let mut message = self
+                .new_request_template("HEAD", bucket)
+                .map_err(S3RequestError::construction_failure)?;
 
-            message.set_request_path("/").map_err(ConstructionError::CrtError)?;
+            message
+                .set_request_path("/")
+                .map_err(S3RequestError::construction_failure)?;
 
             let span = request_span!(self, "head_bucket");
             span.in_scope(|| debug!(?bucket, endpoint = ?self.endpoint, "new request"));
 
-            self.make_simple_http_request(message, MetaRequestType::Default, span)?
+            self.make_simple_http_request(message, MetaRequestType::Default, span, |request_result| {
+                match request_result.response_status {
+                    301 => try_parse_redirect(&request_result)
+                        .map(ObjectClientError::ServiceError)
+                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(
+                            request_result,
+                        ))),
+                    // S3 returns 400 for invalid or expired STS tokens
+                    400 | 403 => ObjectClientError::ServiceError(HeadBucketError::PermissionDenied(request_result)),
+                    _ => ObjectClientError::ClientError(S3RequestError::ResponseError(request_result)),
+                }
+            })?
         };
 
-        body.await.map(|_| ()).map_err(|err| match err {
-            S3RequestError::ResponseError(request_result) => match request_result.response_status {
-                301 => try_parse_redirect(&request_result)
-                    .map(S3RequestError::ServiceError)
-                    .unwrap_or(S3RequestError::ResponseError(request_result)),
-                // S3 returns 400 for invalid or expired STS tokens
-                400 | 403 => S3RequestError::ServiceError(HeadBucketError::PermissionDenied(request_result)),
-                _ => S3RequestError::ResponseError(request_result),
-            },
-            err => err,
-        })
+        body.await.map(|_body| ())
     }
 }
 

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::pin::Pin;
@@ -12,7 +13,8 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::object_client::{
-    GetBodyPart, HeadObjectResult, ListObjectsResult, ObjectInfo, PutObjectParams, PutObjectResult,
+    GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
+    ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
 };
 use crate::ObjectClient;
 
@@ -149,7 +151,7 @@ pub struct GetObjectResult {
 }
 
 impl Stream for GetObjectResult {
-    type Item = Result<GetBodyPart, GetObjectError>;
+    type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.length == 0 {
@@ -166,61 +168,41 @@ impl Stream for GetObjectResult {
     }
 }
 
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GetObjectError {
-    #[error("bucket does not exist")]
-    NoSuchBucket,
-    #[error("object does not exist")]
-    NoSuchObject,
-    #[error("invalid range for object size {0}")]
-    InvalidRange(u64),
+#[derive(Debug, Error, PartialEq, Eq)]
+pub struct MockClientError(pub Cow<'static, str>);
+
+impl std::fmt::Display for MockClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ListObjectsError {
-    #[error("bucket does not exist")]
-    NoSuchBucket,
-}
-
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HeadObjectError {
-    #[error("bucket does not exist")]
-    NoSuchBucket,
-    #[error("object does not exist")]
-    NoSuchObject,
-}
-
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PutObjectError {
-    #[error("bucket does not exist")]
-    NoSuchBucket,
+fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResult<T, E, MockClientError> {
+    Err(ObjectClientError::ClientError(MockClientError(s.into())))
 }
 
 #[async_trait]
 impl ObjectClient for MockClient {
     type GetObjectResult = GetObjectResult;
-    type GetObjectError = GetObjectError;
-    type HeadObjectError = HeadObjectError;
-    type ListObjectsError = ListObjectsError;
-    type PutObjectError = PutObjectError;
+    type ClientError = MockClientError;
 
     async fn get_object(
         &self,
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-    ) -> Result<Self::GetObjectResult, Self::GetObjectError> {
+    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?range, "GetObject");
 
         if bucket != self.config.bucket {
-            return Err(GetObjectError::NoSuchBucket);
+            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
         }
 
         let objects = self.objects.read().unwrap();
         if let Some(object) = objects.get(key) {
             let (next_offset, length) = if let Some(range) = range {
                 if range.start >= object.len() as u64 || range.end > object.len() as u64 {
-                    return Err(GetObjectError::InvalidRange(object.len() as u64));
+                    return mock_client_error(format!("invalid range, length={}", object.len()));
                 }
                 (range.start, (range.end - range.start) as usize)
             } else {
@@ -234,15 +216,19 @@ impl ObjectClient for MockClient {
                 part_size: self.config.part_size,
             })
         } else {
-            Err(GetObjectError::NoSuchObject)
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
         }
     }
 
-    async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
+    async fn head_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         trace!(bucket, key, "HeadObject");
 
         if bucket != self.config.bucket {
-            return Err(HeadObjectError::NoSuchBucket);
+            return Err(ObjectClientError::ServiceError(HeadObjectError::NotFound));
         }
 
         let objects = self.objects.read().unwrap();
@@ -258,7 +244,7 @@ impl ObjectClient for MockClient {
                 },
             })
         } else {
-            Err(HeadObjectError::NoSuchObject)
+            Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
         }
     }
 
@@ -269,11 +255,11 @@ impl ObjectClient for MockClient {
         delimiter: &str,
         max_keys: usize,
         prefix: &str,
-    ) -> Result<ListObjectsResult, Self::ListObjectsError> {
+    ) -> ObjectClientResult<ListObjectsResult, ListObjectsError, Self::ClientError> {
         trace!(bucket, ?continuation_token, delimiter, max_keys, prefix, "ListObjects");
 
         if bucket != self.config.bucket {
-            return Err(ListObjectsError::NoSuchBucket);
+            return Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket));
         }
 
         // TODO delimiter and prefix should be optional in the API
@@ -371,11 +357,11 @@ impl ObjectClient for MockClient {
         key: &str,
         _params: &PutObjectParams,
         contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> Result<PutObjectResult, PutObjectError> {
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         trace!(bucket, key, "PutObject");
 
         if bucket != self.config.bucket {
-            return Err(PutObjectError::NoSuchBucket);
+            return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
         let mut buffer = vec![];
@@ -453,56 +439,47 @@ mod tests {
         rng.fill_bytes(&mut body);
         client.add_object("key1", body[..].into());
 
-        assert_eq!(
-            client
-                .get_object("wrong_bucket", "key1", None)
-                .await
-                .expect_err("should fail"),
-            GetObjectError::NoSuchBucket
-        );
+        macro_rules! assert_client_error {
+            ($e:expr, $err:expr) => {
+                let err = $e.expect_err("should fail");
+                match err {
+                    ObjectClientError::ClientError(MockClientError(m)) => {
+                        assert_eq!(&*m, $err);
+                    }
+                    _ => assert!(false, "wrong error type"),
+                }
+            };
+        }
 
-        assert_eq!(
-            client
-                .get_object("test_bucket", "wrong_key", None)
-                .await
-                .expect_err("should fail"),
-            GetObjectError::NoSuchObject
-        );
+        assert!(matches!(
+            client.get_object("wrong_bucket", "key1", None).await,
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
+        ));
 
-        assert_eq!(
-            client
-                .get_object("test_bucket", "key1", Some(0..2001))
-                .await
-                .expect_err("should fail"),
-            GetObjectError::InvalidRange(2000)
+        assert!(matches!(
+            client.get_object("test_bucket", "wrong_key", None).await,
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
+        ));
+
+        assert_client_error!(
+            client.get_object("test_bucket", "key1", Some(0..2001)).await,
+            "invalid range, length=2000"
         );
-        assert_eq!(
-            client
-                .get_object("test_bucket", "key1", Some(2000..2000))
-                .await
-                .expect_err("should fail"),
-            GetObjectError::InvalidRange(2000)
+        assert_client_error!(
+            client.get_object("test_bucket", "key1", Some(2000..2000)).await,
+            "invalid range, length=2000"
         );
-        assert_eq!(
-            client
-                .get_object("test_bucket", "key1", Some(500..2001))
-                .await
-                .expect_err("should fail"),
-            GetObjectError::InvalidRange(2000)
+        assert_client_error!(
+            client.get_object("test_bucket", "key1", Some(500..2001)).await,
+            "invalid range, length=2000"
         );
-        assert_eq!(
-            client
-                .get_object("test_bucket", "key1", Some(5000..2001))
-                .await
-                .expect_err("should fail"),
-            GetObjectError::InvalidRange(2000)
+        assert_client_error!(
+            client.get_object("test_bucket", "key1", Some(5000..2001)).await,
+            "invalid range, length=2000"
         );
-        assert_eq!(
-            client
-                .get_object("test_bucket", "key1", Some(5000..1))
-                .await
-                .expect_err("should fail"),
-            GetObjectError::InvalidRange(2000)
+        assert_client_error!(
+            client.get_object("test_bucket", "key1", Some(5000..1)).await,
+            "invalid range, length=2000"
         );
     }
 

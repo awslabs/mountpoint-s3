@@ -21,13 +21,15 @@ use futures::pin_mut;
 use futures::stream::StreamExt;
 use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
-use s3_client::ObjectClient;
+use s3_client::{GetObjectError, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::PartQueue;
 use crate::sync::{Arc, RwLock};
+
+type TaskError<Client> = ObjectClientError<GetObjectError, <Client as ObjectClient>::ClientError>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrefetcherConfig {
@@ -92,9 +94,9 @@ where
 #[derive(Debug)]
 pub struct PrefetchGetObject<Client: ObjectClient, Runtime> {
     inner: Arc<PrefetcherInner<Client, Runtime>>,
-    current_task: Option<RequestTask<Client::GetObjectError>>,
+    current_task: Option<RequestTask<TaskError<Client>>>,
     // Currently we only every spawn at most one future task (see [spawn_next_request])
-    future_tasks: Arc<RwLock<VecDeque<RequestTask<Client::GetObjectError>>>>,
+    future_tasks: Arc<RwLock<VecDeque<RequestTask<TaskError<Client>>>>>,
     bucket: String,
     key: String,
     next_sequential_read_offset: u64,
@@ -126,7 +128,7 @@ where
     /// Read some bytes from the object. Blocks until the desired bytes are available or EOF. This
     /// function will always return exactly `size` bytes, except at the end of the object where it
     /// will return however many bytes are left (including possibly 0 bytes).
-    pub fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<Client::GetObjectError>> {
+    pub fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
         trace!(
             offset,
             length,
@@ -226,7 +228,7 @@ where
     }
 
     /// Spawn the next required request
-    fn spawn_next_request(&mut self) -> Option<RequestTask<Client::GetObjectError>> {
+    fn spawn_next_request(&mut self) -> Option<RequestTask<TaskError<Client>>> {
         let start = self.next_request_offset;
         let end = (start + self.next_request_size as u64).min(self.size);
 
@@ -325,8 +327,8 @@ mod tests {
     use proptest::sample::SizeRange;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use s3_client::failure_client::countdown_failure_client;
-    use s3_client::mock_client::{ramp_bytes, GetObjectError, MockClient, MockClientConfig, MockObject};
+    use s3_client::failure_client::{countdown_failure_client, GetFailureMap};
+    use s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use std::collections::HashMap;
 
     #[derive(Debug, Arbitrary)]
@@ -411,7 +413,7 @@ mod tests {
         size: u64,
         read_size: usize,
         test_config: TestConfig,
-        get_failures: HashMap<usize, Result<(usize, GetObjectError), GetObjectError>>,
+        get_failures: GetFailureMap<MockClient>,
     ) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -460,7 +462,12 @@ mod tests {
         };
 
         let mut get_failures = HashMap::new();
-        get_failures.insert(2, Err(s3_client::mock_client::GetObjectError::InvalidRange(42)));
+        get_failures.insert(
+            2,
+            Err(ObjectClientError::ClientError(MockClientError(
+                "invalid range; length=42".into(),
+            ))),
+        );
 
         fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
@@ -475,7 +482,12 @@ mod tests {
         };
 
         let mut get_failures = HashMap::new();
-        get_failures.insert(2, Ok((1, s3_client::mock_client::GetObjectError::InvalidRange(42))));
+        get_failures.insert(
+            2,
+            Err(ObjectClientError::ClientError(MockClientError(
+                "invalid range; length=42".into(),
+            ))),
+        );
 
         fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }

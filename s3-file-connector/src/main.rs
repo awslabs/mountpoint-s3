@@ -4,8 +4,7 @@ use anyhow::{anyhow, Context as _};
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{ArgGroup, Parser};
 use fuser::{BackgroundSession, MountOption, Session};
-use s3_client::{AddressingStyle, Endpoint, HeadBucketError, S3ClientConfig, S3CrtClient, S3RequestError};
-
+use s3_client::{AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient};
 use s3_file_connector::fs::S3FilesystemConfig;
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::metrics::{metrics_tracing_span_layer, MetricsSink};
@@ -250,7 +249,7 @@ fn create_client_for_bucket(
     match futures::executor::block_on(head_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(S3RequestError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
+        Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let endpoint = Endpoint::from_region(&region, addressing_style)?;
             let new_client = S3CrtClient::new(

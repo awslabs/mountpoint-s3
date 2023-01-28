@@ -6,10 +6,8 @@ mod s3_crt_client;
 mod util;
 
 pub use endpoint::{AddressingStyle, Endpoint};
-pub use object_client::{ListObjectsResult, ObjectClient};
-pub use s3_crt_client::get_object::GetObjectError;
+pub use object_client::*;
 pub use s3_crt_client::head_bucket::HeadBucketError;
-pub use s3_crt_client::list_objects::ListObjectsError;
 pub use s3_crt_client::{S3ClientConfig, S3CrtClient, S3RequestError};
 
 #[cfg(test)]
