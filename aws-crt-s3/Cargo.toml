@@ -6,6 +6,8 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+aws-config = "0.54.1"
+aws-credential-types = "0.54.1"
 aws-crt-s3-sys = { path = "../aws-crt-s3-sys" }
 futures = "0.3.24"
 libc = "0.2.132"
@@ -13,6 +15,7 @@ log = "0.4.17"
 smallstr = "0.3.0"
 static_assertions = "1.1.0"
 thiserror = "1.0.35"
+tokio = { version = "1.23.1", features = ["rt", "macros"] }
 
 [dev-dependencies]
 criterion = "0.4.0"

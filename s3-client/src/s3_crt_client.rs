@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
+use aws_crt_s3::auth::credentials::CredentialsProvider;
 use aws_crt_s3::common::allocator::Allocator;
 use aws_crt_s3::http::request_response::{Header, Headers, Message};
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
@@ -75,14 +75,11 @@ impl S3CrtClient {
             host_resolver: &mut host_resolver,
         };
 
-        let mut client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
+        let client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
 
-        let creds_options = CredentialsProviderChainDefaultOptions {
-            bootstrap: &mut client_bootstrap,
-        };
+        let mut delegate_creds_provider = CredentialsProvider::new_delegate_creds_provider(&allocator).unwrap();
 
-        let mut creds_provider = CredentialsProvider::new_chain_default(&allocator, &creds_options).unwrap();
-        let signing_config = init_default_signing_config(region, &mut creds_provider);
+        let signing_config = init_default_signing_config(region, &mut delegate_creds_provider);
 
         let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
         // Match the SDK "legacy" retry strategies
