@@ -128,32 +128,34 @@ impl Superblock {
         let mut full_path_suffixed = full_path.clone();
         full_path_suffixed.push("/");
 
-        // We need to try two ListObjects requests, one with and one without a "/" suffix. There's a
-        // few different cases we need to cover this way:
+        // We need to try two requests here, one to find an object with the given name, and one to
+        // discover a possible shadowing (implicit) directory with the same name. There's a few
+        // different cases we need to consider here:
         //   (1) Consider this namespace with two keys:
-        //           dir-1/foo
-        //           dir/ bar
-        //       Here, if we lookup("dir"), and only looked at the unsuffixed ListObjects, we'd get
-        //       back the common prefix "dir-1/", because that precedes "dir/" in lexicographic
-        //       order. Doing the suffixed ListObjects concurrently makes sure we have a chance to
-        //       find out that "dir" actually also exists, by listing starting from "dir/".
-        //   (2) Consider this namespace with two keys:
         //           a
         //           a/b
         //       Here we need to make a choice about whether to make `a` visible as a file or as a
-        //       directory. We choose to make it a directory. If we lookup("a") and only look at the
-        //       unsuffixed ListObjects, we'd see the object `a`, but we have to shadow that object
-        //       with a directory. Doing the suffixed ListObjects concurrently lets us find out that
-        //       `a` needs to be a directory and so we should suppress the file lookup.
-        //   (3) Consider this namespace with two keys, similar to (2):
+        //       directory. We choose to make it a directory. If we lookup("a") and only do a
+        //       HeadObject for `a`, we'd see the object `a`, but we need to shadow that object with
+        //       a directory. Doing the concurrent ListObjects lets us find out that `a` needs to be
+        //       a directory and so we should suppress the file lookup. Note that this means we
+        //       can't respond to the `lookup` call until both the Head and List calls complete.
+        //   (2) Consider this namespace with two keys, similar to (1):
         //           a
         //           a/
-        //       This has the same problem as (2), except that we also need to warn the user that
+        //       This has the same problem as (1), except that we also need to warn the user that
         //       the key `a/` will be inaccessible.
-        let mut lookup_unsuffixed = client
-            .list_objects(&self.inner.bucket, None, "/", 1, full_path.to_str().unwrap())
+        //   (3) Consider this namespace with two keys:
+        //           dir-1/foo
+        //           dir/ bar
+        //       Here we need to be careful how we issue the ListObjects call. If we don't append a
+        //       "/" to the prefix in the request, the first common prefix we'll get back will be
+        //       "dir-1/", because that precedes "dir/" in lexicographic order. Doing the
+        //       ListObjects with "/" appended makes sure we always observe the correct prefix.
+        let mut file_lookup = client
+            .head_object(&self.inner.bucket, full_path.to_str().unwrap())
             .fuse();
-        let mut lookup_suffixed = client
+        let mut dir_lookup = client
             .list_objects(&self.inner.bucket, None, "/", 1, full_path_suffixed.to_str().unwrap())
             .fuse();
 
@@ -161,41 +163,18 @@ impl Superblock {
 
         for _ in 0..2 {
             select_biased! {
-                result = lookup_unsuffixed => {
-                    let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
-
-                    if result
-                        .common_prefixes
-                        .get(0)
-                        .map(|prefix| &prefix[..prefix.len() - 1] == full_path.to_str().unwrap())
-                        .unwrap_or(false)
-                    {
-                        trace!(?parent, ?name, "unsuffixed lookup found a directory");
-
-                        let stat = InodeStat::for_directory(OffsetDateTime::UNIX_EPOCH);
-                        let ino =
-                            self.inner
-                                .update_or_insert(parent, name, InodeKind::Directory, stat.clone(), Instant::now())?;
-                        return Ok(Lookup {
-                            ino,
-                            stat,
-                            full_key: full_path_clone,
-                        });
-                    }
-
-                    if result
-                        .objects
-                        .get(0)
-                        .map(|object| object.key == full_path.to_str().unwrap())
-                        .unwrap_or(false)
-                    {
-                        let last_modified = result.objects[0].last_modified;
-                        let stat = InodeStat::for_file(result.objects[0].size as usize, last_modified);
+                result = file_lookup => {
+                    // TODO: 404s currently become client errors, but they are expected when looking
+                    // up a directory, so we just swallow all errors for now. Fix when we model
+                    // service errors correctly.
+                    if let Ok(result) = result.map_err(|e| InodeError::ClientError(e.into())) {
+                        let last_modified = result.object.last_modified;
+                        let stat = InodeStat::for_file(result.object.size as usize, last_modified);
                         file_state = Some(stat);
                     }
                 }
 
-                result = lookup_suffixed => {
+                result = dir_lookup => {
                     let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
 
                     let found_directory = if result
@@ -232,6 +211,8 @@ impl Superblock {
                         false
                     };
 
+                    // We don't have to wait for the HeadObject to complete because in our
+                    // semantics, directories always shadow files.
                     if found_directory {
                         trace!(?parent, ?name, kind=?InodeKind::Directory, "suffixed lookup found a directory");
                         let stat = InodeStat::for_directory(OffsetDateTime::UNIX_EPOCH);
@@ -248,8 +229,8 @@ impl Superblock {
             }
         }
 
-        // If we reach here, the suffixed lookup didn't hit a shadowing directory, so we know we
-        // either have a valid file, or both requests failed to find the object so it must not exist
+        // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
+        // have a valid file, or both requests failed to find the object so it must not exist
         if let Some(stat) = file_state {
             trace!(?parent, ?name, "found a regular file");
             let ino = self
