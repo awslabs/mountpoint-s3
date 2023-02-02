@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1675364465403,
+  "lastUpdate": 1675371286524,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2603,6 +2603,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 24.4951171875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "jamesbornholt@gmail.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "8b486cbb2498a464bf64a3ca75c8a952d670a2d2",
+          "message": "Add support for custom endpoint URLs\n\nThis allows us to support dualstack and FIPS endpoints, which I've added\ntests for. It should also allow us to support multi-region access points\nand Transfer Acceleration, but I haven't written tests for those just\nyet.\n\nThe overall idea follows the Python SDK and the AWS CLI. Customers can\nspecify an endpoint URL and an addressing mode (virtual host or\npath-based). The SDKs go further and do endpoint discovery based on\nconfiguration, so customers can specify an ARN and/or various endpoint\nconfigurations like dualstack or FIPS, and the SDK automatically\ncomputes the right endpoint. We don't have that yet because we'd like to\ndo it without replicating the SDKs.\n\nThis change was reasonably invasive because we have some new places to\nthread errors through, but the important stuff is the new `Uri` that\nexposes the CRT's URI support, and the new `Endpoint` struct that\nencapsulates the rules for constructing endpoint URIs.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-02-03T07:37:35+11:00",
+          "tree_id": "577c54c2ac508da39c6ac0758df03d0f133584ff",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/8b486cbb2498a464bf64a3ca75c8a952d670a2d2"
+        },
+        "date": 1675371285742,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.47265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.025390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 11.38671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 33.642578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 26.0791015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 1.96484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.3515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 5.0068359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.9052734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 873.76171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 6.9267578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6587.671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 162.7783203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 8.451171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 937.16796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 25.0048828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1749.1162109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 26.1552734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 25.267578125,
             "unit": "MiB/s"
           }
         ]
