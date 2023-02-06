@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1675481730661,
+  "lastUpdate": 1675697538729,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -2851,6 +2851,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 23.3935546875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2c2c23c4c9f650df0703565e6ad2c52b2308cc30",
+          "message": "Use HeadObject for lookup (#69)\n\nOur current `lookup` does two concurrent ListObjects requests. After\r\nthinking about it a bit more carefully, one of them can be replaced with\r\na cheaper, faster HeadObject request. The \"unsuffixed\" request we were\r\ndoing was purely to discover whether an object of the exact looked-up\r\nname existed, which is what HeadObject does. Switching to HeadObject\r\nreduces the request costs of a lookup.\r\n\r\nOne disadvantage of HeadObject is when looking up directories. The\r\nunsuffixed ListObjects we're replacing here could discover a common\r\nprefix and return it immediately without waiting for the other request\r\nto complete. But in practice, the two requests were dispatched\r\nconcurrently, so the customer still pays for both requests, and the\r\nlatency is the minimum latency of two concurrently ListObjects. Now,\r\nthe latency for a directory lookup will be the maximum of a concurrent\r\nListObjects and HeadObject.\r\n\r\nAn issue in this change is that we expect HeadObject to return 404 when\r\ndoing directory lookups, but right now the way our error types are\r\nstructured gives us no way to distinguish 404s from other errors. For\r\nnow, I'm just swallowing all errors on the HeadObject request, and I'll\r\nfollow up with a broader change to fix our error handling story to make\r\nthis work.\r\n\r\nThis is a partial fix for #12, but in future we can do better for\r\nlookups against objects we've seen before by remembering their type.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-02-06T07:14:37-08:00",
+          "tree_id": "b208f689c81dd6559e2fe3d752791e6db09530af",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/2c2c23c4c9f650df0703565e6ad2c52b2308cc30"
+        },
+        "date": 1675697537553,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.1484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 6.67578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 9.77734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 32.1259765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 35.0205078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 1.814453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.2216796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.1474609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.4521484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 868.7626953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 8.8486328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6686.8349609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 157.3759765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 9.056640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 732.748046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 20.8681640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1955.06640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 23.2939453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 24.927734375,
             "unit": "MiB/s"
           }
         ]
