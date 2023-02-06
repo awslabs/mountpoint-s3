@@ -3,7 +3,7 @@
 pub mod common;
 
 use common::*;
-use s3_client::S3CrtClient;
+use s3_client::{ListObjectsError, ObjectClientError, S3CrtClient};
 
 #[tokio::test]
 async fn test_list_objects() {
@@ -102,4 +102,19 @@ async fn test_invalid_list_objects() {
 
     let err = result.expect_err("this request should have failed: we made up an invalid continuation token");
     println!("{err}");
+}
+
+#[tokio::test]
+async fn test_list_objects_404_bucket() {
+    let (_bucket, prefix) = get_test_bucket_and_prefix("test_list_objects_404_bucket");
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .list_objects("DOC-EXAMPLE-BUCKET", None, "/", 1000, &prefix)
+        .await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket))
+    ));
 }

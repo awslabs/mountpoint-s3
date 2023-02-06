@@ -1,11 +1,13 @@
 use std::future::Future;
+use std::ops::Deref;
 use std::ops::Range;
+use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use aws_crt_s3::common::error::Error;
 use aws_crt_s3::http::request_response::Header;
-use aws_crt_s3::s3::client::MetaRequestType;
+use aws_crt_s3::s3::client::{MetaRequestResult, MetaRequestType};
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
 use pin_project::pin_project;
@@ -64,7 +66,10 @@ impl S3CrtClient {
             },
             move |result| {
                 if result.is_err() {
-                    Err(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                    let parsed = parse_get_object_error(&result);
+                    Err(parsed
+                        .map(ObjectClientError::ServiceError)
+                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result))))
                 } else {
                     Ok(())
                 }
@@ -114,5 +119,62 @@ impl Stream for GetObjectRequest {
             }
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+fn parse_get_object_error(result: &MetaRequestResult) -> Option<GetObjectError> {
+    match result.response_status {
+        404 => {
+            let body = result.error_response_body.as_ref()?;
+            let root = xmltree::Element::parse(body.as_bytes()).ok()?;
+            let error_code = root.get_child("Code")?;
+            let error_str = error_code.get_text()?;
+            match error_str.deref() {
+                "NoSuchBucket" => Some(GetObjectError::NoSuchBucket),
+                "NoSuchKey" => Some(GetObjectError::NoSuchKey),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::{OsStr, OsString};
+
+    use super::*;
+
+    fn make_result(response_status: i32, body: impl Into<OsString>) -> MetaRequestResult {
+        MetaRequestResult {
+            response_status,
+            crt_error: 1i32.into(),
+            error_response_headers: None,
+            error_response_body: Some(body.into()),
+        }
+    }
+
+    #[test]
+    fn parse_404_no_such_key() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Key>not-a-real-key</Key><RequestId>NTKJWKHQBYNS73A9</RequestId><HostId>Nc9kWNrf4kGoq5NIUnQ4t7u04ZZXGm/i463v+jwCI8sIrZBqeYI8uffLHQ+/qusdMWNuUwqeXHU=</HostId></Error>"#;
+        let result = make_result(404, OsStr::from_bytes(&body[..]));
+        let result = parse_get_object_error(&result);
+        assert_eq!(result, Some(GetObjectError::NoSuchKey));
+    }
+
+    #[test]
+    fn parse_404_no_such_bucket() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>DOC-EXAMPLE-BUCKET</BucketName><RequestId>4VAGDP5HMYTDNB3Y</RequestId><HostId>JMgGqpVKIaaTieG68IODiV2piWw/q9VCTowGvWP36BEz6oIVEXiesn8cDE5ph7if0gpY5WU1Wc8=</HostId></Error>"#;
+        let result = make_result(404, OsStr::from_bytes(&body[..]));
+        let result = parse_get_object_error(&result);
+        assert_eq!(result, Some(GetObjectError::NoSuchBucket));
+    }
+
+    #[test]
+    fn parse_403_glacier_storage_class() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidObjectState</Code><Message>The action is not valid for the object's storage class</Message><RequestId>9FEFFF118E15B86F</RequestId><HostId>WVQ5kzhiT+oiUfDCOiOYv8W4Tk9eNcxWi/MK+hTS/av34Xy4rBU3zsavf0aaaaa</HostId></Error>"#;
+        let result = make_result(403, OsStr::from_bytes(&body[..]));
+        let result = parse_get_object_error(&result);
+        assert_eq!(result, None);
     }
 }

@@ -6,7 +6,7 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;
-use s3_client::{ObjectClient, S3CrtClient};
+use s3_client::{GetObjectError, ObjectClient, ObjectClientError, S3CrtClient};
 
 #[tokio::test]
 async fn test_get_object() {
@@ -66,8 +66,8 @@ async fn test_get_object_large() {
 }
 
 #[tokio::test]
-async fn test_get_object_404() {
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404");
+async fn test_get_object_404_key() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404_key");
 
     let key = format!("{prefix}/nonexistent_key");
 
@@ -75,8 +75,29 @@ async fn test_get_object_404() {
 
     let mut result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
-    assert!(next.is_err());
+    assert!(matches!(
+        next,
+        Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
+    ));
 
     // TODO: what happens if the object is deleted mid-GET? the CRT does lots of ranged GETs, so they
     // will start failing. need a way to test that.
+}
+#[tokio::test]
+async fn test_get_object_404_bucket() {
+    let (_bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404_bucket");
+
+    let key = format!("{prefix}/nonexistent_key");
+
+    let client: S3CrtClient = get_test_client();
+
+    let mut result = client
+        .get_object("DOC-EXAMPLE-BUCKET", &key, None)
+        .await
+        .expect("get_object failed");
+    let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
+    assert!(matches!(
+        next,
+        Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
+    ));
 }
