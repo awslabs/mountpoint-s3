@@ -105,6 +105,7 @@ fn print_version_short() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
 fn addressing_style_mutually_exclusive() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("s3-file-connector")?;
 
