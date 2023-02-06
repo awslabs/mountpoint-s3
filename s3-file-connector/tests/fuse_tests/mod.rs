@@ -1,3 +1,4 @@
+mod fork_test;
 mod lookup_test;
 mod mount_test;
 mod perm_test;
@@ -66,14 +67,14 @@ mod mock_session {
 
 #[cfg(feature = "s3_tests")]
 mod s3_session {
+    use crate::common::{get_test_bucket_and_prefix, get_test_region};
+
     use super::*;
 
     use std::future::Future;
 
     use aws_sdk_s3::types::ByteStream;
     use aws_sdk_s3::Region;
-    use rand::rngs::OsRng;
-    use rand::RngCore as _;
     use s3_client::{S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
@@ -120,26 +121,6 @@ mod s3_session {
         };
 
         (mount_dir, session, Box::new(put_object))
-    }
-
-    fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
-        let bucket = std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests");
-
-        // Generate a random nonce to make sure this prefix is truly unique
-        let nonce = OsRng.next_u64();
-
-        // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
-        let prefix =
-            std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
-        assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
-
-        let prefix = format!("{prefix}{test_name}/{nonce}/");
-
-        (bucket, prefix)
-    }
-
-    fn get_test_region() -> String {
-        std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
     }
 
     async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {

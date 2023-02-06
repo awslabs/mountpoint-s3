@@ -40,6 +40,7 @@ test-asan:
 	cargo +nightly test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages -- \
 	--skip reftest_ \
 	--skip proptest_ \
+	--skip fork_test \
 	--skip sequential_read_large
 
 .PHONY: fmt
