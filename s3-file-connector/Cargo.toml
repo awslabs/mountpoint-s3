@@ -26,6 +26,7 @@ tracing = { version = "0.1.35", default-features = false, features = ["std", "lo
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 nix = { version = "0.26.1", default-features = false, features = ["user"] }
 time = "0.3.17"
+const_format = "0.2.30"
 
 [dev-dependencies]
 assert_cmd = "2.0.6"
@@ -49,3 +50,6 @@ tokio = { version = "1.24.2", features = ["rt", "macros"] }
 fuse_tests = []
 s3_tests = []
 shuttle = []
+
+[build-dependencies]
+built = { version = "0.5.3", features = ["git2"] }

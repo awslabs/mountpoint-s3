@@ -13,6 +13,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 
+mod build_info;
+
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
 
@@ -33,7 +35,7 @@ fn init_tracing_subscriber() {
 }
 
 #[derive(Parser)]
-#[clap(about = "S3 File Connector", version)]
+#[clap(about = "S3 File Connector", version = build_info::FULL_VERSION)]
 #[clap(group(ArgGroup::new("addressing-style").args(&["virtual-addressing", "path-addressing"])))]
 struct CliArgs {
     #[clap(help = "Name of bucket to mount")]
