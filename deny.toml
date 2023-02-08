@@ -6,7 +6,8 @@ allow = [
     "ISC",
     "MIT",
     "OpenSSL",
-    "Unicode-DFS-2016"
+    "Unicode-DFS-2016",
+    "Zlib",
 ]
 
 [[licenses.clarify]]
