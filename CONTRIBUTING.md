@@ -39,6 +39,13 @@ To send us a pull request, please:
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
 
+Note that this project requires all commits to contain a 'sign-off'.
+The sign-off indicates that the contributor agrees to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/)
+for that particular contribution.
+
+Sign-off can be added using the `-s, --sign-off` options when authoring the commit:
+https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff
+
 
 ## Finding contributions to work on
 Looking at the existing issues is a great way to find something to contribute on. As our projects, by default, use the default GitHub issue labels (enhancement/bug/duplicate/help wanted/invalid/question/wontfix), looking at any 'help wanted' issues is a great place to start.
