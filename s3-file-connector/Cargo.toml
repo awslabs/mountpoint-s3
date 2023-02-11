@@ -52,4 +52,4 @@ s3_tests = []
 shuttle = []
 
 [build-dependencies]
-built = { version = "0.5.3", features = ["git2"] }
+built = { version = "0.6.0", features = ["git2"] }
