@@ -308,7 +308,9 @@ impl<'a> Message<'a> {
 
     /// get the headers from the message
     pub fn get_headers(&mut self) -> Headers {
-        // SAFETY: `aws_http_message get_headers`
+        // SAFETY: `aws_http_message get_headers` is safe because self.inner is a valid NonNull `aws_http_message`.
+        // Then `Headers::from_crt` increments the reference count of the Headers object in CRT so there are
+        // no lifetime issues.
         unsafe {
             Headers::from_crt(
                 aws_http_message_get_headers(self.inner.as_ptr())

@@ -508,7 +508,7 @@ mod tests {
     fn test_user_agent_without_prefix() {
         let expected_user_agent = "aws-s3-crt-rust";
 
-        let config = S3ClientConfig { ..Default::default() };
+        let config: S3ClientConfig = Default::default();
 
         let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
 
