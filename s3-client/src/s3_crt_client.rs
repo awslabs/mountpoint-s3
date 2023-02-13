@@ -51,6 +51,7 @@ pub struct S3ClientConfig {
     pub throughput_target_gbps: Option<f64>,
     pub part_size: Option<usize>,
     pub endpoint: Option<Endpoint>,
+    pub user_agent_prefix: Option<String>,
 }
 
 #[derive(Debug)]
@@ -60,6 +61,9 @@ pub struct S3CrtClient {
     endpoint: Endpoint,
     allocator: Allocator,
     next_request_counter: AtomicU64,
+    /// user_agent_header will be passed into CRT which add additional information "CRTS3NativeClient/0.1.x".
+    /// Here it will add the user agent prefix and s3 client information.
+    user_agent_header: String,
 }
 
 impl S3CrtClient {
@@ -111,6 +115,12 @@ impl S3CrtClient {
             client_config.part_size(part_size);
         }
 
+        const CLIENT_NAME: &str = "aws-s3-crt-rust";
+        let user_agent_header = match config.user_agent_prefix {
+            Some(prefix) => format!("{prefix} {CLIENT_NAME}"),
+            None => CLIENT_NAME.to_owned(),
+        };
+
         let s3_client = Client::new(&allocator, client_config).unwrap();
 
         let endpoint = if let Some(endpoint) = config.endpoint {
@@ -125,6 +135,7 @@ impl S3CrtClient {
             event_loop_group,
             endpoint,
             next_request_counter: AtomicU64::new(0),
+            user_agent_header,
         })
     }
 
@@ -144,7 +155,7 @@ impl S3CrtClient {
         message.set_request_method(method)?;
         message.add_header(&Header::new("Host", hostname))?;
         message.add_header(&Header::new("accept", "application/xml"))?;
-        message.add_header(&Header::new("user-agent", "aws-s3-crt-rust"))?;
+        message.add_header(&Header::new("User-Agent", &self.user_agent_header))?;
 
         Ok(S3Message {
             inner: message,
@@ -454,5 +465,66 @@ impl ObjectClient for S3CrtClient {
         contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> Result<PutObjectResult, Self::PutObjectError> {
         self.put_object(bucket, key, params, contents).await
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::S3ClientConfig;
+    use crate::S3CrtClient;
+    use std::assert_eq;
+
+    #[test]
+    fn test_user_agent_with_prefix() {
+        let user_agent_prefix = String::from("someprefix");
+        let expected_user_agent = "someprefix aws-s3-crt-rust";
+
+        let config = S3ClientConfig {
+            user_agent_prefix: Some(user_agent_prefix),
+            ..Default::default()
+        };
+
+        let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
+
+        let mut message = client
+            .new_request_template("GET", "plutotestankit")
+            .expect("new request template expected");
+
+        // get headers is getting the Headers from CRT and convertling it to rust format
+        let headers = {
+            let this = &mut message;
+            this.inner.get_headers()
+        };
+
+        let user_agent_header = headers
+            .get("User-Agent")
+            .expect("User Agent Header expected with given prefix");
+        let user_agent_header_value = user_agent_header.value();
+
+        assert_eq!(expected_user_agent, user_agent_header_value);
+    }
+
+    // Simple test to ensure the user agent header is correct even when prefix is not added
+    #[test]
+    fn test_user_agent_without_prefix() {
+        let expected_user_agent = "aws-s3-crt-rust";
+
+        let config = S3ClientConfig { ..Default::default() };
+
+        let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
+
+        let mut message = client
+            .new_request_template("GET", "plutotestankit")
+            .expect("new request template expected");
+
+        // get headers is getting the Headers from CRT and convertling it to rust format
+        let headers = {
+            let this = &mut message;
+            this.inner.get_headers()
+        };
+
+        let user_agent_header = headers.get("User-Agent").expect("User Agent Header expected");
+        let user_agent_header_value = user_agent_header.value();
+
+        assert_eq!(expected_user_agent, user_agent_header_value);
     }
 }

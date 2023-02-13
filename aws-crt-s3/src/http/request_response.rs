@@ -305,6 +305,18 @@ impl<'a> Message<'a> {
 
         old_input_stream
     }
+
+    /// get the headers from the message
+    pub fn get_headers(&mut self) -> Headers {
+        // SAFETY: `aws_http_message get_headers`
+        unsafe {
+            Headers::from_crt(
+                aws_http_message_get_headers(self.inner.as_ptr())
+                    .ok_or_last_error()
+                    .unwrap(),
+            )
+        }
+    }
 }
 
 impl<'a> Drop for Message<'a> {

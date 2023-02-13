@@ -161,6 +161,7 @@ fn main() -> anyhow::Result<()> {
         throughput_target_gbps,
         part_size: args.part_size.map(|t| t as usize),
         endpoint,
+        user_agent_prefix: Some("s3-file-connector".to_owned()),
     };
 
     let _metrics = MetricsSink::init();
@@ -241,7 +242,7 @@ fn create_client_for_bucket(
         region_to_try,
         S3ClientConfig {
             endpoint: Some(endpoint),
-            ..client_config
+            ..client_config.clone()
         },
     )?;
 
@@ -256,7 +257,7 @@ fn create_client_for_bucket(
                 &region,
                 S3ClientConfig {
                     endpoint: Some(endpoint),
-                    ..client_config
+                    ..client_config.clone()
                 },
             )?;
             let head_request = new_client.head_bucket(bucket);
