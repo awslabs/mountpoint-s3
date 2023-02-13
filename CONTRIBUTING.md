@@ -39,12 +39,9 @@ To send us a pull request, please:
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
 
-Note that this project requires all commits to contain a 'sign-off'.
-The sign-off indicates that the contributor agrees to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/)
-for that particular contribution.
-
-Sign-off can be added using the `-s, --sign-off` options when authoring the commit:
-https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff
+We require all contributors to agree to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/),
+and to indicate this agreement by signing their commits using [Git's `Signed-off-by` support](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff).
+To add this trailer to your commits, use the `-s, --sign-off` option to `git commit`.
 
 
 ## Finding contributions to work on
