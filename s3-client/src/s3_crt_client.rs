@@ -467,12 +467,14 @@ impl ObjectClient for S3CrtClient {
         self.put_object(bucket, key, params, contents).await
     }
 }
+
 #[cfg(test)]
-mod tests {
+mod test {
     use crate::S3ClientConfig;
     use crate::S3CrtClient;
     use std::assert_eq;
 
+    //test if the prefix is added correctly to the User-Agent header
     #[test]
     fn test_user_agent_with_prefix() {
         let user_agent_prefix = String::from("someprefix");
@@ -489,11 +491,7 @@ mod tests {
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 
-        // get headers is getting the Headers from CRT and convertling it to rust format
-        let headers = {
-            let this = &mut message;
-            this.inner.get_headers()
-        };
+        let headers = message.inner.get_headers();
 
         let user_agent_header = headers
             .get("User-Agent")
@@ -516,11 +514,7 @@ mod tests {
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 
-        // get headers is getting the Headers from CRT and convertling it to rust format
-        let headers = {
-            let this = &mut message;
-            this.inner.get_headers()
-        };
+        let headers = message.inner.get_headers();
 
         let user_agent_header = headers.get("User-Agent").expect("User Agent Header expected");
         let user_agent_header_value = user_agent_header.value();

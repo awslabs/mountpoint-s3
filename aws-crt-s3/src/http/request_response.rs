@@ -306,7 +306,7 @@ impl<'a> Message<'a> {
         old_input_stream
     }
 
-    /// get the headers from the message
+    /// get the headers from the message and increases the reference count for the Headers in CRT.
     pub fn get_headers(&mut self) -> Headers {
         // SAFETY: `aws_http_message get_headers` is safe because self.inner is a valid NonNull `aws_http_message`.
         // Then `Headers::from_crt` increments the reference count of the Headers object in CRT so there are
