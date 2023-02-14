@@ -1,5 +1,5 @@
-use crate::object_client::{ListObjectsResult, ObjectInfo};
-use crate::s3_crt_client::{ConstructionError, S3RequestError};
+use crate::object_client::{ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo};
+use crate::s3_crt_client::S3RequestError;
 use crate::S3CrtClient;
 use aws_crt_s3::s3::client::MetaRequestType;
 use std::str::FromStr;
@@ -7,13 +7,6 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tracing::{debug, error};
-
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum ListObjectsError {
-    #[error("Error parsing response: {0}")]
-    ParseError(#[from] ParseError),
-}
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -139,10 +132,12 @@ impl S3CrtClient {
         delimiter: &str,
         max_keys: usize,
         prefix: &str,
-    ) -> Result<ListObjectsResult, S3RequestError<ListObjectsError>> {
+    ) -> ObjectClientResult<ListObjectsResult, ListObjectsError, S3RequestError> {
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
-            let mut message = self.new_request_template("GET", bucket)?;
+            let mut message = self
+                .new_request_template("GET", bucket)
+                .map_err(S3RequestError::construction_failure)?;
 
             // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
             let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");
@@ -153,7 +148,9 @@ impl S3CrtClient {
                 request = format!("{request}&continuation-token={continuation_token}");
             }
 
-            message.set_request_path(request).map_err(ConstructionError::CrtError)?;
+            message
+                .set_request_path(request)
+                .map_err(S3RequestError::construction_failure)?;
 
             let span = request_span!(self, "list_objects");
             span.in_scope(|| {
@@ -167,11 +164,14 @@ impl S3CrtClient {
                 )
             });
 
-            self.make_simple_http_request(message, MetaRequestType::Default, span)?
+            self.make_simple_http_request(message, MetaRequestType::Default, span, |result| {
+                ObjectClientError::ClientError(S3RequestError::ResponseError(result))
+            })?
         };
 
         let body = body.await?;
 
-        ListObjectsResult::parse_from_bytes(&body).map_err(|e| S3RequestError::ServiceError(e.into()))
+        ListObjectsResult::parse_from_bytes(&body)
+            .map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(e.into())))
     }
 }

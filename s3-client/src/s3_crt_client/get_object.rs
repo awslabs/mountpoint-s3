@@ -9,12 +9,11 @@ use aws_crt_s3::s3::client::MetaRequestType;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
 use pin_project::pin_project;
-use thiserror::Error;
-use tracing::{debug, error};
+use tracing::debug;
 
-use crate::object_client::GetBodyPart;
-use crate::s3_crt_client::{ConstructionError, S3HttpRequest};
-use crate::{S3CrtClient, S3RequestError};
+use crate::object_client::{GetBodyPart, GetObjectError, ObjectClientError};
+use crate::s3_crt_client::S3HttpRequest;
+use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] (for
@@ -25,27 +24,33 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-    ) -> Result<GetObjectRequest, S3RequestError<GetObjectError>> {
+    ) -> Result<GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
         let span = request_span!(self, "get_object");
         span.in_scope(
             || debug!(?bucket, ?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
-        let mut message = self.new_request_template("GET", bucket)?;
+        let mut message = self
+            .new_request_template("GET", bucket)
+            .map_err(S3RequestError::construction_failure)?;
 
         // Overwrite "accept" header since this returns raw object data.
-        message.add_header(&Header::new("accept", "*/*"))?;
+        message
+            .add_header(&Header::new("accept", "*/*"))
+            .map_err(S3RequestError::construction_failure)?;
 
         if let Some(range) = range {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .add_header(&Header::new("Range", range_value))
-                .map_err(ConstructionError::CrtError)?;
+                .map_err(S3RequestError::construction_failure)?;
         }
 
         let key = format!("/{key}");
-        message.set_request_path(key).map_err(ConstructionError::CrtError)?;
+        message
+            .set_request_path(key)
+            .map_err(S3RequestError::construction_failure)?;
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
 
@@ -57,7 +62,13 @@ impl S3CrtClient {
             move |offset, data| {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
-            move |_result| Ok(()),
+            move |result| {
+                if result.is_err() {
+                    Err(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                } else {
+                    Ok(())
+                }
+            },
         )?;
 
         Ok(GetObjectRequest {
@@ -66,13 +77,6 @@ impl S3CrtClient {
             finished: false,
         })
     }
-}
-
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum GetObjectError {
-    #[error("CRT error")]
-    CRTError(#[from] Error),
 }
 
 #[derive(Debug)]
@@ -86,7 +90,7 @@ pub struct GetObjectRequest {
 }
 
 impl Stream for GetObjectRequest {
-    type Item = Result<GetBodyPart, S3RequestError<GetObjectError>>;
+    type Item = ObjectClientResult<GetBodyPart, GetObjectError, S3RequestError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         if self.finished {
@@ -96,7 +100,7 @@ impl Stream for GetObjectRequest {
         let this = self.project();
 
         if let Poll::Ready(Some(val)) = this.finish_receiver.poll_next(cx) {
-            return Poll::Ready(Some(val.map_err(|e| e.into())));
+            return Poll::Ready(Some(val.map_err(|e| ObjectClientError::ClientError(e.into()))));
         }
 
         match this.request.poll(cx) {

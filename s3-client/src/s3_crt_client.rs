@@ -27,11 +27,8 @@ use thiserror::Error;
 use tracing::{debug, error, trace, warn, Span};
 
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
-use crate::object_client::{HeadObjectResult, ListObjectsResult, ObjectClient, PutObjectParams, PutObjectResult};
-use crate::s3_crt_client::get_object::{GetObjectError, GetObjectRequest};
-use crate::s3_crt_client::head_object::HeadObjectError;
-use crate::s3_crt_client::list_objects::ListObjectsError;
-use crate::s3_crt_client::put_object::PutObjectError;
+use crate::object_client::*;
+use crate::s3_crt_client::get_object::GetObjectRequest;
 
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
@@ -165,17 +162,19 @@ impl S3CrtClient {
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
-    /// makes progress. The `on_finish` callback is invoked only if the request succeeds.
-    fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
+    /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
+    /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
+    /// succeeded.
+    fn make_meta_request<T: Send + 'static, E: Send + 'static>(
         &self,
         message: S3Message,
         meta_request_type: MetaRequestType,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_finish: impl FnOnce(MetaRequestResult) -> Result<T, E> + Send + 'static,
-    ) -> Result<S3HttpRequest<T, E>, S3RequestError<E>> {
-        let (tx, rx) = oneshot::channel::<Result<T, S3RequestError<E>>>();
+        on_finish: impl FnOnce(MetaRequestResult) -> ObjectClientResult<T, E, S3RequestError> + Send + 'static,
+    ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
+        let (tx, rx) = oneshot::channel::<ObjectClientResult<T, E, S3RequestError>>();
 
         let span_body = request_span.clone();
         let span_finish = request_span;
@@ -219,20 +218,14 @@ impl S3CrtClient {
 
                 metrics::counter!("s3.meta_requests", 1, "op" => op);
 
-                let result = if !request_result.is_err() {
-                    debug!(
-                        request_id = request_id.as_deref().unwrap_or("unknown"),
-                        duration_us = start_time.elapsed().as_micros(),
-                        "request finished"
-                    );
-                    on_finish(request_result).map_err(|e| S3RequestError::ServiceError(e))
-                } else {
+                if request_result.is_err() {
                     warn!(
                         request_id = request_id.as_deref().unwrap_or("unknown"),
                         duration_us = start_time.elapsed().as_micros(),
                         ?request_result,
                         "request failed"
                     );
+
                     // If it's not a real HTTP status, encode the CRT error instead
                     let error_status = if request_result.response_status >= 100 {
                         request_result.response_status
@@ -240,8 +233,15 @@ impl S3CrtClient {
                         -request_result.crt_error.raw_error()
                     };
                     metrics::counter!("s3.meta_request_failures", 1, "op" => op, "status" => format!("{error_status}"));
-                    Err(S3RequestError::ResponseError(request_result))
-                };
+                } else {
+                    debug!(
+                        request_id = request_id.as_deref().unwrap_or("unknown"),
+                        duration_us = start_time.elapsed().as_micros(),
+                        "request finished"
+                    );
+                }
+
+                let result = on_finish(request_result);
 
                 let _ = tx.send(result);
             })
@@ -256,13 +256,18 @@ impl S3CrtClient {
         Ok(S3HttpRequest { receiver: rx })
     }
 
-    /// Make an HTTP request using this S3 client that returns the body on success
-    fn make_simple_http_request<E: std::error::Error + Send + 'static>(
+    /// Make an HTTP request using this S3 client that returns the body on success or invokes the
+    /// given callback on failure.
+    ///
+    /// The `on_error` callback can assume that `result.is_err()` is true for the result it
+    /// receives.
+    fn make_simple_http_request<E: Send + 'static>(
         &self,
         message: S3Message,
         request_type: MetaRequestType,
         request_span: Span,
-    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError<E>> {
+        on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
+    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
         let body_clone = Arc::clone(&body);
@@ -277,7 +282,13 @@ impl S3CrtClient {
                 assert_eq!(offset as usize, body.len());
                 body.extend_from_slice(data);
             },
-            move |_result| Ok(std::mem::take(&mut *body.lock().unwrap())),
+            move |result| {
+                if result.is_err() {
+                    Err(on_error(result))
+                } else {
+                    Ok(std::mem::take(&mut *body.lock().unwrap()))
+                }
+            },
         )
     }
 
@@ -364,19 +375,23 @@ impl<'a> S3Message<'a> {
 
 #[derive(Debug)]
 #[pin_project]
-struct S3HttpRequest<T, E: std::error::Error> {
+struct S3HttpRequest<T, E> {
     #[pin]
-    receiver: oneshot::Receiver<Result<T, S3RequestError<E>>>,
+    receiver: oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>,
 }
 
-impl<T: Send, E: std::error::Error + Send + 'static> Future for S3HttpRequest<T, E> {
-    type Output = Result<T, S3RequestError<E>>;
+impl<T: Send, E: Send> Future for S3HttpRequest<T, E> {
+    type Output = ObjectClientResult<T, E, S3RequestError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        this.receiver
-            .poll(cx)
-            .map(|result| result.unwrap_or_else(|err| Err(S3RequestError::InternalError(Box::new(err)))))
+        this.receiver.poll(cx).map(|result| {
+            result.unwrap_or_else(|err| {
+                Err(ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(
+                    err,
+                ))))
+            })
+        })
     }
 }
 
@@ -391,26 +406,28 @@ pub enum NewClientError {
 
 /// Failed S3 request results
 #[derive(Error, Debug)]
-pub enum S3RequestError<E: std::error::Error> {
+pub enum S3RequestError {
     /// An internal error from within the S3 client. The request may have been sent.
     #[error("Internal S3 client error")]
     InternalError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     /// An internal error from within the AWS Common Runtime. The request may have been sent.
-    #[error("Unknown CRT error: {0}")]
+    #[error("Unknown CRT error")]
     CrtError(#[from] aws_crt_s3::common::error::Error),
 
     /// An error during construction of a request. The request was not sent.
-    #[error("Failed to construct request: {0}")]
+    #[error("Failed to construct request")]
     ConstructionFailure(#[from] ConstructionError),
 
     /// The request was sent but an unknown or unhandled failure occurred while processing it.
     #[error("Unknown response error: {0:?}")]
     ResponseError(MetaRequestResult),
+}
 
-    /// The request was sent and the service returned an error.
-    #[error("Error received from S3: {0:?}")]
-    ServiceError(#[source] E),
+impl S3RequestError {
+    fn construction_failure(inner: impl Into<ConstructionError>) -> Self {
+        S3RequestError::ConstructionFailure(inner.into())
+    }
 }
 
 #[derive(Error, Debug)]
@@ -427,17 +444,14 @@ pub enum ConstructionError {
 #[async_trait]
 impl ObjectClient for S3CrtClient {
     type GetObjectResult = GetObjectRequest;
-    type GetObjectError = S3RequestError<GetObjectError>;
-    type HeadObjectError = S3RequestError<HeadObjectError>;
-    type ListObjectsError = S3RequestError<ListObjectsError>;
-    type PutObjectError = S3RequestError<PutObjectError>;
+    type ClientError = S3RequestError;
 
     async fn get_object(
         &self,
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-    ) -> Result<Self::GetObjectResult, Self::GetObjectError> {
+    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         self.get_object(bucket, key, range)
     }
 
@@ -448,12 +462,16 @@ impl ObjectClient for S3CrtClient {
         delimiter: &str,
         max_keys: usize,
         prefix: &str,
-    ) -> Result<ListObjectsResult, Self::ListObjectsError> {
+    ) -> ObjectClientResult<ListObjectsResult, ListObjectsError, Self::ClientError> {
         self.list_objects(bucket, continuation_token, delimiter, max_keys, prefix)
             .await
     }
 
-    async fn head_object(&self, bucket: &str, key: &str) -> Result<HeadObjectResult, Self::HeadObjectError> {
+    async fn head_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         self.head_object(bucket, key).await
     }
 
@@ -463,7 +481,7 @@ impl ObjectClient for S3CrtClient {
         key: &str,
         params: &PutObjectParams,
         contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> Result<PutObjectResult, Self::PutObjectError> {
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.put_object(bucket, key, params, contents).await
     }
 }

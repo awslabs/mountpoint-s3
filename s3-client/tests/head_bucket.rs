@@ -3,7 +3,7 @@
 pub mod common;
 
 use common::*;
-use s3_client::{HeadBucketError, S3CrtClient, S3RequestError};
+use s3_client::{HeadBucketError, ObjectClientError, S3CrtClient};
 
 #[tokio::test]
 async fn test_head_bucket_correct_region() {
@@ -22,7 +22,7 @@ async fn test_head_bucket_wrong_region() {
     let result = client.head_bucket(&bucket).await;
 
     match result {
-        Err(S3RequestError::ServiceError(HeadBucketError::IncorrectRegion(actual_region))) => {
+        Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(actual_region))) => {
             assert_eq!(actual_region, expected_region, "wrong region returned")
         }
         _ => panic!("incorrect result {result:?}"),
@@ -38,6 +38,6 @@ async fn test_head_bucket_forbidden() {
 
     assert!(matches!(
         result,
-        Err(S3RequestError::ServiceError(HeadBucketError::PermissionDenied(_)))
+        Err(ObjectClientError::ServiceError(HeadBucketError::PermissionDenied(_)))
     ));
 }

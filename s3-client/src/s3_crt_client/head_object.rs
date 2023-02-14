@@ -1,5 +1,5 @@
-use crate::object_client::{HeadObjectResult, ObjectInfo};
-use crate::s3_crt_client::{ConstructionError, S3RequestError};
+use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo};
+use crate::s3_crt_client::S3RequestError;
 use crate::S3CrtClient;
 use aws_crt_s3::http::request_response::{Headers, HeadersError};
 use aws_crt_s3::s3::client::MetaRequestType;
@@ -10,13 +10,6 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::{debug, error};
-
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum HeadObjectError {
-    #[error("Error parsing response: {0}")]
-    ParseError(#[from] ParseError),
-}
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -67,15 +60,17 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-    ) -> Result<HeadObjectResult, S3RequestError<HeadObjectError>> {
+    ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
         let request = {
-            let mut message = self.new_request_template("HEAD", bucket)?;
+            let mut message = self
+                .new_request_template("HEAD", bucket)
+                .map_err(S3RequestError::construction_failure)?;
 
             // Don't URI encode the key, since "/" needs to be preserved
             let key = key.to_string();
             message
                 .set_request_path(format!("/{key}"))
-                .map_err(ConstructionError::CrtError)?;
+                .map_err(S3RequestError::construction_failure)?;
 
             let bucket = bucket.to_owned();
 
@@ -100,7 +95,18 @@ impl S3CrtClient {
                     ));
                 },
                 |_, _| (),
-                move |_result| header.lock().unwrap().take().unwrap().map_err(|e| e.into()),
+                move |result| {
+                    if result.is_err() {
+                        Err(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                    } else {
+                        header
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .unwrap()
+                            .map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+                    }
+                },
             )?
         };
 
