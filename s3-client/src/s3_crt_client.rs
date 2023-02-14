@@ -469,7 +469,7 @@ impl ObjectClient for S3CrtClient {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::S3ClientConfig;
     use crate::S3CrtClient;
     use std::assert_eq;
@@ -491,7 +491,7 @@ mod test {
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 
-        let headers = message.inner.get_headers();
+        let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
 
         let user_agent_header = headers
             .get("User-Agent")
@@ -514,9 +514,11 @@ mod test {
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 
-        let headers = message.inner.get_headers();
+        let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
 
-        let user_agent_header = headers.get("User-Agent").expect("User Agent Header expected");
+        let user_agent_header = headers
+            .get("User-Agent")
+            .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
         assert_eq!(expected_user_agent, user_agent_header_value);

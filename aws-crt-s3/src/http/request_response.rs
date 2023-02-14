@@ -307,17 +307,13 @@ impl<'a> Message<'a> {
     }
 
     /// get the headers from the message and increases the reference count for the Headers in CRT.
-    pub fn get_headers(&mut self) -> Headers {
-        // SAFETY: `aws_http_message get_headers` is safe because self.inner is a valid NonNull `aws_http_message`.
-        // Then `Headers::from_crt` increments the reference count of the Headers object in CRT so there are
-        // no lifetime issues.
-        unsafe {
-            Headers::from_crt(
-                aws_http_message_get_headers(self.inner.as_ptr())
-                    .ok_or_last_error()
-                    .unwrap(),
-            )
-        }
+    pub fn get_headers(&mut self) -> Result<Headers, Error> {
+        // SAFETY: `aws_http_message_get_headers` is safe because self.inner is a valid NonNull `aws_http_message`.
+        let header_ptr = unsafe { aws_http_message_get_headers(self.inner.as_ptr()).ok_or_last_error()? };
+        // SAFETY: `Headers::from_crt` increments the reference count of the Headers object in CRT so there are
+        // no lifetime issues. And `header_ptr` is valid `aws_http_header` pointer.
+        let headers = unsafe { Headers::from_crt(header_ptr) };
+        Ok(headers)
     }
 }
 
