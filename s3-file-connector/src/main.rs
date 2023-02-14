@@ -161,7 +161,7 @@ fn main() -> anyhow::Result<()> {
         throughput_target_gbps,
         part_size: args.part_size.map(|t| t as usize),
         endpoint,
-        user_agent_prefix: Some("s3-file-connector".to_owned()),
+        user_agent_prefix: Some(format!("s3-file-connector/{}", build_info::FULL_VERSION)),
     };
 
     let _metrics = MetricsSink::init();
