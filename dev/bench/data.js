@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1676394748768,
+  "lastUpdate": 1676415443471,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -4091,6 +4091,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 25.486328125,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fbc786b515578f76186a97d9fc5da8e43cfa910",
+          "message": "Refactor ObjectClient error types (part 1/2) (#76)\n\nOur current ObjectClient allows each implementer to provide its own\r\nerror types for each request. This is nice and flexible, but prevents\r\ncallers of an ObjectClient from being generic if they want to detect\r\ncommon service errors like NoSuchKey -- they must know the concrete\r\nerror type of the particular client they're using to match on these\r\nerrors. We've been getting away with this until #69, where we need to be\r\nable to distinguish (expected) 404 errors from other errors on\r\nHeadObject.\r\n\r\nThis change refactors ObjectClient to provide a common service error\r\ntype for each operation. ObjectClients now return an error that is\r\n*either* a modeled service error like NoSuchKey *or* a client-specific\r\nerror. This allows callers to be generic over the ObjectClient and still\r\ndiscriminate on the interesting error types, where by \"interesting\" I\r\nmean things I think it's likely a caller might want to know about.\r\n\r\nThe diff was getting pretty big so I'm splitting this into two commits.\r\nThis is Part 1, which just does the refactoring, but doesn't change our\r\nS3CrtClient to return the new modeled service errors. That means this\r\nchange shouldn't cause any functional change -- every error will be a\r\nclient error, like it was before this commit.  I'll follow up with Part\r\n2 that adds the service errors to S3CrtClient (so does XML parsing etc).\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-02-14T16:39:19-06:00",
+          "tree_id": "b64973e212072b0825267cd0cc5c94a2eb49a46f",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/5fbc786b515578f76186a97d9fc5da8e43cfa910"
+        },
+        "date": 1676415442587,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.5537109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.35546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 12.4345703125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 32.8564453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 33.384765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 1.81640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.228515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.4228515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.5966796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.505859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1952.2509765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 6830.830078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 2489.509765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 168.08203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 169.4521484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 2131.8447265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 24.650390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2173.3447265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 25.4951171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 27.0224609375,
             "unit": "MiB/s"
           }
         ]
