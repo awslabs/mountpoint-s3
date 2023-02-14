@@ -149,11 +149,9 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
     let temp_dir = tempdir().expect("Should be able to create temp directory");
     let mountpoint = temp_dir.path();
 
-    let part_size = None;
     let config = S3ClientConfig {
         throughput_target_gbps,
-        part_size,
-        endpoint: None,
+        ..Default::default()
     };
     let client = S3CrtClient::new(region, config).expect("Failed to create S3 client");
     let runtime = client.event_loop_group();
