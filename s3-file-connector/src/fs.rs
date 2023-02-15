@@ -255,12 +255,7 @@ where
         };
         self.file_handles.write().unwrap().insert(fh, handle);
 
-        Ok(Opened {
-            fh,
-            // TODO we currently force direct IO to avoid page caching; change when we adopt caching
-            // personalities
-            flags: fuser::consts::FOPEN_DIRECT_IO,
-        })
+        Ok(Opened { fh, flags: 0 })
     }
 
     #[allow(clippy::too_many_arguments)]
