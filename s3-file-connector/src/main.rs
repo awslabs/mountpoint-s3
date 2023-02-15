@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Context as _};
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
@@ -16,7 +16,20 @@ use tracing_subscriber::Layer;
 mod build_info;
 
 fn init_tracing_subscriber() {
+    const LOG_FOLDER: &str = "logs";
+
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+
+    match fs::create_dir_all(LOG_FOLDER) {
+        Ok(_) => (),
+        Err(error) => panic!("Failed to create log folder: {:?}", error),
+    };
+
+    let time = chrono::Utc::now().to_rfc3339();
+    let file = match fs::File::create(format!("{}/{}", LOG_FOLDER, time)) {
+        Ok(file) => file,
+        Err(error) => panic!("Failed to create log file: {:?}", error),
+    };
 
     // Brutal hack because tracing-subscriber doesn't allow us to specify *multiple* default
     // directives -- we want warning-level logging except for the CRT, which is very spammy.
@@ -25,7 +38,8 @@ fn init_tracing_subscriber() {
     }
 
     let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
+        .with_ansi(false)
+        .with_writer(Arc::new(file))
         .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
 
     tracing_subscriber::registry()
