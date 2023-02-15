@@ -51,6 +51,39 @@ jobs:
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
 
+  macos-test:
+    name: Tests (MacOS)
+    runs-on: macos-12
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install dependencies
+      run: |
+        brew update > /dev/null && brew install pkg-config
+    - name: Install fuse
+      run: |
+        brew install --cask macfuse
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Run tests
+      run: cargo test -- --skip=mnt::test::mount_unmount
+
   check:
     name: Check all targets
     runs-on: ubuntu-22.04
