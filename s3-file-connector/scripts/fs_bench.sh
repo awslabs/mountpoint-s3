@@ -29,7 +29,6 @@ jobs_dir=s3-file-connector/scripts/fio
 target_gbps=100
 thread_count=4
 
-pwd
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
 
@@ -37,10 +36,12 @@ for job_file in "${jobs_dir}"/*.fio; do
   mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
   job_name=$(basename "${job_file}")
   job_name="${job_name%.*}"
+
+  echo "Running ${job_name}"
   
   # mount file system
-  pwd
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+    --foreground \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
     --throughput-target-gbps=${target_gbps} \
     --thread-count=${thread_count} > bench.out 2>&1 &
@@ -51,7 +52,7 @@ for job_file in "${jobs_dir}"/*.fio; do
   timeout_seconds=30
   # wait for file system to be ready
   while true; do
-    mount_rec=`findmnt -rncv -S fuse_sync -T ${mount_dir} -o SOURCE,TARGET`
+    mount_rec=`findmnt -rncv -S s3-file-connector -T ${mount_dir} -o SOURCE,TARGET`
     # file system is ready when the mount record exists
     if [ -n "${mount_rec}" ]; then
       break
