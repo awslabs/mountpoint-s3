@@ -52,7 +52,7 @@ for job_file in "${jobs_dir}"/*.fio; do
   timeout_seconds=30
   # wait for file system to be ready
   while true; do
-    mount_rec=`findmnt -rncv -S fuse_sync -T ${mount_dir} -o SOURCE,TARGET`
+    mount_rec=`findmnt -rncv -S s3-file-connector -T ${mount_dir} -o SOURCE,TARGET`
     # file system is ready when the mount record exists
     if [ -n "${mount_rec}" ]; then
       break
