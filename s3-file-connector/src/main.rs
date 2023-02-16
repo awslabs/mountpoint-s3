@@ -1,9 +1,16 @@
+use std::fs::File;
+use std::io::{Read, Write};
+use std::os::unix::prelude::FromRawFd;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{ArgGroup, Parser};
 use fuser::{BackgroundSession, MountOption, Session};
+use nix::sys::signal::Signal;
+use nix::unistd::ForkResult;
 use s3_client::{AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient};
 use s3_file_connector::fs::S3FilesystemConfig;
 use s3_file_connector::fuse::S3FuseFilesystem;
@@ -90,6 +97,9 @@ struct CliArgs {
 
     #[clap(long, help = "File permissions [default: 0644]", value_parser = parse_perm_bits)]
     pub file_mode: Option<u16>,
+
+    #[clap(short, long, help = "Run as foreground process")]
+    pub foreground: bool,
 }
 
 impl CliArgs {
@@ -105,8 +115,6 @@ impl CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    init_tracing_subscriber();
-
     let args = CliArgs::parse();
 
     // validate mount point
@@ -117,36 +125,123 @@ fn main() -> anyhow::Result<()> {
         ));
     }
 
-    let mut options = vec![
-        MountOption::RO,
-        MountOption::DefaultPermissions,
-        MountOption::FSName("fuse_sync".to_string()),
-        MountOption::NoAtime,
-    ];
-    if args.auto_unmount {
-        options.push(MountOption::AutoUnmount);
-    }
-    if args.allow_root {
-        options.push(MountOption::AllowRoot);
-    }
-    if args.allow_other {
-        options.push(MountOption::AllowOther);
+    if args.foreground {
+        // mount file system as a foreground process
+        init_tracing_subscriber();
+        let session = mount(args)?;
+
+        let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+
+        ctrlc::set_handler(move || {
+            let _ = sender.send(());
+        })
+        .context("Failed to install signal handler")
+        .unwrap();
+
+        let _ = receiver.recv();
+
+        drop(session);
+    } else {
+        // mount file system as a background process
+
+        // create a pipe for interprocess communication.
+        // child process will report its status via this pipe.
+        let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
+
+        // SAFETY: Child process has full ownership of its resources.
+        // There is no shared data between parent and child processes.
+        let pid = unsafe { nix::unistd::fork() };
+        match pid.expect("Failed to fork mount process") {
+            ForkResult::Child => {
+                init_tracing_subscriber();
+
+                let child_args = CliArgs::parse();
+                let session = mount(child_args);
+
+                // close unused file descriptor, we only write from this end.
+                nix::unistd::close(read_fd).context("Failed to close unused file descriptor")?;
+
+                // SAFETY: `write_fd` is a valid file descriptor.
+                let mut pipe_file = unsafe { File::from_raw_fd(write_fd) };
+
+                let status_success = [b'0'];
+                let status_failure = [b'1'];
+
+                match session {
+                    Ok(_session) => {
+                        pipe_file
+                            .write(&status_success)
+                            .context("Failed to write data to the pipe")?;
+                        drop(pipe_file);
+
+                        // the session stays running because its lifetime is bound to the match statement.
+                        // it won't be dropped until after the park.
+                        // also `park()` does not guarantee to remain parked forever. so, we put it inside a loop.
+                        loop {
+                            thread::park();
+                        }
+                    }
+                    Err(e) => {
+                        pipe_file
+                            .write(&status_failure)
+                            .context("Failed to write data to the pipe")?;
+                        return Err(anyhow!(e));
+                    }
+                }
+            }
+            ForkResult::Parent { child } => {
+                init_tracing_subscriber();
+
+                // close unused file descriptor, we only read from this end.
+                nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
+
+                // SAFETY: `read_fd` is a valid file descriptor.
+                let mut pipe_file = unsafe { File::from_raw_fd(read_fd) };
+
+                let (sender, receiver) = std::sync::mpsc::channel();
+
+                // create a thread that read from the pipe so that we can enforce a time out.
+                std::thread::spawn(move || {
+                    let mut buf = [0];
+                    match pipe_file
+                        .read_exact(&mut buf)
+                        .context("Failed to read data from the pipe")
+                    {
+                        Ok(_) => {
+                            let status = buf[0] as char;
+                            sender.send(status).unwrap();
+                        }
+                        Err(_) => sender.send('1').unwrap(),
+                    }
+                });
+
+                let timeout = Duration::from_secs(30);
+                let status = receiver.recv_timeout(timeout);
+                match status {
+                    Ok('0') => tracing::debug!("success status flag received from child process"),
+                    Ok(_) => {
+                        nix::sys::wait::waitpid(child, None).context("Failed to wait for child process to exit")?;
+                        return Err(anyhow!("Failed to create mount process"));
+                    }
+                    Err(_timeout_err) => {
+                        // kill child process before returning error.
+                        if let Err(e) = nix::sys::signal::kill(child, Signal::SIGTERM) {
+                            tracing::error!("Unable to kill hanging child process with SIGTERM: {:?}", e);
+                        }
+                        return Err(anyhow!(
+                            "Timeout after {} seconds while waiting for mount process to be ready",
+                            timeout.as_secs()
+                        ));
+                    }
+                };
+            }
+        }
     }
 
-    let mut filesystem_config = S3FilesystemConfig::default();
-    if let Some(uid) = args.uid {
-        filesystem_config.uid = uid;
-    }
-    if let Some(gid) = args.gid {
-        filesystem_config.gid = gid;
-    }
-    if let Some(dir_mode) = args.dir_mode {
-        filesystem_config.dir_mode = dir_mode;
-    }
-    if let Some(file_mode) = args.file_mode {
-        filesystem_config.file_mode = file_mode;
-    }
+    Ok(())
+}
 
+fn mount(args: CliArgs) -> anyhow::Result<BackgroundSession> {
     let throughput_target_gbps = args.throughput_target_gbps.map(|t| t as f64);
 
     let addressing_style = args.addressing_style();
@@ -174,6 +269,20 @@ fn main() -> anyhow::Result<()> {
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
 
+    let mut filesystem_config = S3FilesystemConfig::default();
+    if let Some(uid) = args.uid {
+        filesystem_config.uid = uid;
+    }
+    if let Some(gid) = args.gid {
+        filesystem_config.gid = gid;
+    }
+    if let Some(dir_mode) = args.dir_mode {
+        filesystem_config.dir_mode = dir_mode;
+    }
+    if let Some(file_mode) = args.file_mode {
+        filesystem_config.file_mode = file_mode;
+    }
+
     let fs = S3FuseFilesystem::new(
         client,
         runtime,
@@ -181,6 +290,23 @@ fn main() -> anyhow::Result<()> {
         args.prefix.as_deref().unwrap_or(""),
         filesystem_config,
     );
+
+    let fs_name = String::from("s3-file-connector");
+    let mut options = vec![
+        MountOption::RO,
+        MountOption::DefaultPermissions,
+        MountOption::FSName(fs_name),
+        MountOption::NoAtime,
+    ];
+    if args.auto_unmount {
+        options.push(MountOption::AutoUnmount);
+    }
+    if args.allow_root {
+        options.push(MountOption::AllowRoot);
+    }
+    if args.allow_other {
+        options.push(MountOption::AllowOther);
+    }
 
     let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
 
@@ -193,18 +319,7 @@ fn main() -> anyhow::Result<()> {
 
     tracing::info!("successfully mounted {:?}", args.mount_point);
 
-    let (sender, receiver) = std::sync::mpsc::sync_channel(0);
-
-    ctrlc::set_handler(move || {
-        let _ = sender.send(());
-    })
-    .context("Failed to install signal handler")?;
-
-    let _ = receiver.recv();
-
-    drop(session);
-
-    Ok(())
+    Ok(session)
 }
 
 /// Create a client for a bucket in the given region and send a HeadBucket request to validate it's
