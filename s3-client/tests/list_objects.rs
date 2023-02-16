@@ -118,3 +118,49 @@ async fn test_list_objects_404_bucket() {
         Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket))
     ));
 }
+
+// Test list with keys and arguments that poke at URL encoding
+#[tokio::test]
+async fn test_interesting_keys() {
+    let keys = &[
+        "the first one@@@",
+        "the first one@@@/the 1st one!$%#@?_.-=&+^",
+        "the first one@@@/the 2nd+one!",
+        "the first one@@@/the 3rd one&",
+    ];
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_list_objects");
+    create_objects_for_test(&sdk_client, &bucket, &prefix, keys).await;
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .list_objects(&bucket, None, "/", 2, &prefix)
+        .await
+        .expect("ListObjects failed");
+    assert_eq!(result.common_prefixes[0], format!("{prefix}{}/", keys[0]));
+    assert_eq!(result.objects[0].key, format!("{prefix}{}", keys[0]));
+
+    let result = client
+        .list_objects(&bucket, None, "/", 1, &format!("{prefix}{}/", keys[0]))
+        .await
+        .expect("ListObjects failed");
+    assert_eq!(result.objects.len(), 1);
+    assert_eq!(result.objects[0].key, format!("{prefix}{}", keys[1]));
+    assert!(result.next_continuation_token.is_some());
+
+    let result = client
+        .list_objects(
+            &bucket,
+            result.next_continuation_token.as_deref(),
+            "/",
+            1000,
+            &format!("{prefix}{}/", keys[0]),
+        )
+        .await
+        .expect("ListObjects failed");
+    assert_eq!(result.objects[0].key, format!("{prefix}{}", keys[2]));
+    assert_eq!(result.objects[1].key, format!("{prefix}{}", keys[3]));
+    assert_eq!(result.objects.len(), 2);
+    assert!(result.next_continuation_token.is_none());
+}

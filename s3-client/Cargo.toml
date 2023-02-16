@@ -16,13 +16,13 @@ lazy_static = "1.4.0"
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
 metrics = "0.20.1"
+percent-encoding = "2.2.0"
 pin-project = "1.0.12"
 regex = "1.7.1"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"
 time = "0.3.14"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
-urlencoding = "2.1.2"
 xmltree = "0.10.3"
 
 [dev-dependencies]

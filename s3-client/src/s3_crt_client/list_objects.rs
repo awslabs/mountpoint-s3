@@ -143,17 +143,19 @@ impl S3CrtClient {
                 .new_request_template("GET", bucket)
                 .map_err(S3RequestError::construction_failure)?;
 
-            // Don't URI encode delimiter or prefix, since "/" in those needs to be a real "/".
-            let mut request = format!("/?list-type=2&delimiter={delimiter}&max-keys={max_keys}&prefix={prefix}");
-
+            let max_keys = format!("{max_keys}");
+            let mut query = vec![
+                ("list-type", "2"),
+                ("delimiter", delimiter),
+                ("max-keys", &max_keys),
+                ("prefix", prefix),
+            ];
             if let Some(continuation_token) = continuation_token {
-                // DO URI encode the continuation token, since "/" in it needs to become "%2F"
-                let continuation_token = urlencoding::encode(continuation_token);
-                request = format!("{request}&continuation-token={continuation_token}");
+                query.push(("continuation-token", continuation_token));
             }
 
             message
-                .set_request_path(request)
+                .set_request_path_and_query("/", query)
                 .map_err(S3RequestError::construction_failure)?;
 
             let span = request_span!(self, "list_objects");

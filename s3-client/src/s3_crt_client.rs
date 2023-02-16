@@ -1,6 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::ops::Range;
+use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,6 +23,7 @@ use aws_crt_s3::s3::client::{
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{debug, error, trace, warn, Span};
@@ -358,12 +360,59 @@ impl<'a> S3Message<'a> {
         self.inner.add_header(header)
     }
 
-    /// Set the request path for this message.
-    fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), aws_crt_s3::common::error::Error> {
-        let mut full_path = OsString::with_capacity(self.path_prefix.len() + path.as_ref().len());
-        full_path.push(&self.path_prefix);
-        full_path.push(path);
+    /// Set the request path and query for this message. The components should not be URL-encoded;
+    /// this method will handle that.
+    fn set_request_path_and_query<P: AsRef<OsStr>>(
+        &mut self,
+        path: impl AsRef<OsStr>,
+        query: impl AsRef<[(P, P)]>,
+    ) -> Result<(), aws_crt_s3::common::error::Error> {
+        // This is RFC 3986 but with '/' also considered a safe character for path fragments.
+        const URLENCODE_QUERY_FRAGMENT: &AsciiSet =
+            &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
+        const URLENCODE_PATH_FRAGMENT: &AsciiSet = &URLENCODE_QUERY_FRAGMENT.remove(b'/');
+
+        fn write_encoded_fragment(s: &mut OsString, piece: impl AsRef<OsStr>, encoding: &'static AsciiSet) {
+            let iter = percent_encode(piece.as_ref().as_bytes(), encoding);
+            s.extend(iter.map(|s| OsStr::from_bytes(s.as_bytes())));
+        }
+
+        // This estimate is exact if no characters need encoding, otherwise we'll end up
+        // reallocating a couple of times. The '?' for the query is counted in the first key-value
+        // pair.
+        let space_needed = self.path_prefix.len()
+            + path.as_ref().len()
+            + query
+                .as_ref()
+                .iter()
+                .map(|(key, value)| key.as_ref().len() + value.as_ref().len() + 2) // +2 for & and =
+                .sum::<usize>();
+
+        let mut full_path = OsString::with_capacity(space_needed);
+
+        write_encoded_fragment(&mut full_path, &self.path_prefix, URLENCODE_PATH_FRAGMENT);
+        write_encoded_fragment(&mut full_path, &path, URLENCODE_PATH_FRAGMENT);
+
+        // Build the query string
+        if !query.as_ref().is_empty() {
+            full_path.push("?");
+            for (i, (key, value)) in query.as_ref().iter().enumerate() {
+                if i != 0 {
+                    full_path.push("&");
+                }
+                write_encoded_fragment(&mut full_path, key, URLENCODE_QUERY_FRAGMENT);
+                full_path.push("=");
+                write_encoded_fragment(&mut full_path, value, URLENCODE_QUERY_FRAGMENT);
+            }
+        }
+
         self.inner.set_request_path(full_path)
+    }
+
+    /// Set the request path for this message. The path should not be URL-encoded; this method will
+    /// handle that.
+    fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), aws_crt_s3::common::error::Error> {
+        self.set_request_path_and_query::<&str>(path, &[])
     }
 
     /// Sets the body input stream for this message, and returns any previously set input stream.

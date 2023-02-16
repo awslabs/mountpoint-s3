@@ -2207,6 +2207,7 @@ dependencies = [
  "libc",
  "libc-stdhandle",
  "metrics",
+ "percent-encoding",
  "pin-project",
  "proptest",
  "rand",
@@ -2219,7 +2220,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "urlencoding",
  "xmltree",
 ]
 
