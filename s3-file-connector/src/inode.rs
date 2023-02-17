@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
-use s3_client::ObjectClient;
+use s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
@@ -164,13 +164,15 @@ impl Superblock {
         for _ in 0..2 {
             select_biased! {
                 result = file_lookup => {
-                    // TODO: 404s currently become client errors, but they are expected when looking
-                    // up a directory, so we just swallow all errors for now. Fix when we model
-                    // service errors correctly.
-                    if let Ok(result) = result.map_err(|e| InodeError::ClientError(e.into())) {
-                        let last_modified = result.object.last_modified;
-                        let stat = InodeStat::for_file(result.object.size as usize, last_modified);
-                        file_state = Some(stat);
+                    match result {
+                        Ok(HeadObjectResult { object, .. }) => {
+                            let last_modified = object.last_modified;
+                            let stat = InodeStat::for_file(object.size as usize, last_modified);
+                            file_state = Some(stat);
+                        }
+                        // If the object is not found, might be a directory, so keep going
+                        Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
+                        Err(e) => return Err(InodeError::ClientError(e.into())),
                     }
                 }
 

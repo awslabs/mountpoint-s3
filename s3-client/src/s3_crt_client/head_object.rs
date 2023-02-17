@@ -1,15 +1,17 @@
-use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo};
-use crate::s3_crt_client::S3RequestError;
-use crate::S3CrtClient;
-use aws_crt_s3::http::request_response::{Headers, HeadersError};
-use aws_crt_s3::s3::client::MetaRequestType;
 use std::ffi::OsString;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+
+use aws_crt_s3::http::request_response::{Headers, HeadersError};
+use aws_crt_s3::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::{debug, error};
+
+use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo};
+use crate::s3_crt_client::S3RequestError;
+use crate::S3CrtClient;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -97,7 +99,10 @@ impl S3CrtClient {
                 |_, _| (),
                 move |result| {
                     if result.is_err() {
-                        Err(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                        let parsed = parse_head_object_error(&result);
+                        Err(parsed
+                            .map(ObjectClientError::ServiceError)
+                            .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result))))
                     } else {
                         header
                             .lock()
@@ -111,5 +116,42 @@ impl S3CrtClient {
         };
 
         request.await
+    }
+}
+
+fn parse_head_object_error(result: &MetaRequestResult) -> Option<HeadObjectError> {
+    match result.response_status {
+        404 => Some(HeadObjectError::NotFound),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+
+    use super::*;
+
+    fn make_result(response_status: i32, body: impl Into<OsString>) -> MetaRequestResult {
+        MetaRequestResult {
+            response_status,
+            crt_error: 1i32.into(),
+            error_response_headers: None,
+            error_response_body: Some(body.into()),
+        }
+    }
+
+    #[test]
+    fn parse_404() {
+        let result = make_result(404, "");
+        let result = parse_head_object_error(&result);
+        assert_eq!(result, Some(HeadObjectError::NotFound));
+    }
+
+    #[test]
+    fn parse_403() {
+        let result = make_result(403, "");
+        let result = parse_head_object_error(&result);
+        assert_eq!(result, None);
     }
 }
