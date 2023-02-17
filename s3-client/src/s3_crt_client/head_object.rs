@@ -68,7 +68,6 @@ impl S3CrtClient {
                 .new_request_template("HEAD", bucket)
                 .map_err(S3RequestError::construction_failure)?;
 
-            // Don't URI encode the key, since "/" needs to be preserved
             let key = key.to_string();
             message
                 .set_request_path(format!("/{key}"))
