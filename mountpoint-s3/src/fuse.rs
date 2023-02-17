@@ -1,3 +1,5 @@
+//! Links _fuser_ method calls into Mountpoint's filesystem code in [crate::fs].
+
 use futures::executor::block_on;
 use futures::task::Spawn;
 use std::ffi::OsStr;

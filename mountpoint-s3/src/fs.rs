@@ -1,3 +1,5 @@
+//! FUSE file system types and operations, not tied to the _fuser_ library bindings.
+
 use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
