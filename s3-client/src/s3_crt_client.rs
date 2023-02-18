@@ -10,13 +10,13 @@ use std::time::{Duration, Instant};
 
 use aws_crt_s3::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use aws_crt_s3::common::allocator::Allocator;
+use aws_crt_s3::common::uri::Uri;
 use aws_crt_s3::http::request_response::{Header, Headers, Message};
 use aws_crt_s3::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use aws_crt_s3::io::event_loop::EventLoopGroup;
 use aws_crt_s3::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use aws_crt_s3::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use aws_crt_s3::io::stream::InputStream;
-use aws_crt_s3::io::uri::Uri;
 use aws_crt_s3::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
 };

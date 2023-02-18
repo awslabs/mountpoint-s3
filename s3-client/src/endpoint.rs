@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::os::unix::prelude::OsStrExt;
 
 use aws_crt_s3::common::allocator::Allocator;
-use aws_crt_s3::io::uri::Uri;
+use aws_crt_s3::common::uri::Uri;
 use lazy_static::lazy_static;
 use regex::Regex;
 use thiserror::Error;
@@ -86,7 +86,8 @@ fn is_valid_dns_name(bucket: &str) -> bool {
 }
 
 fn insert_virtual_host(bucket: &str, uri: &Uri) -> Result<Uri, InvalidUriError> {
-    if uri.path() != OsStr::from_bytes("/".as_bytes()) || !uri.query_string().is_empty() {
+    let empty_path = uri.path().is_empty() || uri.path() == OsStr::from_bytes("/".as_bytes());
+    if !empty_path || !uri.query_string().is_empty() {
         return Err(InvalidUriError::CannotContainPathOrQueryString);
     }
 

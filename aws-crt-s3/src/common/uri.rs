@@ -64,8 +64,7 @@ impl Uri {
         }
     }
 
-    /// Return the path portion of the URI, including the leading "/". If no path was present,
-    /// returns "/".
+    /// Return the path portion of the URI, including any leading "/".
     pub fn path(&self) -> &OsStr {
         // SAFETY: `inner` is a valid `aws_uri` since it's owned by this struct, and the lifetime of
         // the returned slice will be tied to &self.
