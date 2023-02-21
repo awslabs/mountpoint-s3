@@ -81,7 +81,7 @@ impl Superblock {
             // We stash the prefix in the root inode's name so that path resolution "just works"
             // with prefixes
             name: stripped_prefix,
-            stat_cache: RwLock::new(InodeStat::for_directory(OffsetDateTime::UNIX_EPOCH)),
+            stat_cache: RwLock::new(InodeStat::for_directory(OffsetDateTime::now_utc())),
             stat_cache_expiry: Instant::now(),
             data: InodeData::Directory {
                 children: Default::default(),
@@ -1021,7 +1021,7 @@ mod tests {
         assert_eq!(file_inodestat.mtime, ts);
         assert_eq!(file_inodestat.kind, InodeStatKind::File {});
 
-        let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(180);
+        let ts = OffsetDateTime::now_utc() + Duration::days(180);
         let file_inodestat = InodeStat::for_directory(ts);
         assert_eq!(file_inodestat.size, 0);
         assert_eq!(file_inodestat.atime, ts);
