@@ -81,10 +81,11 @@ impl Logger {
 }
 
 /// Errors returned by methods that install [`Logger`]s
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoggerInitError {
     /// A logger has already been initialized. Only one logger can be initialized for the lifetime
     /// of the program.
+    #[error("logger was already initialized")]
     AlreadyInitialized,
 }
 
