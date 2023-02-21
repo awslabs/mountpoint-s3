@@ -25,8 +25,9 @@ thiserror = "1.0.34"
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 nix = "0.26.2"
-time = "0.3.17"
+time = { version = "0.3.17", features = ["macros", "formatting"] }
 const_format = "0.2.30"
+home = "0.5.4"
 
 [dev-dependencies]
 assert_cmd = "2.0.6"

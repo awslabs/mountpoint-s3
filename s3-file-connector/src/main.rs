@@ -1,9 +1,9 @@
-use std::fs::File;
 use std::io::{Read, Write};
 use std::os::unix::prelude::FromRawFd;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
+use std::{fs, fs::File};
 
 use anyhow::{anyhow, Context as _};
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
@@ -15,29 +15,48 @@ use s3_client::{AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S
 use s3_file_connector::fs::S3FilesystemConfig;
 use s3_file_connector::fuse::S3FuseFilesystem;
 use s3_file_connector::metrics::{metrics_tracing_span_layer, MetricsSink};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use time::format_description::FormatItem;
+use time::macros;
+use time::OffsetDateTime;
+use tracing_subscriber::{
+    filter::EnvFilter, filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer,
+};
 
 mod build_info;
 
-fn init_tracing_subscriber() {
-    RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+fn init_tracing_subscriber() -> anyhow::Result<()> {
+    const LOG_FOLDER: &str = ".s3-file-connector";
+    const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
+        macros::format_description!("s3fc_[year][month][day][hour][minute][second].log");
 
-    // Brutal hack because tracing-subscriber doesn't allow us to specify *multiple* default
-    // directives -- we want warning-level logging except for the CRT, which is very spammy.
-    if std::env::var("RUST_LOG") == Err(std::env::VarError::NotPresent) {
-        std::env::set_var("RUST_LOG", "info,awscrt=off,fuser=error");
+    RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
+
+    let default_environment_filter = EnvFilter::from_default_env();
+    if default_environment_filter.max_level_hint() != Some(LevelFilter::OFF) {
+        let filename = OffsetDateTime::now_utc()
+            .format(LOG_FILE_NAME_FORMAT)
+            .context("couldn't format log file name")?;
+
+        let log_directory = home::home_dir()
+            .ok_or(anyhow!("no home directory found!"))?
+            .join(LOG_FOLDER);
+
+        fs::create_dir_all(&log_directory).context("failed to create log folder")?;
+
+        let file = File::create(log_directory.join(filename)).context("failed to create log file")?;
+
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_writer(file)
+            .with_filter(default_environment_filter);
+
+        tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(metrics_tracing_span_layer())
+            .init();
     }
 
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
-        .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
-
-    tracing_subscriber::registry()
-        .with(fmt_layer)
-        .with(metrics_tracing_span_layer())
-        .init();
+    Ok(())
 }
 
 #[derive(Parser)]
@@ -127,7 +146,7 @@ fn main() -> anyhow::Result<()> {
 
     if args.foreground {
         // mount file system as a foreground process
-        init_tracing_subscriber();
+        init_tracing_subscriber().context("failed to initialize logging")?;
         let session = mount(args)?;
 
         let (sender, receiver) = std::sync::mpsc::sync_channel(0);
@@ -153,7 +172,7 @@ fn main() -> anyhow::Result<()> {
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                init_tracing_subscriber();
+                init_tracing_subscriber().context("failed to initialize logging")?;
 
                 let child_args = CliArgs::parse();
                 let session = mount(child_args);
@@ -190,7 +209,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             ForkResult::Parent { child } => {
-                init_tracing_subscriber();
+                init_tracing_subscriber().context("failed to initialize logging")?;
 
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
