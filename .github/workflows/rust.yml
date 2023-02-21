@@ -9,6 +9,7 @@ env:
   # RUSTFLAGS: -Dwarnings
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket
   S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
   # A bucket our IAM role has no access to, but is in the right region, for permissions tests
@@ -44,6 +45,16 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-${{ matrix.fuse }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install fuse
       run: sudo apt-get install ${{ matrix.fuse }} lib${{ matrix.fuse }}-dev
     - name: Configure fuse
@@ -80,7 +91,7 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Run tests
       run: cargo test -- --skip=mnt::test::mount_unmount
 
@@ -98,6 +109,16 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Check all targets
@@ -117,6 +138,16 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Run Shuttle tests
@@ -146,6 +177,16 @@ jobs:
         toolchain: nightly
         override: true
         components: rust-src
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install fuse
       run: sudo apt-get install fuse3 libfuse3-dev
     - name: Install llvm-dev
@@ -188,6 +229,16 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
+      - name: Cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install fuse
         run: sudo apt-get install fuse libfuse2 libfuse-dev
       - name: Run Clippy
@@ -207,6 +258,16 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - name: Cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Build CRT binding documentation
         run: cargo doc --no-deps -p aws-crt-s3
 
