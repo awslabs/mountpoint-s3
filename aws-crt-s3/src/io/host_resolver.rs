@@ -30,15 +30,16 @@ impl HostResolver {
     pub fn new_default(allocator: &Allocator, options: &HostResolverDefaultOptions) -> Result<Self, Error> {
         io_library_init(allocator);
 
-        let mut inner_options = aws_host_resolver_default_options {
+        let inner_options = aws_host_resolver_default_options {
             el_group: options.event_loop_group.inner.as_ptr(),
             max_entries: options.max_entries,
             ..Default::default()
         };
 
         let inner =
-            // SAFETY: aws_host_resolver_new_default makes acquires a reference to the inner event loop group.
-            unsafe { aws_host_resolver_new_default(allocator.inner.as_ptr(), &mut inner_options).ok_or_last_error()? };
+            // SAFETY: aws_host_resolver_new_default acquires a reference to the inner event loop
+            // group, and copies what it needs out of `inner_options`.
+            unsafe { aws_host_resolver_new_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()? };
 
         Ok(Self { inner })
     }
