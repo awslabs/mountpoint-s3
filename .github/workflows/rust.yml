@@ -68,7 +68,7 @@ jobs:
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Check all targets
-      run: cargo check --all-targets --features $RUST_FEATURES
+      run: cargo check --locked --all-targets --features $RUST_FEATURES
 
   shuttle:
     name: Shuttle tests
