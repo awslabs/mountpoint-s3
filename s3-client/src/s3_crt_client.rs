@@ -39,6 +39,7 @@ macro_rules! request_span {
     }};
 }
 
+pub(crate) mod delete_object;
 pub(crate) mod get_object;
 pub(crate) mod head_bucket;
 pub(crate) mod head_object;
@@ -494,6 +495,14 @@ pub enum ConstructionError {
 impl ObjectClient for S3CrtClient {
     type GetObjectResult = GetObjectRequest;
     type ClientError = S3RequestError;
+
+    async fn delete_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
+        self.delete_object(bucket, key).await
+    }
 
     async fn get_object(
         &self,

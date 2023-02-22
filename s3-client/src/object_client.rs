@@ -16,6 +16,13 @@ pub trait ObjectClient {
     type GetObjectResult: Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send;
     type ClientError: std::error::Error + Send + Sync + 'static;
 
+    /// Delete a single object from the object store.
+    async fn delete_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError>;
+
     /// Get an object from the object store. Returns a stream of body parts of the object. Parts are
     /// guaranteed to be returned by the stream in order and contiguously.
     async fn get_object(
@@ -127,6 +134,18 @@ pub enum HeadObjectError {
     /// Note that HeadObject cannot distinguish between NoSuchBucket and NoSuchKey errors
     #[error("The object was not found")]
     NotFound,
+}
+
+/// Result of a [ObjectClient::delete_object] request
+/// TODO: Populate this struct with return fields from the S3 API, e.g., version id, delete marker.
+#[derive(Debug)]
+pub struct DeleteObjectResult {}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeleteObjectError {
+    #[error("The bucket does not exist")]
+    NoSuchBucket,
 }
 
 /// Parameters to a [ObjectClient::put_object] request

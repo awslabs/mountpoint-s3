@@ -13,8 +13,9 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::object_client::{
-    GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
+    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult,
+    ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError,
+    PutObjectParams, PutObjectResult,
 };
 use crate::ObjectClient;
 
@@ -67,6 +68,11 @@ impl MockClient {
     /// Add an object to this mock client's bucket
     pub fn add_object(&self, key: &str, value: MockObject) {
         self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
+    }
+
+    /// Drop object for the mock client's bucket
+    pub fn drop_object(&self, key: &str) {
+        self.objects.write().unwrap().remove(key);
     }
 }
 
@@ -185,6 +191,23 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
 impl ObjectClient for MockClient {
     type GetObjectResult = GetObjectResult;
     type ClientError = MockClientError;
+
+    async fn delete_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
+        trace!(bucket, key, "DeleteObject");
+
+        if bucket != self.config.bucket {
+            return Err(ObjectClientError::ServiceError(DeleteObjectError::NoSuchBucket));
+        }
+
+        self.drop_object(key);
+        let result = DeleteObjectResult {};
+
+        Ok(result)
+    }
 
     async fn get_object(
         &self,
