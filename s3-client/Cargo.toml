@@ -27,8 +27,8 @@ xmltree = "0.10.3"
 
 [dev-dependencies]
 anyhow = { version = "1.0.64", features = ["backtrace"] }
-aws-config = "0.48.0"
-aws-sdk-s3 = "0.18.0"
+aws-config = "0.54.1"
+aws-sdk-s3 = "0.24.0"
 bytes = "1.2.1"
 clap = "3.2.12"
 ctor = "0.1.23"
