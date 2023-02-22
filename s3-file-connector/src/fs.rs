@@ -9,15 +9,14 @@ use tracing::{error, trace};
 use fuser::{FileAttr, KernelConfig};
 use s3_client::ObjectClient;
 
-use crate::inode::{InodeError, InodeNo, InodeStat, InodeStatKind, ReaddirHandle, Superblock};
+use crate::inode::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 
-// FIXME Use newtype here? Will add a bunch of .into()s...
-pub type Inode = u64;
+pub use crate::inode::InodeNo;
 
-pub const FUSE_ROOT_INODE: Inode = 1u64;
+pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
 const BLOCK_SIZE: u64 = 4096;
 
@@ -190,20 +189,21 @@ where
         Ok(())
     }
 
-    fn make_attr(&self, ino: Inode, stat: &InodeStat) -> FileAttr {
-        let (perm, nlink, blksize) = match stat.kind {
-            InodeStatKind::File {} => (self.config.file_mode, 1, BLOCK_SIZE as u32),
-            InodeStatKind::Directory {} => (self.config.dir_mode, 2, 512),
+    fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
+        let (perm, nlink, blksize) = match lookup.inode.kind() {
+            InodeKind::File => (self.config.file_mode, 1, BLOCK_SIZE as u32),
+            InodeKind::Directory => (self.config.dir_mode, 2, 512),
         };
+
         FileAttr {
-            ino,
-            size: stat.size as u64,
-            blocks: stat.size as u64 / BLOCK_SIZE,
-            atime: stat.atime.into(),
-            mtime: stat.mtime.into(),
-            ctime: stat.ctime.into(),
+            ino: lookup.inode.ino(),
+            size: lookup.stat.size as u64,
+            blocks: lookup.stat.size as u64 / BLOCK_SIZE,
+            atime: lookup.stat.atime.into(),
+            mtime: lookup.stat.mtime.into(),
+            ctime: lookup.stat.ctime.into(),
             crtime: UNIX_EPOCH,
-            kind: (&stat.kind).into(),
+            kind: lookup.inode.kind().into(),
             perm,
             nlink,
             uid: self.config.uid,
@@ -214,33 +214,36 @@ where
         }
     }
 
-    pub async fn lookup(&self, parent: Inode, name: &OsStr) -> Result<Entry, libc::c_int> {
+    pub async fn lookup(&self, parent: InodeNo, name: &OsStr) -> Result<Entry, libc::c_int> {
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
-        let stat = self.superblock.lookup(&self.client, parent, name).await?;
+        let lookup = self.superblock.lookup(&self.client, parent, name).await?;
+        let attr = self.make_attr(&lookup);
 
         Ok(Entry {
             ttl: self.config.stat_ttl,
-            attr: self.make_attr(stat.ino, &stat.stat),
+            attr,
             generation: 0,
         })
     }
 
-    pub async fn getattr(&self, ino: Inode) -> Result<Attr, libc::c_int> {
+    pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, libc::c_int> {
         trace!("fs:getattr with ino {:?}", ino);
 
         let lookup = self.superblock.getattr(&self.client, ino).await?;
+        let attr = self.make_attr(&lookup);
 
         Ok(Attr {
             ttl: self.config.stat_ttl,
-            attr: self.make_attr(ino, &lookup.stat),
+            attr,
         })
     }
 
-    pub async fn open(&self, ino: Inode, _flags: i32) -> Result<Opened, libc::c_int> {
+    pub async fn open(&self, ino: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
         trace!("fs:open with ino {:?} flags {:?}", ino, _flags);
 
         let lookup = self.superblock.getattr(&self.client, ino).await?;
+        let full_key = lookup.inode.full_key().to_owned();
 
         // TODO validation:
         // - must be a file
@@ -249,7 +252,7 @@ where
         let fh = self.next_handle();
         let handle = FileHandle {
             ino,
-            full_key: lookup.full_key,
+            full_key,
             object_size: lookup.stat.size as u64,
             request: Default::default(),
         };
@@ -261,7 +264,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub async fn read<R: ReadReplier>(
         &self,
-        ino: Inode,
+        ino: InodeNo,
         fh: u64,
         offset: i64,
         size: u32,
@@ -294,7 +297,7 @@ where
         }
     }
 
-    pub async fn opendir(&self, parent: Inode, _flags: i32) -> Result<Opened, libc::c_int> {
+    pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
         trace!("fs:opendir with parent {:?} flags {:?}", parent, _flags);
 
         let inode_handle = self.superblock.readdir(&self.client, parent, 1000).await?;
@@ -314,7 +317,7 @@ where
 
     pub async fn readdir<R: DirectoryReplier>(
         &self,
-        parent: Inode,
+        parent: InodeNo,
         fh: u64,
         offset: i64,
         mut reply: R,
@@ -336,16 +339,17 @@ where
         }
 
         if handle.offset() < 1 {
-            let stat = self.superblock.getattr(&self.client, parent).await?;
-            let attr = self.make_attr(stat.ino, &stat.stat);
+            // TODO these can probably just be bare `get`, we don't care about directory stat
+            let lookup = self.superblock.getattr(&self.client, parent).await?;
+            let attr = self.make_attr(&lookup);
             if reply.add(parent, handle.offset() + 1, ".", attr, 0u64, self.config.stat_ttl) {
                 return Ok(reply);
             }
             handle.next_offset();
         }
         if handle.offset() < 2 {
-            let stat = self.superblock.getattr(&self.client, handle.handle.parent()).await?;
-            let attr = self.make_attr(stat.ino, &stat.stat);
+            let lookup = self.superblock.getattr(&self.client, handle.handle.parent()).await?;
+            let attr = self.make_attr(&lookup);
             if reply.add(
                 handle.handle.parent(),
                 handle.offset() + 1,
@@ -365,11 +369,11 @@ where
                 Some(next) => next,
             };
 
-            let attr = self.make_attr(next.ino, &next.stat);
+            let attr = self.make_attr(&next);
             if reply.add(
-                next.ino,
+                attr.ino,
                 handle.offset() + 1,
-                next.name.clone(),
+                next.inode.name(),
                 attr,
                 0u64,
                 self.config.stat_ttl,
@@ -383,7 +387,7 @@ where
 
     pub async fn release(
         &self,
-        _ino: u64,
+        _ino: InodeNo,
         fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,

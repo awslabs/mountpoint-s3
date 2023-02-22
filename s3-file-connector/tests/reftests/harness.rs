@@ -7,7 +7,7 @@ use futures::future::{BoxFuture, FutureExt};
 use proptest::prelude::*;
 use s3_client::mock_client::{MockClient, MockObject};
 use s3_file_connector::{
-    fs::{Inode, FUSE_ROOT_INODE},
+    fs::{InodeNo, FUSE_ROOT_INODE},
     {S3Filesystem, S3FilesystemConfig},
 };
 use std::collections::{BTreeMap, HashSet};
@@ -34,8 +34,8 @@ impl Harness {
 
     fn compare_contents_recursive<'a>(
         &'a self,
-        fs_parent: Inode,
-        fs_dir: Inode,
+        fs_parent: InodeNo,
+        fs_dir: InodeNo,
         ref_dir: &'a Node,
     ) -> BoxFuture<'a, ()> {
         async move {
@@ -118,7 +118,7 @@ impl Harness {
         .boxed()
     }
 
-    async fn compare_file<'a>(&'a self, fs_file: Inode, ref_file: &'a MockObject) {
+    async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
         let fh = self.fs.open(fs_file, 0x8000).await.unwrap().fh;
         let mut offset = 0;
         const MAX_READ_SIZE: usize = 4_096;
