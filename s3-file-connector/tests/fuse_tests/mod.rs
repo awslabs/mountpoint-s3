@@ -3,6 +3,7 @@ mod lookup_test;
 mod mount_test;
 mod perm_test;
 mod readdir_test;
+mod write_test;
 
 use fuser::{BackgroundSession, MountOption, Session};
 use s3_file_connector::fuse::S3FuseFilesystem;
@@ -37,9 +38,9 @@ mod mock_session {
         let client = Arc::new(MockClient::new(client_config));
 
         let options = vec![
-            MountOption::RO,
             MountOption::DefaultPermissions,
-            MountOption::FSName("s3_fuse".to_string()),
+            MountOption::FSName("s3-file-connector".to_string()),
+            MountOption::NoAtime,
             MountOption::AutoUnmount,
             MountOption::AllowOther,
         ];
@@ -89,9 +90,9 @@ mod s3_session {
         let runtime = client.event_loop_group();
 
         let options = vec![
-            MountOption::RO,
             MountOption::DefaultPermissions,
-            MountOption::FSName("s3_fuse".to_string()),
+            MountOption::FSName("s3-file-connector".to_string()),
+            MountOption::NoAtime,
             MountOption::AutoUnmount,
             MountOption::AllowOther,
         ];

@@ -80,6 +80,7 @@ impl Superblock {
             kind: InodeKind::Directory,
             sync: RwLock::new(InodeState {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
+                write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::Directory {
                     children: Default::default(),
                 },
@@ -281,6 +282,54 @@ impl Superblock {
             next_continuation_token: Mutex::new(ReaddirStreamState::NotStarted),
         })
     }
+
+    /// Create a new regular file inode ready to be opened in write-only mode
+    pub async fn create<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        dir: InodeNo,
+        name: &OsStr,
+    ) -> Result<LookedUp, InodeError> {
+        let existing = self.lookup(client, dir, name).await;
+        match existing {
+            Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.ino())),
+            Err(InodeError::FileDoesNotExist) => (),
+            Err(e) => return Err(e),
+        }
+
+        let parent_inode = self.inner.get(dir)?;
+        let mut parent_state = parent_inode.inner.sync.write().unwrap();
+
+        // Check again for the child now that the parent is locked, since we might have lost to a
+        // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
+        // hold that lock across the remote API calls).
+        let InodeKindData::Directory { children } = &mut parent_state.kind_data else {
+            return Err(InodeError::NotADirectory(dir));
+        };
+        if let Some(inode) = children.get(name) {
+            return Err(InodeError::FileAlreadyExists(inode.ino()));
+        }
+
+        let stat = InodeStat {
+            expiry: Instant::now(), // TODO local inode stats never expire?
+            size: 0,
+            mtime: OffsetDateTime::now_utc(),
+            ctime: OffsetDateTime::now_utc(),
+            atime: OffsetDateTime::now_utc(),
+        };
+        let kind = InodeKind::File;
+        let state = InodeState {
+            stat: stat.clone(),
+            kind_data: InodeKindData::File {},
+            write_status: WriteStatus::LocalUnopened,
+        };
+
+        let inode = self
+            .inner
+            .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state)?;
+
+        Ok(LookedUp { inode, stat })
+    }
 }
 
 impl SuperblockInner {
@@ -332,7 +381,11 @@ impl SuperblockInner {
             return Ok(inode);
         }
 
-        let state = InodeState { stat, kind_data };
+        let state = InodeState {
+            stat,
+            kind_data,
+            write_status: WriteStatus::Remote,
+        };
         self.create_inode_locked(&parent, &mut parent_state, name, kind, state)
     }
 
@@ -619,12 +672,6 @@ struct InodeInner {
     sync: RwLock<InodeState>,
 }
 
-#[derive(Debug)]
-struct InodeState {
-    stat: InodeStat,
-    kind_data: InodeKindData,
-}
-
 impl Inode {
     pub fn ino(&self) -> InodeNo {
         self.inner.ino
@@ -645,6 +692,57 @@ impl Inode {
     pub fn full_key(&self) -> &OsStr {
         &self.inner.full_key
     }
+
+    pub fn start_writing(&self) -> Result<(), InodeError> {
+        let mut state = self.inner.sync.write().unwrap();
+        match state.write_status {
+            WriteStatus::LocalUnopened => {
+                state.write_status = WriteStatus::LocalOpen;
+                Ok(())
+            }
+            WriteStatus::LocalOpen => {
+                error!(inode=?self.ino(), "inode is already being written");
+                Err(InodeError::InodeNotWritable(self.ino()))
+            }
+            WriteStatus::Remote => {
+                error!(inode=?self.ino(), "inode already exists");
+                Err(InodeError::InodeNotWritable(self.ino()))
+            }
+        }
+    }
+
+    pub fn finish_writing(&self, new_size: usize) -> Result<(), InodeError> {
+        let mut state = self.inner.sync.write().unwrap();
+        match state.write_status {
+            WriteStatus::LocalOpen => {
+                state.write_status = WriteStatus::Remote;
+                state.stat.size = new_size;
+                // TODO force the file to be revalidated the next time it's `stat`ed?
+                Ok(())
+            }
+            _ => Err(InodeError::InodeNotWritable(self.ino())),
+        }
+    }
+
+    pub fn start_reading(&self) -> Result<(), InodeError> {
+        let state = self.inner.sync.read().unwrap();
+        match state.write_status {
+            WriteStatus::Remote => Ok(()),
+            _ => Err(InodeError::InodeNotReadableWhileWriting(self.ino())),
+        }
+    }
+
+    pub fn finish_reading(&self) -> Result<(), InodeError> {
+        // Currently a no-op, but this is where you'd e.g. update atime
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct InodeState {
+    stat: InodeStat,
+    write_status: WriteStatus,
+    kind_data: InodeKindData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -687,6 +785,17 @@ pub struct InodeStat {
     pub atime: OffsetDateTime,
 }
 
+/// Inode write status (local vs remote)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteStatus {
+    /// Local inode created but not yet opened
+    LocalUnopened,
+    /// Local inode already opened
+    LocalOpen,
+    /// Remote inode
+    Remote,
+}
+
 impl InodeStat {
     /// Initialize an [InodeStat] for a file, given some metadata.
     fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant) -> InodeStat {
@@ -725,6 +834,12 @@ pub enum InodeError {
     ShadowedByDirectory(OsString, InodeNo),
     #[error("inode {0} is not a directory")]
     NotADirectory(InodeNo),
+    #[error("file already exists at inode {0}")]
+    FileAlreadyExists(InodeNo),
+    #[error("inode {0} is not writable")]
+    InodeNotWritable(InodeNo),
+    #[error("inode {0} is not readable while being written")]
+    InodeNotReadableWhileWriting(InodeNo),
 }
 
 #[cfg(test)]

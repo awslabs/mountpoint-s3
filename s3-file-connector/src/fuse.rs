@@ -5,7 +5,9 @@ use std::time::Duration;
 use tracing::instrument;
 
 use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
-use fuser::{FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, Request};
+use fuser::{
+    FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, Request,
+};
 use s3_client::ObjectClient;
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
@@ -198,6 +200,49 @@ where
     ) {
         match self.fs.release(ino, fh, flags, lock_owner, flush).await {
             Ok(()) => reply.ok(),
+            Err(e) => reply.error(e),
+        }
+    }
+
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    async fn mknod(
+        &self,
+        _req: &Request<'_>,
+        parent: InodeNo,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        // mode_t is u32 on Linux but u16 on macOS, so cast it here
+        let mode = mode as libc::mode_t;
+
+        match self.fs.mknod(parent, name, mode, umask, rdev).await {
+            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
+            Err(e) => reply.error(e),
+        }
+    }
+
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len()))]
+    async fn write(
+        &self,
+        _req: &Request<'_>,
+        ino: InodeNo,
+        fh: u64,
+        offset: i64,
+        data: &[u8],
+        write_flags: u32,
+        flags: i32,
+        lock_owner: Option<u64>,
+        reply: ReplyWrite,
+    ) {
+        match self
+            .fs
+            .write(ino, fh, offset, data, write_flags, flags, lock_owner)
+            .await
+        {
+            Ok(bytes_written) => reply.written(bytes_written),
             Err(e) => reply.error(e),
         }
     }

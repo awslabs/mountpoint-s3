@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
 use std::time::{Duration, UNIX_EPOCH};
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
-use s3_client::ObjectClient;
+use s3_client::{ObjectClient, PutObjectParams};
 
-use crate::inode::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
+use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
@@ -40,11 +40,20 @@ impl DirHandle {
 
 #[derive(Debug)]
 struct FileHandle<Client: ObjectClient, Runtime> {
-    #[allow(unused)]
-    ino: InodeNo,
+    inode: Inode,
     full_key: OsString,
     object_size: u64,
-    request: Mutex<Option<PrefetchGetObject<Client, Runtime>>>,
+    typ: FileHandleType<Client, Runtime>,
+}
+
+#[derive(Debug)]
+enum FileHandleType<Client: ObjectClient, Runtime> {
+    Read {
+        request: Mutex<Option<PrefetchGetObject<Client, Runtime>>>,
+    },
+    Write {
+        parts: Mutex<Vec<Box<[u8]>>>,
+    },
 }
 
 #[derive(Debug)]
@@ -133,6 +142,7 @@ where
 }
 
 /// Reply to a `lookup` call
+#[derive(Debug)]
 pub struct Entry {
     pub ttl: Duration,
     pub attr: FileAttr,
@@ -140,12 +150,14 @@ pub struct Entry {
 }
 
 /// Reply to a `getattr` call
+#[derive(Debug)]
 pub struct Attr {
     pub ttl: Duration,
     pub attr: FileAttr,
 }
 
 /// Reply to a `open` or `opendir` call
+#[derive(Debug)]
 pub struct Opened {
     pub fh: u64,
     pub flags: u32,
@@ -239,29 +251,46 @@ where
         })
     }
 
-    pub async fn open(&self, ino: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
-        trace!("fs:open with ino {:?} flags {:?}", ino, _flags);
+    pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, libc::c_int> {
+        trace!("fs:open with ino {:?} flags {:?}", ino, flags);
 
         let lookup = self.superblock.getattr(&self.client, ino).await?;
-        let full_key = lookup.inode.full_key().to_owned();
 
-        // TODO validation:
-        // - must be a file
-        // - must be read-only flags, or file was created locally and is new
+        match lookup.inode.kind() {
+            InodeKind::Directory => return Err(libc::EISDIR),
+            InodeKind::File => (),
+        }
+
+        let handle_type = if (flags & libc::O_RDWR) != 0 {
+            error!("O_RDWR is unsupported");
+            return Err(libc::EINVAL);
+        } else if (flags & libc::O_WRONLY) != 0 {
+            lookup.inode.start_writing()?;
+            FileHandleType::Write {
+                parts: Default::default(),
+            }
+        } else {
+            lookup.inode.start_reading()?;
+            FileHandleType::Read {
+                request: Default::default(),
+            }
+        };
+
+        let full_key = lookup.inode.full_key().to_owned();
 
         let fh = self.next_handle();
         let handle = FileHandle {
-            ino,
+            inode: lookup.inode,
             full_key,
             object_size: lookup.stat.size as u64,
-            request: Default::default(),
+            typ: handle_type,
         };
         self.file_handles.write().unwrap().insert(fh, handle);
 
         Ok(Opened { fh, flags: 0 })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // We don't get to choose this interface
     pub async fn read<R: ReadReplier>(
         &self,
         ino: InodeNo,
@@ -281,20 +310,100 @@ where
         );
 
         let file_handles = self.file_handles.read().unwrap();
-        if let Some(handle) = file_handles.get(&fh) {
-            let mut request = handle.request.lock().unwrap();
-            if request.is_none() {
-                let key = std::str::from_utf8(handle.full_key.as_bytes()).unwrap();
-                *request = Some(self.prefetcher.get(&self.bucket, key, handle.object_size));
-            }
-            match request.as_mut().unwrap().read(offset as u64, size as usize) {
-                Ok(body) => reply.data(&body),
-                Err(PrefetchReadError::TimedOut) => reply.error(libc::ETIMEDOUT),
-                Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
-            }
-        } else {
-            reply.error(libc::EBADF)
+        let Some(handle) = file_handles.get(&fh) else {
+            return reply.error(libc::EBADF);
+        };
+        let mut request = match &handle.typ {
+            FileHandleType::Write { .. } => return reply.error(libc::EINVAL),
+            FileHandleType::Read { request } => request.lock().unwrap(),
+        };
+
+        if request.is_none() {
+            let key = std::str::from_utf8(handle.full_key.as_bytes()).unwrap();
+            *request = Some(self.prefetcher.get(&self.bucket, key, handle.object_size));
         }
+
+        match request.as_mut().unwrap().read(offset as u64, size as usize) {
+            Ok(body) => reply.data(&body),
+            Err(PrefetchReadError::TimedOut) => reply.error(libc::ETIMEDOUT),
+            Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
+        }
+    }
+
+    pub async fn mknod(
+        &self,
+        parent: InodeNo,
+        name: &OsStr,
+        mode: libc::mode_t,
+        _umask: u32,
+        _rdev: u32,
+    ) -> Result<Entry, libc::c_int> {
+        if mode & libc::S_IFMT != libc::S_IFREG {
+            error!(
+                ?parent,
+                ?name,
+                "invalid mknod type {}; only regular files are supported",
+                mode & libc::S_IFMT
+            );
+            return Err(libc::EINVAL);
+        }
+
+        let lookup = self.superblock.create(&self.client, parent, name).await?;
+        let attr = self.make_attr(&lookup);
+
+        Ok(Entry {
+            ttl: self.config.stat_ttl,
+            attr,
+            generation: 0,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)] // We don't get to choose this interface
+    pub async fn write(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        offset: i64,
+        data: &[u8],
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+    ) -> Result<u32, libc::c_int> {
+        const MAX_OBJECT_SIZE: usize = 5 * 1024 * 1024 * 1024;
+
+        trace!(
+            "fs:write with ino {:?} fh {:?} offset {:?} size {:?}",
+            ino,
+            fh,
+            offset,
+            data.len()
+        );
+
+        let file_handles = self.file_handles.read().unwrap();
+        let Some(handle) = file_handles.get(&fh) else {
+            return Err(libc::EBADF);
+        };
+        let mut request = match &handle.typ {
+            FileHandleType::Write { parts } => parts.lock().unwrap(),
+            FileHandleType::Read { .. } => return Err(libc::EINVAL),
+        };
+
+        let next_offset = request.iter().map(|p| p.len()).sum::<usize>();
+        if offset != next_offset as i64 {
+            error!("out of order write; expected offset {next_offset} but got {offset}");
+            return Err(libc::EINVAL);
+        }
+
+        // If we'd go over the size limit, fail the entire write rather than short-writing
+        if next_offset + data.len() > MAX_OBJECT_SIZE {
+            error!("object too large");
+            return Err(libc::EFBIG);
+        }
+
+        let len = data.len();
+        // TODO wrap this in the `Part` machinery and validate it on PUT (and checksum)
+        request.push(data.into());
+        Ok(len as u32)
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
@@ -393,11 +502,49 @@ where
         _lock_owner: Option<u64>,
         _flush: bool,
     ) -> Result<(), libc::c_int> {
-        // TODO how do we cancel an inflight PrefetchingGetRequest?
-        let mut file_handles = self.file_handles.write().unwrap();
-        let existed = file_handles.remove(&fh).is_some();
-        assert!(existed, "releasing a file handle that doesn't exist?");
-        Ok(())
+        let handle = {
+            let mut file_handles = self.file_handles.write().unwrap();
+            file_handles.remove(&fh).ok_or(libc::EBADF)?
+        };
+
+        match handle.typ {
+            FileHandleType::Write { parts } => {
+                // TODO how do we make sure we didn't already handle this via `flush`?
+                let parts = parts.into_inner().unwrap();
+                let size = parts.iter().map(|part| part.len()).sum::<usize>();
+                let stream = futures::stream::iter(parts);
+                let Ok(key) = std::str::from_utf8(handle.full_key.as_bytes()) else {
+                    error!("invalid utf8 key {:?}", handle.full_key);
+                    return Err(libc::EINVAL);
+                };
+
+                let put = self
+                    .client
+                    .put_object(&self.bucket, key, &PutObjectParams::default(), stream)
+                    .await;
+                let result = match put {
+                    Ok(_result) => {
+                        debug!(key, size, "put succeeded");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!(key, size, "put failed, object was not uploaded: {e:?}");
+                        // This won't actually be seen by the user because `release` is async, but
+                        // it's the right thing to do.
+                        Err(libc::EIO)
+                    }
+                };
+
+                handle.inode.finish_writing(size)?;
+
+                result
+            }
+            FileHandleType::Read { request: _ } => {
+                // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
+                handle.inode.finish_reading()?;
+                Ok(())
+            }
+        }
     }
 }
 
@@ -410,6 +557,11 @@ impl From<InodeError> for i32 {
             InodeError::InvalidFileName(_) => libc::EINVAL,
             InodeError::NotADirectory(_) => libc::ENOTDIR,
             InodeError::ShadowedByDirectory(_, _) => libc::ENOENT,
+            InodeError::FileAlreadyExists(_) => libc::EEXIST,
+            // Not obvious what these two cases should be -- EINVAL would also be reasonable, or
+            // EROFS for not-writable -- but we'll treat it like a sealed file
+            InodeError::InodeNotWritable(_) => libc::EPERM,
+            InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
         }
     }
 }
