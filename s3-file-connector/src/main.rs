@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::os::unix::prelude::FromRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use std::{fs, fs::File};
@@ -24,8 +24,8 @@ use tracing_subscriber::{
 
 mod build_info;
 
-fn init_tracing_subscriber() -> anyhow::Result<()> {
-    const LOG_FOLDER: &str = ".s3-file-connector";
+fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) -> anyhow::Result<()> {
+    const LOG_DIRECTORY: &str = ".s3-file-connector";
     const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
         macros::format_description!("s3fc_[year][month][day][hour][minute][second].log");
 
@@ -37,23 +37,38 @@ fn init_tracing_subscriber() -> anyhow::Result<()> {
             .format(LOG_FILE_NAME_FORMAT)
             .context("couldn't format log file name")?;
 
-        let log_directory = home::home_dir()
-            .ok_or(anyhow!("no home directory found!"))?
-            .join(LOG_FOLDER);
-
-        fs::create_dir_all(&log_directory).context("failed to create log folder")?;
-
-        let file = File::create(log_directory.join(filename)).context("failed to create log file")?;
+        let file = if let Some(path) = log_directory {
+            fs::create_dir_all(path).context("failed to create log folder")?;
+            File::create(path.join(filename)).context("failed to create log file")?
+        } else {
+            let default_log_directory = home::home_dir()
+                .ok_or(anyhow!("no home directory found!"))?
+                .join(LOG_DIRECTORY);
+            fs::create_dir_all(&default_log_directory).context("failed to create log folder")?;
+            File::create(default_log_directory.join(filename)).context("failed to create log file")?
+        };
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
             .with_writer(file)
             .with_filter(default_environment_filter);
-
-        tracing_subscriber::registry()
+        let registry = tracing_subscriber::registry()
             .with(fmt_layer)
-            .with(metrics_tracing_span_layer())
-            .init();
+            .with(metrics_tracing_span_layer());
+        if is_foreground {
+            // Brutal hack because tracing-subscriber doesn't allow us to specify *multiple* default
+            // directives -- we want warning-level logging except for the CRT, which is very spammy.
+            if std::env::var("RUST_LOG") == Err(std::env::VarError::NotPresent) {
+                std::env::set_var("RUST_LOG", "info,awscrt=off,fuser=error");
+            }
+
+            let fmt_layer_to_console = tracing_subscriber::fmt::layer()
+                .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
+                .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
+            registry.with(fmt_layer_to_console).init();
+        } else {
+            registry.init();
+        }
     }
 
     Ok(())
@@ -68,6 +83,9 @@ struct CliArgs {
 
     #[clap(help = "Mount point for file system")]
     pub mount_point: PathBuf,
+
+    #[clap(short, long, help = "Log file directory. [default: $HOME/.s3_file_connector]")]
+    pub log_directory: Option<PathBuf>,
 
     #[clap(
         long,
@@ -145,8 +163,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     if args.foreground {
+        init_tracing_subscriber(args.foreground, args.log_directory.as_deref())
+            .context("failed to initialize logging")?;
         // mount file system as a foreground process
-        init_tracing_subscriber().context("failed to initialize logging")?;
         let session = mount(args)?;
 
         let (sender, receiver) = std::sync::mpsc::sync_channel(0);
@@ -172,9 +191,9 @@ fn main() -> anyhow::Result<()> {
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                init_tracing_subscriber().context("failed to initialize logging")?;
-
                 let child_args = CliArgs::parse();
+                init_tracing_subscriber(child_args.foreground, child_args.log_directory.as_deref())
+                    .context("failed to initialize logging")?;
                 let session = mount(child_args);
 
                 // close unused file descriptor, we only write from this end.
@@ -209,8 +228,8 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             ForkResult::Parent { child } => {
-                init_tracing_subscriber().context("failed to initialize logging")?;
-
+                init_tracing_subscriber(args.foreground, args.log_directory.as_deref())
+                    .context("failed to initialize logging")?;
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
 
