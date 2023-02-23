@@ -70,8 +70,8 @@ impl MockClient {
         self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
     }
 
-    /// Drop object for the mock client's bucket
-    pub fn drop_object(&self, key: &str) {
+    /// Remove object for the mock client's bucket
+    pub fn remove_object(&self, key: &str) {
         self.objects.write().unwrap().remove(key);
     }
 }
@@ -203,10 +203,9 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(DeleteObjectError::NoSuchBucket));
         }
 
-        self.drop_object(key);
-        let result = DeleteObjectResult {};
+        self.remove_object(key);
 
-        Ok(result)
+        Ok(DeleteObjectResult {})
     }
 
     async fn get_object(

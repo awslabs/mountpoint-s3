@@ -17,6 +17,8 @@ pub trait ObjectClient {
     type ClientError: std::error::Error + Send + Sync + 'static;
 
     /// Delete a single object from the object store.
+    /// 
+    /// DeleteObject will succeed even if the object within the bucket does not exist.
     async fn delete_object(
         &self,
         bucket: &str,
@@ -137,6 +139,9 @@ pub enum HeadObjectError {
 }
 
 /// Result of a [ObjectClient::delete_object] request
+/// 
+/// Note: DeleteObject calls on a non-existent object within a bucket are considered a success.
+/// 
 /// TODO: Populate this struct with return fields from the S3 API, e.g., version id, delete marker.
 #[derive(Debug)]
 pub struct DeleteObjectResult {}

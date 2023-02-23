@@ -36,9 +36,7 @@ impl S3CrtClient {
 
         let _body = request.await?;
 
-        let result = DeleteObjectResult {};
-
-        Ok(result)
+        Ok(DeleteObjectResult {})
     }
 }
 

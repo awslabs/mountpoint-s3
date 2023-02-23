@@ -61,7 +61,7 @@ where
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
-        // No failure hook for now.
+        // TODO failure hook for delete_object
         self.client.delete_object(bucket, key).await
     }
 

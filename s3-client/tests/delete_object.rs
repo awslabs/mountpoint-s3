@@ -23,19 +23,11 @@ async fn test_delete_object() {
         .await
         .unwrap();
 
-    sdk_client
-        .head_object()
-        .bucket(&bucket)
-        .key(&key)
-        .send()
-        .await
-        .expect("object should exist");
-
     let client: S3CrtClient = get_test_client();
     let _result = client
         .delete_object(&bucket, &key)
         .await
-        .expect("delete_object should not fail for non-existent object");
+        .expect("delete_object should succeed");
 
     let head_obj_err = sdk_client
         .head_object()
@@ -69,8 +61,6 @@ async fn test_delete_object_no_obj() {
         .delete_object(&bucket, &key)
         .await
         .expect("delete_object should not fail for non-existent object");
-
-    // All OK
 }
 
 #[tokio::test]
