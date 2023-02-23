@@ -737,6 +737,8 @@ mod tests {
     use super::*;
 
     /// Check an [InodeStat] matches a series of fields.
+    /// ctime, mtime and atime are within the range of 5 seconds of given datetime.
+    /// It is required for directory where these are specified as mount time.
     macro_rules! assert_inode_stat {
         ($stat:expr, $type:expr, $datetime:expr, $size:expr) => {
             assert_eq!($stat.kind, $type);
@@ -884,6 +886,7 @@ mod tests {
             client.add_object(key, MockObject::constant(0xaa, 30));
         }
 
+        let ts = OffsetDateTime::now_utc();
         let superblock = Superblock::new("test_bucket".to_string(), OsString::from(prefix));
 
         // Try it all twice to test inode reuse
@@ -895,6 +898,22 @@ mod tests {
                 &["dir0", "dir1"]
             );
 
+            assert_inode_stat!(
+                dir_handle
+                    .inner
+                    .inodes
+                    .read()
+                    .unwrap()
+                    .get(&FUSE_ROOT_INODE)
+                    .expect("No Inode found")
+                    .stat_cache
+                    .read()
+                    .unwrap(),
+                InodeStatKind::Directory {},
+                ts,
+                0
+            );
+
             let dir0_inode = entries[0].ino;
             let dir_handle = superblock.readdir(&client, dir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
@@ -903,12 +922,44 @@ mod tests {
                 &["file0.txt", "sdir0", "sdir1"]
             );
 
+            assert_inode_stat!(
+                dir_handle
+                    .inner
+                    .inodes
+                    .read()
+                    .unwrap()
+                    .get(&dir0_inode)
+                    .expect("No Inode found")
+                    .stat_cache
+                    .read()
+                    .unwrap(),
+                InodeStatKind::Directory {},
+                ts,
+                0
+            );
+
             let sdir0_inode = entries[1].ino;
             let dir_handle = superblock.readdir(&client, sdir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
             assert_eq!(
                 entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(),
                 &["file0.txt", "file1.txt", "file2.txt"]
+            );
+
+            assert_inode_stat!(
+                dir_handle
+                    .inner
+                    .inodes
+                    .read()
+                    .unwrap()
+                    .get(&sdir0_inode)
+                    .expect("No Inode found")
+                    .stat_cache
+                    .read()
+                    .unwrap(),
+                InodeStatKind::Directory {},
+                ts,
+                0
             );
         }
     }
