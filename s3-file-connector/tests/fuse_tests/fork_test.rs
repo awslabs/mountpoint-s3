@@ -1,3 +1,6 @@
+// These tests all run the main binary and so expect to be able to reach S3
+#![cfg(feature = "s3_tests")]
+
 use assert_cmd::prelude::*; // Add methods on commands
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -8,7 +11,6 @@ use crate::common::{create_objects, get_test_bucket_and_prefix, get_test_bucket_
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[cfg(feature = "fuse_tests")]
 #[test]
 fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background");
@@ -45,7 +47,6 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fuse_tests")]
 #[test]
 fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_foreground");
@@ -85,7 +86,6 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fuse_tests")]
 #[test]
 fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     // the mount would fail from error 403 on HeadBucket
@@ -119,7 +119,6 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fuse_tests")]
 #[test]
 fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     // the mount would fail from error 403 on HeadBucket
@@ -154,7 +153,6 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fuse_tests")]
 #[test]
 fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_duplicate_mount");
