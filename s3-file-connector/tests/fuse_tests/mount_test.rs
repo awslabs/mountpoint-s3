@@ -1,8 +1,5 @@
-use std::fs::{read_dir, File, OpenOptions};
+use std::fs::{read_dir, File};
 use std::io::{Read as _, Seek, SeekFrom};
-
-#[cfg(target_os = "linux")]
-use std::os::unix::fs::OpenOptionsExt;
 
 use fuser::BackgroundSession;
 use rand::RngCore;
@@ -45,13 +42,7 @@ where
 
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
     // so we can make it weird.
-    let mut bin = {
-        let mut open = OpenOptions::new();
-        open.read(true);
-        #[cfg(target_os = "linux")]
-        open.custom_flags(libc::O_DIRECT);
-        open.open(files[1].path()).unwrap()
-    };
+    let mut bin = File::open(files[1].path()).unwrap();
     let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
