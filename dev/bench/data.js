@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1677239736746,
+  "lastUpdate": 1677239772929,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -5703,6 +5703,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 25.669921875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42ca651512ea166050e0a51fc6caa50183574dde",
+          "message": "Remove O_DIRECT from basic_read_test (#114)\n\nThis test is failing sporadically in CI with corrupt data. I believe the\r\ncause is the same as #84. Per the man page for `open(2)`, `O_DIRECT` is\r\nnot safe to use concurrently with `fork` syscalls:\r\n\r\n> O_DIRECT I/Os should never be run concurrently with the fork(2)\r\n> system call, if the memory buffer is a private mapping (i.e., any\r\n> mapping created with the mmap(2) MAP_PRIVATE flag; this includes\r\n> memory allocated on the heap and statically allocated buffers).\r\n> Any such I/Os, whether submitted via an asynchronous I/O\r\n> interface or from another thread in the process, should be\r\n> completed before fork(2) is called.  Failure to do so can result\r\n> in data corruption and undefined behavior in parent and child\r\n> processes.\r\n\r\nOur test runner does a `fork` every time we mount a FUSE file system,\r\nsince we don't run our tests as root, and so we need to execute the\r\n`fusermount3` utility to do the mount. Since tests run concurrently,\r\nthat means we will sometimes do one of these forks at the same time as\r\nthis test is doing an `O_DIRECT` read.\r\n\r\nSigned-off-by: James Bornholt <bornholt@cs.utexas.edu>",
+          "timestamp": "2023-02-24T11:40:38Z",
+          "tree_id": "1ead4947c236e9bdf08148a9976c7b9701e7baac",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/42ca651512ea166050e0a51fc6caa50183574dde"
+        },
+        "date": 1677239772038,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 2.568359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 13.7958984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 16.58984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 33.154296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 37.591796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 3.2705078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.451171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 3.9384765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 5.0869140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 5.1552734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 723.150390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 8.32421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6841.23828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 171.9130859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 9.0166015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1103.1435546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 25.2626953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2430.6435546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 27.130859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 27.986328125,
             "unit": "MiB/s"
           }
         ]
