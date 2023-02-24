@@ -742,9 +742,9 @@ mod tests {
     macro_rules! assert_inode_stat {
         ($stat:expr, $type:expr, $datetime:expr, $size:expr) => {
             assert_eq!($stat.kind, $type);
-            assert!($stat.atime >= $datetime && $stat.atime < $datetime + Duration::new(5, 0));
-            assert!($stat.ctime >= $datetime && $stat.ctime < $datetime + Duration::new(5, 0));
-            assert!($stat.mtime >= $datetime && $stat.mtime < $datetime + Duration::new(5, 0));
+            assert!($stat.atime >= $datetime && $stat.atime < $datetime + Duration::seconds(5));
+            assert!($stat.ctime >= $datetime && $stat.ctime < $datetime + Duration::seconds(5));
+            assert!($stat.mtime >= $datetime && $stat.mtime < $datetime + Duration::seconds(5));
             assert_eq!($stat.size, $size);
         };
     }
@@ -882,8 +882,11 @@ mod tests {
             format!("{prefix}dir1/sdir3/file1.txt"),
         ];
 
+        let last_modified = OffsetDateTime::UNIX_EPOCH;
         for key in keys {
-            client.add_object(key, MockObject::constant(0xaa, 30));
+            let mut obj = MockObject::constant(0xaa, 30);
+            obj.set_last_modified(last_modified);
+            client.add_object(key, obj);
         }
 
         let ts = OffsetDateTime::now_utc();
@@ -908,7 +911,7 @@ mod tests {
                 &["file0.txt", "sdir0", "sdir1"]
             );
 
-            assert_inode_stat!(entries[0].stat, InodeStatKind::File {}, entries[0].stat.atime, 30);
+            assert_inode_stat!(entries[0].stat, InodeStatKind::File {}, last_modified, 30);
             assert_inode_stat!(entries[1].stat, InodeStatKind::Directory {}, ts, 0);
             assert_inode_stat!(entries[2].stat, InodeStatKind::Directory {}, ts, 0);
 
@@ -920,7 +923,7 @@ mod tests {
                 &["file0.txt", "file1.txt", "file2.txt"]
             );
             for entry in entries {
-                assert_inode_stat!(entry.stat, InodeStatKind::File {}, entry.stat.atime, 30);
+                assert_inode_stat!(entry.stat, InodeStatKind::File {}, last_modified, 30);
             }
         }
     }
