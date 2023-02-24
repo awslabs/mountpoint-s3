@@ -45,6 +45,16 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Update package list
       run: sudo apt-get update
     - name: Install dependencies
