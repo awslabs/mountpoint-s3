@@ -897,22 +897,8 @@ mod tests {
                 entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(),
                 &["dir0", "dir1"]
             );
-
-            assert_inode_stat!(
-                dir_handle
-                    .inner
-                    .inodes
-                    .read()
-                    .unwrap()
-                    .get(&FUSE_ROOT_INODE)
-                    .expect("No Inode found")
-                    .stat_cache
-                    .read()
-                    .unwrap(),
-                InodeStatKind::Directory {},
-                ts,
-                0
-            );
+            assert_inode_stat!(entries[0].stat, InodeStatKind::Directory {}, ts, 0);
+            assert_inode_stat!(entries[1].stat, InodeStatKind::Directory {}, ts, 0);
 
             let dir0_inode = entries[0].ino;
             let dir_handle = superblock.readdir(&client, dir0_inode, 2).await.unwrap();
@@ -922,21 +908,9 @@ mod tests {
                 &["file0.txt", "sdir0", "sdir1"]
             );
 
-            assert_inode_stat!(
-                dir_handle
-                    .inner
-                    .inodes
-                    .read()
-                    .unwrap()
-                    .get(&dir0_inode)
-                    .expect("No Inode found")
-                    .stat_cache
-                    .read()
-                    .unwrap(),
-                InodeStatKind::Directory {},
-                ts,
-                0
-            );
+            assert_inode_stat!(entries[0].stat, InodeStatKind::File {}, entries[0].stat.atime, 30);
+            assert_inode_stat!(entries[1].stat, InodeStatKind::Directory {}, ts, 0);
+            assert_inode_stat!(entries[2].stat, InodeStatKind::Directory {}, ts, 0);
 
             let sdir0_inode = entries[1].ino;
             let dir_handle = superblock.readdir(&client, sdir0_inode, 2).await.unwrap();
@@ -945,22 +919,9 @@ mod tests {
                 entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(),
                 &["file0.txt", "file1.txt", "file2.txt"]
             );
-
-            assert_inode_stat!(
-                dir_handle
-                    .inner
-                    .inodes
-                    .read()
-                    .unwrap()
-                    .get(&sdir0_inode)
-                    .expect("No Inode found")
-                    .stat_cache
-                    .read()
-                    .unwrap(),
-                InodeStatKind::Directory {},
-                ts,
-                0
-            );
+            for entry in entries {
+                assert_inode_stat!(entry.stat, InodeStatKind::File {}, entry.stat.atime, 30);
+            }
         }
     }
 
