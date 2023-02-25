@@ -882,7 +882,7 @@ mod tests {
             format!("{prefix}dir1/sdir3/file1.txt"),
         ];
 
-        let last_modified = OffsetDateTime::UNIX_EPOCH;
+        let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
         for key in keys {
             let mut obj = MockObject::constant(0xaa, 30);
             obj.set_last_modified(last_modified);
