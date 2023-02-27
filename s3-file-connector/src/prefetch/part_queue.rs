@@ -1,25 +1,29 @@
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
+use crate::sync::async_channel::{unbounded, Receiver, Sender};
 use crate::sync::atomic::{AtomicBool, Ordering};
-use crate::sync::{Condvar, Mutex};
+use crate::sync::AsyncMutex;
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
 #[derive(Debug)]
 pub struct PartQueue<E> {
-    buffers: Mutex<VecDeque<Result<Part, E>>>,
-    queue_signal: Condvar,
+    current_part: AsyncMutex<Option<Part>>,
+    sender: Sender<Result<Part, E>>,
+    receiver: Receiver<Result<Part, E>>,
     failed: AtomicBool,
 }
 
 impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     pub fn new() -> Self {
+        let (sender, receiver) = unbounded();
+
         Self {
-            buffers: Mutex::new(VecDeque::new()),
-            queue_signal: Condvar::new(),
+            current_part: AsyncMutex::new(None),
+            sender,
+            receiver,
             failed: AtomicBool::new(false),
         }
     }
@@ -30,33 +34,29 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub fn read(&self, length: usize, timeout: Duration) -> Result<Part, PrefetchReadError<E>> {
-        let mut buffers = self.buffers.lock().unwrap();
+    pub async fn read(&self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+        let mut current_part = self.current_part.lock().await;
 
         assert!(
             !self.failed.load(Ordering::SeqCst),
             "cannot use a PartQueue after failure"
         );
 
-        // This code looks a little funky because we want to (1) only emit the starved metric once
-        // even under spurious wakes and (2) emit the metric even if we time out waiting.
-        if buffers.is_empty() {
-            let start = Instant::now();
-            let ret = loop {
-                let (guard, timed_out) = self.queue_signal.wait_timeout(buffers, timeout).unwrap();
-                buffers = guard;
-                if timed_out.timed_out() {
-                    break Err(PrefetchReadError::TimedOut);
-                }
-                if !buffers.is_empty() {
-                    break Ok(());
-                }
-            };
-            metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
-            ret?;
-        }
+        let part = if let Some(current_part) = current_part.take() {
+            Ok(current_part)
+        } else {
+            // Do `try_recv` first so we can track whether the read is starved or not
+            if let Ok(part) = self.receiver.try_recv() {
+                part
+            } else {
+                let start = Instant::now();
+                let part = self.receiver.recv().await.expect("channel should not close");
+                metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
+                part
+            }
+        };
 
-        let mut part = match buffers.pop_front().expect("buffers is not empty") {
+        let mut part = match part {
             Err(e) => {
                 self.failed.store(true, Ordering::SeqCst);
                 return Err(e.into());
@@ -69,16 +69,15 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             Ok(part)
         } else {
             let tail = part.split_off(length);
-            buffers.push_front(Ok(tail));
+            *current_part = Some(tail);
             Ok(part)
         }
     }
 
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, E>) {
-        let mut buffers = self.buffers.lock().unwrap();
-        buffers.push_back(part);
-        self.queue_signal.notify_one();
+        // Unbounded channel will never actually block
+        self.sender.send_blocking(part).unwrap();
     }
 }
 
@@ -86,6 +85,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 mod tests {
     use super::*;
 
+    use futures::executor::block_on;
     use proptest::proptest;
     use proptest_derive::Arbitrary;
     use thiserror::Error;
@@ -100,7 +100,7 @@ mod tests {
     #[derive(Debug, Error)]
     enum DummyError {}
 
-    fn run_test(ops: Vec<Op>) {
+    async fn run_test(ops: Vec<Op>) {
         let part_key = "key";
         let part_queue = PartQueue::<DummyError>::new();
         let mut current_offset = 0;
@@ -112,21 +112,16 @@ mod tests {
                     if n == 0 {
                         continue;
                     }
-                    let part = part_queue.read(n, Duration::from_millis(10)).unwrap();
+                    let part = part_queue.read(n).await.unwrap();
                     let bytes = part.into_bytes(part_key, current_offset).unwrap();
                     assert_eq!(bytes[0], current_offset as u8);
                     current_offset += bytes.len() as u64;
                     current_length -= bytes.len();
                 }
                 Op::ReadAligned => {
-                    let first_part_length = part_queue
-                        .buffers
-                        .lock()
-                        .unwrap()
-                        .front()
-                        .map(|part| part.as_ref().unwrap().len());
+                    let first_part_length = part_queue.current_part.lock().await.as_ref().map(|p| p.len());
                     if let Some(n) = first_part_length {
-                        let part = part_queue.read(n, Duration::from_millis(10)).unwrap();
+                        let part = part_queue.read(n).await.unwrap();
                         let bytes = part.into_bytes(part_key, current_offset).unwrap();
                         assert_eq!(bytes[0], current_offset as u8);
                         assert_eq!(bytes.len(), n);
@@ -146,26 +141,18 @@ mod tests {
                     current_length += n;
                 }
             }
-            let available: usize = part_queue
-                .buffers
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|part| part.as_ref().unwrap().len())
-                .sum();
-            assert_eq!(available, current_length);
         }
     }
 
     #[test]
     fn part_queue_simple() {
-        run_test(vec![Op::Push(1), Op::Push(1), Op::Read(1), Op::Read(1)]);
+        block_on(run_test(vec![Op::Push(1), Op::Push(1), Op::Read(1), Op::Read(1)]));
     }
 
     proptest! {
         #[test]
         fn proptest_part_queue(ops: Vec<Op>) {
-            run_test(ops);
+            block_on(run_test(ops));
         }
     }
 }

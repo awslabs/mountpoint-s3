@@ -11,7 +11,7 @@ use s3_client::{ObjectClient, PutObjectParams};
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use crate::sync::{Arc, Mutex, RwLock};
+use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 
 pub use crate::inode::InodeNo;
 
@@ -46,10 +46,10 @@ struct FileHandle<Client: ObjectClient, Runtime> {
 #[derive(Debug)]
 enum FileHandleType<Client: ObjectClient, Runtime> {
     Read {
-        request: Mutex<Option<PrefetchGetObject<Client, Runtime>>>,
+        request: AsyncMutex<Option<PrefetchGetObject<Client, Runtime>>>,
     },
     Write {
-        parts: Mutex<Vec<Box<[u8]>>>,
+        parts: AsyncMutex<Vec<Box<[u8]>>>,
     },
 }
 
@@ -98,8 +98,8 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     #[allow(unused)]
     prefix: String,
     next_handle: AtomicU64,
-    dir_handles: RwLock<HashMap<u64, Arc<DirHandle>>>,
-    file_handles: RwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
+    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
+    file_handles: AsyncRwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
 }
 
 impl<Client, Runtime> S3Filesystem<Client, Runtime>
@@ -128,8 +128,8 @@ where
             bucket: bucket.to_string(),
             prefix: prefix.to_string(),
             next_handle: AtomicU64::new(1),
-            dir_handles: RwLock::new(HashMap::new()),
-            file_handles: RwLock::new(HashMap::new()),
+            dir_handles: AsyncRwLock::new(HashMap::new()),
+            file_handles: AsyncRwLock::new(HashMap::new()),
         }
     }
 
@@ -299,7 +299,7 @@ where
             object_size: lookup.stat.size as u64,
             typ: handle_type,
         };
-        self.file_handles.write().unwrap().insert(fh, handle);
+        self.file_handles.write().await.insert(fh, handle);
 
         Ok(Opened { fh, flags: 0 })
     }
@@ -323,22 +323,21 @@ where
             size
         );
 
-        let file_handles = self.file_handles.read().unwrap();
+        let file_handles = self.file_handles.read().await;
         let Some(handle) = file_handles.get(&fh) else {
             return reply.error(libc::EBADF);
         };
         let mut request = match &handle.typ {
             FileHandleType::Write { .. } => return reply.error(libc::EBADF),
-            FileHandleType::Read { request } => request.lock().unwrap(),
+            FileHandleType::Read { request } => request.lock().await,
         };
 
         if request.is_none() {
             *request = Some(self.prefetcher.get(&self.bucket, &handle.full_key, handle.object_size));
         }
 
-        match request.as_mut().unwrap().read(offset as u64, size as usize) {
+        match request.as_mut().unwrap().read(offset as u64, size as usize).await {
             Ok(body) => reply.data(&body),
-            Err(PrefetchReadError::TimedOut) => reply.error(libc::ETIMEDOUT),
             Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
         }
     }
@@ -392,12 +391,12 @@ where
             data.len()
         );
 
-        let file_handles = self.file_handles.read().unwrap();
+        let file_handles = self.file_handles.read().await;
         let Some(handle) = file_handles.get(&fh) else {
             return Err(libc::EBADF);
         };
         let mut request = match &handle.typ {
-            FileHandleType::Write { parts } => parts.lock().unwrap(),
+            FileHandleType::Write { parts } => parts.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
 
@@ -431,7 +430,7 @@ where
             offset: AtomicI64::new(0),
         };
 
-        let mut dir_handles = self.dir_handles.write().unwrap();
+        let mut dir_handles = self.dir_handles.write().await;
         dir_handles.insert(fh, Arc::new(handle));
 
         Ok(Opened { fh, flags: 0 })
@@ -447,7 +446,7 @@ where
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
 
         let handle = {
-            let dir_handles = self.dir_handles.read().unwrap();
+            let dir_handles = self.dir_handles.read().await;
             dir_handles.get(&fh).cloned().ok_or(libc::EBADF)?
         };
 
@@ -516,14 +515,14 @@ where
         _flush: bool,
     ) -> Result<(), libc::c_int> {
         let handle = {
-            let mut file_handles = self.file_handles.write().unwrap();
+            let mut file_handles = self.file_handles.write().await;
             file_handles.remove(&fh).ok_or(libc::EBADF)?
         };
 
         match handle.typ {
             FileHandleType::Write { parts } => {
                 // TODO how do we make sure we didn't already handle this via `flush`?
-                let parts = parts.into_inner().unwrap();
+                let parts = parts.into_inner();
                 let size = parts.iter().map(|part| part.len()).sum::<usize>();
                 let stream = futures::stream::iter(parts);
                 let key = handle.full_key;

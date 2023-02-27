@@ -123,10 +123,10 @@ where
         }
     }
 
-    /// Read some bytes from the object. Blocks until the desired bytes are available or EOF. This
-    /// function will always return exactly `size` bytes, except at the end of the object where it
-    /// will return however many bytes are left (including possibly 0 bytes).
-    pub fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
+    /// Read some bytes from the object. This function will always return exactly `size` bytes,
+    /// except at the end of the object where it will return however many bytes are left (including
+    /// possibly 0 bytes).
+    pub async fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
         trace!(
             offset,
             length,
@@ -172,7 +172,7 @@ where
             let current_task = self.current_task.as_mut().unwrap();
             debug_assert!(current_task.remaining > 0);
 
-            let part = match current_task.read(to_read as usize, self.inner.config.read_timeout) {
+            let part = match current_task.read(to_read as usize).await {
                 Err(e) => {
                     // cancel inflight tasks
                     self.current_task = None;
@@ -184,9 +184,14 @@ where
             let part_bytes = part.into_bytes(&self.key, self.next_sequential_read_offset).unwrap();
 
             self.next_sequential_read_offset += part_bytes.len() as u64;
+
+            // If we can complete the read with just a single buffer, early return to avoid copying
+            // into a new buffer. This should be the common case as long as part size is larger than
+            // read size, which it almost always is for real S3 clients and FUSE.
             if response.is_empty() && part_bytes.len() == to_read as usize {
                 return Ok(part_bytes);
             }
+
             response.extend_from_slice(&part_bytes[..]);
             to_read -= part_bytes.len() as u64;
             if current_task.remaining == 0 {
@@ -291,6 +296,7 @@ where
     }
 }
 
+/// A single GetObject request submitted to the S3 client
 #[derive(Debug)]
 struct RequestTask<E> {
     remaining: usize,
@@ -299,8 +305,8 @@ struct RequestTask<E> {
 }
 
 impl<E: std::error::Error + Send + Sync> RequestTask<E> {
-    fn read(&mut self, length: usize, timeout: Duration) -> Result<Part, PrefetchReadError<E>> {
-        let part = self.part_queue.read(length, timeout)?;
+    async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+        let part = self.part_queue.read(length).await?;
         debug_assert!(part.len() <= self.remaining);
         self.remaining -= part.len();
         Ok(part)
@@ -309,8 +315,6 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
 
 #[derive(Debug, Error)]
 pub enum PrefetchReadError<E: std::error::Error> {
-    #[error("timed out waiting to read")]
-    TimedOut,
     #[error("get request failed")]
     GetRequestFailed(#[from] E),
 }
@@ -321,7 +325,7 @@ mod tests {
     #![allow(clippy::identity_op)]
 
     use super::*;
-    use futures::executor::ThreadPool;
+    use futures::executor::{block_on, ThreadPool};
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
@@ -363,7 +367,7 @@ mod tests {
 
         let mut next_offset = 0;
         loop {
-            let buf = request.read(next_offset, read_size).unwrap();
+            let buf = block_on(request.read(next_offset, read_size)).unwrap();
             if buf.is_empty() {
                 break;
             }
@@ -435,7 +439,7 @@ mod tests {
 
         let mut next_offset = 0;
         loop {
-            let buf = match request.read(next_offset, read_size) {
+            let buf = match block_on(request.read(next_offset, read_size)) {
                 Ok(buf) => buf,
                 Err(_) => break,
             };
@@ -511,7 +515,7 @@ mod tests {
             assert!(offset < object_size);
             assert!(offset + length as u64 <= object_size);
             let expected = ramp_bytes((0xaa + offset) as usize, length);
-            let buf = request.read(offset, length).unwrap();
+            let buf = block_on(request.read(offset, length)).unwrap();
             assert_eq!(buf.len(), expected.len());
             // Don't spew the giant buffer if this test fails
             if buf[..] != expected[..] {
@@ -569,6 +573,7 @@ mod tests {
     mod shuttle_tests {
         use super::*;
         use futures::task::{FutureObj, SpawnError};
+        use shuttle::future::block_on;
         use shuttle::rand::Rng;
         use shuttle::{check_pct, check_random};
 
@@ -610,7 +615,7 @@ mod tests {
             let mut next_offset = 0;
             loop {
                 let read_size = rng.gen_range(1usize..1 * 1024 * 1024);
-                let buf = request.read(next_offset, read_size).unwrap();
+                let buf = block_on(request.read(next_offset, read_size)).unwrap();
                 if buf.is_empty() {
                     break;
                 }
@@ -662,7 +667,7 @@ mod tests {
                 let offset = rng.gen_range(0u64..object_size);
                 let length = rng.gen_range(1usize..(object_size - offset + 1) as usize);
                 let expected = ramp_bytes((0xaa + offset) as usize, length);
-                let buf = request.read(offset, length).unwrap();
+                let buf = block_on(request.read(offset, length)).unwrap();
                 assert_eq!(buf.len(), expected.len());
                 // Don't spew the giant buffer if this test fails
                 if buf[..] != expected[..] {
