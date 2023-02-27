@@ -62,6 +62,7 @@ struct SuperblockInner {
     bucket: String,
     inodes: RwLock<HashMap<InodeNo, Inode>>,
     next_ino: AtomicU64,
+    mount_time: OffsetDateTime,
 }
 
 impl Superblock {
@@ -75,13 +76,14 @@ impl Superblock {
             OsString::from(&s[..s.len() - 1])
         };
 
+        let mount_time = OffsetDateTime::now_utc();
         let root = Inode {
             ino: ROOT_INODE_NO,
             parent: ROOT_INODE_NO,
             // We stash the prefix in the root inode's name so that path resolution "just works"
             // with prefixes
             name: stripped_prefix,
-            stat_cache: RwLock::new(InodeStat::for_directory(OffsetDateTime::UNIX_EPOCH)),
+            stat_cache: RwLock::new(InodeStat::for_directory(mount_time)),
             stat_cache_expiry: Instant::now(),
             data: InodeData::Directory {
                 children: Default::default(),
@@ -95,6 +97,7 @@ impl Superblock {
             bucket,
             inodes: RwLock::new(inodes),
             next_ino: AtomicU64::new(2),
+            mount_time,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -217,7 +220,7 @@ impl Superblock {
                     // semantics, directories always shadow files.
                     if found_directory {
                         trace!(?parent, ?name, kind=?InodeKind::Directory, "suffixed lookup found a directory");
-                        let stat = InodeStat::for_directory(OffsetDateTime::UNIX_EPOCH);
+                        let stat = InodeStat::for_directory(self.inner.mount_time);
                         let ino =
                             self.inner
                                 .update_or_insert(parent, name, InodeKind::Directory, stat.clone(), Instant::now())?;
@@ -502,7 +505,7 @@ impl ReaddirHandle {
                 .map(|prefix| OsString::from(&prefix[self.full_path.len()..prefix.len() - 1]))
                 .filter(|name| valid_inode_name(name))
                 .map(|name| {
-                    let stat = InodeStat::for_directory(OffsetDateTime::UNIX_EPOCH);
+                    let stat = InodeStat::for_directory(self.inner.mount_time);
                     let stat_clone = stat.clone();
 
                     self.inner
@@ -736,12 +739,14 @@ mod tests {
     use super::*;
 
     /// Check an [InodeStat] matches a series of fields.
+    /// ctime, mtime and atime are within the range of 5 seconds of given datetime.
+    /// It is required for directory where these are specified as mount time.
     macro_rules! assert_inode_stat {
         ($stat:expr, $type:expr, $datetime:expr, $size:expr) => {
             assert_eq!($stat.kind, $type);
-            assert_eq!($stat.atime, $datetime);
-            assert_eq!($stat.ctime, $datetime);
-            assert_eq!($stat.mtime, $datetime);
+            assert!($stat.atime >= $datetime && $stat.atime < $datetime + Duration::seconds(5));
+            assert!($stat.ctime >= $datetime && $stat.ctime < $datetime + Duration::seconds(5));
+            assert!($stat.mtime >= $datetime && $stat.mtime < $datetime + Duration::seconds(5));
             assert_eq!($stat.size, $size);
         };
     }
@@ -780,6 +785,7 @@ mod tests {
             client.add_object(key, obj);
         }
 
+        let ts = OffsetDateTime::now_utc();
         let superblock = Superblock::new(bucket.to_string(), OsString::from(prefix));
 
         // Try it twice to test the inode reuse path too
@@ -788,42 +794,42 @@ mod tests {
                 .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir0"))
                 .await
                 .expect("should exist");
-            assert_inode_stat!(dir0.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
+            assert_inode_stat!(dir0.stat, InodeStatKind::Directory {}, ts, 0);
             assert_eq!(dir0.full_key, OsString::from(format!("{prefix}dir0")));
 
             let dir1 = superblock
                 .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir1"))
                 .await
                 .expect("should exist");
-            assert_inode_stat!(dir1.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
+            assert_inode_stat!(dir1.stat, InodeStatKind::Directory {}, ts, 0);
             assert_eq!(dir1.full_key, OsString::from(format!("{prefix}dir1")));
 
             let sdir0 = superblock
                 .lookup(&client, dir0.ino, &OsString::from("sdir0"))
                 .await
                 .expect("should exist");
-            assert_inode_stat!(sdir0.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
+            assert_inode_stat!(sdir0.stat, InodeStatKind::Directory {}, ts, 0);
             assert_eq!(sdir0.full_key, OsString::from(format!("{prefix}dir0/sdir0")));
 
             let sdir1 = superblock
                 .lookup(&client, dir0.ino, &OsString::from("sdir1"))
                 .await
                 .expect("should exist");
-            assert_inode_stat!(sdir1.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
+            assert_inode_stat!(sdir1.stat, InodeStatKind::Directory {}, ts, 0);
             assert_eq!(sdir1.full_key, OsString::from(format!("{prefix}dir0/sdir1")));
 
             let sdir2 = superblock
                 .lookup(&client, dir1.ino, &OsString::from("sdir2"))
                 .await
                 .expect("should exist");
-            assert_inode_stat!(sdir2.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
+            assert_inode_stat!(sdir2.stat, InodeStatKind::Directory {}, ts, 0);
             assert_eq!(sdir2.full_key, OsString::from(format!("{prefix}dir1/sdir2")));
 
             let sdir3 = superblock
                 .lookup(&client, dir1.ino, &OsString::from("sdir3"))
                 .await
                 .expect("should exist");
-            assert_inode_stat!(sdir3.stat, InodeStatKind::Directory {}, OffsetDateTime::UNIX_EPOCH, 0);
+            assert_inode_stat!(sdir3.stat, InodeStatKind::Directory {}, ts, 0);
             assert_eq!(sdir3.full_key, OsString::from(format!("{prefix}dir1/sdir3")));
 
             for (dir, sdir, ino, n) in &[
@@ -878,10 +884,14 @@ mod tests {
             format!("{prefix}dir1/sdir3/file1.txt"),
         ];
 
+        let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
         for key in keys {
-            client.add_object(key, MockObject::constant(0xaa, 30));
+            let mut obj = MockObject::constant(0xaa, 30);
+            obj.set_last_modified(last_modified);
+            client.add_object(key, obj);
         }
 
+        let ts = OffsetDateTime::now_utc();
         let superblock = Superblock::new("test_bucket".to_string(), OsString::from(prefix));
 
         // Try it all twice to test inode reuse
@@ -892,6 +902,8 @@ mod tests {
                 entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(),
                 &["dir0", "dir1"]
             );
+            assert_inode_stat!(entries[0].stat, InodeStatKind::Directory {}, ts, 0);
+            assert_inode_stat!(entries[1].stat, InodeStatKind::Directory {}, ts, 0);
 
             let dir0_inode = entries[0].ino;
             let dir_handle = superblock.readdir(&client, dir0_inode, 2).await.unwrap();
@@ -901,6 +913,10 @@ mod tests {
                 &["file0.txt", "sdir0", "sdir1"]
             );
 
+            assert_inode_stat!(entries[0].stat, InodeStatKind::File {}, last_modified, 30);
+            assert_inode_stat!(entries[1].stat, InodeStatKind::Directory {}, ts, 0);
+            assert_inode_stat!(entries[2].stat, InodeStatKind::Directory {}, ts, 0);
+
             let sdir0_inode = entries[1].ino;
             let dir_handle = superblock.readdir(&client, sdir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
@@ -908,6 +924,9 @@ mod tests {
                 entries.iter().map(|entry| &entry.name).collect::<Vec<_>>(),
                 &["file0.txt", "file1.txt", "file2.txt"]
             );
+            for entry in entries {
+                assert_inode_stat!(entry.stat, InodeStatKind::File {}, last_modified, 30);
+            }
         }
     }
 
