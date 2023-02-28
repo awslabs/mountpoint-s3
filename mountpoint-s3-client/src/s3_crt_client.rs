@@ -41,6 +41,7 @@ macro_rules! request_span {
 
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
+pub(crate) mod get_object_attributes;
 pub(crate) mod head_bucket;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
@@ -541,6 +542,15 @@ impl ObjectClient for S3CrtClient {
         contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.put_object(bucket, key, params, contents).await
+    }
+
+    async fn get_object_attributes(
+        &self,
+        bucket: &str,
+        key: &str,
+        object_attributes: Vec<ObjectAttribute>,
+    ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
+        self.get_object_attributes(bucket, key, object_attributes).await
     }
 }
 

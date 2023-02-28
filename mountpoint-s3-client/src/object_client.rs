@@ -60,6 +60,14 @@ pub trait ObjectClient {
         params: &PutObjectParams,
         contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
+
+    /// Retrieves all the metadata from an object without returning the object contents.
+    async fn get_object_attributes(
+        &self,
+        bucket: &str,
+        key: &str,
+        object_attributes: Vec<ObjectAttribute>,
+    ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError>;
 }
 
 /// Errors returned by calls to an [ObjectClient]. Errors that are explicitly modeled on a
@@ -156,6 +164,32 @@ pub enum DeleteObjectError {
     NoSuchBucket,
 }
 
+/// Result of a [ObjectClient::get_object_attributes] request
+#[derive(Debug, Default)]
+pub struct GetObjectAttributesResult {
+    /// ETag of the object
+    pub etag: Option<String>,
+
+    /// Checksum for the object
+    pub checksum: Option<Checksum>,
+
+    /// Object parts metadata for multi part object
+    pub object_parts: Option<GetObjectAttributesParts>,
+
+    /// Storage class of the object
+    pub storage_class: Option<String>,
+
+    /// Object size
+    pub object_size: Option<u64>,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GetObjectAttributesError {
+    #[error("The object was not found")]
+    NotFound,
+}
+
 /// Parameters to a [ObjectClient::put_object] request
 /// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
 #[derive(Debug, Default)]
@@ -195,4 +229,88 @@ pub struct ObjectInfo {
 
     /// Entity tag of this object.
     pub etag: String,
+}
+
+/// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].
+pub enum ObjectAttribute {
+    ETag,
+    Checksum,
+    ObjectParts,
+    StorageClass,
+    ObjectSize,
+}
+
+impl ToString for ObjectAttribute {
+    fn to_string(&self) -> String {
+        match self {
+            ObjectAttribute::ETag => "ETag".to_owned(),
+            ObjectAttribute::Checksum => "Checksum".to_owned(),
+            ObjectAttribute::ObjectParts => "ObjectParts".to_owned(),
+            ObjectAttribute::StorageClass => "StorageClass".to_owned(),
+            ObjectAttribute::ObjectSize => "ObjectSize".to_owned(),
+        }
+    }
+}
+
+/// Metadata about object checksum.
+/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Checksum.html for more details.
+#[derive(Debug)]
+pub struct Checksum {
+    /// Base64-encoded, 32-bit CRC32 checksum of the object
+    pub checksum_crc32: Option<String>,
+
+    /// Base64-encoded, 32-bit CRC32C checksum of the object
+    pub checksum_crc32c: Option<String>,
+
+    /// Base64-encoded, 160-bit SHA-1 digest of the object
+    pub checksum_sha1: Option<String>,
+
+    /// Base64-encoded, 256-bit SHA-256 digest of the object
+    pub checksum_sha256: Option<String>,
+}
+
+/// Metadata about object parts from GetObjectAttributes API.
+/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObjectAttributesParts.html for more details.
+#[derive(Debug)]
+pub struct GetObjectAttributesParts {
+    /// Indicates whether the returned list of parts is truncated
+    pub is_truncated: bool,
+
+    /// Maximum number of parts allowed in the response
+    pub max_parts: usize,
+
+    /// When a list is truncated, this element specifies the next marker
+    pub next_part_number_marker: usize,
+
+    /// The marker for the current part
+    pub part_number_marker: usize,
+
+    /// Array of metadata for particular parts
+    pub parts: Vec<ObjectPart>,
+
+    /// Total number of parts
+    pub total_parts_count: usize,
+}
+
+/// Metadata for an individual object part.
+/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_ObjectPart.html for more details.
+#[derive(Debug)]
+pub struct ObjectPart {
+    /// Base64-encoded, 32-bit CRC32 checksum of the object
+    pub checksum_crc32: Option<String>,
+
+    /// Base64-encoded, 32-bit CRC32C checksum of the object
+    pub checksum_crc32c: Option<String>,
+
+    /// Base64-encoded, 160-bit SHA-1 digest of the object
+    pub checksum_sha1: Option<String>,
+
+    /// Base64-encoded, 256-bit SHA-256 digest of the object
+    pub checksum_sha256: Option<String>,
+
+    /// Number of the part, this value is a positive integer between 1 and 10,000
+    pub part_number: usize,
+
+    // Size of the part in bytes
+    pub size: usize,
 }
