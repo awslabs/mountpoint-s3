@@ -165,6 +165,9 @@ fn main() -> anyhow::Result<()> {
     if args.foreground {
         init_tracing_subscriber(args.foreground, args.log_directory.as_deref())
             .context("failed to initialize logging")?;
+
+        let _metrics = MetricsSink::init();
+
         // mount file system as a foreground process
         let session = mount(args)?;
 
@@ -194,6 +197,9 @@ fn main() -> anyhow::Result<()> {
                 let child_args = CliArgs::parse();
                 init_tracing_subscriber(child_args.foreground, child_args.log_directory.as_deref())
                     .context("failed to initialize logging")?;
+
+                let _metrics = MetricsSink::init();
+
                 let session = mount(child_args);
 
                 // close unused file descriptor, we only write from this end.
@@ -295,8 +301,6 @@ fn mount(args: CliArgs) -> anyhow::Result<BackgroundSession> {
         endpoint,
         user_agent_prefix: Some(format!("s3-file-connector/{}", build_info::FULL_VERSION)),
     };
-
-    let _metrics = MetricsSink::init();
 
     let client = create_client_for_bucket(
         &args.bucket_name,
