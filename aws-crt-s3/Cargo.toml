@@ -17,7 +17,7 @@ thiserror = "1.0.35"
 [dev-dependencies]
 criterion = "0.4.0"
 ctor = "0.1.23"
-tempfile = "3.3.0"
+tempfile = "3.4.0"
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
 [[bench]]
