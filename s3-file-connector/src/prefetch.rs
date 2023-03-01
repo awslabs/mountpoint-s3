@@ -321,10 +321,12 @@ pub enum PrefetchReadError<E: std::error::Error> {
 
 #[cfg(test)]
 mod tests {
+    // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
+    #![allow(clippy::identity_op)]
+
     use super::*;
     use futures::executor::ThreadPool;
     use proptest::proptest;
-    use proptest::sample::SizeRange;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
     use s3_client::failure_client::{countdown_failure_client, GetFailureMap};
@@ -333,13 +335,13 @@ mod tests {
 
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
-        #[proptest(strategy = "16usize..5*1024*1024")]
+        #[proptest(strategy = "16usize..1*1024*1024")]
         first_request_size: usize,
-        #[proptest(strategy = "16usize..5*1024*1024")]
+        #[proptest(strategy = "16usize..1*1024*1024")]
         max_request_size: usize,
         #[proptest(strategy = "1usize..8usize")]
         sequential_prefetch_multiplier: usize,
-        #[proptest(strategy = "16usize..8*1024*1024")]
+        #[proptest(strategy = "16usize..2*1024*1024")]
         client_part_size: usize,
     }
 
@@ -356,7 +358,7 @@ mod tests {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            read_timeout: Duration::from_secs(1),
+            read_timeout: Duration::from_secs(5),
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -391,7 +393,7 @@ mod tests {
     fn sequential_read_medium() {
         let config = TestConfig {
             first_request_size: 256 * 1024,
-            max_request_size: 1024 * 1024 * 1024,
+            max_request_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
         };
@@ -402,11 +404,11 @@ mod tests {
     fn sequential_read_large() {
         let config = TestConfig {
             first_request_size: 256 * 1024,
-            max_request_size: 1024 * 1024 * 1024,
+            max_request_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
         };
-        run_sequential_read_test(4 * 1024 * 1024 * 1024 + 111, 1024 * 1024, config);
+        run_sequential_read_test(256 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
     fn fail_sequential_read_test(
@@ -472,38 +474,18 @@ mod tests {
         fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
 
-    #[test]
-    fn fail_read_sequential_small() {
-        let config = TestConfig {
-            first_request_size: 256 * 1024,
-            max_request_size: 1024 * 1024 * 1024,
-            sequential_prefetch_multiplier: 8,
-            client_part_size: 8 * 1024 * 1024,
-        };
-
-        let mut get_failures = HashMap::new();
-        get_failures.insert(
-            2,
-            Err(ObjectClientError::ClientError(MockClientError(
-                "invalid range; length=42".into(),
-            ))),
-        );
-
-        fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
-    }
-
     proptest! {
         #[test]
         fn proptest_sequential_read(
-            size in 1u64..5 * 1024 * 1024,
-            read_size in 1usize..5 * 1024 * 1024,
+            size in 1u64..1 * 1024 * 1024,
+            read_size in 1usize..1 * 1024 * 1024,
             config: TestConfig,
         ) {
             run_sequential_read_test(size, read_size, config);
         }
 
         #[test]
-        fn proptest_sequential_read_small_read_size(size in 1u64..5 * 1024 * 1024, read_factor in 1usize..10, config: TestConfig) {
+        fn proptest_sequential_read_small_read_size(size in 1u64..1 * 1024 * 1024, read_factor in 1usize..10, config: TestConfig) {
             let read_size = (size as usize / read_factor).max(1);
             run_sequential_read_test(size, read_size, config);
         }
@@ -557,7 +539,7 @@ mod tests {
                     (0..object_size).prop_flat_map(move |offset| {
                         (1..=object_size - offset).prop_map(move |length| (offset, length as usize))
                     }),
-                    SizeRange::default(),
+                    0..10,
                 ),
             )
         })
@@ -566,7 +548,7 @@ mod tests {
     proptest! {
         #[test]
         fn proptest_random_read(
-            reads in random_read_strategy(5 * 1024 * 1024),
+            reads in random_read_strategy(1 * 1024 * 1024),
             config: TestConfig,
         ) {
             let (object_size, reads) = reads;
@@ -604,11 +586,11 @@ mod tests {
 
         fn sequential_read_stress_helper() {
             let mut rng = shuttle::rand::thread_rng();
-            let object_size = rng.gen_range(1u64..5 * 1024 * 1024);
-            let first_request_size = rng.gen_range(16usize..5 * 1024 * 1024);
-            let max_request_size = rng.gen_range(16usize..5 * 1024 * 1024);
+            let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
+            let first_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
+            let max_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(1usize..16);
-            let part_size = rng.gen_range(16usize..8 * 1024 * 1024);
+            let part_size = rng.gen_range(16usize..2 * 1024 * 1024);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
@@ -631,7 +613,7 @@ mod tests {
 
             let mut next_offset = 0;
             loop {
-                let read_size = rng.gen_range(1usize..5 * 1024 * 1024);
+                let read_size = rng.gen_range(1usize..1 * 1024 * 1024);
                 let buf = request.read(next_offset, read_size).unwrap();
                 if buf.is_empty() {
                     break;

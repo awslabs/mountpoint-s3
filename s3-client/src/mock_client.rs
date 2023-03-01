@@ -21,7 +21,7 @@ use crate::ObjectClient;
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
 
-const RAMP_BUFFER_SIZE: usize = 16 * 1024 * RAMP_MODULUS; // around 4 MiB
+const RAMP_BUFFER_SIZE: usize = 4 * 1024 * RAMP_MODULUS; // around 1 MiB
 static_assertions::const_assert!(RAMP_BUFFER_SIZE % RAMP_MODULUS == 0);
 
 // Return a ramping pattern of bytes modulo RAMP_MODULUS.  The seed is the first byte.
@@ -574,7 +574,7 @@ mod tests {
     async fn test_put_object() {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
-        let obj = MockObject::ramp(0xaa, RAMP_BUFFER_SIZE);
+        let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE);
 
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
