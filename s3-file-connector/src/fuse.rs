@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::time::Duration;
 use tracing::instrument;
 
-use crate::fs::{DirectoryReplier, Inode, ReadReplier, S3Filesystem, S3FilesystemConfig};
+use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
 use fuser::{FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, Request};
 use s3_client::ObjectClient;
 
@@ -38,7 +38,7 @@ where
     }
 
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, name=?name))]
-    async fn lookup(&self, _req: &Request<'_>, parent: Inode, name: &OsStr, reply: ReplyEntry) {
+    async fn lookup(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEntry) {
         match self.fs.lookup(parent, name).await {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
             Err(e) => reply.error(e),
@@ -46,7 +46,7 @@ where
     }
 
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
-    async fn getattr(&self, _req: &Request<'_>, ino: Inode, reply: ReplyAttr) {
+    async fn getattr(&self, _req: &Request<'_>, ino: InodeNo, reply: ReplyAttr) {
         match self.fs.getattr(ino).await {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => reply.error(e),
@@ -54,7 +54,7 @@ where
     }
 
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
-    async fn open(&self, _req: &Request<'_>, ino: Inode, flags: i32, reply: ReplyOpen) {
+    async fn open(&self, _req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match self.fs.open(ino, flags).await {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => reply.error(e),
@@ -65,7 +65,7 @@ where
     async fn read(
         &self,
         _req: &Request<'_>,
-        ino: Inode,
+        ino: InodeNo,
         fh: u64,
         offset: i64,
         size: u32,
@@ -108,7 +108,7 @@ where
     }
 
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent))]
-    async fn opendir(&self, _req: &Request<'_>, parent: Inode, flags: i32, reply: ReplyOpen) {
+    async fn opendir(&self, _req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
         match self.fs.opendir(parent, flags).await {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => reply.error(e),
@@ -116,7 +116,14 @@ where
     }
 
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
-    async fn readdir(&self, _req: &Request<'_>, parent: Inode, fh: u64, offset: i64, mut reply: fuser::ReplyDirectory) {
+    async fn readdir(
+        &self,
+        _req: &Request<'_>,
+        parent: InodeNo,
+        fh: u64,
+        offset: i64,
+        mut reply: fuser::ReplyDirectory,
+    ) {
         struct ReplyDirectory<'a> {
             inner: &'a mut fuser::ReplyDirectory,
         }
@@ -124,7 +131,7 @@ where
         impl<'a> DirectoryReplier for ReplyDirectory<'a> {
             fn add<T: AsRef<OsStr>>(
                 &mut self,
-                ino: u64,
+                ino: InodeNo,
                 offset: i64,
                 name: T,
                 attr: FileAttr,
@@ -147,7 +154,7 @@ where
     async fn readdirplus(
         &self,
         _req: &Request<'_>,
-        parent: u64,
+        parent: InodeNo,
         fh: u64,
         offset: i64,
         mut reply: fuser::ReplyDirectoryPlus,
@@ -182,7 +189,7 @@ where
     async fn release(
         &self,
         _req: &Request<'_>,
-        ino: u64,
+        ino: InodeNo,
         fh: u64,
         flags: i32,
         lock_owner: Option<u64>,
