@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1677672067597,
+  "lastUpdate": 1677695636830,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -6447,6 +6447,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 24.5966796875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5ef09e1e6990161eb9cee8a9288fc29249f3fb4",
+          "message": "Refactor inode interface to prepare for writes (#113)\n\n* Refactor inode interface to prepare for writes\r\n\r\nThis commit does some refactoring of our inode story to prepare for the\r\nnext PR that will introduce write support. There's no functional change\r\nin this commit, just refactoring and the consequences of that.\r\n\r\nThe big idea is that an `Inode` is now a pointer to the actual inode\r\ndata, so we can cheaply copy them around and hold onto references to\r\nthem without worrying about lifetimes. Before, all inodes were stored in\r\na big locked hashmap, so if we wanted to hold onto an inode reference we\r\nhad to instead remember its inode number, and then do a re-lookup in the\r\nhashmap any time we needed it. We were relying on this behavior to\r\nserialize some operations like `update_or_insert`, but it became very\r\nclumsy as I was adding writes.\r\n\r\nInodes now have a locked `InodeState`, which allows us to serialize updates\r\nto a particular inode in isolation from the big locked hashmap. This\r\nmakes `update_or_insert` much clearer. It also makes the future checks\r\nfor whether an inode is writable or not simpler to think through.\r\n\r\nThe client of `inode.rs` now gets access to the `Inode` struct rather\r\nthan just seeing everything as inode numbers. But it only gets access\r\nthrough some getters rather than direct access to the fields.\r\n\r\nOne regression in this change is that we now make a complete copy of the\r\nkey for each inode. Before, each inode only stored its own component of\r\nthe path, and we reconstructed full keys on the fly by walking up the\r\ndirectory hierarchy. The new version is more memory inefficient, but\r\nmakes the locking story simpler. It shouldn't be too hard to turn this\r\ninto some kind of string interning thing in the future to recover the\r\nmemory overhead.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* Make `InodeInner` a named field\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-01T18:16:58Z",
+          "tree_id": "b8348d036ce53f3936ac9f40bd0ce82bbc71a6a7",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/a5ef09e1e6990161eb9cee8a9288fc29249f3fb4"
+        },
+        "date": 1677695636024,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.4267578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.6533203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 10.919921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 29.5087890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 29.1826171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 1.869140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 3.8486328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.271484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.4501953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.728515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 593.3212890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 6.162109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6593.587890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 151.0166015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 10.3974609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 598.2060546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 21.5419921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2110.087890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 22.740234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 22.7578125,
             "unit": "MiB/s"
           }
         ]
