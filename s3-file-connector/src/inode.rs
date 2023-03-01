@@ -85,7 +85,7 @@ impl Superblock {
                 },
             }),
         };
-        let root = Inode(Arc::new(root));
+        let root = Inode { inner: Arc::new(root) };
 
         let mut inodes = HashMap::new();
         inodes.insert(ROOT_INODE_NO, root);
@@ -246,7 +246,7 @@ impl Superblock {
         let inode = self.inner.get(ino)?;
 
         // TODO revalidate if expired
-        let stat = inode.0.sync.read().unwrap().stat.clone();
+        let stat = inode.inner.sync.read().unwrap().stat.clone();
 
         Ok(LookedUp { inode, stat })
     }
@@ -319,7 +319,7 @@ impl SuperblockInner {
 
         // Fast path: try with only a read lock on the directory first
         {
-            let parent_state = parent.0.sync.read().unwrap();
+            let parent_state = parent.inner.sync.read().unwrap();
             if let Some(inode) = Self::update_if_present(parent_ino, &parent_state, name, kind, &stat)? {
                 return Ok(inode);
             }
@@ -327,7 +327,7 @@ impl SuperblockInner {
 
         // If the fast path failed, take the write lock. We first have to try the update again, as
         // a racing writer might have beat us to the lock after our fast path attempt.
-        let mut parent_state = parent.0.sync.write().unwrap();
+        let mut parent_state = parent.inner.sync.write().unwrap();
         if let Some(inode) = Self::update_if_present(parent_ino, &parent_state, name, kind, &stat)? {
             return Ok(inode);
         }
@@ -354,7 +354,7 @@ impl SuperblockInner {
                         return Ok(None);
                     };
 
-                let mut inode_state = inode.0.sync.write().unwrap();
+                let mut inode_state = inode.inner.sync.write().unwrap();
 
                 // In our semantics, directories shadow files of the same name. So if the inode
                 // already exists but the kind has changed, we need to decide what to do.
@@ -424,7 +424,7 @@ impl SuperblockInner {
             kind,
             sync: RwLock::new(state),
         };
-        let inode = Inode(Arc::new(inode));
+        let inode = Inode { inner: Arc::new(inode) };
 
         match &mut parent_locked.kind_data {
             InodeKindData::File {} => {
@@ -600,7 +600,9 @@ impl ReaddirHandle {
 }
 
 #[derive(Debug, Clone)]
-pub struct Inode(Arc<InodeInner>);
+pub struct Inode {
+    inner: Arc<InodeInner>,
+}
 
 #[derive(Debug)]
 struct InodeInner {
@@ -625,23 +627,23 @@ struct InodeState {
 
 impl Inode {
     pub fn ino(&self) -> InodeNo {
-        self.0.ino
+        self.inner.ino
     }
 
     pub fn parent(&self) -> InodeNo {
-        self.0.parent
+        self.inner.parent
     }
 
     pub fn name(&self) -> &OsStr {
-        &self.0.name
+        &self.inner.name
     }
 
     pub fn kind(&self) -> InodeKind {
-        self.0.kind
+        self.inner.kind
     }
 
     pub fn full_key(&self) -> &OsStr {
-        &self.0.full_key
+        &self.inner.full_key
     }
 }
 
