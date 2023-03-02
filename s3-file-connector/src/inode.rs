@@ -310,13 +310,8 @@ impl Superblock {
             return Err(InodeError::FileAlreadyExists(inode.ino()));
         }
 
-        let stat = InodeStat {
-            expiry: Instant::now(), // TODO local inode stats never expire?
-            size: 0,
-            mtime: OffsetDateTime::now_utc(),
-            ctime: OffsetDateTime::now_utc(),
-            atime: OffsetDateTime::now_utc(),
-        };
+        let expiry = Instant::now(); // TODO local inode stats never expire?
+        let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry);
         let kind = InodeKind::File;
         let state = InodeState {
             stat: stat.clone(),
@@ -427,7 +422,6 @@ impl SuperblockInner {
                     }
                     // Otherwise, we'll just update this inode in place.
                     (InodeKind::File, InodeKind::File) | (InodeKind::Directory, InodeKind::Directory) => {
-                        debug_assert_eq!(inode.kind(), kind);
                         inode_state.stat = stat.clone();
                         Ok(Some(inode.clone()))
                     }

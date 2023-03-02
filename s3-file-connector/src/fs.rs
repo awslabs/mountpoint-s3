@@ -314,7 +314,7 @@ where
             return reply.error(libc::EBADF);
         };
         let mut request = match &handle.typ {
-            FileHandleType::Write { .. } => return reply.error(libc::EINVAL),
+            FileHandleType::Write { .. } => return reply.error(libc::EBADF),
             FileHandleType::Read { request } => request.lock().unwrap(),
         };
 
@@ -385,7 +385,7 @@ where
         };
         let mut request = match &handle.typ {
             FileHandleType::Write { parts } => parts.lock().unwrap(),
-            FileHandleType::Read { .. } => return Err(libc::EINVAL),
+            FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
 
         let next_offset = request.iter().map(|p| p.len()).sum::<usize>();
