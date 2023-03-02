@@ -90,9 +90,8 @@ async fn test_delete_object_no_perm() {
     let result = client.delete_object(&bucket, &key).await;
 
     if let Err(ObjectClientError::ClientError(S3RequestError::ResponseError(err))) = &result {
-        assert!(err.response_status == 403 || err.response_status == 404);
+        assert!(err.response_status == 403);
     } else {
-        // DeleteObject will return 404 if you have no permission to the bucket
-        panic!("Unexpected result, expected a ResponseError with 403 or 404 if there's no permission");
+        panic!("Unexpected result, expected a ResponseError with 403 if there's no permission");
     }
 }
