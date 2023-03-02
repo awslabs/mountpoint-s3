@@ -261,10 +261,17 @@ where
             InodeKind::File => (),
         }
 
-        let handle_type = if (flags & libc::O_RDWR) != 0 {
+        let handle_type = if flags & libc::O_RDWR != 0 {
             error!("O_RDWR is unsupported");
             return Err(libc::EINVAL);
-        } else if (flags & libc::O_WRONLY) != 0 {
+        } else if flags & libc::O_WRONLY != 0 {
+            // We can't support O_SYNC writes because they require the data to go to stable storage
+            // at `write` time, but we only commit a PUT at `close` time.
+            if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
+                error!("O_SYNC and O_DSYNC are unsupported");
+                return Err(libc::EINVAL);
+            }
+
             lookup.inode.start_writing()?;
             FileHandleType::Write {
                 parts: Default::default(),
