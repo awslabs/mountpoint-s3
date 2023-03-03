@@ -16,6 +16,15 @@ pub trait ObjectClient {
     type GetObjectResult: Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send;
     type ClientError: std::error::Error + Send + Sync + 'static;
 
+    /// Delete a single object from the object store.
+    ///
+    /// DeleteObject will succeed even if the object within the bucket does not exist.
+    async fn delete_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError>;
+
     /// Get an object from the object store. Returns a stream of body parts of the object. Parts are
     /// guaranteed to be returned by the stream in order and contiguously.
     async fn get_object(
@@ -89,6 +98,7 @@ pub enum GetObjectError {
 
 /// Result of a [ObjectClient::list_objects] request
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ListObjectsResult {
     /// The name of the bucket.
     pub bucket: String,
@@ -113,6 +123,7 @@ pub enum ListObjectsError {
 
 /// Result of a [ObjectClient::head_object] request
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct HeadObjectResult {
     /// The name of the bcuket
     pub bucket: String,
@@ -129,14 +140,32 @@ pub enum HeadObjectError {
     NotFound,
 }
 
+/// Result of a [ObjectClient::delete_object] request
+///
+/// Note: DeleteObject calls on a non-existent object within a bucket are considered a success.
+///
+/// TODO: Populate this struct with return fields from the S3 API, e.g., version id, delete marker.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct DeleteObjectResult {}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeleteObjectError {
+    #[error("The bucket does not exist")]
+    NoSuchBucket,
+}
+
 /// Parameters to a [ObjectClient::put_object] request
 /// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct PutObjectParams {}
 
 /// Result of a [ObjectClient::put_object] request
 /// TODO: Populate this struct with return fields from the S3 API, e.g., etag.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct PutObjectResult {}
 
 #[derive(Debug, Error, PartialEq, Eq)]

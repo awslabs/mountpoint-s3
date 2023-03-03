@@ -10,8 +10,8 @@ use futures::Stream;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError,
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult,
+    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult,
+    ListObjectsError, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult,
 };
 use crate::{ListObjectsResult, ObjectClient};
 
@@ -55,6 +55,15 @@ where
 {
     type GetObjectResult = FailureGetResult<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
+
+    async fn delete_object(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
+        // TODO failure hook for delete_object
+        self.client.delete_object(bucket, key).await
+    }
 
     async fn get_object(
         &self,
