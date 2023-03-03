@@ -1,8 +1,7 @@
 use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
-use std::os::unix::prelude::OsStrExt;
+use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, trace};
 
@@ -41,7 +40,7 @@ impl DirHandle {
 #[derive(Debug)]
 struct FileHandle<Client: ObjectClient, Runtime> {
     inode: Inode,
-    full_key: OsString,
+    full_key: String,
     object_size: u64,
     typ: FileHandleType<Client, Runtime>,
 }
@@ -117,7 +116,7 @@ where
             "prefix must be empty or end with `/`"
         );
 
-        let superblock = Superblock::new(bucket.to_string(), OsString::from(prefix));
+        let superblock = Superblock::new(bucket, prefix);
 
         let client = Arc::new(client);
 
@@ -326,8 +325,7 @@ where
         };
 
         if request.is_none() {
-            let key = std::str::from_utf8(handle.full_key.as_bytes()).unwrap();
-            *request = Some(self.prefetcher.get(&self.bucket, key, handle.object_size));
+            *request = Some(self.prefetcher.get(&self.bucket, &handle.full_key, handle.object_size));
         }
 
         match request.as_mut().unwrap().read(offset as u64, size as usize) {
@@ -520,14 +518,11 @@ where
                 let parts = parts.into_inner().unwrap();
                 let size = parts.iter().map(|part| part.len()).sum::<usize>();
                 let stream = futures::stream::iter(parts);
-                let Ok(key) = std::str::from_utf8(handle.full_key.as_bytes()) else {
-                    error!("invalid utf8 key {:?}", handle.full_key);
-                    return Err(libc::EINVAL);
-                };
+                let key = handle.full_key;
 
                 let put = self
                     .client
-                    .put_object(&self.bucket, key, &PutObjectParams::default(), stream)
+                    .put_object(&self.bucket, &key, &PutObjectParams::default(), stream)
                     .await;
                 let result = match put {
                     Ok(_result) => {
