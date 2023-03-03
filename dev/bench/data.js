@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1677859729712,
+  "lastUpdate": 1677865078792,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -6695,6 +6695,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 23.5576171875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07f0d7c0d4d9decdcf35360955f59b11ad47dfa2",
+          "message": "Add initial support for sequential writes to new objects (#119)\n\n* Add initial support for sequential writes to new objects\r\n\r\nThis is a first pass at write support specifically for sequential writes\r\ninto new objects. It's currently guarded behind a new \"put\" feature\r\nflag, so by default there will be no change and our file system will\r\ncontinue to be mounted read-only.\r\n\r\nThis version is focused on getting the inode creation and locking story\r\nin order. We need to make sure we don't allow a file to be opened for\r\nwriting more than once, and that we don't allow a file to be read while\r\nbeing written. The inode locking changes in #113 allow us to do this by\r\nholding on to the directory lock while creating the new object.\r\n\r\nCurrently, writes are just buffered in memory, and uploaded as a single\r\nPutObject request when the file is closed. In future changes we'll make\r\nthis path support streaming and MPU for large objects and better upload\r\nperformance.\r\n\r\nThere are a couple of unclear places where we need to make semantics\r\ndecisions:\r\n* Closing a file in Linux is asynchronous -- `close` failures can't be\r\n  retried by applications. So applications have no way of knowing if a\r\n  PUT fails. We probably need to explicitly document this, and also\r\n  implement `fsync` so applications that care can flush (and find out\r\n  about the failure) before closing.\r\n* The right error numbers for some of the failures are unclear. Linux\r\n  doesn't really anticipate a world where a file can't be read but can\r\n  be written, so we try to choose reasonable errnos (EPERM) but they're\r\n  not perfect. Again this is something we should document.\r\n* If an application seeks forwards while writing, should we zero-fill\r\n  those skipped offsets and then reject future writes to them? Right now\r\n  this will just fail, but perhaps we can do better.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* PR updates\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* Reject O_SYNC/O_DSYNC\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-03T17:18:21Z",
+          "tree_id": "673145d4d9c159d54336fc61e8810fc1dbc20954",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/07f0d7c0d4d9decdcf35360955f59b11ad47dfa2"
+        },
+        "date": 1677865078002,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.4287109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.8916015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 11.5302734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 31.0966796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 34.5771484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 1.9951171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.0302734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.1953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.552734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.5869140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 662.2041015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 7.1591796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6580.4775390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 156.189453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 11.7197265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1252.6162109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 23.9580078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2131.9697265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 25.986328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 25.328125,
             "unit": "MiB/s"
           }
         ]
