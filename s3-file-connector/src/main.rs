@@ -335,6 +335,7 @@ fn mount(args: CliArgs) -> anyhow::Result<BackgroundSession> {
 
     let fs_name = String::from("s3-file-connector");
     let mut options = vec![
+        #[cfg(not(feature = "put"))]
         MountOption::RO,
         MountOption::DefaultPermissions,
         MountOption::FSName(fs_name),

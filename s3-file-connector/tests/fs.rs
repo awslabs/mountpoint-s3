@@ -5,6 +5,7 @@ use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use s3_client::mock_client::MockObject;
+use s3_client::ObjectClient;
 use s3_file_connector::fs::FUSE_ROOT_INODE;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
@@ -227,4 +228,166 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     // Not implemented
     // fs.releasedir(fh).unwrap();
+}
+
+#[test_case(1024; "small")]
+#[test_case(50 * 1024; "large")]
+#[tokio::test]
+async fn test_sequential_write(write_size: usize) {
+    const BUCKET_NAME: &str = "test_sequential_write";
+    const OBJECT_SIZE: usize = 50 * 1024;
+
+    let (client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15));
+
+    // Find the dir1 directory
+    let entry = fs
+        .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))
+        .await
+        .unwrap();
+    assert_eq!(entry.attr.kind, FileType::Directory);
+    let dir_ino = entry.attr.ino;
+
+    // Write the object into that directory
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(dir_ino, OsStr::from_bytes("file2.bin".as_bytes()), mode, 0, 0)
+        .await
+        .unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    let mut offset = 0;
+    for data in body.chunks(write_size) {
+        let written = fs.write(file_ino, fh, offset, data, 0, 0, None).await.unwrap();
+        assert_eq!(written as usize, data.len());
+        offset += written as i64;
+    }
+
+    fs.release(file_ino, fh, 0, None, false).await.unwrap();
+
+    // Check that the object made it to S3 as we expected
+    let get = client.get_object(BUCKET_NAME, "dir1/file2.bin", None).await.unwrap();
+    let actual = get.collect().await.unwrap();
+    assert_eq!(&actual[..], &body[..]);
+
+    // And now check that we can read it out of the file system too. The inode is still valid, so
+    // the kernel is allowed to just send us a `getattr` immediately, so let's make sure that works.
+    let stat = fs.getattr(file_ino).await.unwrap();
+    assert_eq!(stat.attr.size, body.len() as u64);
+
+    let dentry = fs
+        .lookup(dir_ino, OsStr::from_bytes("file2.bin".as_bytes()))
+        .await
+        .unwrap();
+    let size = dentry.attr.size as usize;
+    assert_eq!(size, body.len());
+    let file_ino = dentry.attr.ino;
+
+    // First let's check that we can't write it again
+    let result = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .expect_err("file should not be overwritable");
+    assert_eq!(result, libc::EPERM);
+
+    // But read-only should work
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_RDONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    let mut offset = 0;
+    while offset < size {
+        let length = 1024.min(size - offset);
+        let mut read = Err(0);
+        fs.read(
+            file_ino,
+            fh,
+            offset as i64,
+            length as u32,
+            0,
+            None,
+            ReadReply(&mut read),
+        )
+        .await;
+        let read = read.unwrap();
+        assert_eq!(read.len(), length);
+        assert_eq!(&read[..], &body[offset..offset + length]);
+        offset += length;
+    }
+
+    fs.release(file_ino, fh, 0, None, true).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_unordered_write_fails() {
+    const BUCKET_NAME: &str = "test_unordered_write_fails";
+
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(FUSE_ROOT_INODE, OsStr::from_bytes("file2.bin".as_bytes()), mode, 0, 0)
+        .await
+        .unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    let written = fs.write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None).await.unwrap();
+    assert_eq!(written, 27);
+
+    let err = fs
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect_err("writes to earlier offsets should fail");
+    assert_eq!(err, libc::EINVAL);
+
+    let err = fs
+        .write(file_ino, fh, 55, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect_err("writes to later offsets should fail");
+    assert_eq!(err, libc::EINVAL);
+}
+
+#[tokio::test]
+async fn test_duplicate_write_fails() {
+    const BUCKET_NAME: &str = "test_duplicate_write_fails";
+
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(FUSE_ROOT_INODE, OsStr::from_bytes("file2.bin".as_bytes()), mode, 0, 0)
+        .await
+        .unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let _opened = fs.open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY).await.unwrap();
+
+    // Should not be allowed to open the file a second time
+    let err = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .expect_err("should not be able to write twice");
+    assert_eq!(err, libc::EPERM);
 }

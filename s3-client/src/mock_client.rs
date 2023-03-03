@@ -156,6 +156,21 @@ pub struct GetObjectResult {
     part_size: usize,
 }
 
+impl GetObjectResult {
+    /// Helpful test utility to just collect the entire object into memory. Will panic if the object
+    /// parts are streamed out of order.
+    pub async fn collect(mut self) -> ObjectClientResult<Box<[u8]>, GetObjectError, MockClientError> {
+        let mut next_offset = None;
+        let mut body = vec![];
+        while let Some((offset, part)) = self.next().await.transpose()? {
+            assert!(next_offset.as_ref().map(|no| offset == *no).unwrap_or(true));
+            body.extend_from_slice(&part);
+            next_offset = Some(offset + part.len() as u64);
+        }
+        Ok(body.into_boxed_slice())
+    }
+}
+
 impl Stream for GetObjectResult {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
