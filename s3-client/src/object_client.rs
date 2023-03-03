@@ -98,6 +98,7 @@ pub enum GetObjectError {
 
 /// Result of a [ObjectClient::list_objects] request
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ListObjectsResult {
     /// The name of the bucket.
     pub bucket: String,
@@ -122,6 +123,7 @@ pub enum ListObjectsError {
 
 /// Result of a [ObjectClient::head_object] request
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct HeadObjectResult {
     /// The name of the bcuket
     pub bucket: String,
@@ -144,6 +146,7 @@ pub enum HeadObjectError {
 ///
 /// TODO: Populate this struct with return fields from the S3 API, e.g., version id, delete marker.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct DeleteObjectResult {}
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -156,11 +159,13 @@ pub enum DeleteObjectError {
 /// Parameters to a [ObjectClient::put_object] request
 /// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct PutObjectParams {}
 
 /// Result of a [ObjectClient::put_object] request
 /// TODO: Populate this struct with return fields from the S3 API, e.g., etag.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct PutObjectResult {}
 
 #[derive(Debug, Error, PartialEq, Eq)]
