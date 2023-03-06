@@ -68,15 +68,15 @@ struct SuperblockInner {
 
 impl Superblock {
     /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(bucket: String, prefix: OsString) -> Self {
-        assert!(prefix.is_empty() || prefix.to_str().unwrap().ends_with('/'));
+    pub fn new(bucket: &str, prefix: &str) -> Self {
+        assert!(prefix.is_empty() || prefix.ends_with('/'));
 
         let mount_time = OffsetDateTime::now_utc();
         let root = InodeInner {
             ino: ROOT_INODE_NO,
             parent: ROOT_INODE_NO,
-            name: OsString::new(),
-            full_key: prefix,
+            name: String::new(),
+            full_key: prefix.to_owned(),
             kind: InodeKind::Directory,
             sync: RwLock::new(InodeState {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
@@ -92,7 +92,7 @@ impl Superblock {
         inodes.insert(ROOT_INODE_NO, root);
 
         let inner = SuperblockInner {
-            bucket,
+            bucket: bucket.to_owned(),
             inodes: RwLock::new(inodes),
             next_ino: AtomicU64::new(2),
             mount_time,
@@ -109,9 +109,13 @@ impl Superblock {
     ) -> Result<LookedUp, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
 
+        let name = name
+            .to_str()
+            .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
+
         // This should be impossible, but just to be safe, explicitly reject lookups to files that
         // end with '/', since they could be shadowed by directories.
-        if name.to_str().unwrap().ends_with('/') {
+        if name.ends_with('/') {
             return Err(InodeError::InvalidFileName(name.into()));
         }
 
@@ -123,11 +127,11 @@ impl Superblock {
             return Err(InodeError::NotADirectory(parent_ino));
         }
         let mut full_path = parent.full_key().to_owned();
-        assert!(full_path.is_empty() || full_path.to_str().unwrap().ends_with('/'));
-        full_path.push(name);
+        assert!(full_path.is_empty() || full_path.ends_with('/'));
+        full_path.push_str(name);
 
         let mut full_path_suffixed = full_path.clone();
-        full_path_suffixed.push("/");
+        full_path_suffixed.push('/');
 
         // We need to try two requests here, one to find an object with the given name, and one to
         // discover a possible shadowing (implicit) directory with the same name. There's a few
@@ -153,11 +157,9 @@ impl Superblock {
         //       "/" to the prefix in the request, the first common prefix we'll get back will be
         //       "dir-1/", because that precedes "dir/" in lexicographic order. Doing the
         //       ListObjects with "/" appended makes sure we always observe the correct prefix.
-        let mut file_lookup = client
-            .head_object(&self.inner.bucket, full_path.to_str().unwrap())
-            .fuse();
+        let mut file_lookup = client.head_object(&self.inner.bucket, &full_path).fuse();
         let mut dir_lookup = client
-            .list_objects(&self.inner.bucket, None, "/", 1, full_path_suffixed.to_str().unwrap())
+            .list_objects(&self.inner.bucket, None, "/", 1, &full_path_suffixed)
             .fuse();
 
         let mut file_state = None;
@@ -183,17 +185,17 @@ impl Superblock {
                     let found_directory = if result
                         .common_prefixes
                         .get(0)
-                        .map(|prefix| prefix.starts_with(full_path_suffixed.to_str().unwrap()))
+                        .map(|prefix| prefix.starts_with(&full_path_suffixed))
                         .unwrap_or(false)
                     {
                         true
                     } else if result
                         .objects
                         .get(0)
-                        .map(|object| object.key.starts_with(full_path_suffixed.to_str().unwrap()))
+                        .map(|object| object.key.starts_with(&full_path_suffixed))
                         .unwrap_or(false)
                     {
-                        if result.objects[0].key == full_path_suffixed.to_str().unwrap() {
+                        if result.objects[0].key == full_path_suffixed {
                             trace!(
                                 ?parent,
                                 ?name,
@@ -270,13 +272,13 @@ impl Superblock {
         let parent_ino = dir.parent();
 
         let dir_key = dir.full_key();
-        assert!(dir_key.is_empty() || dir_key.to_str().unwrap().ends_with('/'));
+        assert!(dir_key.is_empty() || dir_key.ends_with('/'));
 
         Ok(ReaddirHandle {
             inner: self.inner.clone(),
             dir_ino,
             parent_ino,
-            full_path: dir_key.to_str().unwrap().to_string(),
+            full_path: dir_key.to_string(),
             page_size,
             results: Default::default(),
             next_continuation_token: Mutex::new(ReaddirStreamState::NotStarted),
@@ -290,12 +292,19 @@ impl Superblock {
         dir: InodeNo,
         name: &OsStr,
     ) -> Result<LookedUp, InodeError> {
+        trace!(parent=?dir, ?name, "create");
+
         let existing = self.lookup(client, dir, name).await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.ino())),
             Err(InodeError::FileDoesNotExist) => (),
             Err(e) => return Err(e),
         }
+
+        // Should be impossible to fail since [lookup] does this check, but let's be sure
+        let name = name
+            .to_str()
+            .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
 
         let parent_inode = self.inner.get(dir)?;
         let mut parent_state = parent_inode.inner.sync.write().unwrap();
@@ -343,7 +352,7 @@ impl SuperblockInner {
     pub fn update_or_insert(
         &self,
         parent_ino: InodeNo,
-        name: &OsStr,
+        name: &str,
         stat: InodeStat,
         kind: InodeKind,
         kind_data: InodeKindData,
@@ -391,7 +400,7 @@ impl SuperblockInner {
     fn update_if_present(
         parent_ino: InodeNo,
         parent_state: &InodeState,
-        name: &OsStr,
+        name: &str,
         kind: InodeKind,
         stat: &InodeStat,
     ) -> Result<Option<Inode>, InodeError> {
@@ -438,7 +447,7 @@ impl SuperblockInner {
         &self,
         parent: &Inode,
         parent_locked: &mut InodeState,
-        name: &OsStr,
+        name: &str,
         kind: InodeKind,
         state: InodeState,
     ) -> Result<Inode, InodeError> {
@@ -449,16 +458,16 @@ impl SuperblockInner {
                 "file"
             };
             warn!(?name, "invalid file name; {} will not be available", kind);
-            return Err(InodeError::InvalidFileName(name.to_os_string()));
+            return Err(InodeError::InvalidFileName(OsString::from(name)));
         }
 
         let next_ino = self.next_ino.fetch_add(1, Ordering::SeqCst);
 
         let mut full_key = parent.full_key().to_owned();
-        assert!(full_key.is_empty() || full_key.to_str().unwrap().ends_with('/'));
-        full_key.push(name);
+        assert!(full_key.is_empty() || full_key.ends_with('/'));
+        full_key.push_str(name);
         if kind == InodeKind::Directory {
-            full_key.push("/");
+            full_key.push('/');
         }
 
         trace!(?parent, ?name, ?kind, new_ino=?next_ino, ?full_key, "creating new inode");
@@ -466,7 +475,7 @@ impl SuperblockInner {
         let inode = InodeInner {
             ino: next_ino,
             parent: parent.ino(),
-            name: name.to_os_string(),
+            name: name.to_owned(),
             full_key,
             kind,
             sync: RwLock::new(state),
@@ -479,7 +488,7 @@ impl SuperblockInner {
                 return Err(InodeError::NotADirectory(parent.ino()));
             }
             InodeKindData::Directory { children } => {
-                children.insert(name.to_os_string(), inode.clone());
+                children.insert(name.to_owned(), inode.clone());
             }
         }
 
@@ -561,8 +570,8 @@ impl ReaddirHandle {
 
             let prefixes = result
                 .common_prefixes
-                .into_iter()
-                .map(|prefix| OsString::from(&prefix[self.full_path.len()..prefix.len() - 1]))
+                .iter()
+                .map(|prefix| &prefix[self.full_path.len()..prefix.len() - 1])
                 .filter(|name| valid_inode_name(name))
                 .map(|name| {
                     let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
@@ -572,19 +581,13 @@ impl ReaddirHandle {
                     };
 
                     self.inner
-                        .update_or_insert(
-                            self.dir_ino,
-                            name.as_os_str(),
-                            stat_clone,
-                            InodeKind::Directory,
-                            kind_data,
-                        )
+                        .update_or_insert(self.dir_ino, name, stat_clone, InodeKind::Directory, kind_data)
                         .map(|inode| LookedUp { inode, stat })
                 });
             let objects = result
                 .objects
-                .into_iter()
-                .map(|object| (OsString::from(&object.key[self.full_path.len()..]), object))
+                .iter()
+                .map(|object| (&object.key[self.full_path.len()..], object))
                 // Hide keys that end with '/', since they can be confused with directories
                 .filter(|(name, _object)| valid_inode_name(name))
                 .flat_map(|(name, object)| {
@@ -595,7 +598,7 @@ impl ReaddirHandle {
 
                     let result = self
                         .inner
-                        .update_or_insert(self.dir_ino, name.as_os_str(), stat_clone, InodeKind::File, kind_data)
+                        .update_or_insert(self.dir_ino, name, stat_clone, InodeKind::File, kind_data)
                         .map(|inode| LookedUp { inode, stat });
                     // Skip over keys that are shadowed by a directory. We can do this here because
                     // common prefixes are iterated first, and the `sort_by` below is stable.
@@ -656,9 +659,9 @@ struct InodeInner {
     // Immutable inode state -- any changes to these requires a new inode
     ino: InodeNo,
     parent: InodeNo,
-    name: OsString,
+    name: String,
     // TODO deduplicate keys by string interning or something -- many keys will have common prefixes
-    full_key: OsString,
+    full_key: String,
     kind: InodeKind,
 
     // Mutable inode state. This lock should also be used to serialize operations on an inode (like
@@ -675,7 +678,7 @@ impl Inode {
         self.inner.parent
     }
 
-    pub fn name(&self) -> &OsStr {
+    pub fn name(&self) -> &str {
         &self.inner.name
     }
 
@@ -683,7 +686,7 @@ impl Inode {
         self.inner.kind
     }
 
-    pub fn full_key(&self) -> &OsStr {
+    pub fn full_key(&self) -> &str {
         &self.inner.full_key
     }
 
@@ -759,7 +762,7 @@ enum InodeKindData {
     File {},
     Directory {
         /// Mapping from child names to inodes
-        children: HashMap<OsString, Inode>,
+        children: HashMap<String, Inode>,
     },
 }
 
@@ -825,7 +828,7 @@ pub enum InodeError {
     #[error("invalid file name {0:?}")]
     InvalidFileName(OsString),
     #[error("file {0:?} is shadowed by a directory with inode {1}")]
-    ShadowedByDirectory(OsString, InodeNo),
+    ShadowedByDirectory(String, InodeNo),
     #[error("inode {0} is not a directory")]
     NotADirectory(InodeNo),
     #[error("file already exists at inode {0}")]
@@ -892,7 +895,7 @@ mod tests {
         }
 
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(bucket.to_string(), OsString::from(prefix));
+        let superblock = Superblock::new(bucket, prefix);
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -951,7 +954,7 @@ mod tests {
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
                     let modified_time = client
-                        .head_object(bucket, file.inode.full_key().to_str().unwrap())
+                        .head_object(bucket, file.inode.full_key())
                         .await
                         .expect("object should exist")
                         .object
@@ -998,17 +1001,14 @@ mod tests {
         }
 
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new("test_bucket".to_string(), OsString::from(prefix));
+        let superblock = Superblock::new("test_bucket", prefix);
 
         // Try it all twice to test inode reuse
         for _ in 0..2 {
             let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
             assert_eq!(
-                entries
-                    .iter()
-                    .map(|entry| entry.inode.name().to_str().unwrap().to_string())
-                    .collect::<Vec<_>>(),
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 &["dir0", "dir1"]
             );
             assert_inode_stat!(entries[0], InodeKind::Directory, ts, 0);
@@ -1018,10 +1018,7 @@ mod tests {
             let dir_handle = superblock.readdir(&client, dir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
             assert_eq!(
-                entries
-                    .iter()
-                    .map(|entry| entry.inode.name().to_str().unwrap().to_string())
-                    .collect::<Vec<_>>(),
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 &["file0.txt", "sdir0", "sdir1"]
             );
 
@@ -1033,10 +1030,7 @@ mod tests {
             let dir_handle = superblock.readdir(&client, sdir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
             assert_eq!(
-                entries
-                    .iter()
-                    .map(|entry| entry.inode.name().to_str().unwrap().to_string())
-                    .collect::<Vec<_>>(),
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 &["file0.txt", "file1.txt", "file2.txt"]
             );
             for entry in entries {
@@ -1054,7 +1048,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket".to_string(), OsString::new());
+        let superblock = Superblock::new("test_bucket", "");
 
         for _ in 0..2 {
             let dir1_1 = superblock
@@ -1096,15 +1090,12 @@ mod tests {
         client.add_object(&format!("dir/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
         client.add_object(&format!("dir-1/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket".to_string(), OsString::new());
+        let superblock = Superblock::new("test_bucket", "");
 
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(
-            entries
-                .iter()
-                .map(|entry| entry.inode.name().to_str().unwrap().to_string())
-                .collect::<Vec<_>>(),
+            entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &["dir", "dir-1"]
         );
 
@@ -1131,14 +1122,11 @@ mod tests {
         client.add_object("dir1/.", MockObject::constant(0xaa, 30));
         client.add_object("dir1/./a", MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket".to_string(), OsString::new());
+        let superblock = Superblock::new("test_bucket", "");
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(
-            entries
-                .iter()
-                .map(|entry| entry.inode.name().to_str().unwrap().to_string())
-                .collect::<Vec<_>>(),
+            entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &["dir1"]
         );
 
@@ -1146,10 +1134,7 @@ mod tests {
         let dir_handle = superblock.readdir(&client, dir1_ino, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(
-            entries
-                .iter()
-                .map(|entry| entry.inode.name().to_str().unwrap().to_string())
-                .collect::<Vec<_>>(),
+            entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &["a"]
         );
 

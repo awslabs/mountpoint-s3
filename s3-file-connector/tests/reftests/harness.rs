@@ -11,9 +11,7 @@ use s3_file_connector::{
     {S3Filesystem, S3FilesystemConfig},
 };
 use std::collections::{BTreeMap, HashSet};
-use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::os::unix::prelude::OsStrExt;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -165,21 +163,13 @@ impl Harness {
         let mut parent = FUSE_ROOT_INODE;
         let mut seen_inos = HashSet::from([FUSE_ROOT_INODE]);
         for name in path.iter().take(path.len().saturating_sub(1)) {
-            let lookup = self
-                .fs
-                .lookup(parent, OsStr::from_bytes(name.as_bytes()))
-                .await
-                .unwrap();
+            let lookup = self.fs.lookup(parent, name.as_ref()).await.unwrap();
             assert_eq!(lookup.attr.kind, FileType::Directory);
             assert!(seen_inos.insert(lookup.attr.ino));
             parent = lookup.attr.ino;
         }
 
-        let lookup = self
-            .fs
-            .lookup(parent, OsStr::from_bytes(path.last().unwrap().as_bytes()))
-            .await
-            .unwrap();
+        let lookup = self.fs.lookup(parent, path.last().unwrap().as_ref()).await.unwrap();
         assert!(seen_inos.insert(lookup.attr.ino));
         match node {
             Node::Directory(_) => {

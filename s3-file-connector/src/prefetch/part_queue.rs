@@ -84,8 +84,6 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
     use super::*;
 
     use proptest::proptest;
@@ -103,7 +101,7 @@ mod tests {
     enum DummyError {}
 
     fn run_test(ops: Vec<Op>) {
-        let part_key = OsString::from("key");
+        let part_key = "key";
         let part_queue = PartQueue::<DummyError>::new();
         let mut current_offset = 0;
         let mut current_length = 0;
@@ -115,7 +113,7 @@ mod tests {
                         continue;
                     }
                     let part = part_queue.read(n, Duration::from_millis(10)).unwrap();
-                    let bytes = part.into_bytes(&part_key, current_offset).unwrap();
+                    let bytes = part.into_bytes(part_key, current_offset).unwrap();
                     assert_eq!(bytes[0], current_offset as u8);
                     current_offset += bytes.len() as u64;
                     current_length -= bytes.len();
@@ -129,7 +127,7 @@ mod tests {
                         .map(|part| part.as_ref().unwrap().len());
                     if let Some(n) = first_part_length {
                         let part = part_queue.read(n, Duration::from_millis(10)).unwrap();
-                        let bytes = part.into_bytes(&part_key, current_offset).unwrap();
+                        let bytes = part.into_bytes(part_key, current_offset).unwrap();
                         assert_eq!(bytes[0], current_offset as u8);
                         assert_eq!(bytes.len(), n);
                         current_offset += n as u64;
@@ -143,7 +141,7 @@ mod tests {
                     }
                     let offset = current_offset + current_length as u64;
                     let bytes: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
-                    let part = Part::new(part_key.clone(), offset, bytes.into());
+                    let part = Part::new(part_key, offset, bytes.into());
                     part_queue.push(Ok(part));
                     current_length += n;
                 }
