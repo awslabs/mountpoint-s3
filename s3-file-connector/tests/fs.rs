@@ -7,8 +7,7 @@ use rand_chacha::ChaCha20Rng;
 use s3_client::mock_client::MockObject;
 use s3_client::ObjectClient;
 use s3_file_connector::fs::FUSE_ROOT_INODE;
-use std::ffi::{OsStr, OsString};
-use std::os::unix::prelude::OsStrExt;
+use std::ffi::OsString;
 use test_case::test_case;
 
 mod common;
@@ -92,10 +91,7 @@ async fn test_read_dir_nested(prefix: &str) {
     let dir_perm: u16 = 0o755;
     let file_perm: u16 = 0o644;
 
-    let entry = fs
-        .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))
-        .await
-        .unwrap();
+    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
     let dir_ino = entry.attr.ino;
 
@@ -192,10 +188,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     client.add_object(&format!("{prefix}dir1/"), MockObject::constant(0xa1, 15));
     client.add_object(&format!("{prefix}dir1/file2.txt"), MockObject::constant(0xa2, 15));
 
-    let entry = fs
-        .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))
-        .await
-        .unwrap();
+    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
     let dir_ino = entry.attr.ino;
 
@@ -221,7 +214,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     fs.release(reply.entries[2].ino, fh, 0, None, true).await.unwrap();
 
     // Explicitly looking up the shadowed file should fail
-    let entry = fs.lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1/".as_bytes())).await;
+    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1/".as_ref()).await;
     assert!(matches!(entry, Err(libc::EINVAL)));
 
     // TODO test removing the directory, removing the file
@@ -246,19 +239,13 @@ async fn test_sequential_write(write_size: usize) {
     client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15));
 
     // Find the dir1 directory
-    let entry = fs
-        .lookup(FUSE_ROOT_INODE, OsStr::from_bytes("dir1".as_bytes()))
-        .await
-        .unwrap();
+    let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
     let dir_ino = entry.attr.ino;
 
     // Write the object into that directory
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs
-        .mknod(dir_ino, OsStr::from_bytes("file2.bin".as_bytes()), mode, 0, 0)
-        .await
-        .unwrap();
+    let dentry = fs.mknod(dir_ino, "file2.bin".as_ref(), mode, 0, 0).await.unwrap();
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
@@ -287,10 +274,7 @@ async fn test_sequential_write(write_size: usize) {
     let stat = fs.getattr(file_ino).await.unwrap();
     assert_eq!(stat.attr.size, body.len() as u64);
 
-    let dentry = fs
-        .lookup(dir_ino, OsStr::from_bytes("file2.bin".as_bytes()))
-        .await
-        .unwrap();
+    let dentry = fs.lookup(dir_ino, "file2.bin".as_ref()).await.unwrap();
     let size = dentry.attr.size as usize;
     assert_eq!(size, body.len());
     let file_ino = dentry.attr.ino;
@@ -340,7 +324,7 @@ async fn test_unordered_write_fails() {
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
-        .mknod(FUSE_ROOT_INODE, OsStr::from_bytes("file2.bin".as_bytes()), mode, 0, 0)
+        .mknod(FUSE_ROOT_INODE, "file2.bin".as_ref(), mode, 0, 0)
         .await
         .unwrap();
     assert_eq!(dentry.attr.size, 0);
@@ -376,7 +360,7 @@ async fn test_duplicate_write_fails() {
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
-        .mknod(FUSE_ROOT_INODE, OsStr::from_bytes("file2.bin".as_bytes()), mode, 0, 0)
+        .mknod(FUSE_ROOT_INODE, "file2.bin".as_ref(), mode, 0, 0)
         .await
         .unwrap();
     assert_eq!(dentry.attr.size, 0);
@@ -390,4 +374,30 @@ async fn test_duplicate_write_fails() {
         .await
         .expect_err("should not be able to write twice");
     assert_eq!(err, libc::EPERM);
+}
+
+#[tokio::test]
+async fn test_stat_block_size() {
+    let (client, fs) = make_test_filesystem("test_stat_block_size", "", Default::default());
+
+    client.add_object("file0.txt", MockObject::constant(0xa1, 0));
+    client.add_object("file1.txt", MockObject::constant(0xa2, 1));
+    client.add_object("file4096.txt", MockObject::constant(0xa3, 4096));
+    client.add_object("file4097.txt", MockObject::constant(0xa3, 4097));
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file0.txt".as_ref()).await.unwrap();
+    assert_eq!(lookup.attr.blocks, 0);
+    assert_eq!(lookup.attr.blksize, 4096);
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file1.txt".as_ref()).await.unwrap();
+    assert_eq!(lookup.attr.blocks, 1);
+    assert_eq!(lookup.attr.blksize, 4096);
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file4096.txt".as_ref()).await.unwrap();
+    assert_eq!(lookup.attr.blocks, 8);
+    assert_eq!(lookup.attr.blksize, 4096);
+
+    let lookup = fs.lookup(FUSE_ROOT_INODE, "file4097.txt".as_ref()).await.unwrap();
+    assert_eq!(lookup.attr.blocks, 9);
+    assert_eq!(lookup.attr.blksize, 4096);
 }

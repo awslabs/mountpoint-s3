@@ -18,8 +18,6 @@ pub use crate::inode::InodeNo;
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
-const BLOCK_SIZE: u64 = 4096;
-
 #[derive(Debug)]
 struct DirHandle {
     #[allow(unused)]
@@ -202,15 +200,25 @@ where
     }
 
     fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
-        let (perm, nlink, blksize) = match lookup.inode.kind() {
-            InodeKind::File => (self.config.file_mode, 1, BLOCK_SIZE as u32),
-            InodeKind::Directory => (self.config.dir_mode, 2, 512),
+        /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
+        /// the file, in 512-byte units."
+        const STAT_BLOCK_SIZE: u64 = 512;
+        /// From man stat(2): `st_blksize`: "This field gives the "preferred" block size for
+        /// efficient filesystem I/O."
+        const PREFERRED_IO_BLOCK_SIZE: u32 = 4096;
+
+        // We don't implement hard links, and don't want to have to list a directory to count its
+        // hard links, so we just assume one link for files (itself) and two links for directories
+        // (itself + the "." link).
+        let (perm, nlink) = match lookup.inode.kind() {
+            InodeKind::File => (self.config.file_mode, 1),
+            InodeKind::Directory => (self.config.dir_mode, 2),
         };
 
         FileAttr {
             ino: lookup.inode.ino(),
             size: lookup.stat.size as u64,
-            blocks: lookup.stat.size as u64 / BLOCK_SIZE,
+            blocks: (lookup.stat.size as u64 + STAT_BLOCK_SIZE - 1) / STAT_BLOCK_SIZE,
             atime: lookup.stat.atime.into(),
             mtime: lookup.stat.mtime.into(),
             ctime: lookup.stat.ctime.into(),
@@ -222,7 +230,7 @@ where
             gid: self.config.gid,
             rdev: 0,
             flags: 0,
-            blksize,
+            blksize: PREFERRED_IO_BLOCK_SIZE,
         }
     }
 
