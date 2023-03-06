@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1677865078792,
+  "lastUpdate": 1678122063093,
   "repoUrl": "https://github.com/awslabs/s3-file-connector",
   "entries": {
     "Benchmark": [
@@ -6819,6 +6819,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 25.328125,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "19b770efb4dd8f26f8c6b27e3764e3d2b624258f",
+          "message": "Consistently use UTF-8 for S3 keys (#122)\n\n* Consistently use UTF-8 for S3 keys\r\n\r\nS3 object keys are UTF-8 strings, but Unix path names are (mostly)\r\narbitrary byte strings, so we'll always have to do some conversions\r\nbetween the two. Right now that conversion is ad hoc and done in several\r\nplaces. This commit standardizes all our `inode` code to do UTF-8 checks\r\nas soon as an `OsStr` is received, and then work entirely in terms of\r\n`str`s.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* Spike a few more `OsStr`s\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-06T16:46:01Z",
+          "tree_id": "3908f259723f78a798d38ee3c3d27cb9a6049ed3",
+          "url": "https://github.com/awslabs/s3-file-connector/commit/19b770efb4dd8f26f8c6b27e3764e3d2b624258f"
+        },
+        "date": 1678122061967,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.3896484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.4140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 14.490234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 36.986328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 39.7822265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.9609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.4306640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 3.5185546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.4609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1164.876953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 8.3330078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6674.2783203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 174.181640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 9.759765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1150.244140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 23.83203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2491.9072265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 22.494140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 24.4453125,
             "unit": "MiB/s"
           }
         ]
