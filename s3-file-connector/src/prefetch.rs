@@ -11,9 +11,7 @@ mod part;
 mod part_queue;
 
 use std::collections::VecDeque;
-use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
-use std::os::unix::prelude::OsStrExt;
 use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
@@ -183,9 +181,7 @@ where
                 }
                 Ok(part) => part,
             };
-            let part_bytes = part
-                .into_bytes(OsStr::from_bytes(self.key.as_bytes()), self.next_sequential_read_offset)
-                .unwrap();
+            let part_bytes = part.into_bytes(&self.key, self.next_sequential_read_offset).unwrap();
 
             self.next_sequential_read_offset += part_bytes.len() as u64;
             if response.is_empty() && part_bytes.len() == to_read as usize {
@@ -261,7 +257,7 @@ where
                         loop {
                             match request.next().await {
                                 Some(Ok((offset, body))) => {
-                                    let part = Part::new(OsString::from(&key), offset, body.into());
+                                    let part = Part::new(&key, offset, body.into());
                                     part_queue.push(Ok(part));
                                 }
                                 Some(Err(e)) => {
