@@ -195,37 +195,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-crt-s3"
-version = "0.1.0"
-dependencies = [
- "aws-crt-s3-sys",
- "criterion",
- "ctor",
- "futures",
- "libc",
- "log",
- "smallstr",
- "static_assertions",
- "tempfile",
- "thiserror",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "aws-crt-s3-sys"
-version = "0.1.0"
-dependencies = [
- "bindgen",
- "cc",
- "cmake",
- "libc",
- "log",
- "rustflags",
- "smallstr",
- "which",
-]
-
-[[package]]
 name = "aws-endpoint"
 version = "0.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1823,6 +1792,118 @@ dependencies = [
 ]
 
 [[package]]
+name = "mountpoint-s3"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "assert_fs",
+ "async-channel",
+ "async-lock",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "base16ct",
+ "built",
+ "bytes",
+ "clap",
+ "const_format",
+ "ctor",
+ "ctrlc",
+ "fuser",
+ "futures",
+ "hdrhistogram",
+ "home",
+ "libc",
+ "metrics",
+ "mountpoint-s3-client",
+ "mountpoint-s3-crt",
+ "nix",
+ "once_cell",
+ "predicates",
+ "proptest",
+ "proptest-derive",
+ "rand",
+ "rand_chacha",
+ "sha2",
+ "shuttle",
+ "supports-color",
+ "tempfile",
+ "test-case",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "mountpoint-s3-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "auto_impl",
+ "aws-config",
+ "aws-sdk-s3",
+ "bytes",
+ "clap",
+ "ctor",
+ "futures",
+ "lazy_static",
+ "libc",
+ "libc-stdhandle",
+ "metrics",
+ "mountpoint-s3-crt",
+ "mountpoint-s3-crt-sys",
+ "percent-encoding",
+ "pin-project",
+ "proptest",
+ "rand",
+ "rand_chacha",
+ "regex",
+ "static_assertions",
+ "test-case",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "xmltree",
+]
+
+[[package]]
+name = "mountpoint-s3-crt"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "ctor",
+ "futures",
+ "libc",
+ "log",
+ "mountpoint-s3-crt-sys",
+ "smallstr",
+ "static_assertions",
+ "tempfile",
+ "thiserror",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "mountpoint-s3-crt-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "libc",
+ "log",
+ "rustflags",
+ "smallstr",
+ "which",
+]
+
+[[package]]
 name = "nix"
 version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2436,87 +2517,6 @@ name = "ryu"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b4b9743ed687d4b4bcedf9ff5eaa7398495ae14e61cba0a295704edbc7decde"
-
-[[package]]
-name = "s3-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "auto_impl",
- "aws-config",
- "aws-crt-s3",
- "aws-crt-s3-sys",
- "aws-sdk-s3",
- "bytes",
- "clap",
- "ctor",
- "futures",
- "lazy_static",
- "libc",
- "libc-stdhandle",
- "metrics",
- "percent-encoding",
- "pin-project",
- "proptest",
- "rand",
- "rand_chacha",
- "regex",
- "static_assertions",
- "test-case",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "xmltree",
-]
-
-[[package]]
-name = "s3-file-connector"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "assert_fs",
- "async-channel",
- "async-lock",
- "async-trait",
- "aws-config",
- "aws-crt-s3",
- "aws-sdk-s3",
- "base16ct",
- "built",
- "bytes",
- "clap",
- "const_format",
- "ctor",
- "ctrlc",
- "fuser",
- "futures",
- "hdrhistogram",
- "home",
- "libc",
- "metrics",
- "nix",
- "once_cell",
- "predicates",
- "proptest",
- "proptest-derive",
- "rand",
- "rand_chacha",
- "s3-client",
- "sha2",
- "shuttle",
- "supports-color",
- "tempfile",
- "test-case",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "same-file"
