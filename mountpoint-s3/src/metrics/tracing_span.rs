@@ -19,7 +19,7 @@ struct MetricsTracingSpanLayer;
 impl MetricsTracingSpanLayer {
     fn should_instrument_request_time<'a, S: LookupSpan<'a>>(span: Option<SpanRef<'a, S>>) -> bool {
         if let Some(data) = span {
-            if data.metadata().target() == "s3_file_connector::fuse" && data.parent().is_none() {
+            if data.metadata().target() == "mountpoint_s3::fuse" && data.parent().is_none() {
                 return true;
             }
         }
@@ -51,7 +51,7 @@ pub fn metrics_tracing_span_layer<S>() -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    MetricsTracingSpanLayer.with_filter(Targets::new().with_target("s3_file_connector::fuse", Level::DEBUG))
+    MetricsTracingSpanLayer.with_filter(Targets::new().with_target("mountpoint_s3::fuse", Level::DEBUG))
 }
 
 /// The time at which a request started

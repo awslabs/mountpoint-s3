@@ -29,7 +29,7 @@ mod build_info;
 fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) -> anyhow::Result<()> {
     const LOG_DIRECTORY: &str = ".mountpoint-s3";
     const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
-        macros::format_description!("s3fc_[year][month][day][hour][minute][second].log");
+        macros::format_description!("mountpoint_s3_[year][month][day][hour][minute][second].log");
 
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
@@ -86,7 +86,7 @@ struct CliArgs {
     #[clap(help = "Mount point for file system")]
     pub mount_point: PathBuf,
 
-    #[clap(short, long, help = "Log file directory. [default: $HOME/.s3_file_connector]")]
+    #[clap(short, long, help = "Log file directory. [default: $HOME/.mountpoint-s3]")]
     pub log_directory: Option<PathBuf>,
 
     #[clap(

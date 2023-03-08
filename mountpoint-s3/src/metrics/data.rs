@@ -49,7 +49,7 @@ impl Metrics {
                 )
             };
             info!(
-                target: "s3_file_connector::aggregate_metrics",
+                target: "mountpoint_s3::aggregate_metrics",
                 "{}{}: {}",
                 key.name(),
                 labels,
