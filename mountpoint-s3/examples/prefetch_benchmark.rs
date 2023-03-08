@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use clap::{Arg, Command};
-use futures::executor::ThreadPool;
+use futures::executor::{block_on, ThreadPool};
 use mountpoint_s3::prefetch::Prefetcher;
 use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
