@@ -1,33 +1,33 @@
 [submodule "aws-lc"]
-	path = aws-crt-s3-sys/crt/aws-lc
+	path = mountpoint-s3-crt-sys/crt/aws-lc
 	url = https://github.com/awslabs/aws-lc.git
 [submodule "s2n-tls"]
-	path = aws-crt-s3-sys/crt/s2n-tls
+	path = mountpoint-s3-crt-sys/crt/s2n-tls
 	url = https://github.com/aws/s2n-tls.git
 [submodule "aws-c-common"]
-	path = aws-crt-s3-sys/crt/aws-c-common
+	path = mountpoint-s3-crt-sys/crt/aws-c-common
 	url = https://github.com/awslabs/aws-c-common.git
 [submodule "aws-c-compression"]
-	path = aws-crt-s3-sys/crt/aws-c-compression
+	path = mountpoint-s3-crt-sys/crt/aws-c-compression
 	url = https://github.com/awslabs/aws-c-compression.git
 [submodule "aws-checksums"]
-	path = aws-crt-s3-sys/crt/aws-checksums
+	path = mountpoint-s3-crt-sys/crt/aws-checksums
 	url = https://github.com/awslabs/aws-checksums.git
 [submodule "aws-c-cal"]
-	path = aws-crt-s3-sys/crt/aws-c-cal
+	path = mountpoint-s3-crt-sys/crt/aws-c-cal
 	url = https://github.com/awslabs/aws-c-cal.git
 [submodule "aws-c-io"]
-	path = aws-crt-s3-sys/crt/aws-c-io
+	path = mountpoint-s3-crt-sys/crt/aws-c-io
 	url = https://github.com/awslabs/aws-c-io.git
 [submodule "aws-c-http"]
-	path = aws-crt-s3-sys/crt/aws-c-http
+	path = mountpoint-s3-crt-sys/crt/aws-c-http
 	url = https://github.com/awslabs/aws-c-http.git
 [submodule "aws-c-sdkutils"]
-	path = aws-crt-s3-sys/crt/aws-c-sdkutils
+	path = mountpoint-s3-crt-sys/crt/aws-c-sdkutils
 	url = https://github.com/awslabs/aws-c-sdkutils.git
 [submodule "aws-c-auth"]
-	path = aws-crt-s3-sys/crt/aws-c-auth
+	path = mountpoint-s3-crt-sys/crt/aws-c-auth
 	url = https://github.com/awslabs/aws-c-auth.git
 [submodule "aws-c-s3"]
-	path = aws-crt-s3-sys/crt/aws-c-s3
+	path = mountpoint-s3-crt-sys/crt/aws-c-s3
 	url = https://github.com/awslabs/aws-c-s3.git

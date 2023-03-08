@@ -10,15 +10,15 @@ body:
     attributes:
       value: |
         **Note: security issues should not be reported here.**
-        Please follow the [security policy for this repository](https://github.com/awslabs/s3-file-connector/security/policy).
+        Please follow the [security policy for this repository](https://github.com/awslabs/mountpoint-s3/security/policy).
   - type: input
     id: project-version
     attributes:
-      label: S3 File Connector version
+      label: Mountpoint for Amazon S3 version
       description: |
-        Which version of the file connector are you using? You can find out using `--version` argument.
+        Which version of the mountpoint are you using? You can find out using `mount-s3 --version`.
         If you're building from source or a fork, please state that.
-      placeholder: s3-file-connector x.y.z
+      placeholder: mountpoint-s3 x.y.z
     validations:
       required: true
   - type: input

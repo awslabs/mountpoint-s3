@@ -1,17 +1,17 @@
-# S3 File Connector file system semantics
+# Mountpoint for Amazon S3 file system semantics
 
-S3 File Connector is optimized for workloads that need high-throughput read and write access to data stored in S3 through a file system interface, but otherwise do not rely on file system features. It intentionally does not implement the full POSIX specification for file systems. As an approximation, S3 File Connector is much closer to a [HDFS](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html) distributed file system, focused on high-performance access to large data sets, than to NFS or other file systems that offer rich POSIX semantics. Customers that need richer file system semantics should consider other AWS file services such as [Amazon Elastic File System](https://aws.amazon.com/efs/) or [Amazon FSx](https://aws.amazon.com/fsx/).
+Mountpoint for Amazon S3 is optimized for workloads that need high-throughput read and write access to data stored in S3 through a file system interface, but otherwise do not rely on file system features. It intentionally does not implement the full POSIX specification for file systems. As an approximation, Mountpoint for Amazon S3 is much closer to a [HDFS](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html) distributed file system, focused on high-performance access to large data sets, than to NFS or other file systems that offer rich POSIX semantics. Customers that need richer file system semantics should consider other AWS file services such as [Amazon Elastic File System](https://aws.amazon.com/efs/) or [Amazon FSx](https://aws.amazon.com/fsx/).
 
 ## Semantics tenets
 
-When thinking about the semantics S3 File Connector supports, we have three tenets in mind:
+When thinking about the semantics Mountpoint for Amazon S3 supports, we have three tenets in mind:
 1. We will not support semantics that cannot be implemented efficiently against S3's object APIs. We do not try to emulate operations like `rename` that would require many API calls to S3 to perform.
 2. We present a common view of S3 object data through both file and object APIs. We eschew special emulations of POSIX file features (such as ownership and permissions) that have no close analog in S3's object APIs.
 3. When these tenets cause us to diverge from POSIX semantics, we prefer to fail early and explicitly. We would rather cause applications to fail with IO errors than silently accept operations like `setxattr` that we will never successfully persist.
 
 ## Mapping S3 object keys to files and directories
 
-S3 File Connector interprets keys in your S3 bucket as file system paths by splitting them on the `/` character. For example, if your bucket contains the following object keys:
+Mountpoint for Amazon S3 interprets keys in your S3 bucket as file system paths by splitting them on the `/` character. For example, if your bucket contains the following object keys:
 
 * `colors/blue/image.jpg`
 * `colors/red/image.jpg`
@@ -26,7 +26,7 @@ then mounting your bucket would give the following file system structure:
         * `image.jpg` (file)
     * `list.txt` (file)
 
-S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html) than POSIX does for valid file and directory names. As a result, some object keys in your S3 bucket may not be visible when mounting the bucket using S3 File Connector:
+S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html) than POSIX does for valid file and directory names. As a result, some object keys in your S3 bucket may not be visible when mounting the bucket using Mountpoint for Amazon S3:
 
 * Object keys that contain null bytes (`\0`) will not be accessible.
 * Files or directories named `.` or `..` will not be accessible. This includes the object keys `.` or `..`, any key that ends in `/.` or `/..`, and any key that contains `/./` or `/../`.
@@ -45,13 +45,13 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
   
   then mounting your bucket would give a file system with a `blue` file, rather than a `blue` directory, and therefore `image.jpg` will not be accessible. Note that this means deleting the file `blue` will cause a directory `blue/` to become visible, and make `blue/image.jpg` accessible.
 
-We test S3 File Connector against these restrictions using a [reference model](https://github.com/awslabs/s3-file-connector/blob/b720e9a5da0980977714c977128b2cef67313c81/s3-file-connector/tests/reftests/reference.rs#L121) that programatically encodes the expected mapping between S3 objects and file system structure.
+We test Mountpoint for Amazon S3 against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/0ca2c771237032040bd1ec9405f5ed0ffa5d2eb9/s3-file-connector/tests/reftests/reference.rs#L121) that programatically encodes the expected mapping between S3 objects and file system structure.
 
 Windows-style path delimiters (`\`) are not supported.
 
 ## Operations on files and directories
 
-S3 File Connector intentionally does not support all POSIX file system operations. This section describes the intended behavior of file operations against S3 File Connector mounts.
+Mountpoint for Amazon S3 intentionally does not support all POSIX file system operations. This section describes the intended behavior of file operations against Mountpoint for Amazon S3 mounts.
 
 ### File operations
 
@@ -65,7 +65,7 @@ Basic read-only operations are fully supported, including both sequential and ra
 
 #### Writes
 
-Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In future, S3 File Connector [will support sequential writes](https://github.com/awslabs/s3-file-connector/issues/27), but with some limitations:
+Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In future, Mountpoint for Amazon S3 [will support sequential writes](https://github.com/awslabs/mountpoint-s3/issues/27), but with some limitations:
 * Random writes will not be supported.
 * Writes will only be supported to non-existent files. Appending to existing files will not be supported.
 * Truncation will not be supported.
@@ -107,4 +107,4 @@ Hard links and symbolic links are both unsupported.
 
 ## Error handling
 
-Unlike local file systems, operations against S3 File Connector mounts can experience transient failures such as network timeouts or temporary unavailability. S3 File Connector implements [best practices for S3 use](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html#optimizing-performance-timeouts-retries), including retries, exponential backoff, and horizontal scaling. When a request fails despite these efforts, operations might return `EIO` or `ETIMEDOUT` errors to the application.
+Unlike local file systems, operations against Mountpoint for Amazon S3 mounts can experience transient failures such as network timeouts or temporary unavailability. Mountpoint for Amazon S3 implements [best practices for S3 use](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html#optimizing-performance-timeouts-retries), including retries, exponential backoff, and horizontal scaling. When a request fails despite these efforts, operations might return `EIO` or `ETIMEDOUT` errors to the application.

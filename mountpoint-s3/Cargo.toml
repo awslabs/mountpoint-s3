@@ -1,0 +1,63 @@
+[package]
+name = "mountpoint-s3"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+fuser = { path = "../vendor/fuser", features = ["abi-7-28"] }
+mountpoint-s3-client = { path = "../mountpoint-s3-client" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt" }
+
+anyhow = { version = "1.0.64", features = ["backtrace"] }
+async-channel = "1.8.0"
+async-lock = "2.6.0"
+async-trait = "0.1.57"
+bytes = "1.2.1"
+clap = { version = "3.2.12", features = ["derive"] }
+ctrlc = "3.2.3"
+futures = "0.3.24"
+hdrhistogram = { version = "7.5.2", default-features = false }
+libc = "0.2.126"
+metrics = "0.20.1"
+once_cell = "1.16.0"
+supports-color = "1.3.0"
+thiserror = "1.0.34"
+tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
+tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
+nix = "0.26.2"
+time = { version = "0.3.17", features = ["macros", "formatting"] }
+const_format = "0.2.30"
+home = "0.5.4"
+
+[dev-dependencies]
+assert_cmd = "2.0.6"
+assert_fs = "1.0.9"
+aws-config = "0.54.1"
+aws-sdk-s3 = "0.24.0"
+base16ct = { version = "0.1.1", features = ["alloc"] }
+ctor = "0.1.23"
+predicates = "2.1.2"
+proptest = "1.0.0"
+proptest-derive = "0.3.0"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+sha2 = "0.10.6"
+shuttle = { version = "0.5.0" }
+tempfile = "3.4.0"
+test-case = "2.2.2"
+tokio = { version = "1.24.2", features = ["rt", "macros"] }
+
+[features]
+fuse_tests = []
+s3_tests = []
+shuttle = []
+put = []
+
+[build-dependencies]
+built = { version = "0.6.0", features = ["git2"] }
+
+[[bin]]
+name = "mount-s3"
+path = "src/main.rs"

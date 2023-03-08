@@ -70,7 +70,7 @@ jobs:
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
-      run: s3-file-connector/scripts/fs_bench.sh
+      run: mountpoint-s3/scripts/fs_bench.sh
     - name: Store benchmark result
       if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
       uses: benchmark-action/github-action-benchmark@v1

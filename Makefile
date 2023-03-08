@@ -2,7 +2,7 @@
 # fuser crate. If those tools ever get stabilized `ignore` features, or we stop vendoring, this can
 # go away.
 
-CRATES = aws-crt-s3-sys aws-crt-s3 s3-client s3-file-connector
+CRATES = mountpoint-s3-crt-sys mountpoint-s3-crt mountpoint-s3-client mountpoint-s3
 RUST_FEATURES ?= fuse_tests
 
 .PHONY: all

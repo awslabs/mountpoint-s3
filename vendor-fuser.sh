@@ -13,7 +13,7 @@ fi
 
 rm -rf $FUSER_FULL_PATH
 
-git clone --branch fuser/async ssh://git@github.com/awslabs/s3-file-connector.git $FUSER_FULL_PATH
+git clone --branch fuser/async ssh://git@github.com/awslabs/mountpoint-s3.git $FUSER_FULL_PATH
 COMMIT=$(git -C $FUSER_FULL_PATH rev-parse --short HEAD)
 
 rm -rf $FUSER_FULL_PATH/.git

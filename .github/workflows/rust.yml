@@ -151,7 +151,7 @@ jobs:
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Run Shuttle tests
-      run: cargo test -p s3-file-connector --features shuttle -- shuttle
+      run: cargo test -p mountpoint-s3 --features shuttle -- shuttle
 
   asan:
     name: Address sanitizer
@@ -269,7 +269,7 @@ jobs:
             target/
           key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Build CRT binding documentation
-        run: cargo doc --no-deps -p aws-crt-s3
+        run: cargo doc --no-deps -p mountpoint-s3-crt
 
   deny:
     name: Licenses
