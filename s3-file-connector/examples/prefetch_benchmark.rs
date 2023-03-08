@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use aws_crt_s3::common::rust_log_adapter::RustLogAdapter;
 use clap::{Arg, Command};
-use futures::executor::ThreadPool;
+use futures::executor::{block_on, ThreadPool};
 use s3_client::{S3ClientConfig, S3CrtClient};
 use s3_file_connector::prefetch::Prefetcher;
 use tracing_subscriber::fmt::Subscriber;
@@ -85,14 +85,16 @@ fn main() {
         let start = Instant::now();
 
         let mut request = manager.get(bucket, key, size);
-        loop {
-            let offset = received_size.load(Ordering::SeqCst);
-            if offset >= size {
-                break;
+        block_on(async {
+            loop {
+                let offset = received_size.load(Ordering::SeqCst);
+                if offset >= size {
+                    break;
+                }
+                let bytes = request.read(offset, 1 << 20).await.unwrap();
+                received_size.fetch_add(bytes.len() as u64, Ordering::SeqCst);
             }
-            let bytes = request.read(offset, 1 << 20).unwrap();
-            received_size.fetch_add(bytes.len() as u64, Ordering::SeqCst);
-        }
+        });
 
         let elapsed = start.elapsed();
 
