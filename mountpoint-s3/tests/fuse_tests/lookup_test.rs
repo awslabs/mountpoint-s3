@@ -7,7 +7,7 @@ use test_case::test_case;
 
 use crate::fuse_tests::PutObjectFn;
 
-/// See [s3_file_connector::inode::tests::test_lookup_directory_overlap].
+/// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test<F>(creator_fn: F, prefix: &str, subdir: &str)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
