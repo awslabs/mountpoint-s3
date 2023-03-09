@@ -100,20 +100,15 @@ fn insert_virtual_host(bucket: &str, uri: &Uri) -> Result<Uri, InvalidUriError> 
     )?)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AddressingStyle {
     /// Use virtual addressing if possible, but fall back to path addressing if necessary
+    #[default]
     Automatic,
     /// Always use virtual addressing
     Virtual,
     /// Always use path addressing
     Path,
-}
-
-impl Default for AddressingStyle {
-    fn default() -> Self {
-        AddressingStyle::Automatic
-    }
 }
 
 #[derive(Debug, Error)]
