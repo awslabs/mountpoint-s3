@@ -355,12 +355,8 @@ fn mount(args: CliArgs) -> anyhow::Result<BackgroundSession> {
 
     let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
 
-    let session = if let Some(thread_count) = args.thread_count {
-        BackgroundSession::new_multi_thread(session, thread_count as usize)
-    } else {
-        BackgroundSession::new(session)
-    };
-    let session = session.context("Failed to start FUSE session")?;
+    // TODO correctly handle multi-threading and unmounting
+    let session = BackgroundSession::new(session).context("Failed to start FUSE session")?;
 
     tracing::info!("successfully mounted {:?}", args.mount_point);
 
