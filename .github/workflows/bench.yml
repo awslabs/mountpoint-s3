@@ -71,8 +71,7 @@ jobs:
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_bench.sh
-    - name: Store benchmark result
-      if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
         tool: 'customBiggerIsBetter'
@@ -81,6 +80,6 @@ jobs:
         fail-on-alert: true
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # Push and deploy GitHub pages branch automatically
-        auto-push: true
+        # Store the results and deploy GitHub pages automatically if the results are from main brancn
+        auto-push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'true' || 'false' }}
         comment-on-alert: true
