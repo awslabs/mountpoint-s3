@@ -148,7 +148,7 @@ impl Reply for ReplyData {
 impl ReplyData {
     /// Reply to a request with the given data
     pub fn data(self, data: &[u8]) {
-        self.reply.send_ll(&ll::Response::new_data(data));
+        self.reply.send_ll(&ll::Response::new_slice(data));
     }
 
     /// Reply to a request with the given error code

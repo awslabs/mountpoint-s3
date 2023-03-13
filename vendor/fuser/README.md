@@ -1,3 +1,7 @@
+This is a fork of the excellent [`fuser`](https://github.com/cberner/fuser) Rust crate for FUSE bindings, with some Mountpoint-specific changes to improve performance of concurrent operations. We'll be working to upstream these changes soon.
+
+---
+
 # FUSE (Filesystem in Userspace) for Rust
 
 ![CI](https://github.com/cberner/fuser/actions/workflows/ci.yml/badge.svg)

@@ -20,10 +20,11 @@ pub(crate) type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
 #[derive(Debug)]
 pub enum Response<'a> {
     Error(i32),
-    InlineData(ResponseBuf),
-    SliceData(&'a [u8]),
+    Data(ResponseBuf),
+    Slice(&'a [u8]),
 }
 
+#[must_use]
 impl<'a> Response<'a> {
     pub(crate) fn with_iovec<F: FnOnce(&[IoSlice<'_>]) -> T, T>(
         &self,
@@ -32,8 +33,8 @@ impl<'a> Response<'a> {
     ) -> T {
         let datalen = match &self {
             Response::Error(_) => 0,
-            Response::InlineData(v) => v.len(),
-            Response::SliceData(v) => v.len(),
+            Response::Data(v) => v.len(),
+            Response::Slice(d) => d.len(),
         };
         let header = abi::fuse_out_header {
             unique: unique.0,
@@ -49,8 +50,8 @@ impl<'a> Response<'a> {
         let mut v: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
         match &self {
             Response::Error(_) => {}
-            Response::InlineData(d) => v.push(IoSlice::new(d.as_ref())),
-            Response::SliceData(d) => v.push(IoSlice::new(d.as_ref())),
+            Response::Data(d) => v.push(IoSlice::new(d.as_ref())),
+            Response::Slice(d) => v.push(IoSlice::new(d.as_ref())),
         }
         f(&v)
     }
@@ -64,12 +65,16 @@ impl<'a> Response<'a> {
         Self::Error(error.into())
     }
 
-    pub(crate) fn new_owned_data<T: AsRef<[u8]>>(data: T) -> Self {
-        Self::InlineData(data.as_ref().into())
+    pub(crate) fn new_data<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Self {
+        Self::Data(if data.as_ref().len() <= INLINE_DATA_THRESHOLD {
+            data.as_ref().into()
+        } else {
+            data.into().into()
+        })
     }
 
-    pub(crate) fn new_data(data: &'a [u8]) -> Self {
-        Self::SliceData(data)
+    pub(crate) fn new_slice(data: &'a [u8]) -> Self {
+        Self::Slice(data)
     }
 
     pub(crate) fn new_entry(
@@ -218,12 +223,12 @@ impl<'a> Response<'a> {
         for x in data {
             v.extend_from_slice(x)
         }
-        Self::InlineData(v)
+        Self::Data(v)
     }
 
     fn new_directory(list: EntListBuf) -> Self {
         assert!(list.buf.len() <= list.max_size);
-        Self::InlineData(list.buf)
+        Self::Data(list.buf)
     }
 
     pub(crate) fn new_xattr_size(size: u32) -> Self {
@@ -237,7 +242,7 @@ impl<'a> Response<'a> {
     }
 
     fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
-        Self::InlineData(data.as_bytes().into())
+        Self::Data(data.as_bytes().into())
     }
 }
 
@@ -413,7 +418,6 @@ impl DirEntList {
 
 #[derive(Debug)]
 pub struct DirEntryPlus<T: AsRef<Path>> {
-    #[allow(unused)]
     ino: INodeNo,
     generation: Generation,
     offset: DirEntOffset,

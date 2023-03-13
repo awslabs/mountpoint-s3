@@ -1,4 +1,4 @@
-use super::{fuse2_sys::*, with_fuse_args, MountOption};
+use super::{ensure_last_os_error, fuse2_sys::*, with_fuse_args, MountOption};
 use log::warn;
 use std::{
     ffi::CString,
@@ -19,7 +19,7 @@ impl Mount {
         with_fuse_args(options, |args| {
             let fd = unsafe { fuse_mount_compat25(mountpoint.as_ptr(), args) };
             if fd < 0 {
-                Err(io::Error::last_os_error())
+                Err(ensure_last_os_error())
             } else {
                 let file = unsafe { File::from_raw_fd(fd) };
                 Ok((Arc::new(file), Mount { mountpoint }))
