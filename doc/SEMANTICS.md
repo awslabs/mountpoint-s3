@@ -4,7 +4,7 @@ Mountpoint for Amazon S3 is optimized for workloads that need high-throughput re
 
 ## Semantics tenets
 
-When thinking about the semantics Mountpoint for Amazon S3 supports, we have three tenets in mind:
+When thinking about the semantics Mountpoint for Amazon S3 will support, we have three tenets in mind:
 1. We will not support semantics that cannot be implemented efficiently against S3's object APIs. We do not try to emulate operations like `rename` that would require many API calls to S3 to perform.
 2. We present a common view of S3 object data through both file and object APIs. We eschew special emulations of POSIX file features (such as ownership and permissions) that have no close analog in S3's object APIs.
 3. When these tenets cause us to diverge from POSIX semantics, we prefer to fail early and explicitly. We would rather cause applications to fail with IO errors than silently accept operations like `setxattr` that we will never successfully persist.
@@ -65,9 +65,9 @@ Basic read-only operations are fully supported, including both sequential and ra
 
 #### Writes
 
-Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In future, Mountpoint for Amazon S3 [will support sequential writes](https://github.com/awslabs/mountpoint-s3/issues/27), but with some limitations:
-* Random writes will not be supported.
-* Writes will only be supported to non-existent files. Appending to existing files will not be supported.
+Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In the future, Mountpoint for Amazon S3 [will support sequential writes](https://github.com/awslabs/mountpoint-s3/issues/27), but with some limitations:
+* Writes will only be supported to new files, and must be done sequentially.
+* Modifying existing files will not be supported.
 * Truncation will not be supported.
 
 Synchronization operations (`fsync`, `fdatasync`) are currently no-ops because writes are not supported.
@@ -76,12 +76,11 @@ Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
 ### Directory operations
 
-Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported, but with some limitations:
-* `readdir` does not offer snapshot isolation or consistency. Objects created after `opendir` may or may not appear in the output of a future `readdir`.
+Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported.
 
 Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
-File deletion (`unlink`) is not currently supported.
+File deletion (`unlink`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/78).
 
 Empty directory removal (`rmdir`) is not supported.
 
@@ -90,9 +89,9 @@ Synchronization operations (`fsync`) on directories are not supported.
 ### File and directory metadata and permissions
 
 Reading file metadata (`stat`, `fstatat`) is supported, but with some limitations:
-* File mode will be a default value (`0755` for files, `0644` for directories) unless you manually configure them differently.
-* File owner and group will default to the user/group that mounted the bucket.
-* Last access time and last status change time will not be accurate.
+* File mode will be a default value (`0755` for files, `0644` for directories) unless you manually configure them with the `--file-mode` and `--dir-mode` command-line arguments.
+* File owner and group will default to the user/group that mounted the bucket unless you manually configure them with the `--uid` and `--gid` command-line arguments.
+* Last access time and last status change time will be the same as the last modified time.
 * Inode numbers are not stable and can change.
 
 Modifying file metadata (`chmod`, `chown`, `chgrp`) is not supported.
@@ -108,3 +107,11 @@ Hard links and symbolic links are both unsupported.
 ## Error handling
 
 Unlike local file systems, operations against Mountpoint for Amazon S3 mounts can experience transient failures such as network timeouts or temporary unavailability. Mountpoint for Amazon S3 implements [best practices for S3 use](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html#optimizing-performance-timeouts-retries), including retries, exponential backoff, and horizontal scaling. When a request fails despite these efforts, operations might return `EIO` or `ETIMEDOUT` errors to the application.
+
+## Concurrent mutations
+
+Mountpoint for Amazon S3 does not currently make any guarantees about the effects of a bucket being mutated remotely while being accessed through the file client. We recommend using Mountpoint for Amazon S3 only with buckets that are not concurrently mutated, or where mutations can be isolated to separate objects from those being read.
+
+When Mountpoint for Amazon S3 detects that an object has been mutated in S3 while being read by the file client, it will cause future reads to the same file descriptor to return `EIO`. To read the new contents of the object, re-open the file.
+
+We have not yet [nailed down the exact semantics](https://github.com/awslabs/mountpoint-s3/issues/128) of concurrent mutations that affect the directory hierarchy (like creating a `foo/` key when `foo` already exists).
