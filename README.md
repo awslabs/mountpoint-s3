@@ -1,3 +1,22 @@
+## Fork of fuser for Mountpoint
+
+This is a fork of the excellent [`fuser`](https://github.com/cberner/fuser) Rust crate for FUSE bindings, with some Mountpoint-specific changes to improve performance of concurrent operations. We'll be working to upstream these changes soon.
+
+### Fork Maintenance
+
+This fork should be maintained in the `fuser/fork` branch of the [awslabs/mountpoint-s3 repository on GitHub](https://github.com/awslabs/mountpoint-s3/tree/main/vendor/fuser).
+
+To pull in new changes from upstream, you should fetch and rebase the changes locally and then force push to the `fuser/fork` branch (- not ideal!).
+Once the `fuser/fork` branch is as desired, create a new branch from Mountpoint's `main` branch.
+Run the [`vendor-fuser.sh` script](https://github.com/awslabs/mountpoint-s3/blob/main/vendor-fuser.sh).
+You should open a pull request with the new commit created by the script.
+This pull request is where the changes are reviewed.
+
+If you wish to add new divergent changes to this fork of Fuser,
+open a pull request on the Mountpoint repository branching from the `fuser/fork` branch and use `fuser/fork` as the base branch when creating the pull request.
+
+---
+
 # FUSE (Filesystem in Userspace) for Rust
 
 ![CI](https://github.com/cberner/fuser/actions/workflows/ci.yml/badge.svg)
