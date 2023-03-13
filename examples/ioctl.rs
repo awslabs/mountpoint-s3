@@ -10,12 +10,13 @@ use fuser::{
 use libc::{EINVAL, ENOENT};
 use log::debug;
 use std::ffi::OsStr;
+use std::sync::Mutex;
 use std::time::{Duration, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
 
 struct FiocFS {
-    content: Vec<u8>,
+    content: Mutex<Vec<u8>>,
     root_attr: FileAttr,
     fioc_file_attr: FileAttr,
 }
@@ -62,7 +63,7 @@ impl FiocFS {
         };
 
         Self {
-            content: vec![],
+            content: vec![].into(),
             root_attr,
             fioc_file_attr,
         }
@@ -70,7 +71,7 @@ impl FiocFS {
 }
 
 impl Filesystem for FiocFS {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("fioc") {
             reply.entry(&TTL, &self.fioc_file_attr, 0);
         } else {
@@ -78,7 +79,7 @@ impl Filesystem for FiocFS {
         }
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match ino {
             1 => reply.attr(&TTL, &self.root_attr),
             2 => reply.attr(&TTL, &self.fioc_file_attr),
@@ -87,7 +88,7 @@ impl Filesystem for FiocFS {
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: &Request,
         ino: u64,
         _fh: u64,
@@ -98,14 +99,15 @@ impl Filesystem for FiocFS {
         reply: ReplyData,
     ) {
         if ino == 2 {
-            reply.data(&self.content[offset as usize..])
+            let content = self.content.lock().unwrap();
+            reply.data(&content[offset as usize..])
         } else {
             reply.error(ENOENT);
         }
     }
 
     fn readdir(
-        &mut self,
+        &self,
         _req: &Request,
         ino: u64,
         _fh: u64,
@@ -133,7 +135,7 @@ impl Filesystem for FiocFS {
     }
 
     fn ioctl(
-        &mut self,
+        &self,
         _req: &Request<'_>,
         ino: u64,
         _fh: u64,
@@ -153,12 +155,12 @@ impl Filesystem for FiocFS {
 
         match cmd.into() {
             FIOC_GET_SIZE => {
-                let size_bytes = self.content.len().to_ne_bytes();
+                let size_bytes = self.content.lock().unwrap().len().to_ne_bytes();
                 reply.ioctl(0, &size_bytes);
             }
             FIOC_SET_SIZE => {
                 let new_size = usize::from_ne_bytes(in_data.try_into().unwrap());
-                self.content = vec![0_u8; new_size];
+                *self.content.lock().unwrap() = vec![0_u8; new_size];
                 reply.ioctl(0, &[]);
             }
             _ => {

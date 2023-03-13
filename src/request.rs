@@ -11,6 +11,7 @@ use std::convert::TryFrom;
 #[cfg(feature = "abi-7-28")]
 use std::convert::TryInto;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 
 use crate::channel::ChannelSender;
 use crate::ll::Request as _;
@@ -52,7 +53,7 @@ impl<'a> Request<'a> {
     /// Dispatch request to the given filesystem.
     /// This calls the appropriate filesystem operation method for the
     /// request and sends back the returned reply to the kernel
-    pub(crate) fn dispatch<FS: Filesystem>(&self, se: &mut Session<FS>) {
+    pub(crate) fn dispatch<FS: Filesystem>(&self, se: &Session<FS>) {
         debug!("{}", self.request);
         let unique = self.request.unique();
 
@@ -70,7 +71,7 @@ impl<'a> Request<'a> {
 
     fn dispatch_req<FS: Filesystem>(
         &self,
-        se: &mut Session<FS>,
+        se: &Session<FS>,
     ) -> Result<Option<Response<'_>>, Errno> {
         let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
         // Implement allow_root & access check for auto_unmount
@@ -150,8 +151,8 @@ impl<'a> Request<'a> {
                     return Err(Errno::EPROTO);
                 }
                 // Remember ABI version supported by kernel
-                se.proto_major = v.major();
-                se.proto_minor = v.minor();
+                se.proto_major.store(v.major(), Ordering::SeqCst);
+                se.proto_minor.store(v.minor(), Ordering::SeqCst);
 
                 let mut config = KernelConfig::new(x.capabilities(), x.max_readahead());
                 // Call filesystem init method and give it a chance to return an error
@@ -170,22 +171,23 @@ impl<'a> Request<'a> {
                     config.max_readahead,
                     config.max_write
                 );
-                se.initialized = true;
+                se.initialized.store(true, Ordering::SeqCst);
                 return Ok(Some(x.reply(&config)));
             }
             // Any operation is invalid before initialization
-            _ if !se.initialized => {
+            _ if !se.initialized.load(Ordering::SeqCst) => {
                 warn!("Ignoring FUSE operation before init: {}", self.request);
                 return Err(Errno::EIO);
             }
             // Filesystem destroyed
             ll::Operation::Destroy(x) => {
-                se.filesystem.destroy();
-                se.destroyed = true;
+                if !se.destroyed.swap(true, Ordering::SeqCst) {
+                    se.filesystem.destroy();
+                }
                 return Ok(Some(x.reply()));
             }
             // Any operation is invalid after destroy
-            _ if se.destroyed => {
+            _ if se.destroyed.load(Ordering::SeqCst) => {
                 warn!("Ignoring FUSE operation after destroy: {}", self.request);
                 return Err(Errno::EIO);
             }
