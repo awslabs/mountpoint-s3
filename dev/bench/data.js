@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1678446840810,
+  "lastUpdate": 1678723595576,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -7439,6 +7439,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 25.482421875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "jamesbornholt@gmail.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "82d8e036e7629dca69797ae1106127b4d210fb48",
+          "message": "Switch to cleaned up non-async fuser fork\n\nOur current fuser fork has a messy commit history and does two big\nchanges at once: (1) concurrent filesystems and (2) async filesystems.\nWe don't actually need the async version right now -- it was incomplete\nand we were just running it on blocking threads anyway.\n\nThis change redirects the fuser fork to our `fuser/fork` branch, which\nis a cleaned up history of the fork but without async support. Instead,\nwe push the async support down into our implementation via `block_on`.\nThis performs the same, but with a smaller change to fuser.\n\nIn the future we'll still want to async-ify fuser so the entire stack\ncan run on top of (the CRT's?) async runtime. But there's more work\ninvolved in correctly async-ifying fuser, like doing async IO on the\nFUSE device, so we can defer that for now.\n\nThis change temporarily breaks the `--thread-count` command-line\nargument and so will tank concurrent performance tests. I'll fix that in\na followup as I don't want this diff to get any bigger, and will fix\nunmount support (#93) at the same time.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-13T10:48:33-05:00",
+          "tree_id": "1704c804a0b21af4d9f0ffa9740693037b632439",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/82d8e036e7629dca69797ae1106127b4d210fb48"
+        },
+        "date": 1678723594102,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.7119140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 1.791015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 2.3525390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 4.876953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 8.3798828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 1.82421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 2.822265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.1630859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.611328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.3916015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1453.9677734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 4.087890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 2590.3466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 32.2451171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 2.8779296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 2001.166015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 23.53515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2414.5322265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 26.4873046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 25.525390625,
             "unit": "MiB/s"
           }
         ]
