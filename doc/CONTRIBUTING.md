@@ -7,7 +7,7 @@ information to effectively respond to your bug report or contribution.
 
 ## Reporting Bugs/Feature Requests
 
-Please use the GitHib issue tracker to [report bugs](https://github.com/awslabs/mountpoint-s3/issues/new?assignees=&labels=bug&template=bug-report.yml) or [suggest features](https://github.com/awslabs/mountpoint-s3/issues/new?assignees=&labels=enhancement&template=feature-request.yml).
+Please use the GitHub issue tracker to [report bugs](https://github.com/awslabs/mountpoint-s3/issues/new?assignees=&labels=bug&template=bug-report.yml) or [suggest features](https://github.com/awslabs/mountpoint-s3/issues/new?assignees=&labels=enhancement&template=feature-request.yml).
 
 When filing an issue, please check existing open, or recently closed, issues to make sure somebody else hasn't already
 reported the issue. Please try to include as much information as you can. Details like these are incredibly useful:
