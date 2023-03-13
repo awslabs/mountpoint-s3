@@ -6,7 +6,10 @@ Mountpoint for Amazon S3 is a simple, high-throughput file client for mounting a
 
 Mountpoint for Amazon S3 is optimized for read-heavy workloads that need high throughput. It intentionally does not implement the full POSIX specification for file systems. See [SEMANTICS.md](doc/SEMANTICS.md) for a detailed description of the client's behavior and POSIX support.
 
-**This is an alpha release and not yet ready for production use.** We're especially interested in early feedback on features, performance, and compatibility. See [Current status](#current-status) for more limitations.
+**This is an alpha release and not yet ready for production use.**
+We're especially interested in early feedback on features, performance, and compatibility.
+Please send feedback by [opening a GitHub issue](https://github.com/awslabs/mountpoint-s3/issues/new/choose).
+See [Current status](#current-status) for more limitations.
 
 ## Getting started
 
