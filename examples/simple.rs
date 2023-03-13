@@ -478,7 +478,7 @@ impl SimpleFS {
 
 impl Filesystem for SimpleFS {
     fn init(
-        &mut self,
+        &self,
         _req: &Request,
         #[allow(unused_variables)] config: &mut KernelConfig,
     ) -> Result<(), c_int> {
@@ -511,7 +511,7 @@ impl Filesystem for SimpleFS {
         Ok(())
     }
 
-    fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if name.len() > MAX_NAME_LENGTH as usize {
             reply.error(libc::ENAMETOOLONG);
             return;
@@ -535,9 +535,9 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {}
+    fn forget(&self, _req: &Request, _ino: u64, _nlookup: u64) {}
 
-    fn getattr(&mut self, _req: &Request, inode: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, inode: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match self.get_inode(inode) {
             Ok(attrs) => reply.attr(&Duration::new(0, 0), &attrs.into()),
             Err(error_code) => reply.error(error_code),
@@ -545,7 +545,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn setattr(
-        &mut self,
+        &self,
         req: &Request,
         inode: u64,
         mode: Option<u32>,
@@ -726,7 +726,7 @@ impl Filesystem for SimpleFS {
         return;
     }
 
-    fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
+    fn readlink(&self, _req: &Request, inode: u64, reply: ReplyData) {
         debug!("readlink() called on {:?}", inode);
         let path = self.content_path(inode);
         if let Ok(mut file) = File::open(path) {
@@ -740,7 +740,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn mknod(
-        &mut self,
+        &self,
         req: &Request,
         parent: u64,
         name: &OsStr,
@@ -827,7 +827,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn mkdir(
-        &mut self,
+        &self,
         req: &Request,
         parent: u64,
         name: &OsStr,
@@ -900,7 +900,7 @@ impl Filesystem for SimpleFS {
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
 
-    fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn unlink(&self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("unlink() called with {:?} {:?}", parent, name);
         let mut attrs = match self.lookup_name(parent, name) {
             Ok(attrs) => attrs,
@@ -957,7 +957,7 @@ impl Filesystem for SimpleFS {
         reply.ok();
     }
 
-    fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn rmdir(&self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("rmdir() called with {:?} {:?}", parent, name);
         let mut attrs = match self.lookup_name(parent, name) {
             Ok(attrs) => attrs,
@@ -1019,7 +1019,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn symlink(
-        &mut self,
+        &self,
         req: &Request,
         parent: u64,
         link_name: &OsStr,
@@ -1089,7 +1089,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn rename(
-        &mut self,
+        &self,
         req: &Request,
         parent: u64,
         name: &OsStr,
@@ -1296,7 +1296,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn link(
-        &mut self,
+        &self,
         req: &Request,
         inode: u64,
         new_parent: u64,
@@ -1324,7 +1324,7 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn open(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
+    fn open(&self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
         let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
@@ -1373,7 +1373,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: &Request,
         inode: u64,
         fh: u64,
@@ -1408,7 +1408,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn write(
-        &mut self,
+        &self,
         _req: &Request,
         inode: u64,
         fh: u64,
@@ -1453,7 +1453,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn release(
-        &mut self,
+        &self,
         _req: &Request<'_>,
         inode: u64,
         _fh: u64,
@@ -1468,7 +1468,7 @@ impl Filesystem for SimpleFS {
         reply.ok();
     }
 
-    fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
+    fn opendir(&self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
         let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
@@ -1512,7 +1512,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn readdir(
-        &mut self,
+        &self,
         _req: &Request,
         inode: u64,
         _fh: u64,
@@ -1548,7 +1548,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn releasedir(
-        &mut self,
+        &self,
         _req: &Request<'_>,
         inode: u64,
         _fh: u64,
@@ -1561,7 +1561,7 @@ impl Filesystem for SimpleFS {
         reply.ok();
     }
 
-    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+    fn statfs(&self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
         warn!("statfs() implementation is a stub");
         // TODO: real implementation of this
         reply.statfs(
@@ -1577,7 +1577,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn setxattr(
-        &mut self,
+        &self,
         request: &Request<'_>,
         inode: u64,
         key: &OsStr,
@@ -1602,7 +1602,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn getxattr(
-        &mut self,
+        &self,
         request: &Request<'_>,
         inode: u64,
         key: &OsStr,
@@ -1634,7 +1634,7 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn listxattr(&mut self, _req: &Request<'_>, inode: u64, size: u32, reply: ReplyXattr) {
+    fn listxattr(&self, _req: &Request<'_>, inode: u64, size: u32, reply: ReplyXattr) {
         if let Ok(attrs) = self.get_inode(inode) {
             let mut bytes = vec![];
             // Convert to concatenated null-terminated strings
@@ -1654,7 +1654,7 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn removexattr(&mut self, request: &Request<'_>, inode: u64, key: &OsStr, reply: ReplyEmpty) {
+    fn removexattr(&self, request: &Request<'_>, inode: u64, key: &OsStr, reply: ReplyEmpty) {
         if let Ok(mut attrs) = self.get_inode(inode) {
             if let Err(error) = xattr_access_check(key.as_bytes(), libc::W_OK, &attrs, request) {
                 reply.error(error);
@@ -1676,7 +1676,7 @@ impl Filesystem for SimpleFS {
         }
     }
 
-    fn access(&mut self, req: &Request, inode: u64, mask: i32, reply: ReplyEmpty) {
+    fn access(&self, req: &Request, inode: u64, mask: i32, reply: ReplyEmpty) {
         debug!("access() called with {:?} {:?}", inode, mask);
         match self.get_inode(inode) {
             Ok(attr) => {
@@ -1691,7 +1691,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn create(
-        &mut self,
+        &self,
         req: &Request,
         parent: u64,
         name: &OsStr,
@@ -1785,7 +1785,7 @@ impl Filesystem for SimpleFS {
 
     #[cfg(target_os = "linux")]
     fn fallocate(
-        &mut self,
+        &self,
         _req: &Request<'_>,
         inode: u64,
         _fh: u64,
@@ -1815,7 +1815,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn copy_file_range(
-        &mut self,
+        &self,
         _req: &Request<'_>,
         src_inode: u64,
         src_fh: u64,
