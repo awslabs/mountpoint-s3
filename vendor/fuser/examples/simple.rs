@@ -1017,7 +1017,14 @@ impl Filesystem for SimpleFS {
         reply.ok();
     }
 
-    fn symlink(&self, req: &Request, parent: u64, name: &OsStr, link: &Path, reply: ReplyEntry) {
+    fn symlink(
+        &self,
+        req: &Request,
+        parent: u64,
+        name: &OsStr,
+        link: &Path,
+        reply: ReplyEntry,
+    ) {
         debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
         let mut parent_attrs = match self.get_inode(parent) {
             Ok(attrs) => attrs,
@@ -1076,7 +1083,6 @@ impl Filesystem for SimpleFS {
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
 
-    #[allow(unused_variables)]
     fn rename(
         &self,
         req: &Request,
@@ -1536,7 +1542,14 @@ impl Filesystem for SimpleFS {
         reply.ok();
     }
 
-    fn releasedir(&self, _req: &Request<'_>, inode: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
+    fn releasedir(
+        &self,
+        _req: &Request<'_>,
+        inode: u64,
+        _fh: u64,
+        _flags: i32,
+        reply: ReplyEmpty,
+    ) {
         if let Ok(mut attrs) = self.get_inode(inode) {
             attrs.open_file_handles -= 1;
         }
@@ -1903,7 +1916,6 @@ fn as_file_kind(mut mode: u32) -> FileKind {
     }
 }
 
-#[allow(unused_variables)]
 fn get_groups(pid: u32) -> Vec<u32> {
     #[cfg(not(target_os = "macos"))]
     {

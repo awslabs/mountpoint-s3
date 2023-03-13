@@ -1,6 +1,10 @@
 # FUSE for Rust - Changelog
 
-## 0.12.0 - UNRELEASED
+## 0.12.0 - 2022-12-13
+* Add method to `Session` to unmount non-`Send` `Filesystem`s
+
+## 0.11.1 - 2022-08-24
+* Improve an error message when using libfuse2
 
 ## 0.11.0 - 2022-03-05
 * Add `spawn_mount2()`

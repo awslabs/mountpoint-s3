@@ -9,11 +9,13 @@ use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{info, warn};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
-use crate::request::{Request, FuseRequestBuffer};
+use crate::ll::fuse_abi as abi;
+use crate::request::Request;
 use crate::Filesystem;
 use crate::MountOption;
 use crate::{channel::Channel, mnt::Mount};
@@ -22,6 +24,10 @@ use crate::{channel::Channel, mnt::Mount};
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
 /// and 128k on other systems.
 pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
+
+/// Size of the buffer for reading a request from the kernel. Since the kernel may send
+/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
+const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum SessionACL {
@@ -32,13 +38,13 @@ pub(crate) enum SessionACL {
 
 /// The session data structure
 #[derive(Debug)]
-pub struct Session<FS: Filesystem + Send + Sync> {
+pub struct Session<FS: Filesystem> {
     /// Filesystem operation implementations
     pub(crate) filesystem: FS,
     /// Communication channel to the kernel driver
     ch: Channel,
     /// Handle to the mount.  Dropping this unmounts.
-    mount: Option<Mount>,
+    mount: Arc<Mutex<Option<Mount>>>,
     /// Mount point
     mountpoint: PathBuf,
     /// Whether to restrict access to owner, root + owner, or unrestricted
@@ -47,16 +53,16 @@ pub struct Session<FS: Filesystem + Send + Sync> {
     /// User that launched the fuser process
     pub(crate) session_owner: u32,
     /// FUSE protocol major version
-    pub(crate) proto_major: std::sync::atomic::AtomicU32,
+    pub(crate) proto_major: AtomicU32,
     /// FUSE protocol minor version
-    pub(crate) proto_minor: std::sync::atomic::AtomicU32,
+    pub(crate) proto_minor: AtomicU32,
     /// True if the filesystem is initialized (init operation done)
-    pub(crate) initialized: std::sync::atomic::AtomicBool,
+    pub(crate) initialized: AtomicBool,
     /// True if the filesystem was destroyed (destroy operation done)
-    pub(crate) destroyed: std::sync::atomic::AtomicBool,
+    pub(crate) destroyed: AtomicBool,
 }
 
-impl<FS: Filesystem + Send + Sync> Session<FS> {
+impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
     pub fn new(
         filesystem: FS,
@@ -91,14 +97,14 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
         Ok(Session {
             filesystem,
             ch,
-            mount: Some(mount),
+            mount: Arc::new(Mutex::new(Some(mount))),
             mountpoint: mountpoint.to_owned(),
             allowed,
             session_owner: unsafe { libc::geteuid() },
-            proto_major: std::sync::atomic::AtomicU32::new(0),
-            proto_minor: std::sync::atomic::AtomicU32::new(0),
-            initialized: std::sync::atomic::AtomicBool::new(false),
-            destroyed: std::sync::atomic::AtomicBool::new(false),
+            proto_major: AtomicU32::new(0),
+            proto_minor: AtomicU32::new(0),
+            initialized: AtomicBool::new(false),
+            destroyed: AtomicBool::new(false),
         })
     }
 
@@ -108,25 +114,22 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
     }
 
     /// Run the session loop that receives kernel requests and dispatches them to method
-    /// calls into the filesystem. This read-dispatch-loop is non-concurrent to prevent
-    /// having multiple buffers (which take up much memory), but the filesystem methods
-    /// may run concurrent by spawning threads.
-    pub fn run(self: Arc<Self>) -> io::Result<()>
-    where
-        FS: 'static,
-    {
-        #[cfg(target_os = "linux")]
-        info!("new session thread with TID {}", unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t });
-        let session = &*self;
+    /// calls into the filesystem.
+    pub fn run(&self) -> io::Result<()> {
+        // Buffer for receiving requests from the kernel. Only one is allocated and
+        // it is reused immediately after dispatching to conserve memory and allocations.
+        let mut buffer = vec![0; BUFFER_SIZE];
+        let buf = aligned_sub_buf(
+            buffer.deref_mut(),
+            std::mem::align_of::<abi::fuse_in_header>(),
+        );
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
-            let mut buffer = FuseRequestBuffer::allocate();
-            match self.ch.receive(buffer.deref_mut()) {
-                // TODO figure out the alignment stuff here ... need to chop `buffer` down to `size` + whatever padding came off the front
-                Ok(size) => match Request::new(self.ch.sender(), buffer, size) {
+            match self.ch.receive(buf) {
+                Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
                     // Dispatch request
-                    Some(req) => futures::executor::block_on(async move { req.dispatch(session).await }),
+                    Some(req) => req.dispatch(self),
                     // Quit loop on illegal request
                     None => break,
                 },
@@ -149,23 +152,51 @@ impl<FS: Filesystem + Send + Sync> Session<FS> {
 
     /// Unmount the filesystem
     pub fn unmount(&mut self) {
-        drop(std::mem::take(&mut self.mount));
+        drop(std::mem::take(&mut *self.mount.lock().unwrap()));
+    }
+
+    /// Returns a thread-safe object that can be used to unmount the Filesystem
+    pub fn unmount_callable(&mut self) -> SessionUnmounter {
+        SessionUnmounter {
+            mount: self.mount.clone(),
+        }
     }
 }
 
-impl<FS: 'static + Filesystem + Send + Sync> Session<FS> {
+#[derive(Debug)]
+/// A thread-safe object that can be used to unmount a Filesystem
+pub struct SessionUnmounter {
+    mount: Arc<Mutex<Option<Mount>>>,
+}
+
+impl SessionUnmounter {
+    /// Unmount the filesystem
+    pub fn unmount(&mut self) -> io::Result<()> {
+        drop(std::mem::take(&mut *self.mount.lock().unwrap()));
+        Ok(())
+    }
+}
+
+fn aligned_sub_buf(buf: &mut [u8], alignment: usize) -> &mut [u8] {
+    let off = alignment - (buf.as_ptr() as usize) % alignment;
+    if off == alignment {
+        buf
+    } else {
+        &mut buf[off..]
+    }
+}
+
+impl<FS: 'static + Filesystem + Send> Session<FS> {
     /// Run the session loop in a background thread
     pub fn spawn(self) -> io::Result<BackgroundSession> {
         BackgroundSession::new(self)
     }
 }
 
-impl<FS: Filesystem + Send + Sync> Drop for Session<FS> {
+impl<FS: Filesystem> Drop for Session<FS> {
     fn drop(&mut self) {
-        if !self.destroyed.load(std::sync::atomic::Ordering::SeqCst) {
+        if !self.destroyed.swap(true, Ordering::SeqCst) {
             self.filesystem.destroy();
-            self.destroyed
-                .store(true, std::sync::atomic::Ordering::SeqCst);
         }
         info!("Unmounted {}", self.mountpoint().display());
     }
@@ -176,7 +207,7 @@ pub struct BackgroundSession {
     /// Path of the mounted filesystem
     pub mountpoint: PathBuf,
     /// Thread guard of the background session
-    pub guards: Vec<JoinHandle<io::Result<()>>>,
+    pub guard: JoinHandle<io::Result<()>>,
     /// Ensures the filesystem is unmounted when the session ends
     _mount: Mount,
 }
@@ -185,57 +216,31 @@ impl BackgroundSession {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub fn new<FS: Filesystem + Send + Sync + 'static>(
-        mut se: Session<FS>,
+    pub fn new<FS: Filesystem + Send + 'static>(
+        se: Session<FS>,
     ) -> io::Result<BackgroundSession> {
         let mountpoint = se.mountpoint().to_path_buf();
         // Take the fuse_session, so that we can unmount it
-        let mount = std::mem::take(&mut se.mount);
+        let mount = std::mem::take(&mut *se.mount.lock().unwrap());
         let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
-        let se = Arc::new(se);
-        let guard = thread::spawn(move || se.run());
+        let guard = thread::spawn(move || {
+            se.run()
+        });
         Ok(BackgroundSession {
             mountpoint,
-            guards: vec![guard],
+            guard,
             _mount: mount,
         })
     }
-
-    /// Like `new` but multithreaded
-    pub fn new_multi_thread<FS: Filesystem + Send + Sync + 'static>(
-        mut se: Session<FS>,
-        thread_count: usize,
-    ) -> io::Result<BackgroundSession> {
-        assert!(thread_count >= 1);
-        let mountpoint = se.mountpoint().to_path_buf();
-        // Take the fuse_session, so that we can unmount it
-        let mount = std::mem::take(&mut se.mount);
-        let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
-        let se = Arc::new(se);
-        let guards = (0..thread_count)
-            .map(|_| {
-                let se = Arc::clone(&se);
-                thread::spawn(move || se.run())
-            })
-            .collect();
-        Ok(BackgroundSession {
-            mountpoint,
-            guards,
-            _mount: mount,
-        })
-    }
-
     /// Unmount the filesystem and join the background thread.
-    pub async fn join(self) {
+    pub fn join(self) {
         let Self {
             mountpoint: _,
-            guards,
+            guard,
             _mount,
         } = self;
         drop(_mount);
-        for guard in guards {
-            guard.join().unwrap().unwrap();
-        }
+        guard.join().unwrap().unwrap();
     }
 }
 
