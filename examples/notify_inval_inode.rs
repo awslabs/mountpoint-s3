@@ -67,7 +67,7 @@ impl ClockFS<'_> {
 }
 
 impl Filesystem for ClockFS<'_> {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent != FUSE_ROOT_ID || name != AsRef::<OsStr>::as_ref(&Self::FILE_NAME) {
             reply.error(ENOENT);
             return;
@@ -77,7 +77,7 @@ impl Filesystem for ClockFS<'_> {
         reply.entry(&Duration::MAX, &self.stat(ClockFS::FILE_INO).unwrap(), 0);
     }
 
-    fn forget(&mut self, _req: &Request, ino: u64, nlookup: u64) {
+    fn forget(&self, _req: &Request, ino: u64, nlookup: u64) {
         if ino == ClockFS::FILE_INO {
             let prev = self.lookup_cnt.fetch_sub(nlookup, SeqCst);
             assert!(prev >= nlookup);
@@ -86,21 +86,14 @@ impl Filesystem for ClockFS<'_> {
         }
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match self.stat(ino) {
             Some(a) => reply.attr(&Duration::MAX, &a),
             None => reply.error(ENOENT),
         }
     }
 
-    fn readdir(
-        &mut self,
-        _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
+    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino != FUSE_ROOT_ID {
             reply.error(ENOTDIR);
             return;
@@ -120,7 +113,7 @@ impl Filesystem for ClockFS<'_> {
         }
     }
 
-    fn open(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
+    fn open(&self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
         if ino == FUSE_ROOT_ID {
             reply.error(EISDIR);
         } else if flags & libc::O_ACCMODE != libc::O_RDONLY {
@@ -134,7 +127,7 @@ impl Filesystem for ClockFS<'_> {
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: &Request,
         ino: u64,
         _fh: u64,

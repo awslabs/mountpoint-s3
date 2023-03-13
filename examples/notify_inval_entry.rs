@@ -68,7 +68,7 @@ impl ClockFS<'_> {
 }
 
 impl Filesystem for ClockFS<'_> {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent != FUSE_ROOT_ID || name != AsRef::<OsStr>::as_ref(&self.get_filename()) {
             reply.error(ENOENT);
             return;
@@ -78,7 +78,7 @@ impl Filesystem for ClockFS<'_> {
         reply.entry(&self.timeout, &ClockFS::stat(ClockFS::FILE_INO).unwrap(), 0);
     }
 
-    fn forget(&mut self, _req: &Request, ino: u64, nlookup: u64) {
+    fn forget(&self, _req: &Request, ino: u64, nlookup: u64) {
         if ino == ClockFS::FILE_INO {
             let prev = self.lookup_cnt.fetch_sub(nlookup, SeqCst);
             assert!(prev >= nlookup);
@@ -87,21 +87,14 @@ impl Filesystem for ClockFS<'_> {
         }
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match ClockFS::stat(ino) {
             Some(a) => reply.attr(&self.timeout, &a),
             None => reply.error(ENOENT),
         }
     }
 
-    fn readdir(
-        &mut self,
-        _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
+    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino != FUSE_ROOT_ID {
             reply.error(ENOTDIR);
             return;

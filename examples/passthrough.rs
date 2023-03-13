@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, c_int};
 use std::fs::File;
 use std::rc::{Rc, Weak};
+use std::sync::Mutex;
 use std::time::{Duration, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
@@ -84,7 +85,7 @@ impl BackingCache {
 struct PassthroughFs {
     root_attr: FileAttr,
     passthrough_file_attr: FileAttr,
-    backing_cache: BackingCache,
+    backing_cache: Mutex<BackingCache>,
 }
 
 impl PassthroughFs {
@@ -137,17 +138,13 @@ impl PassthroughFs {
 }
 
 impl Filesystem for PassthroughFs {
-    fn init(
-        &mut self,
-        _req: &Request,
-        config: &mut KernelConfig,
-    ) -> std::result::Result<(), c_int> {
+    fn init(&self, _req: &Request, config: &mut KernelConfig) -> std::result::Result<(), c_int> {
         config.add_capabilities(consts::FUSE_PASSTHROUGH).unwrap();
         config.set_max_stack_depth(2).unwrap();
         Ok(())
     }
 
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("passthrough") {
             reply.entry(&TTL, &self.passthrough_file_attr, 0);
         } else {
@@ -155,7 +152,7 @@ impl Filesystem for PassthroughFs {
         }
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match ino {
             1 => reply.attr(&TTL, &self.root_attr),
             2 => reply.attr(&TTL, &self.passthrough_file_attr),
@@ -163,7 +160,7 @@ impl Filesystem for PassthroughFs {
         }
     }
 
-    fn open(&mut self, _req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
+    fn open(&self, _req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
         if ino != 2 {
             reply.error(ENOENT);
             return;
@@ -171,6 +168,8 @@ impl Filesystem for PassthroughFs {
 
         let (fh, id) = self
             .backing_cache
+            .lock()
+            .unwrap()
             .get_or(ino, || {
                 let file = File::open("/etc/os-release")?;
                 reply.open_backing(file)
@@ -182,7 +181,7 @@ impl Filesystem for PassthroughFs {
     }
 
     fn release(
-        &mut self,
+        &self,
         _req: &Request<'_>,
         _ino: u64,
         fh: u64,
@@ -191,18 +190,11 @@ impl Filesystem for PassthroughFs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        self.backing_cache.put(fh);
+        self.backing_cache.lock().unwrap().put(fh);
         reply.ok();
     }
 
-    fn readdir(
-        &mut self,
-        _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
+    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino != 1 {
             reply.error(ENOENT);
             return;
