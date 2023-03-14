@@ -1,14 +1,14 @@
 use std::io::{Read, Write};
 use std::os::unix::prelude::FromRawFd;
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::Duration;
 use std::{fs, fs::File};
 
 use anyhow::{anyhow, Context as _};
 use clap::{ArgGroup, Parser};
-use fuser::{BackgroundSession, MountOption, Session};
+use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
+use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
 use mountpoint_s3_client::{
@@ -173,17 +173,7 @@ fn main() -> anyhow::Result<()> {
         // mount file system as a foreground process
         let session = mount(args)?;
 
-        let (sender, receiver) = std::sync::mpsc::sync_channel(0);
-
-        ctrlc::set_handler(move || {
-            let _ = sender.send(());
-        })
-        .context("Failed to install signal handler")
-        .unwrap();
-
-        let _ = receiver.recv();
-
-        drop(session);
+        session.join().context("failed to join session")?;
     } else {
         // mount file system as a background process
 
@@ -214,18 +204,13 @@ fn main() -> anyhow::Result<()> {
                 let status_failure = [b'1'];
 
                 match session {
-                    Ok(_session) => {
+                    Ok(session) => {
                         pipe_file
                             .write(&status_success)
                             .context("Failed to write data to the pipe")?;
                         drop(pipe_file);
 
-                        // the session stays running because its lifetime is bound to the match statement.
-                        // it won't be dropped until after the park.
-                        // also `park()` does not guarantee to remain parked forever. so, we put it inside a loop.
-                        loop {
-                            thread::park();
-                        }
+                        session.join().context("failed to join session")?;
                     }
                     Err(e) => {
                         pipe_file
@@ -287,7 +272,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn mount(args: CliArgs) -> anyhow::Result<BackgroundSession> {
+fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let throughput_target_gbps = args.throughput_target_gbps.map(|t| t as f64);
 
     let addressing_style = args.addressing_style();
@@ -355,8 +340,8 @@ fn mount(args: CliArgs) -> anyhow::Result<BackgroundSession> {
 
     let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
 
-    // TODO correctly handle multi-threading and unmounting
-    let session = BackgroundSession::new(session).context("Failed to start FUSE session")?;
+    let thread_count = args.thread_count.unwrap_or(1) as usize;
+    let session = FuseSession::new(session, thread_count).context("Failed to start FUSE session")?;
 
     tracing::info!("successfully mounted {:?}", args.mount_point);
 

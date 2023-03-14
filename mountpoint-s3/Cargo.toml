@@ -15,7 +15,7 @@ async-channel = "1.8.0"
 async-lock = "2.6.0"
 bytes = "1.2.1"
 clap = { version = "3.2.12", features = ["derive"] }
-ctrlc = "3.2.3"
+ctrlc = { version = "3.2.3", features = ["termination"] }
 futures = "0.3.24"
 hdrhistogram = { version = "7.5.2", default-features = false }
 libc = "0.2.126"
