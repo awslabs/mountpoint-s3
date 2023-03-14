@@ -144,7 +144,7 @@ impl<'a> InputStream<'a> {
 
         // SAFETY: allocator is a valid aws_allocator. `Self` has a lifetime of 'a, so Rust
         // will ensure that the return value from this function doesn't out live the buffer.
-        // We need to make sure in thigs that consume InputStream that we don't accidentally
+        // We need to make sure in things that consume InputStream that we don't accidentally
         // cause it to live longer than expected. (Or just kill this function...)
         let inner = unsafe { aws_input_stream_new_from_cursor(allocator.inner.as_ptr(), &cursor).ok_or_last_error()? };
 
@@ -203,7 +203,7 @@ static GENERIC_INPUT_STREAM_VTABLE: aws_input_stream_vtable = aws_input_stream_v
 /// Converts an aws_input_stream pointer into a GenericInputStream pointer.
 /// Must only be called on streams that use the generic vtable.
 /// The returned pointer will be an Arc pointer (i.e., it should be safe to use with Arc::from_raw).
-/// This function doesn't do that automatically, since that will drop the the value if it's the last
+/// This function doesn't do that automatically, since that will drop the value if it's the last
 /// Arc pointer, which isn't what we want unless we're in generic_release.
 unsafe fn input_stream_to_generic_stream(stream: *mut aws_input_stream) -> *mut GenericInputStreamWrapper {
     assert!(!stream.is_null(), "stream should never be null");

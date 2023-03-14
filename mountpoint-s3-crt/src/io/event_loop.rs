@@ -269,7 +269,7 @@ impl Future for EventLoopTimer {
                 &Allocator::default(),
                 move |status| {
                     // Compute the new state the timer should move into. If the [Task] was canceled,
-                    // the the timer Future should complete with an error.
+                    // the timer Future should complete with an error.
                     let new_state = match status {
                         TaskStatus::RunReady => Self::TIMER_DONE,
                         TaskStatus::Canceled => Self::TIMER_CANCELED,
