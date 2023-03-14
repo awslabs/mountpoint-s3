@@ -3,10 +3,8 @@ name: Benchmark
 on:
   push:
     branches: [ "main" ]
-  pull_request_target:
-    types: [labeled]
   pull_request:
-    types: [synchronize]
+    types: [labeled, opened, reopened, synchronize]
 
 env:
   # RUSTFLAGS: -Dwarnings
@@ -80,6 +78,6 @@ jobs:
         fail-on-alert: true
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # Store the results and deploy GitHub pages automatically if the results are from main brancn
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
         auto-push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'true' || 'false' }}
         comment-on-alert: true
