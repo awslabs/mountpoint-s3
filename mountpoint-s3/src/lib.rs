@@ -14,3 +14,5 @@ fn init_tracing_subscriber() {
     let _ = mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter::try_init();
     let _ = tracing_subscriber::fmt::try_init();
 }
+
+pub const EXAMPLE_STRING: &str = "Hello World";
