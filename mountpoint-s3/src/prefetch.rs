@@ -39,6 +39,8 @@ pub struct PrefetcherConfig {
     pub sequential_prefetch_multiplier: usize,
     /// Timeout to wait for a part to become available
     pub read_timeout: Duration,
+    /// The size of the parts that GetObject will respond with
+    pub part_size: usize,
 }
 
 impl Default for PrefetcherConfig {
@@ -48,6 +50,7 @@ impl Default for PrefetcherConfig {
             max_request_size: 2 * 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
+            part_size: 8 * 1024 * 1024,
         }
     }
 }
@@ -285,14 +288,50 @@ where
 
         // [read] will reset these if the reader stops making sequential requests
         self.next_request_offset += size;
-        self.next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multiplier)
-            .min(self.inner.config.max_request_size);
+        self.next_request_size = Self::get_next_request_size(
+            self.next_request_offset,
+            self.next_request_size,
+            self.inner.config.sequential_prefetch_multiplier,
+            self.inner.config.max_request_size,
+            self.inner.config.part_size,
+        );
 
         Some(RequestTask {
             total_size: size as usize,
             remaining: size as usize,
             part_queue,
         })
+    }
+
+    /// Suggest next request size.
+    /// Normally, next request size is current request size multiply by sequential prefetch multiplier,
+    /// but if the request size is getting bigger than a part size we will try to align it to part boundaries.
+    fn get_next_request_size(
+        next_request_offset: u64,
+        current_request_size: usize,
+        multiplier: usize,
+        max_request_size: usize,
+        part_size: usize,
+    ) -> usize {
+        // calculate next request size
+        let next_request_size = (current_request_size * multiplier).min(max_request_size);
+
+        let offset_in_part = (next_request_offset % part_size as u64) as usize;
+        // if the offset is not at the start of the part we will drain all the bytes from that part first
+        if offset_in_part != 0 {
+            let remaining_in_part = part_size - offset_in_part;
+            return next_request_size.min(remaining_in_part);
+        }
+
+        // if the next request size is smaller than the part size, just return that value
+        if next_request_size < part_size {
+            return next_request_size;
+        }
+
+        // if it exceeds part boundaries, trim it to the part boundaries
+        let next_request_boundary = next_request_offset + next_request_size as u64;
+        let remainder = (next_request_boundary % part_size as u64) as usize;
+        next_request_size - remainder
     }
 }
 
@@ -332,6 +371,10 @@ mod tests {
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
     use std::collections::HashMap;
+    use test_case::test_case;
+
+    const KB: usize = 1024;
+    const MB: usize = 1024 * 1024;
 
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
@@ -359,6 +402,7 @@ mod tests {
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             read_timeout: Duration::from_secs(5),
+            part_size: test_config.client_part_size,
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -472,6 +516,31 @@ mod tests {
         );
 
         fail_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config, get_failures);
+    }
+
+    #[test_case(256 * KB, 256 * KB, 8, 100 * MB, 8 * MB, 2 * MB; "next request size is smaller than part size")]
+    #[test_case(7 * MB, 256 * KB, 8, 100 * MB, 8 * MB, 1 * MB; "next request size is remaining bytes in the part")]
+    #[test_case(9 * MB, (2 * MB) + 11, 11, 100 * MB, 9 * MB, 18 * MB; "next request size is trimmed to part boundaries")]
+    #[test_case(8 * MB, 2 * MB, 8, 100 * MB, 8 * MB, 16 * MB; "next request size is multiple of the part size")]
+    #[test_case(8 * MB, 2 * MB, 100, 20 * MB, 8 * MB, 16 * MB; "max request size is trimmed to part boundaries")]
+    #[test_case(8 * MB, 2 * MB, 100, 24 * MB, 8 * MB, 24 * MB; "max request size is multiple of the part size")]
+    #[test_case(8 * MB, 2 * MB, 8, 3 * MB, 8 * MB, 3 * MB; "max request size is less than part size")]
+    fn test_get_next_request_size(
+        next_request_offset: usize,
+        current_request_size: usize,
+        prefetch_multiplier: usize,
+        max_request_size: usize,
+        part_size: usize,
+        expected_size: usize,
+    ) {
+        let next_request_size = PrefetchGetObject::<MockClient, ThreadPool>::get_next_request_size(
+            next_request_offset as u64,
+            current_request_size,
+            prefetch_multiplier,
+            max_request_size,
+            part_size,
+        );
+        assert_eq!(next_request_size, expected_size);
     }
 
     proptest! {
