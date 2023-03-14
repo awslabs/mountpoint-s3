@@ -78,7 +78,7 @@ impl FuseSession {
     /// When that happens, unmount the file system (if it hasn't been already unmounted).
     pub fn join(mut self) -> anyhow::Result<()> {
         let msg = self.receiver.recv();
-        trace!("recevied message {msg:?}, unmounting filesystem");
+        trace!("received message {msg:?}, unmounting filesystem");
 
         self.unmounter.unmount().context("failed to unmount FUSE session")
     }
