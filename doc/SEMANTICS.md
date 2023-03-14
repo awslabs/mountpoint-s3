@@ -89,7 +89,7 @@ Synchronization operations (`fsync`) on directories are not supported.
 ### File and directory metadata and permissions
 
 Reading file metadata (`stat`, `fstatat`) is supported, but with some limitations:
-* File mode will be a default value (`0755` for files, `0644` for directories) unless you manually configure them with the `--file-mode` and `--dir-mode` command-line arguments.
+* File mode will be a default value (`0644` for files, `0755` for directories) unless you manually configure them with the `--file-mode` and `--dir-mode` command-line arguments.
 * File owner and group will default to the user/group that mounted the bucket unless you manually configure them with the `--uid` and `--gid` command-line arguments.
 * Last access time and last status change time will be the same as the last modified time.
 * Inode numbers are not stable and can change.
