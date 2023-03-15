@@ -68,7 +68,7 @@ impl<'a> Request<'a> {
     fn dispatch_req<FS: Filesystem>(
         &self,
         se: &mut Session<FS>,
-    ) -> Result<Option<Response>, Errno> {
+    ) -> Result<Option<Response<'_>>, Errno> {
         let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
         // Implement allow_root & access check for auto_unmount
         if (se.allowed == SessionACL::RootAndOwner

@@ -70,7 +70,7 @@ impl Reply for ReplyRaw {
 impl ReplyRaw {
     /// Reply to a request with the given error code and data. Must be called
     /// only once (the `ok` and `error` methods ensure this by consuming `self`)
-    fn send_ll_mut(&mut self, response: &ll::Response) {
+    fn send_ll_mut(&mut self, response: &ll::Response<'_>) {
         assert!(self.sender.is_some());
         let sender = self.sender.take().unwrap();
         let res = response.with_iovec(self.unique, |iov| sender.send(iov));
@@ -78,7 +78,7 @@ impl ReplyRaw {
             error!("Failed to send FUSE reply: {}", err);
         }
     }
-    fn send_ll(mut self, response: &ll::Response) {
+    fn send_ll(mut self, response: &ll::Response<'_>) {
         self.send_ll_mut(response)
     }
 
@@ -148,7 +148,7 @@ impl Reply for ReplyData {
 impl ReplyData {
     /// Reply to a request with the given data
     pub fn data(self, data: &[u8]) {
-        self.reply.send_ll(&ll::Response::new_data(data));
+        self.reply.send_ll(&ll::Response::new_slice(data));
     }
 
     /// Reply to a request with the given error code

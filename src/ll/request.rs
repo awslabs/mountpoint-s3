@@ -228,7 +228,7 @@ pub trait Request: Sized {
     fn pid(&self) -> u32;
 
     /// Create an error response for this Request
-    fn reply_err(&self, errno: Errno) -> Response {
+    fn reply_err(&self, errno: Errno) -> Response<'_> {
         Response::new_error(errno)
     }
 }
@@ -965,7 +965,7 @@ mod op {
             super::Version(self.arg.major, self.arg.minor)
         }
 
-        pub fn reply(&self, config: &crate::KernelConfig) -> Response {
+        pub fn reply(&self, config: &crate::KernelConfig) -> Response<'a> {
             let init = fuse_init_out {
                 major: FUSE_KERNEL_VERSION,
                 minor: FUSE_KERNEL_MINOR_VERSION,
@@ -1278,7 +1278,7 @@ mod op {
     }
     impl_request!(Destroy<'a>);
     impl<'a> Destroy<'a> {
-        pub fn reply(&self) -> Response {
+        pub fn reply(&self) -> Response<'a> {
             Response::new_empty()
         }
     }
