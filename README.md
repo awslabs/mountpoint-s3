@@ -4,12 +4,19 @@
 
 Mountpoint for Amazon S3 is a simple, high-throughput file client for [mounting an Amazon S3 bucket as a local file system](https://aws.amazon.com/blogs/storage/the-inside-story-on-mountpoint-for-amazon-s3-a-high-performance-open-source-file-client/). With Mountpoint for Amazon S3, your applications can access objects stored in Amazon S3 through file operations like `open` and `read`. Mountpoint for Amazon S3 automatically translates these operations into S3 object API calls, giving your applications access to the elastic storage and throughput of Amazon S3 through a file interface.
 
-Mountpoint for Amazon S3 is optimized for read-heavy workloads that need high throughput. It intentionally does not implement the full POSIX specification for file systems. See [SEMANTICS.md](doc/SEMANTICS.md) for a detailed description of the client's behavior and POSIX support.
+**File system features**: Mountpoint for Amazon S3 is optimized for read-heavy workloads that need high throughput. It does not implement the full POSIX specification for file systems, and [we don't intend to implement](doc/SEMANTICS.md#semantics-tenets) features that cannot be efficiently executed against S3's object APIs. **See [SEMANTICS.md](doc/SEMANTICS.md) for a detailed description of Mountpoint for Amazon S3's behavior and POSIX support.** For workloads that need POSIX support, we recommend AWS fully managed file system services like [Amazon FSx for Lustre](https://aws.amazon.com/fsx/lustre/) and its [support for linking S3 buckets](https://docs.aws.amazon.com/fsx/latest/LustreGuide/create-dra-linked-data-repo.html).
 
-**This is an alpha release and not yet ready for production use.**
-We're especially interested in early feedback on features, performance, and compatibility.
-Please send feedback by [opening a GitHub issue](https://github.com/awslabs/mountpoint-s3/issues/new/choose).
-See [Current status](#current-status) for more limitations.
+**Compatibility**: Mountpoint for Amazon S3 is designed for high-performance access to the Amazon S3 service. While it may be functional against other storage services that use S3-like APIs, we aren't able to provide support for those use cases, and they may inadvertently break when we make changes to better support Amazon S3. We welcome contributions of minor compatibility fixes or performance improvements for these services if the changes can be tested against Amazon S3.
+
+## Current status
+
+Mountpoint for Amazon S3 is **currently an alpha release and should not be used in production**. We're tracking its production readiness and future features on the [Mountpoint for Amazon S3 public roadmap](https://github.com/orgs/awslabs/projects/84). We're especially interested in early feedback on features, performance, and compatibility. Please send feedback by [opening a GitHub issue](https://github.com/awslabs/mountpoint-s3/issues/new/choose).
+
+There are some notable restrictions in this first release:
+* Mountpoint for Amazon S3 is currently **read-only**, so you won't be able to write objects back to S3 through the file system. We're working on [allowing sequential writes to new objects](https://github.com/awslabs/mountpoint-s3/issues/27) in a future release.
+* Mountpoint for Amazon S3 does not cache any object data or metadata.
+* The only way to install the alpha release of Mountpoint for Amazon S3 is by compiling from source (see [Getting started](#getting-started) below). This will change in a future release.
+* Manual endpoint configuration might be required for some S3 customers (see [Configuration](#configuration) below).
 
 ## Getting started
 
@@ -42,24 +49,17 @@ The client will run in the background by default, and the `~/mnt` directory now 
 
 ### Configuration
 
-For the alpha release, some additional configuration is required to use Mountpoint for Amazon S3 in some circumstances:
+For the alpha release, additional configuration is required to use Mountpoint for Amazon S3 in some circumstances:
 
+* **Multiple AWS CLI profiles**: set the `AWS_PROFILE` environment variable to the profile you want to use. Profile selection will be supported via the `--profile` command-line argument in the future (https://github.com/awslabs/mountpoint-s3/issues/151).
 * **High-bandwidth EC2 instances**: manually specify the available network bandwidth in Gbps with the `--throughput-target-gbps` command-line argument. Defaults to 10 Gbps if not configured. This configuration will be automated in the future (https://github.com/awslabs/mountpoint-s3/issues/3).
 * **AWS GovCloud, China (Beijing), and China (Ningxia) regions**: manually specify the S3 endpoint with the `--endpoint-url` command-line argument **and** the region name with the `--region` argument. For example, for the AWS GovCloud (US-West) region, specify `--endpoint-url https://s3.us-gov-west-1.amazonaws.com --region us-gov-west-1`. See [the S3 endpoints documentation](https://docs.aws.amazon.com/general/latest/gr/s3.html) for more details. These regions will be supported via only the `--region` command-line argument in the future (https://github.com/awslabs/mountpoint-s3/issues/4).
 * **Access points**: use the [bucket-style access point alias](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-points-alias.html) for the access point as the bucket name to mount.
 * **FIPS, dualstack, and transfer acceleration endpoints**: manually specify the S3 endpoint with the `--endpoint-url` command-line argument. See [the S3 endpoints documentation](https://docs.aws.amazon.com/general/latest/gr/s3.html) for more details. These endpoints will be configurable in the future (https://github.com/awslabs/mountpoint-s3/issues/4).
 
-## Current status
-
-Mountpoint for Amazon S3 is currently an alpha release and should not be used in production. We're tracking its production readiness and future features on the [Mountpoint for Amazon S3 public roadmap](https://github.com/orgs/awslabs/projects/84). We welcome suggestions for new features or use cases!
-
-Our thinking around features is guided by our [tenets for Mountpoint for Amazon S3](doc/SEMANTICS.md#semantics-tenets). We don't intend to implement (and likely won't accept contributions of) features that cannot be efficiently executed against S3's object APIs. This rules out Mountpoint for Amazon S3 supporting some POSIX file system functionality like ACLs or file locking. For workloads that need these features, we recommend AWS fully managed file system services like [Amazon FSx for Lustre](https://aws.amazon.com/fsx/lustre/) and its [support for linking S3 buckets](https://docs.aws.amazon.com/fsx/latest/LustreGuide/create-dra-linked-data-repo.html).
-
 ## Contributing
 
 We welcome contributions to Mountpoint for Amazon S3! Please see [CONTRIBUTING.md](doc/CONTRIBUTING.md) for more information on how to report bugs or submit pull requests, and [LOGGING.md](doc/LOGGING.md) for details on how to capture logging data for bug reports.
-
-Mountpoint for Amazon S3 is designed for high-performance access to the Amazon S3 service. While it may be functional against other storage services that use S3-like APIs, we aren't able to provide support for those use cases, and they may inadvertently break when we make changes to better support Amazon S3. We welcome contributions of minor compatibility fixes or performance improvements for these services if the changes can be tested against Amazon S3. 
 
 ### Security
 
