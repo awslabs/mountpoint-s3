@@ -246,7 +246,7 @@ mod tests {
         let result: bool = get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "IsTruncated")
             .unwrap()
             .unwrap();
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     #[test]

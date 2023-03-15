@@ -13,7 +13,7 @@ use test_case::test_case;
 async fn create_mpu_object(
     bucket: &String,
     key: &String,
-    parts_size: &Vec<usize>,
+    parts_size: &[usize],
     checksum_algorithm: Option<ChecksumAlgorithm>,
 ) -> (Vec<CompletedPart>, CompleteMultipartUploadOutput) {
     let sdk_client = get_test_sdk_client().await;
