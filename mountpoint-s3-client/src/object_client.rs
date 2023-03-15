@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
-use std::ops::Range;
+use std::{fmt, ops::Range};
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -170,7 +170,7 @@ pub struct GetObjectAttributesResult {
     /// ETag of the object
     pub etag: Option<String>,
 
-    /// Checksum for the object
+    /// Checksum of the object
     pub checksum: Option<Checksum>,
 
     /// Object parts metadata for multi part object
@@ -186,8 +186,11 @@ pub struct GetObjectAttributesResult {
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GetObjectAttributesError {
-    #[error("The object was not found")]
-    NotFound,
+    #[error("The bucket does not exist")]
+    NoSuchBucket,
+
+    #[error("The key does not exist")]
+    NoSuchKey,
 }
 
 /// Parameters to a [ObjectClient::put_object] request
@@ -232,23 +235,35 @@ pub struct ObjectInfo {
 }
 
 /// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].
+/// Fields that you do not specify are not returned.
+#[derive(Debug)]
 pub enum ObjectAttribute {
+    /// ETag of the object
     ETag,
+
+    /// Checksum of the object
     Checksum,
+
+    /// Object parts metadata for multi part object
     ObjectParts,
+
+    /// Storage class of the object
     StorageClass,
+
+    /// Object size
     ObjectSize,
 }
 
-impl ToString for ObjectAttribute {
-    fn to_string(&self) -> String {
-        match self {
-            ObjectAttribute::ETag => "ETag".to_owned(),
-            ObjectAttribute::Checksum => "Checksum".to_owned(),
-            ObjectAttribute::ObjectParts => "ObjectParts".to_owned(),
-            ObjectAttribute::StorageClass => "StorageClass".to_owned(),
-            ObjectAttribute::ObjectSize => "ObjectSize".to_owned(),
-        }
+impl fmt::Display for ObjectAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let attr_name = match self {
+            ObjectAttribute::ETag => "ETag",
+            ObjectAttribute::Checksum => "Checksum",
+            ObjectAttribute::ObjectParts => "ObjectParts",
+            ObjectAttribute::StorageClass => "StorageClass",
+            ObjectAttribute::ObjectSize => "ObjectSize",
+        };
+        write!(f, "{}", attr_name)
     }
 }
 
@@ -274,39 +289,30 @@ pub struct Checksum {
 #[derive(Debug)]
 pub struct GetObjectAttributesParts {
     /// Indicates whether the returned list of parts is truncated
-    pub is_truncated: bool,
+    pub is_truncated: Option<bool>,
 
     /// Maximum number of parts allowed in the response
-    pub max_parts: usize,
+    pub max_parts: Option<usize>,
 
     /// When a list is truncated, this element specifies the next marker
-    pub next_part_number_marker: usize,
+    pub next_part_number_marker: Option<usize>,
 
     /// The marker for the current part
-    pub part_number_marker: usize,
+    pub part_number_marker: Option<usize>,
 
     /// Array of metadata for particular parts
-    pub parts: Vec<ObjectPart>,
+    pub parts: Option<Vec<ObjectPart>>,
 
     /// Total number of parts
-    pub total_parts_count: usize,
+    pub total_parts_count: Option<usize>,
 }
 
 /// Metadata for an individual object part.
 /// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_ObjectPart.html for more details.
 #[derive(Debug)]
 pub struct ObjectPart {
-    /// Base64-encoded, 32-bit CRC32 checksum of the object
-    pub checksum_crc32: Option<String>,
-
-    /// Base64-encoded, 32-bit CRC32C checksum of the object
-    pub checksum_crc32c: Option<String>,
-
-    /// Base64-encoded, 160-bit SHA-1 digest of the object
-    pub checksum_sha1: Option<String>,
-
-    /// Base64-encoded, 256-bit SHA-256 digest of the object
-    pub checksum_sha256: Option<String>,
+    /// Checksum of the object
+    pub checksum: Option<Checksum>,
 
     /// Number of the part, this value is a positive integer between 1 and 10,000
     pub part_number: usize,

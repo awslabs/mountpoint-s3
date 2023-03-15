@@ -430,7 +430,7 @@ impl ObjectClient for MockClient {
         trace!(bucket, key, "GetObjectAttributes");
 
         if bucket != self.config.bucket {
-            return Err(ObjectClientError::ServiceError(GetObjectAttributesError::NotFound));
+            return Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchBucket));
         }
 
         let objects = self.objects.read().unwrap();
@@ -454,7 +454,7 @@ impl ObjectClient for MockClient {
             }
             Ok(result)
         } else {
-            Err(ObjectClientError::ServiceError(GetObjectAttributesError::NotFound))
+            Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchKey))
         }
     }
 }

@@ -1,4 +1,6 @@
-use std::{fmt, str::FromStr};
+use std::ops::Deref;
+use std::os::unix::prelude::OsStrExt;
+use std::str::FromStr;
 
 use mountpoint_s3_crt::{
     http::request_response::Header,
@@ -40,42 +42,26 @@ impl GetObjectAttributesResult {
 
         let mut checksum = None;
         if let Some(checksum_elem) = element.take_child("Checksum") {
-            let checksum_crc32 = get_field_or_none(&checksum_elem, "ChecksumCRC32")?;
-            let checksum_crc32c = get_field_or_none(&checksum_elem, "ChecksumCRC32C")?;
-            let checksum_sha1 = get_field_or_none(&checksum_elem, "ChecksumSHA1")?;
-            let checksum_sha256 = get_field_or_none(&checksum_elem, "ChecksumSHA256")?;
-
-            checksum = Some(Checksum {
-                checksum_crc32,
-                checksum_crc32c,
-                checksum_sha1,
-                checksum_sha256,
-            })
+            checksum = Some(Self::parse_checksums(&checksum_elem)?);
         }
 
         let mut object_parts = None;
         if let Some(mut object_parts_elem) = element.take_child("ObjectParts") {
-            let is_truncated = get_field(&object_parts_elem, "IsTruncated")?;
-            let max_parts = get_field(&object_parts_elem, "MaxParts")?;
-            let next_part_number_marker = get_field(&object_parts_elem, "NextPartNumberMarker")?;
-            let part_number_marker = get_field(&object_parts_elem, "PartNumberMarker")?;
-            let parts_count = get_field(&object_parts_elem, "PartsCount")?;
+            let is_truncated = get_field_or_none(&object_parts_elem, "IsTruncated")?;
+            let max_parts = get_field_or_none(&object_parts_elem, "MaxParts")?;
+            let next_part_number_marker = get_field_or_none(&object_parts_elem, "NextPartNumberMarker")?;
+            let part_number_marker = get_field_or_none(&object_parts_elem, "PartNumberMarker")?;
+            let total_parts_count = get_field_or_none(&object_parts_elem, "PartsCount")?;
 
             let mut parts = Vec::new();
             while let Some(part_elem) = object_parts_elem.take_child("Part") {
-                let checksum_crc32 = get_field_or_none(&part_elem, "ChecksumCRC32")?;
-                let checksum_crc32c = get_field_or_none(&part_elem, "ChecksumCRC32C")?;
-                let checksum_sha1 = get_field_or_none(&part_elem, "ChecksumSHA1")?;
-                let checksum_sha256 = get_field_or_none(&part_elem, "ChecksumSHA256")?;
+                let checksum_inner = Self::parse_checksums(&part_elem)?;
 
                 let part_number = get_field(&part_elem, "PartNumber")?;
                 let size = get_field(&part_elem, "Size")?;
 
                 let part = ObjectPart {
-                    checksum_crc32,
-                    checksum_crc32c,
-                    checksum_sha1,
-                    checksum_sha256,
+                    checksum: Some(checksum_inner),
                     part_number: part_number.parse().unwrap(),
                     size: size.parse().unwrap(),
                 };
@@ -83,12 +69,12 @@ impl GetObjectAttributesResult {
             }
 
             object_parts = Some(GetObjectAttributesParts {
-                is_truncated: is_truncated.parse().unwrap(),
-                max_parts: max_parts.parse().unwrap(),
-                next_part_number_marker: next_part_number_marker.parse().unwrap(),
-                part_number_marker: part_number_marker.parse().unwrap(),
-                parts,
-                total_parts_count: parts_count.parse().unwrap(),
+                is_truncated,
+                max_parts,
+                next_part_number_marker,
+                part_number_marker,
+                parts: (!parts.is_empty()).then_some(parts),
+                total_parts_count,
             });
         }
 
@@ -98,6 +84,20 @@ impl GetObjectAttributesResult {
             object_parts,
             storage_class,
             object_size,
+        })
+    }
+
+    fn parse_checksums(element: &xmltree::Element) -> Result<Checksum, ParseError> {
+        let checksum_crc32 = get_field_or_none(element, "ChecksumCRC32")?;
+        let checksum_crc32c = get_field_or_none(element, "ChecksumCRC32C")?;
+        let checksum_sha1 = get_field_or_none(element, "ChecksumSHA1")?;
+        let checksum_sha256 = get_field_or_none(element, "ChecksumSHA256")?;
+
+        Ok(Checksum {
+            checksum_crc32,
+            checksum_crc32c,
+            checksum_sha1,
+            checksum_sha256,
         })
     }
 }
@@ -146,7 +146,17 @@ impl S3CrtClient {
 
 fn parse_get_object_attributes_error(result: &MetaRequestResult) -> Option<GetObjectAttributesError> {
     match result.response_status {
-        404 => Some(GetObjectAttributesError::NotFound),
+        404 => {
+            let body = result.error_response_body.as_ref()?;
+            let root = xmltree::Element::parse(body.as_bytes()).ok()?;
+            let error_code = root.get_child("Code")?;
+            let error_str = error_code.get_text()?;
+            match error_str.deref() {
+                "NoSuchBucket" => Some(GetObjectAttributesError::NoSuchBucket),
+                "NoSuchKey" => Some(GetObjectAttributesError::NoSuchKey),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -172,16 +182,12 @@ fn get_field(element: &xmltree::Element, name: &str) -> Result<String, ParseErro
 }
 
 /// Get the value out of a child node, return [None] if the child node is missing.
-fn get_field_or_none<T>(element: &xmltree::Element, name: &str) -> Result<Option<T>, ParseError>
-where
-    T: FromStr,
-    <T as FromStr>::Err: fmt::Debug,
-{
+fn get_field_or_none<T: FromStr>(element: &xmltree::Element, name: &str) -> Result<Option<T>, ParseError> {
     match get_field(element, name) {
-        Ok(str) => match str.parse::<T>() {
-            Ok(value) => Ok(Some(value)),
-            Err(_) => Err(ParseError::FromStr(name.to_string())),
-        },
+        Ok(str) => str
+            .parse::<T>()
+            .map(Some)
+            .map_err(|_| ParseError::FromStr(name.to_string())),
         Err(ParseError::MissingField(_, _)) => Ok(None),
         Err(e) => Err(e),
     }
@@ -189,7 +195,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
 
     use super::*;
 
@@ -203,10 +209,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_404_object_not_found() {
-        let result = make_result(404, "");
+    fn parse_404_no_such_key() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Key>not-a-real-key</Key><RequestId>NTKJWKHQBYNS73A9</RequestId></Error>"#;
+        let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_get_object_attributes_error(&result);
-        assert_eq!(result, Some(GetObjectAttributesError::NotFound));
+        assert_eq!(result, Some(GetObjectAttributesError::NoSuchKey));
+    }
+
+    #[test]
+    fn parse_404_no_such_bucket() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>DOC-EXAMPLE-BUCKET</BucketName><RequestId>4VAGDP5HMYTDNB3Y</RequestId></Error>"#;
+        let result = make_result(404, OsStr::from_bytes(&body[..]));
+        let result = parse_get_object_attributes_error(&result);
+        assert_eq!(result, Some(GetObjectAttributesError::NoSuchBucket));
     }
 
     #[test]
@@ -219,49 +234,43 @@ mod tests {
     #[test]
     fn get_string() {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><GetObjectAttributesResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ETag>fc3ff98e8c6a0d3087d515c0473f8677</ETag><IsTruncated>false</IsTruncated><ObjectSize>1024</ObjectSize></GetObjectAttributesResponse>"#;
-        let result: Result<Option<String>, ParseError> =
-            get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "ETag");
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some("fc3ff98e8c6a0d3087d515c0473f8677".to_owned()));
+        let result: String = get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "ETag")
+            .unwrap()
+            .unwrap();
+        assert_eq!(&result, "fc3ff98e8c6a0d3087d515c0473f8677");
     }
 
     #[test]
     fn get_boolean() {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><GetObjectAttributesResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ETag>fc3ff98e8c6a0d3087d515c0473f8677</ETag><IsTruncated>false</IsTruncated><ObjectSize>1024</ObjectSize></GetObjectAttributesResponse>"#;
-        let result: Result<Option<bool>, ParseError> =
-            get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "IsTruncated");
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some(false));
+        let result: bool = get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "IsTruncated")
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, false);
     }
 
     #[test]
     fn get_integer() {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><GetObjectAttributesResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ETag>fc3ff98e8c6a0d3087d515c0473f8677</ETag><IsTruncated>false</IsTruncated><ObjectSize>1024</ObjectSize></GetObjectAttributesResponse>"#;
-        let result: Result<Option<usize>, ParseError> =
-            get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "ObjectSize");
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some(1024));
+        let result: usize = get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "ObjectSize")
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, 1024);
     }
 
     #[test]
     fn get_none() {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><GetObjectAttributesResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ETag>fc3ff98e8c6a0d3087d515c0473f8677</ETag><IsTruncated>false</IsTruncated><ObjectSize>1024</ObjectSize></GetObjectAttributesResponse>"#;
-        let result: Result<Option<usize>, ParseError> =
-            get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "PartNumber");
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
+        let result: Option<usize> =
+            get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "PartNumber").unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
     fn get_parse_error() {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><GetObjectAttributesResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ETag>fc3ff98e8c6a0d3087d515c0473f8677</ETag><IsTruncated>false</IsTruncated><ObjectSize>1024</ObjectSize></GetObjectAttributesResponse>"#;
-        let result: Result<Option<usize>, ParseError> =
-            get_field_or_none(&xmltree::Element::parse(&body[..]).unwrap(), "IsTruncated");
-
-        assert!(result.is_err());
+        let result: ParseError =
+            get_field_or_none::<usize>(&xmltree::Element::parse(&body[..]).unwrap(), "IsTruncated").unwrap_err();
+        assert_eq!(result.to_string(), "Failed to parse field IsTruncated from string");
     }
 }
