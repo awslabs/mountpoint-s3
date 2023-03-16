@@ -45,7 +45,7 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
   
   then mounting your bucket would give a file system with a `blue` file, rather than a `blue` directory, and therefore `image.jpg` will not be accessible. Note that this means deleting the file `blue` will cause a directory `blue/` to become visible, and make `blue/image.jpg` accessible.
 
-We test Mountpoint for Amazon S3 against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/0ca2c771237032040bd1ec9405f5ed0ffa5d2eb9/s3-file-connector/tests/reftests/reference.rs#L121) that programatically encodes the expected mapping between S3 objects and file system structure.
+We test Mountpoint for Amazon S3 against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/0ca2c771237032040bd1ec9405f5ed0ffa5d2eb9/s3-file-connector/tests/reftests/reference.rs#L121) that programmatically encodes the expected mapping between S3 objects and file system structure.
 
 Windows-style path delimiters (`\`) are not supported.
 
