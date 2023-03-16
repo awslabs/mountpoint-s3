@@ -10,10 +10,11 @@ use futures::Stream;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult,
-    ListObjectsError, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult,
+    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError, ObjectClientResult,
+    PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::{ListObjectsResult, ObjectClient};
+use crate::{ListObjectsResult, ObjectAttribute, ObjectClient};
 
 // Wrapper for injecting failures into a get stream
 pub struct FailureGetWrapper<Client: ObjectClient, GetWrapperState> {
@@ -120,6 +121,20 @@ where
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         // TODO Add put fault injection hooks
         self.client.put_object(bucket, key, params, contents).await
+    }
+
+    async fn get_object_attributes(
+        &self,
+        bucket: &str,
+        key: &str,
+        max_parts: Option<usize>,
+        part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
+    ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
+        // TODO failure hook for get_object_attributes
+        self.client
+            .get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
+            .await
     }
 }
 

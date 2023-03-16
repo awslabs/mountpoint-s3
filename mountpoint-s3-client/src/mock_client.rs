@@ -13,11 +13,11 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectError, HeadObjectError, HeadObjectResult,
-    ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError,
-    PutObjectParams, PutObjectResult,
+    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
+    ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::ObjectClient;
+use crate::{Checksum, ObjectAttribute};
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
@@ -79,6 +79,8 @@ impl MockClient {
 pub struct MockObject {
     generator: Box<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
     size: usize,
+    // TODO Set storage class from [MockClient::put_object]
+    storage_class: String,
     pub last_modified: OffsetDateTime,
 }
 
@@ -93,6 +95,7 @@ impl MockObject {
         Self {
             size: bytes.len(),
             generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
+            storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
         }
     }
@@ -101,6 +104,7 @@ impl MockObject {
         Self {
             generator: Box::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
+            storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
         }
     }
@@ -119,6 +123,7 @@ impl MockObject {
                 vec.into_boxed_slice()
             }),
             size,
+            storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
         }
     }
@@ -414,6 +419,45 @@ impl ObjectClient for MockClient {
         self.add_object(key, buffer.into());
 
         Ok(PutObjectResult {})
+    }
+
+    async fn get_object_attributes(
+        &self,
+        bucket: &str,
+        key: &str,
+        _max_parts: Option<usize>,
+        _part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
+    ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
+        trace!(bucket, key, "GetObjectAttributes");
+
+        if bucket != self.config.bucket {
+            return Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchBucket));
+        }
+
+        let objects = self.objects.read().unwrap();
+        if let Some(object) = objects.get(key) {
+            let mut result = GetObjectAttributesResult::default();
+            for attribute in object_attributes.iter() {
+                match attribute {
+                    ObjectAttribute::ETag => result.etag = Some("TODO".to_owned()),
+                    ObjectAttribute::Checksum => {
+                        result.checksum = Some(Checksum {
+                            checksum_crc32: Some("TODO".to_owned()),
+                            checksum_crc32c: Some("TODO".to_owned()),
+                            checksum_sha1: Some("TODO".to_owned()),
+                            checksum_sha256: Some("TODO".to_owned()),
+                        })
+                    }
+                    ObjectAttribute::ObjectParts => todo!("Support multipart mock object"),
+                    ObjectAttribute::StorageClass => result.storage_class = Some(object.storage_class.clone()),
+                    ObjectAttribute::ObjectSize => result.object_size = Some(object.size as u64),
+                }
+            }
+            Ok(result)
+        } else {
+            Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchKey))
+        }
     }
 }
 
