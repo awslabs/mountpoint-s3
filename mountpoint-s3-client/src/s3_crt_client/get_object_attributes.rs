@@ -25,9 +25,6 @@ pub enum ParseError {
 
     #[error("Missing field {1} from XML element {0:?}")]
     MissingField(xmltree::Element, String),
-
-    #[error("Failed to parse field {0} from string")]
-    FromStr(String),
 }
 
 impl GetObjectAttributesResult {
@@ -107,7 +104,9 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        object_attributes: Vec<ObjectAttribute>,
+        max_parts: Option<usize>,
+        part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, S3RequestError> {
         let body = {
             let mut message = self
@@ -121,13 +120,36 @@ impl S3CrtClient {
                 .set_request_path_and_query(path, query)
                 .map_err(S3RequestError::construction_failure)?;
 
+            if let Some(max_parts) = max_parts {
+                let value = format!("{}", max_parts);
+                message
+                    .add_header(&Header::new("x-amz-max-parts", value))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
+            if let Some(part_number_marker) = part_number_marker {
+                let value = format!("{}", part_number_marker);
+                message
+                    .add_header(&Header::new("x-amz-part-number-marker", value))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
             let object_attributes: Vec<String> = object_attributes.iter().map(|attr| attr.to_string()).collect();
             message
                 .add_header(&Header::new("x-amz-object-attributes", object_attributes.join(",")))
                 .map_err(S3RequestError::construction_failure)?;
 
             let span = request_span!(self, "get_object_attributes");
-            span.in_scope(|| debug!(?bucket, ?key, "new request"));
+            span.in_scope(|| {
+                debug!(
+                    ?bucket,
+                    ?key,
+                    ?max_parts,
+                    ?part_number_marker,
+                    ?object_attributes,
+                    "new request"
+                )
+            });
 
             self.make_simple_http_request(message, MetaRequestType::Default, span, |result| {
                 let parsed = parse_get_object_attributes_error(&result);
@@ -165,7 +187,7 @@ fn parse_get_object_attributes_error(result: &MetaRequestResult) -> Option<GetOb
 fn get_text(element: &xmltree::Element) -> Result<String, ParseError> {
     Ok(element
         .get_text()
-        .ok_or_else(|| ParseError::InvalidResponse(element.clone(), "field has no text".to_string()))?
+        .ok_or_else(|| ParseError::InvalidResponse(element.clone(), "field has no text".to_owned()))?
         .to_string())
 }
 
@@ -187,7 +209,7 @@ fn get_field_or_none<T: FromStr>(element: &xmltree::Element, name: &str) -> Resu
         Ok(str) => str
             .parse::<T>()
             .map(Some)
-            .map_err(|_| ParseError::FromStr(name.to_string())),
+            .map_err(|_| ParseError::InvalidResponse(element.clone(), "failed to parse field from string".to_owned())),
         Err(ParseError::MissingField(_, _)) => Ok(None),
         Err(e) => Err(e),
     }
@@ -271,6 +293,6 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><GetObjectAttributesResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ETag>fc3ff98e8c6a0d3087d515c0473f8677</ETag><IsTruncated>false</IsTruncated><ObjectSize>1024</ObjectSize></GetObjectAttributesResponse>"#;
         let result: ParseError =
             get_field_or_none::<usize>(&xmltree::Element::parse(&body[..]).unwrap(), "IsTruncated").unwrap_err();
-        assert_eq!(result.to_string(), "Failed to parse field IsTruncated from string");
+        assert!(result.to_string().contains("failed to parse field from string"));
     }
 }

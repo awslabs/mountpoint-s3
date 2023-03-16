@@ -127,10 +127,14 @@ where
         &self,
         bucket: &str,
         key: &str,
-        object_attributes: Vec<ObjectAttribute>,
+        max_parts: Option<usize>,
+        part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
         // TODO failure hook for get_object_attributes
-        self.client.get_object_attributes(bucket, key, object_attributes).await
+        self.client
+            .get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
+            .await
     }
 }
 

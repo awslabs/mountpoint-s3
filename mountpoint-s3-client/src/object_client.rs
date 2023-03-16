@@ -66,7 +66,9 @@ pub trait ObjectClient {
         &self,
         bucket: &str,
         key: &str,
-        object_attributes: Vec<ObjectAttribute>,
+        max_parts: Option<usize>,
+        part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError>;
 }
 

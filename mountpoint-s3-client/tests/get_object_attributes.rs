@@ -117,7 +117,9 @@ async fn test_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
         ObjectAttribute::ObjectSize,
     ];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
+        .await;
 
     let result = result.unwrap();
     assert_eq!(
@@ -178,7 +180,9 @@ async fn test_get_attributes() {
         ObjectAttribute::ObjectSize,
     ];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
+        .await;
 
     let result = result.unwrap();
     assert_eq!(
@@ -222,7 +226,9 @@ async fn test_get_attributes_all_none() {
 
     let object_attributes = vec![ObjectAttribute::ObjectParts];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
+        .await;
 
     let result = result.unwrap();
     assert!(result.etag.is_none());
@@ -253,7 +259,9 @@ async fn test_get_attributes_mpu() {
         ObjectAttribute::ObjectSize,
     ];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
+        .await;
 
     let result = result.unwrap();
     assert_eq!(
@@ -297,7 +305,9 @@ async fn test_get_attributes_mpu_with_checksum() {
         ObjectAttribute::ObjectSize,
     ];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_slice())
+        .await;
 
     let result = result.unwrap();
     assert_eq!(
@@ -317,7 +327,7 @@ async fn test_get_attributes_mpu_with_checksum() {
 
     let object_parts = result.object_parts.unwrap();
     assert!(!object_parts.is_truncated.unwrap());
-    assert!(object_parts.max_parts.unwrap() > 0);
+    assert_eq!(object_parts.max_parts.unwrap(), 1000);
     assert_eq!(object_parts.part_number_marker.unwrap(), 0);
     assert_eq!(object_parts.next_part_number_marker.unwrap(), 2);
     assert_eq!(object_parts.total_parts_count.unwrap(), 2);
@@ -342,6 +352,77 @@ async fn test_get_attributes_mpu_with_checksum() {
 }
 
 #[tokio::test]
+async fn test_get_attributes_mpu_pagination() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_attributes_mpu_pagination");
+
+    // Create one object named "hello"
+    let key = format!("{prefix}/hello");
+    let parts_size: Vec<usize> = vec![5 * 1024 * 1024, 1024];
+
+    let (completed_parts, _complete_mpu_output) =
+        create_mpu_object(&bucket, &key, &parts_size, Some(ChecksumAlgorithm::Sha256)).await;
+
+    let client: S3CrtClient = get_test_client();
+
+    let object_attributes = vec![ObjectAttribute::ObjectParts];
+
+    // Get the first page with only one part
+    let max_parts = 1;
+    let result = client
+        .get_object_attributes(&bucket, &key, Some(max_parts), None, object_attributes.as_slice())
+        .await;
+
+    let result = result.unwrap();
+
+    let object_parts = result.object_parts.unwrap();
+    assert!(object_parts.is_truncated.unwrap());
+    assert_eq!(object_parts.max_parts.unwrap(), 1);
+    assert_eq!(object_parts.part_number_marker.unwrap(), 0);
+    assert_eq!(object_parts.next_part_number_marker.unwrap(), 1);
+    assert_eq!(object_parts.total_parts_count.unwrap(), 2);
+    assert_eq!(object_parts.parts.as_ref().unwrap().len(), 1);
+
+    let parts = object_parts.parts.unwrap();
+    let part1 = &parts[0];
+    assert_eq!(
+        &part1.checksum.as_ref().unwrap().checksum_sha256,
+        &completed_parts[0].checksum_sha256().map(|s| s.to_string())
+    );
+    assert_eq!(part1.part_number, 1);
+    assert_eq!(part1.size, parts_size[0]);
+
+    // Get the next page using next_part_number_marker
+    let result = client
+        .get_object_attributes(
+            &bucket,
+            &key,
+            None,
+            object_parts.next_part_number_marker,
+            object_attributes.as_ref(),
+        )
+        .await;
+
+    let result = result.unwrap();
+
+    let object_parts = result.object_parts.unwrap();
+    assert!(!object_parts.is_truncated.unwrap());
+    assert_eq!(object_parts.max_parts.unwrap(), 1000);
+    assert_eq!(object_parts.part_number_marker.unwrap(), 1);
+    assert_eq!(object_parts.next_part_number_marker.unwrap(), 2);
+    assert_eq!(object_parts.total_parts_count.unwrap(), 2);
+    assert_eq!(object_parts.parts.as_ref().unwrap().len(), 1);
+
+    let parts = object_parts.parts.unwrap();
+    let part2 = &parts[0];
+    assert_eq!(
+        &part2.checksum.as_ref().unwrap().checksum_sha256,
+        &completed_parts[1].checksum_sha256().map(|s| s.to_string())
+    );
+    assert_eq!(part2.part_number, 2);
+    assert_eq!(part2.size, parts_size[1]);
+}
+
+#[tokio::test]
 async fn test_get_attributes_404_key() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_attributes_404");
 
@@ -350,7 +431,9 @@ async fn test_get_attributes_404_key() {
     let client: S3CrtClient = get_test_client();
     let object_attributes = vec![ObjectAttribute::ETag];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
+        .await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchKey))
@@ -367,7 +450,7 @@ async fn test_get_attributes_404_bucket() {
     let object_attributes = vec![ObjectAttribute::ETag];
 
     let result = client
-        .get_object_attributes("nonexistent_bucket", &key, object_attributes)
+        .get_object_attributes("nonexistent_bucket", &key, None, None, object_attributes.as_ref())
         .await;
     assert!(matches!(
         result,
@@ -385,7 +468,9 @@ async fn test_get_attributes_no_perm() {
     let client: S3CrtClient = get_test_client();
     let object_attributes = vec![ObjectAttribute::ETag];
 
-    let result = client.get_object_attributes(&bucket, &key, object_attributes).await;
+    let result = client
+        .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
+        .await;
 
     if let Err(ObjectClientError::ClientError(S3RequestError::ResponseError(err))) = &result {
         assert!(err.response_status == 403);

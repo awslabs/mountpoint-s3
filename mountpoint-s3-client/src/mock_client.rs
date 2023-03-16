@@ -425,7 +425,9 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
-        object_attributes: Vec<ObjectAttribute>,
+        _max_parts: Option<usize>,
+        _part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
         trace!(bucket, key, "GetObjectAttributes");
 

@@ -548,9 +548,12 @@ impl ObjectClient for S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        object_attributes: Vec<ObjectAttribute>,
+        max_parts: Option<usize>,
+        part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
-        self.get_object_attributes(bucket, key, object_attributes).await
+        self.get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
+            .await
     }
 }
 
