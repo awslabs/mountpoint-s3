@@ -39,8 +39,8 @@ pub struct PrefetcherConfig {
     pub sequential_prefetch_multiplier: usize,
     /// Timeout to wait for a part to become available
     pub read_timeout: Duration,
-    /// The size of the parts that GetObject will respond with
-    pub part_size: usize,
+    /// The size of the parts that the prefetcher is trying to align with
+    pub part_alignment: usize,
 }
 
 impl Default for PrefetcherConfig {
@@ -50,7 +50,7 @@ impl Default for PrefetcherConfig {
             max_request_size: 2 * 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
-            part_size: 8 * 1024 * 1024,
+            part_alignment: 8 * 1024 * 1024,
         }
     }
 }
@@ -288,13 +288,7 @@ where
 
         // [read] will reset these if the reader stops making sequential requests
         self.next_request_offset += size;
-        self.next_request_size = Self::get_next_request_size(
-            self.next_request_offset,
-            self.next_request_size,
-            self.inner.config.sequential_prefetch_multiplier,
-            self.inner.config.max_request_size,
-            self.inner.config.part_size,
-        );
+        self.next_request_size = self.get_next_request_size();
 
         Some(RequestTask {
             total_size: size as usize,
@@ -306,32 +300,27 @@ where
     /// Suggest next request size.
     /// Normally, next request size is current request size multiply by sequential prefetch multiplier,
     /// but if the request size is getting bigger than a part size we will try to align it to part boundaries.
-    fn get_next_request_size(
-        next_request_offset: u64,
-        current_request_size: usize,
-        multiplier: usize,
-        max_request_size: usize,
-        part_size: usize,
-    ) -> usize {
+    fn get_next_request_size(&self) -> usize {
         // calculate next request size
-        let next_request_size = (current_request_size * multiplier).min(max_request_size);
+        let next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multiplier)
+            .min(self.inner.config.max_request_size);
 
-        let offset_in_part = (next_request_offset % part_size as u64) as usize;
+        let offset_in_part = (self.next_request_offset % self.inner.config.part_alignment as u64) as usize;
         // if the offset is not at the start of the part we will drain all the bytes from that part first
         if offset_in_part != 0 {
-            let remaining_in_part = part_size - offset_in_part;
-            return next_request_size.min(remaining_in_part);
-        }
+            let remaining_in_part = self.inner.config.part_alignment - offset_in_part;
+            next_request_size.min(remaining_in_part)
+        } else {
+            // if the next request size is smaller than the part size, just return that value
+            if next_request_size < self.inner.config.part_alignment {
+                return next_request_size;
+            }
 
-        // if the next request size is smaller than the part size, just return that value
-        if next_request_size < part_size {
-            return next_request_size;
+            // if it exceeds part boundaries, trim it to the part boundaries
+            let next_request_boundary = self.next_request_offset + next_request_size as u64;
+            let remainder = (next_request_boundary % self.inner.config.part_alignment as u64) as usize;
+            next_request_size - remainder
         }
-
-        // if it exceeds part boundaries, trim it to the part boundaries
-        let next_request_boundary = next_request_offset + next_request_size as u64;
-        let remainder = (next_request_boundary % part_size as u64) as usize;
-        next_request_size - remainder
     }
 }
 
@@ -402,7 +391,7 @@ mod tests {
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             read_timeout: Duration::from_secs(5),
-            part_size: test_config.client_part_size,
+            part_alignment: test_config.client_part_size,
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -533,13 +522,29 @@ mod tests {
         part_size: usize,
         expected_size: usize,
     ) {
-        let next_request_size = PrefetchGetObject::<MockClient, ThreadPool>::get_next_request_size(
-            next_request_offset as u64,
-            current_request_size,
-            prefetch_multiplier,
-            max_request_size,
+        let object_size = 50 * 1024 * 1024;
+
+        let config = MockClientConfig {
+            bucket: "test-bucket".to_string(),
             part_size,
-        );
+        };
+        let client = MockClient::new(config);
+
+        let test_config = PrefetcherConfig {
+            first_request_size: 256 * 1024,
+            sequential_prefetch_multiplier: prefetch_multiplier,
+            max_request_size,
+            read_timeout: Duration::from_secs(60),
+            part_alignment: part_size,
+        };
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
+
+        let mut request = prefetcher.get("test-bucket", "hello", object_size);
+
+        request.next_request_offset = next_request_offset as u64;
+        request.next_request_size = current_request_size;
+        let next_request_size = request.get_next_request_size();
         assert_eq!(next_request_size, expected_size);
     }
 

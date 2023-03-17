@@ -9,7 +9,7 @@ use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ObjectClient, PutObjectParams};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
-use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher};
+use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 
@@ -67,6 +67,8 @@ pub struct S3FilesystemConfig {
     pub dir_mode: u16,
     /// File permissions
     pub file_mode: u16,
+    /// Prefetcher configuration
+    pub prefetcher_config: PrefetcherConfig,
 }
 
 impl Default for S3FilesystemConfig {
@@ -84,6 +86,7 @@ impl Default for S3FilesystemConfig {
             gid,
             dir_mode: 0o755,
             file_mode: 0o644,
+            prefetcher_config: PrefetcherConfig::default(),
         }
     }
 }
@@ -118,7 +121,7 @@ where
 
         let client = Arc::new(client);
 
-        let prefetcher = Prefetcher::new(client.clone(), runtime, Default::default());
+        let prefetcher = Prefetcher::new(client.clone(), runtime, config.prefetcher_config);
 
         Self {
             config,
