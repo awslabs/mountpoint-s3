@@ -72,19 +72,35 @@ async fn test_addressing_style_uri_dualstack(addressing_style: AddressingStyle) 
 #[test_case(AddressingStyle::Virtual)]
 #[tokio::test]
 async fn test_addressing_style_uri_fips(addressing_style: AddressingStyle) {
+    if should_skip_fips() {
+        eprintln!("Skipping test, region does not have FIPS endpoint");
+        return;
+    }
+
     run_test(|region| {
         let uri = format!("https://s3-fips.{region}.amazonaws.com");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
 }
+
 // FIPS endpoints can only be used with virtual-hosted-style addressing
 #[test_case(AddressingStyle::Virtual)]
 #[tokio::test]
 async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingStyle) {
+    if should_skip_fips() {
+        eprintln!("Skipping test, region does not have FIPS endpoint");
+        return;
+    }
+
     run_test(|region| {
         let uri = format!("https://s3-fips.dualstack.{region}.amazonaws.com");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
+}
+
+fn should_skip_fips() -> bool {
+    let region = get_test_region();
+    !region.starts_with("us-") && !region.starts_with("ca-")
 }
