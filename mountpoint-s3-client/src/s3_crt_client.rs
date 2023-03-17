@@ -41,6 +41,7 @@ macro_rules! request_span {
 
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
+pub(crate) mod get_object_attributes;
 pub(crate) mod head_bucket;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
@@ -151,10 +152,11 @@ impl S3CrtClient {
         let (uri, path_prefix) = self.endpoint.for_bucket(bucket)?;
         let hostname = uri.host_name().to_str().unwrap();
         let port = uri.host_port();
-        let mut hostname_header = format!("{}", hostname);
-        if port > 0 {
-            hostname_header = format!("{}:{}", hostname, port);
-        }
+        let hostname_header = if port > 0 {
+            format!("{}:{}", hostname, port)
+        } else {
+            format!("{}", hostname)
+        };
 
         let mut message = Message::new_request(&self.allocator)?;
         message.set_request_method(method)?;
