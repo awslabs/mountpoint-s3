@@ -38,6 +38,8 @@ Finally, compile the client:
 
 The final binary will be at `target/release/mount-s3`.
 
+And for umount use `umount ~/mnt`
+
 To use the client, first ensure you have [access to valid AWS credentials](https://docs.aws.amazon.com/sdkref/latest/guide/access.html). For example, you could [create a new IAM user and add it to the `~/.aws/credentials` file](https://docs.aws.amazon.com/sdkref/latest/guide/access-users.html), or [configure an EC2 instance with an IAM role](https://docs.aws.amazon.com/sdkref/latest/guide/access-iam-roles-for-ec2.html).
 
 Then run the client, specifying the directory in which your S3 bucket should be mounted (here, `~/mnt`):
@@ -46,6 +48,8 @@ Then run the client, specifying the directory in which your S3 bucket should be 
     mount-s3 my-s3-bucket-name ~/mnt
 
 The client will run in the background by default, and the `~/mnt` directory now gives access to the objects in your S3 bucket.
+
+
 
 ### Configuration
 
