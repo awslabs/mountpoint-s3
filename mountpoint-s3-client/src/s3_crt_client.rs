@@ -41,7 +41,6 @@ macro_rules! request_span {
 
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
-pub(crate) mod get_object_attributes;
 pub(crate) mod head_bucket;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
@@ -150,11 +149,16 @@ impl S3CrtClient {
     /// object data.
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
         let (uri, path_prefix) = self.endpoint.for_bucket(bucket)?;
-        let hostname = uri.host_name();
+        let hostname = uri.host_name().to_str().unwrap();
+        let port = uri.host_port();
+        let mut hostname_header = format!("{}", hostname);
+        if port > 0 {
+            hostname_header = format!("{}:{}", hostname, port);
+        }
 
         let mut message = Message::new_request(&self.allocator)?;
         message.set_request_method(method)?;
-        message.add_header(&Header::new("Host", hostname))?;
+        message.add_header(&Header::new("Host", hostname_header))?;
         message.add_header(&Header::new("accept", "application/xml"))?;
         message.add_header(&Header::new("User-Agent", &self.user_agent_header))?;
 
@@ -542,18 +546,6 @@ impl ObjectClient for S3CrtClient {
         contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.put_object(bucket, key, params, contents).await
-    }
-
-    async fn get_object_attributes(
-        &self,
-        bucket: &str,
-        key: &str,
-        max_parts: Option<usize>,
-        part_number_marker: Option<usize>,
-        object_attributes: &[ObjectAttribute],
-    ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
-        self.get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
-            .await
     }
 }
 
