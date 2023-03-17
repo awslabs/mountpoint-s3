@@ -547,6 +547,18 @@ impl ObjectClient for S3CrtClient {
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.put_object(bucket, key, params, contents).await
     }
+
+    async fn get_object_attributes(
+        &self,
+        bucket: &str,
+        key: &str,
+        max_parts: Option<usize>,
+        part_number_marker: Option<usize>,
+        object_attributes: &[ObjectAttribute],
+    ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
+        self.get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
+            .await
+    }
 }
 
 #[cfg(test)]

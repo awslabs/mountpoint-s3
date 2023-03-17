@@ -69,8 +69,7 @@ impl Uri {
         // SAFETY: `inner` is a valid `aws_uri` since it's owned by this struct, and the lifetime of
         // the returned slice will be tied to &self.
         unsafe {
-            let cursor = aws_uri_port(self.to_inner_ptr());
-            cursor
+            aws_uri_port(self.to_inner_ptr())
         }
     }
 
