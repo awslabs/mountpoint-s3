@@ -150,11 +150,17 @@ impl S3CrtClient {
     /// object data.
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
         let (uri, path_prefix) = self.endpoint.for_bucket(bucket)?;
-        let hostname = uri.host_name();
+        let hostname = uri.host_name().to_str().unwrap();
+        let port = uri.host_port();
+        let hostname_header = if port > 0 {
+            format!("{}:{}", hostname, port)
+        } else {
+            hostname.to_string()
+        };
 
         let mut message = Message::new_request(&self.allocator)?;
         message.set_request_method(method)?;
-        message.add_header(&Header::new("Host", hostname))?;
+        message.add_header(&Header::new("Host", hostname_header))?;
         message.add_header(&Header::new("accept", "application/xml"))?;
         message.add_header(&Header::new("User-Agent", &self.user_agent_header))?;
 
