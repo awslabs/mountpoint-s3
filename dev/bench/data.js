@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679006437341,
+  "lastUpdate": 1679115071612,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -9051,6 +9051,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 27.7919921875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shubhendu.tripathi@gmail.com",
+            "name": "Shubhendu",
+            "username": "shtripat"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ac0d5530218681098b867d602c5d1282accbb86",
+          "message": "Added logic to include port number in host header (#160)\n\n* Added logic to include port number in host header\r\n\r\nWe van use other object storage systems like MinIO in backend.\r\nIn dev mode the --endpoint-url value passed could be of form host[:port]\r\nWhile sending the host header we should include port number as well if\r\nits present and send header in the form `host:port`\r\n\r\nFixes: https://github.com/awslabs/mountpoint-s3/issues/159\r\n\r\nSigned-off-by: Shubhendu Ram Tripathi <shubhendu@minio.io>\r\n\r\n* Incorporated review comments\r\n\r\nSigned-off-by: Shubhendu Ram Tripathi <shubhendu@minio.io>\r\n\r\n* Formatting as suggested to reduce double format! calls\r\n\r\nSigned-off-by: Shubhendu Ram Tripathi <shubhendu@minio.io>\r\n\r\n* Making Clippy happy :)\r\n\r\nSigned-off-by: Shubhendu Ram Tripathi <shubhendu@minio.io>\r\n\r\n---------\r\n\r\nSigned-off-by: Shubhendu Ram Tripathi <shubhendu@minio.io>",
+          "timestamp": "2023-03-17T23:34:39-05:00",
+          "tree_id": "68dfe63db6d88609ef4d4e0eb98d723cc0d9a650",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0ac0d5530218681098b867d602c5d1282accbb86"
+        },
+        "date": 1679115071057,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.4453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.8369140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 11.8916015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 35.6884765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 37.1767578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.19140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 5.072265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.7041015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 5.34375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 5.5537109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1069.1875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 9.5927734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6574.4384765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 179.5419921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 10.2060546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1232.6669921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 27.9208984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2304.685546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 30.509765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 28.873046875,
             "unit": "MiB/s"
           }
         ]
