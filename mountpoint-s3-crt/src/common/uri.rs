@@ -6,7 +6,7 @@ use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt_sys::{
     aws_byte_cursor_from_buf, aws_uri, aws_uri_authority, aws_uri_clean_up, aws_uri_host_name, aws_uri_init_parse,
-    aws_uri_path, aws_uri_query_string, aws_uri_scheme, aws_uri_port
+    aws_uri_path, aws_uri_port, aws_uri_query_string, aws_uri_scheme,
 };
 
 use crate::common::allocator::Allocator;
@@ -68,9 +68,7 @@ impl Uri {
     pub fn host_port(&self) -> u16 {
         // SAFETY: `inner` is a valid `aws_uri` since it's owned by this struct, and the lifetime of
         // the returned slice will be tied to &self.
-        unsafe {
-            aws_uri_port(self.to_inner_ptr())
-        }
+        unsafe { aws_uri_port(self.to_inner_ptr()) }
     }
 
     /// Return the path portion of the URI, including any leading "/".

@@ -155,7 +155,7 @@ impl S3CrtClient {
         let hostname_header = if port > 0 {
             format!("{}:{}", hostname, port)
         } else {
-            format!("{}", hostname)
+            hostname.to_string()
         };
 
         let mut message = Message::new_request(&self.allocator)?;
