@@ -1,0 +1,16 @@
+name: Integration tests
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  integration:
+    name: Integration
+    uses: ./.github/workflows/integration.yml
+    with:
+      ref: ${{ github.event.after }}

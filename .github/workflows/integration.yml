@@ -1,0 +1,141 @@
+name: Integration tests
+
+# We use environments to require approval to run integration tests on PRs, but not on pushes to
+# `main` (which have been approved already since PRs are required for `main`).
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+      ref:
+        required: true
+        type: string
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  S3_BUCKET_NAME: s3-file-connector-github-test-bucket
+  S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
+  # A bucket our IAM role has no access to, but is in the right region, for permissions tests
+  S3_FORBIDDEN_BUCKET_NAME: s3-file-connector-github-test-bucket-forbidden
+  S3_REGION: us-east-1
+  RUST_FEATURES: fuse_tests,s3_tests
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-22.04
+
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      matrix:
+        fuse: [fuse, fuse3]
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
+        aws-region: us-east-1
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Restore Cargo cache
+      id: restore-cargo-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-integration-${{ matrix.fuse }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install fuse
+      run: sudo apt-get install ${{ matrix.fuse }} lib${{ matrix.fuse }}-dev
+    - name: Configure fuse
+      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Run tests
+      run: cargo test --features $RUST_FEATURES
+    - name: Save Cargo cache
+      uses: actions/cache/save@v3
+      if: inputs.environment != 'PR integration tests'
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
+
+  asan:
+    name: Address sanitizer
+    runs-on: ubuntu-22.04
+
+    environment: ${{ inputs.environment }}
+
+    timeout-minutes: 60
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
+        aws-region: us-east-1
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install nightly Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rust-src
+    - name: Restore Cargo cache
+      id: restore-cargo-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-integration-asan-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install fuse
+      run: sudo apt-get install fuse3 libfuse3-dev
+    - name: Install llvm-dev
+      run: sudo apt-get install llvm-dev
+    - name: Configure fuse
+      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Validate ASan is working
+      run: make test-asan-working
+    - name: Run tests
+      run: make test-asan
+    - name: Save Cargo cache
+      uses: actions/cache/save@v3
+      if: inputs.environment != 'PR integration tests'
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}

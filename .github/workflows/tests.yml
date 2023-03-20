@@ -1,21 +1,16 @@
-name: CI
+name: Tests
 
 on:
   push:
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
 env:
-  # RUSTFLAGS: -Dwarnings
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  S3_BUCKET_NAME: s3-file-connector-github-test-bucket
-  S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
-  # A bucket our IAM role has no access to, but is in the right region, for permissions tests
-  S3_FORBIDDEN_BUCKET_NAME: s3-file-connector-github-test-bucket-forbidden
-  S3_REGION: us-east-1
-  RUST_FEATURES: fuse_tests,s3_tests
+  RUST_FEATURES: fuse_tests
 
 jobs:
   test:
@@ -26,16 +21,7 @@ jobs:
       matrix:
         fuse: [fuse, fuse3]
 
-    permissions:
-      id-token: write
-      contents: read
-
     steps:
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
-        aws-region: us-east-1
     - name: Checkout code
       uses: actions/checkout@v3
       with:
@@ -122,7 +108,7 @@ jobs:
     - name: Install fuse
       run: sudo apt-get install fuse libfuse-dev
     - name: Check all targets
-      run: cargo check --locked --all-targets --features $RUST_FEATURES
+      run: cargo check --locked --all-targets --all-features
 
   shuttle:
     name: Shuttle tests
@@ -152,51 +138,6 @@ jobs:
       run: sudo apt-get install fuse libfuse-dev
     - name: Run Shuttle tests
       run: cargo test -p mountpoint-s3 --features shuttle -- shuttle
-
-  asan:
-    name: Address sanitizer
-    runs-on: ubuntu-22.04
-
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
-        aws-region: us-east-1
-    - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        submodules: true
-    - name: Install nightly Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
-        components: rust-src
-    - name: Cargo cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install fuse
-      run: sudo apt-get install fuse3 libfuse3-dev
-    - name: Install llvm-dev
-      run: sudo apt-get install llvm-dev
-    - name: Configure fuse
-      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
-    - name: Validate ASan is working
-      run: make test-asan-working
-    - name: Run tests
-      run: make test-asan
 
   rustfmt:
     name: Formatting
