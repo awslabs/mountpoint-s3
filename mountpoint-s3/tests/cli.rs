@@ -113,7 +113,7 @@ fn addressing_style_mutually_exclusive() -> Result<(), Box<dyn std::error::Error
         .arg("test/dir")
         .arg("--virtual-addressing")
         .arg("--path-addressing");
-    let error_message = "The argument '--virtual-addressing' cannot be used with '--path-addressing'";
+    let error_message = "the argument '--virtual-addressing' cannot be used with '--path-addressing'";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())

@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::{fs, fs::File};
 
 use anyhow::{anyhow, Context as _};
-use clap::{ArgGroup, Parser};
+use clap::{value_parser, ArgGroup, Parser};
 use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
@@ -78,7 +78,7 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
 
 #[derive(Parser)]
 #[clap(about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
-#[clap(group(ArgGroup::new("addressing-style").args(&["virtual-addressing", "path-addressing"])))]
+#[clap(group(ArgGroup::new("addressing-style").args(&["virtual_addressing", "path_addressing"])))]
 struct CliArgs {
     #[clap(help = "Name of bucket to mount")]
     pub bucket_name: String,
@@ -86,55 +86,68 @@ struct CliArgs {
     #[clap(help = "Mount point for file system")]
     pub mount_point: PathBuf,
 
-    #[clap(short, long, help = "Log file directory. [default: $HOME/.mountpoint-s3]")]
+    #[clap(short, long, help = "Log file directory [default: $HOME/.mountpoint-s3]")]
     pub log_directory: Option<PathBuf>,
 
     #[clap(
         long,
-        help = "Prefix inside the bucket to mount. Mounts the entire bucket if unspecified."
+        help = "Prefix inside the bucket to mount [default: mount the entire bucket]",
+        help_heading = "Bucket options"
     )]
     pub prefix: Option<String>,
 
-    #[clap(long, help = "AWS region of the bucket")]
+    #[clap(
+        long,
+        help = "AWS region of the bucket [default: auto-detect region]",
+        help_heading = "Bucket options"
+    )]
     pub region: Option<String>,
 
-    #[clap(long, help = "Override S3 endpoint URL")]
+    #[clap(
+        long,
+        help = "S3 endpoint URL [default: auto-detect endpoint]",
+        help_heading = "Bucket options"
+    )]
     pub endpoint_url: Option<String>,
 
-    #[clap(long, help = "Force virtual-host-style addressing")]
+    #[clap(long, help = "Force virtual-host-style addressing", help_heading = "Bucket options")]
     pub virtual_addressing: bool,
 
-    #[clap(long, help = "Force path-style addressing")]
+    #[clap(long, help = "Force path-style addressing", help_heading = "Bucket options")]
     pub path_addressing: bool,
 
-    #[clap(long, help = "Automatically unmount on exit")]
+    #[clap(long, help = "Automatically unmount on exit", help_heading = "Mount options")]
     pub auto_unmount: bool,
 
-    #[clap(long, help = "Allow root user to access file system")]
+    #[clap(long, help = "Allow root user to access file system", help_heading = "Mount options")]
     pub allow_root: bool,
 
-    #[clap(long, help = "Allow other non-root users to access file system")]
+    #[clap(
+        long,
+        help = "Allow other non-root users to access file system",
+        help_heading = "Mount options"
+    )]
     pub allow_other: bool,
 
-    #[clap(long, help = "Desired throughput in Gbps", value_name = "N (Gbps)", value_parser = clap::value_parser!(u64).range(1..))]
+    #[clap(long, help = "Desired throughput in Gbps", value_name = "N", default_value = "10", value_parser = value_parser!(u64).range(1..), help_heading = "Client options")]
     pub throughput_target_gbps: Option<u64>,
 
-    #[clap(long, help = "Number of FUSE daemon threads", value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    #[clap(long, help = "Number of FUSE daemon threads", value_name = "N", default_value = "1", value_parser = value_parser!(u64).range(1..), help_heading = "Client options")]
     pub thread_count: Option<u64>,
 
-    #[clap(long, help = "Part size for multi-part GET and PUT", value_parser = clap::value_parser!(u64).range(1..))]
+    #[clap(long, help = "Part size for multi-part GET and PUT", default_value = "8388608", value_parser = value_parser!(u64).range(1..), help_heading = "Client options")]
     pub part_size: Option<u64>,
 
-    #[clap(long, help = "Owner UID [default: current user's UID]", value_parser = clap::value_parser!(u32).range(1..))]
+    #[clap(long, help = "Owner UID [default: current user's UID]", value_parser = value_parser!(u32).range(1..), help_heading = "Mount options")]
     pub uid: Option<u32>,
 
-    #[clap(long, help = "Owner GID [default: current user's GID]", value_parser = clap::value_parser!(u32).range(1..))]
+    #[clap(long, help = "Owner GID [default: current user's GID]", value_parser = value_parser!(u32).range(1..), help_heading = "Mount options")]
     pub gid: Option<u32>,
 
-    #[clap(long, help = "Directory permissions [default: 0755]", value_parser = parse_perm_bits)]
+    #[clap(long, help = "Directory permissions [default: 0755]", value_parser = parse_perm_bits, help_heading = "Mount options")]
     pub dir_mode: Option<u16>,
 
-    #[clap(long, help = "File permissions [default: 0644]", value_parser = parse_perm_bits)]
+    #[clap(long, help = "File permissions [default: 0644]", value_parser = parse_perm_bits, help_heading = "Mount options")]
     pub file_mode: Option<u16>,
 
     #[clap(short, long, help = "Run as foreground process")]
@@ -273,8 +286,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
-    let throughput_target_gbps = args.throughput_target_gbps.map(|t| t as f64);
-
     let addressing_style = args.addressing_style();
     let endpoint = args
         .endpoint_url
@@ -283,7 +294,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .context("Failed to parse endpoint URL")?;
 
     let client_config = S3ClientConfig {
-        throughput_target_gbps,
+        throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
         part_size: args.part_size.map(|t| t as usize),
         endpoint,
         user_agent_prefix: Some(format!("mountpoint-s3/{}", build_info::FULL_VERSION)),
