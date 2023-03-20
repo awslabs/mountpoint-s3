@@ -1,13 +1,17 @@
 name: Benchmark
 
+# We use environments to require approval to run benchmarks on PRs, but not on pushes to `main`
+# (which have been approved already since PRs are required for `main`).
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    types: [labeled, opened, reopened, synchronize]
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+      ref:
+        required: true
+        type: string
 
 env:
-  # RUSTFLAGS: -Dwarnings
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: s3-file-connector-github-test-bucket
@@ -22,29 +26,29 @@ jobs:
   bench:
     name: Benchmark
     runs-on: self-hosted
-    if: ${{ (github.ref == 'refs/heads/main') || contains(github.event.pull_request.labels.*.name, 'performance') }}
 
-    permissions:
-      id-token: write
-      contents: write
+    environment: ${{ inputs.environment }}
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
+      uses: aws-actions/configure-aws-credentials@v2
       with:
         role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
         aws-region: us-east-1
     - name: Checkout code
       uses: actions/checkout@v3
       with:
+        ref: ${{ inputs.ref }}
         submodules: true
+        persist-credentials: false
     - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         override: true
-    - name: Cargo cache
-      uses: actions/cache@v3
+    - name: Restore Cargo cache
+      id: restore-cargo-cache
+      uses: actions/cache/restore@v3
       with:
         path: |
           ~/.cargo/bin/
@@ -61,14 +65,21 @@ jobs:
       run: sudo apt-get -y install fuse libfuse-dev
     - name: Configure fuse
       run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
-    - name: Install Rust
-      run: cargo --version || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    - name: Update PATH
-      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_bench.sh
+    - name: Save Cargo cache
+      uses: actions/cache/save@v3
+      if: inputs.environment != 'PR benchmarks'
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -79,5 +90,5 @@ jobs:
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'true' || 'false' }}
+        auto-push: ${{ inputs.environment && 'false' || 'true' }}
         comment-on-alert: true

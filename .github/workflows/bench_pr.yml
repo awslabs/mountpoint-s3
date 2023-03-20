@@ -1,0 +1,19 @@
+name: Benchmarks (PR)
+
+on:
+  pull_request_target:
+    branches: [ "main" ]
+    types: [ labeled, opened, reopened, synchronize ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  integration:
+    name: Benchmarks
+    uses: ./.github/workflows/bench.yml
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'performance') }}
+    with:
+      environment: PR benchmarks
+      ref: ${{ github.event.pull_request.head.sha }}
