@@ -311,6 +311,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     if let Some(file_mode) = args.file_mode {
         filesystem_config.file_mode = file_mode;
     }
+    if let Some(part_size) = args.part_size {
+        filesystem_config.prefetcher_config.part_alignment = part_size as usize;
+    }
 
     let fs = S3FuseFilesystem::new(
         client,
