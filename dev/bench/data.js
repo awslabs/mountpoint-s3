@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679115071612,
+  "lastUpdate": 1679323480703,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -9175,6 +9175,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 28.873046875,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd1d8b06390e1dfaf10281cc00bc6f01952c0539",
+          "message": "Split integration tests into a new CI workflow (#167)\n\nOur integration tests are tricky to run because they require S3\r\ncredentials, which GitHub (quite rightly) makes difficult to access\r\nthrough a pull request from a fork repo. Even if we turn on GitHub's\r\nfeature for requiring manual approval for a PR to run workflows, it\r\nstill won't have access to the permissions it needs to get S3\r\ncredentials, because the `configure-aws-credentials` action needs\r\n`id_token: write` permissions, which fork PRs can never have.\r\n\r\nThis change makes our integration tests run using the\r\n`pull_request_target` event. This event runs in the context of the base\r\nrepo rather than the PR, and so has access to the right permissions.\r\nThat's dangerous, of course, so we want to manually approve runs of this\r\nworkflow. But `pull_request_target` workflows are _automatically\r\napproved_, so the normal \"require manual approval for a PR to run\r\nworkflows\" no longer works. Instead, we rig something up using\r\ndeployment environments, which can be configured to require manual\r\napproval before deployments. The integration tests ask to be \"deployed\"\r\nto an environment with approval configured, and so won't run until\r\nsomeone with permission to approve those deployments clicks OK. Same\r\neffect as the normal PR approval mechanism, just a little more\r\njury-rigged and with some confusing verbiage around \"deployment\".\r\n\r\nPushes to `main` also run the integration tests, but they ask for a null\r\ndeployment, and so run as normal workflows. This is safe because pushes\r\nto `main` already require PR approvals.\r\n\r\nWorkflows on `pull_request_target` have a different security boundary\r\n[1], and in particular have two permissions normal `pull_request`\r\nworkflows don't have:\r\n1. Their GITHUB_TOKEN has write access to the repository. We\r\n   explicitly downgrade the token to have only read access using the\r\n   `permissions` field in integration test workflows.\r\n2. They run in the context of the base repository, and so have access to\r\n   secrets. We don't use any secrets. We also explicitly prevent the\r\n   integration tests from storing cached artifacts if running from a PR,\r\n   which could poison other users of the cache.\r\n\r\nSince they run in the base context, `pull_request_target` workflows will\r\nalways run with the workflow files from the base repo, ignoring any\r\nchanges in the pull request. That means a PR can't change the workflow\r\nto undo these protections.\r\n\r\nFixes #143.\r\n\r\n[1]: https://securitylab.github.com/research/github-actions-preventing-pwn-requests/\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-20T14:26:00Z",
+          "tree_id": "6f97c933cb4999c4be43909ae9aee53f217cf8cb",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/bd1d8b06390e1dfaf10281cc00bc6f01952c0539"
+        },
+        "date": 1679323480160,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.32421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.3203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 10.6591796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 33.568359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 32.1630859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.0869140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.6728515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.37890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.654296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 5.3466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 738.056640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 9.8623046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6672.48828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 171.8232421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 12.8232421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1233.69140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 25.55078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2224.125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 26.8388671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 25.9921875,
             "unit": "MiB/s"
           }
         ]
