@@ -167,11 +167,8 @@ impl S3CrtClient {
         message.add_header(&Header::new("accept", "application/xml"))?;
         message.add_header(&Header::new("User-Agent", &self.user_agent_header))?;
 
-        match self.request_payer {
-            Some(ref payer) => {
-                message.add_header(&Header::new("x-amz-request-payer", payer))?;
-            },
-            None => {}
+        if let Some(ref payer) = self.request_payer {
+            message.add_header(&Header::new("x-amz-request-payer", payer))?;
         }
 
         Ok(S3Message {
