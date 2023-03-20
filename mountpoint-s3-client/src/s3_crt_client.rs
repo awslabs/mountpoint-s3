@@ -132,8 +132,6 @@ impl S3CrtClient {
             Endpoint::from_region(region, AddressingStyle::Automatic)?
         };
 
-        let request_payer = config.request_payer;
-
         Ok(Self {
             allocator,
             s3_client,
@@ -141,7 +139,7 @@ impl S3CrtClient {
             endpoint,
             next_request_counter: AtomicU64::new(0),
             user_agent_header,
-            request_payer
+            request_payer: config.request_payer,
         })
     }
 
