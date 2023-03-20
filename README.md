@@ -1,6 +1,6 @@
 # Mountpoint for Amazon S3
 
-![CI Status](https://github.com/awslabs/mountpoint-s3/actions/workflows/rust.yml/badge.svg?branch=main)
+[![CI Status](https://github.com/awslabs/mountpoint-s3/actions/workflows/integration_main.yml/badge.svg?branch=main)](https://github.com/awslabs/mountpoint-s3/actions)
 
 Mountpoint for Amazon S3 is a simple, high-throughput file client for [mounting an Amazon S3 bucket as a local file system](https://aws.amazon.com/blogs/storage/the-inside-story-on-mountpoint-for-amazon-s3-a-high-performance-open-source-file-client/). With Mountpoint for Amazon S3, your applications can access objects stored in Amazon S3 through file operations like `open` and `read`. Mountpoint for Amazon S3 automatically translates these operations into S3 object API calls, giving your applications access to the elastic storage and throughput of Amazon S3 through a file interface.
 
