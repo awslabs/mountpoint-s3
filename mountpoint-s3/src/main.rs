@@ -76,6 +76,10 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
     Ok(())
 }
 
+const CLIENT_OPTIONS_HEADER: &str = "Client options";
+const MOUNT_OPTIONS_HEADER: &str = "Mount options";
+const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
+
 #[derive(Parser)]
 #[clap(about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
 #[clap(group(ArgGroup::new("addressing-style").args(&["virtual_addressing", "path_addressing"])))]
@@ -92,62 +96,102 @@ struct CliArgs {
     #[clap(
         long,
         help = "Prefix inside the bucket to mount [default: mount the entire bucket]",
-        help_heading = "Bucket options"
+        help_heading = BUCKET_OPTIONS_HEADER
     )]
     pub prefix: Option<String>,
 
     #[clap(
         long,
         help = "AWS region of the bucket [default: auto-detect region]",
-        help_heading = "Bucket options"
+        help_heading = BUCKET_OPTIONS_HEADER
     )]
     pub region: Option<String>,
 
     #[clap(
         long,
         help = "S3 endpoint URL [default: auto-detect endpoint]",
-        help_heading = "Bucket options"
+        help_heading = BUCKET_OPTIONS_HEADER
     )]
     pub endpoint_url: Option<String>,
 
-    #[clap(long, help = "Force virtual-host-style addressing", help_heading = "Bucket options")]
+    #[clap(long, help = "Force virtual-host-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
     pub virtual_addressing: bool,
 
-    #[clap(long, help = "Force path-style addressing", help_heading = "Bucket options")]
+    #[clap(long, help = "Force path-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
     pub path_addressing: bool,
 
-    #[clap(long, help = "Automatically unmount on exit", help_heading = "Mount options")]
+    #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
 
-    #[clap(long, help = "Allow root user to access file system", help_heading = "Mount options")]
+    #[clap(long, help = "Allow root user to access file system", help_heading = MOUNT_OPTIONS_HEADER)]
     pub allow_root: bool,
 
     #[clap(
         long,
         help = "Allow other non-root users to access file system",
-        help_heading = "Mount options"
+        help_heading = MOUNT_OPTIONS_HEADER
     )]
     pub allow_other: bool,
 
-    #[clap(long, help = "Desired throughput in Gbps", value_name = "N", default_value = "10", value_parser = value_parser!(u64).range(1..), help_heading = "Client options")]
+    #[clap(
+        long,
+        help = "Desired throughput in Gbps",
+        value_name = "N",
+        default_value = "10",
+        value_parser = value_parser!(u64).range(1..),
+        help_heading = CLIENT_OPTIONS_HEADER
+    )]
     pub throughput_target_gbps: Option<u64>,
 
-    #[clap(long, help = "Number of FUSE daemon threads", value_name = "N", default_value = "1", value_parser = value_parser!(u64).range(1..), help_heading = "Client options")]
+    #[clap(
+        long, 
+        help = "Number of FUSE daemon threads",
+        value_name = "N",
+        default_value = "1",
+        value_parser = value_parser!(u64).range(1..),
+        help_heading = CLIENT_OPTIONS_HEADER
+    )]
     pub thread_count: Option<u64>,
 
-    #[clap(long, help = "Part size for multi-part GET and PUT", default_value = "8388608", value_parser = value_parser!(u64).range(1..), help_heading = "Client options")]
+    #[clap(
+        long,
+        help = "Part size for multi-part GET and PUT",
+        default_value = "8388608",
+        value_parser = value_parser!(u64).range(1..),
+        help_heading = CLIENT_OPTIONS_HEADER
+    )]
     pub part_size: Option<u64>,
 
-    #[clap(long, help = "Owner UID [default: current user's UID]", value_parser = value_parser!(u32).range(1..), help_heading = "Mount options")]
+    #[clap(
+        long,
+        help = "Owner UID [default: current user's UID]",
+        value_parser = value_parser!(u32).range(1..),
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
     pub uid: Option<u32>,
 
-    #[clap(long, help = "Owner GID [default: current user's GID]", value_parser = value_parser!(u32).range(1..), help_heading = "Mount options")]
+    #[clap(
+        long,
+        help = "Owner GID [default: current user's GID]",
+        value_parser = value_parser!(u32).range(1..),
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
     pub gid: Option<u32>,
 
-    #[clap(long, help = "Directory permissions [default: 0755]", value_parser = parse_perm_bits, help_heading = "Mount options")]
+    #[clap(
+        long,
+        help = "Directory permissions [default: 0755]",
+        value_parser = parse_perm_bits,
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
     pub dir_mode: Option<u16>,
 
-    #[clap(long, help = "File permissions [default: 0644]", value_parser = parse_perm_bits, help_heading = "Mount options")]
+    #[clap(
+        long,
+        help = "File permissions [default: 0644]",
+        value_parser = parse_perm_bits,
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
     pub file_mode: Option<u16>,
 
     #[clap(short, long, help = "Run as foreground process")]
