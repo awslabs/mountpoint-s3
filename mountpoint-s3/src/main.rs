@@ -144,7 +144,7 @@ struct CliArgs {
     pub throughput_target_gbps: Option<u64>,
 
     #[clap(
-        long, 
+        long,
         help = "Number of FUSE daemon threads",
         value_name = "N",
         default_value = "1",
