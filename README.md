@@ -47,6 +47,17 @@ Then run the client, specifying the directory in which your S3 bucket should be 
 
 The client will run in the background by default, and the `~/mnt` directory now gives access to the objects in your S3 bucket.
 
+### Mounting S3 using Docker
+
+First, build the docker image using the below command.
+    
+    cd mountpoint-s3
+    docker build mount-s3 .
+
+Once docker build is successful, run the below command to mount s3 and list objects 
+
+     docker run -it --cap-add SYS_ADMIN --device /dev/fuse --env AWS_ACCESS_KEY_ID=<<KEY ID>> --env AWS_SECRET_ACCESS_KEY=<<Secret>> --env AWS_DEFAULT_REGION=<<AWS Region>> mount_s3 /bin/bash -c "./mount-s3 <<Bucket name>> /mnt; ls -l /mnt"
+
 ### Configuration
 
 For the alpha release, additional configuration is required to use Mountpoint for Amazon S3 in some circumstances:
