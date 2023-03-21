@@ -1,0 +1,16 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  integration:
+    name: Benchmarks
+    uses: ./.github/workflows/bench.yml
+    with:
+      ref: ${{ github.event.after }}
