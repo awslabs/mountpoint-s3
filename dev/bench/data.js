@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679332227819,
+  "lastUpdate": 1679439543422,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -9547,6 +9547,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 26.2255859375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb7cfab79c50906724a77a76eb05fc9068271072",
+          "message": "Update benchmark CI to use `pull_request_target` (#172)\n\nThis is the same as #167 but for the benchmark workflow, which also\r\nneeds S3 permissions. I also took this chance to switch to v2 of the\r\ncredentials actions (#170) and remove a redundant Rust installation\r\nsince the toolchain action does that for us already.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-21T17:40:43-05:00",
+          "tree_id": "3ba95202c5f0608bc16b2cf65d5fe87c2252a182",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/bb7cfab79c50906724a77a76eb05fc9068271072"
+        },
+        "date": 1679439542918,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.4150390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.978515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 11.935546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 33.537109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 38.353515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.240234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.75,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.6044921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 5.3916015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.6552734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 639.0361328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 8.466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6382.9208984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 175.408203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 11.3515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 850.48828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 26.2568359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2052.6064453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 30.478515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 28.08203125,
             "unit": "MiB/s"
           }
         ]
