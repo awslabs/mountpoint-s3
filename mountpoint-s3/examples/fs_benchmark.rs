@@ -1,4 +1,4 @@
-use clap::{Arg, Command};
+use clap::{Arg, ArgAction, Command};
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::S3FilesystemConfig;
@@ -47,26 +47,23 @@ fn main() -> io::Result<()> {
         .arg(
             Arg::new("buffer-capacity-kb")
                 .long("buffer-capacity-kb")
-                .help("Buffer reader capacity in KB")
-                .takes_value(true),
+                .help("Buffer reader capacity in KB"),
         )
         .arg(
             Arg::new("direct")
                 .long("direct")
                 .help("Open file with O_DIRECT option")
-                .takes_value(false),
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("throughput-target-gbps")
                 .long("throughput-target-gbps")
-                .help("Desired throughput in Gbps")
-                .takes_value(true),
+                .help("Desired throughput in Gbps"),
         )
         .arg(
             Arg::new("iterations")
                 .long("iterations")
-                .help("Number of times to download")
-                .takes_value(true),
+                .help("Number of times to download"),
         )
         .arg(Arg::new("region").long("region").default_value("us-east-1"))
         .get_matches();
@@ -76,7 +73,7 @@ fn main() -> io::Result<()> {
     let buffer_capacity = matches
         .get_one::<String>("buffer-capacity-kb")
         .map(|s| s.parse::<usize>().expect("buffer capacity must be a number"));
-    let direct = matches.is_present("direct");
+    let direct = matches.get_flag("direct");
     let throughput_target_gbps = matches
         .get_one::<String>("throughput-target-gbps")
         .map(|s| s.parse::<f64>().expect("throughput target must be an f64"));
