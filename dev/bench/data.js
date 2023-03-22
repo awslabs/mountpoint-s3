@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679439543422,
+  "lastUpdate": 1679497339206,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -9671,6 +9671,130 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 28.08203125,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "47e57ba61482924a0096dfba3d8446d29e61d764",
+          "message": "Arrange CLI arguments into groups (#171)\n\nOur arguments are getting pretty unwieldly. This change updates to clap\r\nv4 and then adds help headings so that `-h` is easier to parse.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-03-22T14:44:12Z",
+          "tree_id": "1f52a2b098dad364f944f20c680884f84f0b4127",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/47e57ba61482924a0096dfba3d8446d29e61d764"
+        },
+        "date": 1679497338592,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.9365234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 12.7197265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 32.2236328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 27.982421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start",
+            "value": 2.203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_delayed_start_small_file",
+            "value": 4.462890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.626953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.9501953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.865234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1032.5576171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 9.0107421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6567.5224609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 159.4306640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 8.490234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start",
+            "value": 1132.953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_delayed_start_small_file",
+            "value": 20.3935546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2044.3232421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 27.8388671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 23.2255859375,
             "unit": "MiB/s"
           }
         ]
