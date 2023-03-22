@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 mountpoint-s3-crt = { path = "../mountpoint-s3-crt" }
-mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
@@ -21,7 +20,7 @@ pin-project = "1.0.12"
 regex = "1.7.1"
 static_assertions = "1.1.0"
 thiserror = "1.0.34"
-time = "0.3.14"
+time = { version = "0.3.17", features = ["formatting", "parsing"] }
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 xmltree = "0.10.3"
 
