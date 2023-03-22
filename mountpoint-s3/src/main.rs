@@ -12,7 +12,7 @@ use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
 use mountpoint_s3_client::{
-    AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
+    AddressingStyle, Endpoint, HeadBucketError, ImdsCrtClient, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use nix::sys::signal::Signal;
@@ -154,6 +154,12 @@ impl CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    let imds_crt_cleint = ImdsCrtClient::new();
+    match imds_crt_cleint {
+        Ok(client) => client.make_instance_type_query(),
+        Err(_) => {}
+    }
+
     let args = CliArgs::parse();
 
     // validate mount point

@@ -28,6 +28,7 @@ const CRT_LIBRARIES: &[&str] = &[
 /// bindings for the stuff we (transitively) need, rather than everything.
 const CRT_HEADERS: &[&str] = &[
     "auth/credentials.h",
+    "auth/aws_imds_client.h",
     "checksums/crc.h",
     "common/atomics.h",
     "common/log_channel.h",
