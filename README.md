@@ -56,7 +56,7 @@ First, build the docker image using the below command.
 
 Once docker build is successful, create an file (say env.list) including AWS credentials to be set as environmental variables. (https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html)
 Run the below command to mount s3 and list objects 
-
+ 
      docker run -it \
         --cap-add SYS_ADMIN \
         --device /dev/fuse \
