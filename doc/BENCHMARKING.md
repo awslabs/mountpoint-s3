@@ -1,14 +1,14 @@
 ## Benchmarking
-Currently, Mountpoint for Amazon S3 is an alpha release and we are focusing on delivering high throughput read support.  dIn order to make sure that new changes do not introduce performance regression we have created some performance benchmark  das a part of our CI using [fio](https://github.com/axboe/fio), an awesome opensource application for file system benchmarking.
+Currently, Mountpoint for Amazon S3 is an alpha release and we are focusing on delivering high throughput read support. In order to make sure that new changes do not introduce performance regression, we have created some performance benchmark as a part of our CI using [fio](https://github.com/axboe/fio), an awesome open-source application for file system benchmarking.
 
 ### Workloads
 
 There are two main types of workload we are testing, sequential read and random read. Each of the test is defined in a separate .fio file, and the file name indicates what is the test case for that file, for example `seq_read.fio` is the benchmark for sequential read. All of fio configuration files can be found at path [mountpoint-s3/scripts/fio/](https://github.com/awslabs/mountpoint-s3/tree/main/mountpoint-s3/scripts/fio).
 
-In general, we run each IO operation for 30 seconds against a 100 GiB file. But there are some variants in configuration we also want to test to see how Mountpoint would perform with these configurations. Here is the list of all the variants we have tested.
+In general, we run each IO operation for 30 seconds against a 100 GiB file. But there are some variants in configuration where we also want to test to see how Mountpoint would perform with these configurations. Here is the list of all the variants we have tested.
 
-* **four_threads**: running the workload concurrently by spawning four threads to do the same job.
-* **direct_io**: bypassing linux page cache by opening the files with `O_DIRECT` option. This option is only available on Linux.
+* **four_threads**: running the workload concurrently by spawning four fio threads to do the same job.
+* **direct_io**: bypassing kernel page cache by opening the files with `O_DIRECT` option. This option is only available on Linux.
 * **small_file**: run the IO operation against smaller files (5 MiB instead of 100 GiB).
 
 ### Regression Testing
@@ -17,7 +17,8 @@ Our CI runs the benchmark automatically for any new commits to the main branch o
 We keep the records of benchmarking results in `gh-pages` branch and it is available for viewing [here](https://awslabs.github.io/mountpoint-s3/dev/bench/).
 
 ### Running the benchmark
-Our benchmark script is designed for CI testing only, but in case you wish to run it manually, you should be able to do so by following these steps.
+While our benchmark script is written for CI testing only, it is possible to run manually.
+You can use the following steps.
 
 1. Install dependencies by running below commands for Ubuntu.
 
@@ -38,8 +39,8 @@ Our benchmark script is designed for CI testing only, but in case you wish to ru
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
 
-4. Run the [benchmark script](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/scripts/fs_bench.sh).
+4. Run the [benchmark script](../mountpoint-s3/scripts/fs_bench.sh).
 
         ./mountpoint-s3/scripts/fs_bench.sh
 
-5. You should see the benchmark logs in `bench.out` file in your project path and the combined results will be saved into a json file at `results/output.json`.
+5. You should see the benchmark logs in `bench.out` file in the project root directory. The combined results will be saved into a JSON file at `results/output.json`.
