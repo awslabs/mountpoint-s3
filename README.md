@@ -63,7 +63,7 @@ Run the below command to mount s3 and list objects
         --env AWS_ACCESS_KEY_ID \
         --env AWS_SECRET_ACCESS_KEY \
         --env AWS_DEFAULT_REGION \
-        mount_s3 /bin/bash -c "./mount-s3 <<Bucket name>> /mnt; ls -l /mnt"
+        mount-s3 /bin/bash -c "./mount-s3 <<Bucket name>> /mnt; ls -l /mnt"
 
 ### Configuration
 
