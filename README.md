@@ -51,8 +51,8 @@ The client will run in the background by default, and the `~/mnt` directory now 
 
 First, build the docker image using the below command.
     
-    cd mountpoint-s3
-    docker build mount-s3 .
+    cd mountpoint-s3/docker
+    docker build -t mount-s3 .
 
 Once docker build is successful, run the below command to mount s3 and list objects 
 
