@@ -53,6 +53,7 @@ pub struct S3ClientConfig {
     pub part_size: Option<usize>,
     pub endpoint: Option<Endpoint>,
     pub user_agent_prefix: Option<String>,
+    pub request_payer: Option<String>,
 }
 
 #[derive(Debug)]
@@ -65,6 +66,7 @@ pub struct S3CrtClient {
     /// user_agent_header will be passed into CRT which add additional information "CRTS3NativeClient/0.1.x".
     /// Here it will add the user agent prefix and s3 client information.
     user_agent_header: String,
+    request_payer: Option<String>,
 }
 
 impl S3CrtClient {
@@ -137,6 +139,7 @@ impl S3CrtClient {
             endpoint,
             next_request_counter: AtomicU64::new(0),
             user_agent_header,
+            request_payer: config.request_payer,
         })
     }
 
@@ -163,6 +166,10 @@ impl S3CrtClient {
         message.add_header(&Header::new("Host", hostname_header))?;
         message.add_header(&Header::new("accept", "application/xml"))?;
         message.add_header(&Header::new("User-Agent", &self.user_agent_header))?;
+
+        if let Some(ref payer) = self.request_payer {
+            message.add_header(&Header::new("x-amz-request-payer", payer))?;
+        }
 
         Ok(S3Message {
             inner: message,
