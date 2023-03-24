@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679670260237,
+  "lastUpdate": 1679682321471,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -10003,6 +10003,110 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 24.1533203125,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "arjvik@gmail.com",
+            "name": "Arjun Vikram",
+            "username": "arjvik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d9a58287de42ebfdf5581abb00b8f53b0704f90",
+          "message": "Add requester pays support (#168)\n\n* Add support for --request-payer requester cli flag\r\n\r\nSigned-off-by: Arjun Vikram <arjvik@gmail.com>\r\n\r\n* Inline struct construction\r\n\r\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>\r\nSigned-off-by: Arjun Vikram <arjvik@gmail.com>\r\n\r\n* Remove empty None case\r\n\r\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>\r\nSigned-off-by: Arjun Vikram <arjvik@gmail.com>\r\n\r\n* Add trailing comma\r\n\r\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>\r\nSigned-off-by: Arjun Vikram <arjvik@gmail.com>\r\n\r\n* Change --request-payer requester flag into --requester-pays\r\n\r\nCo-authored-by: monthonk <monthonk@amazon.co.uk>\r\nSigned-off-by: Arjun Vikram <arjvik@gmail.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Arjun Vikram <arjvik@gmail.com>\r\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>\r\nCo-authored-by: monthonk <monthonk@amazon.co.uk>",
+          "timestamp": "2023-03-24T18:04:33Z",
+          "tree_id": "62f33e5f47158de61fa72b3c6ee5f758e0fb23f2",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5d9a58287de42ebfdf5581abb00b8f53b0704f90"
+        },
+        "date": 1679682320965,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.5537109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.0478515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 10.51953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 35.7900390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 23.98828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.21875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.5546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.6474609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 869.9208984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 7.013671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6133.7744140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 164.330078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 10.208984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2076.388671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 25.2080078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 24.6279296875,
             "unit": "MiB/s"
           }
         ]
