@@ -1868,7 +1868,6 @@ dependencies = [
  "libc-stdhandle",
  "metrics",
  "mountpoint-s3-crt",
- "mountpoint-s3-crt-sys",
  "percent-encoding",
  "pin-project",
  "proptest",
