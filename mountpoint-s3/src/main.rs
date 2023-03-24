@@ -120,8 +120,8 @@ struct CliArgs {
     #[clap(long, help = "Force path-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
     pub path_addressing: bool,
 
-    #[clap(long, help = "Value of the 'x-amz-request-payer' header sent to S3", help_heading = BUCKET_OPTIONS_HEADER)]
-    pub request_payer: Option<String>,
+    #[clap(long, help = "Set the 'x-amz-request-payer' to 'requester' on S3 requests", help_heading = BUCKET_OPTIONS_HEADER)]
+    pub requester_pays: bool,
 
     #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
@@ -345,7 +345,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         part_size: args.part_size.map(|t| t as usize),
         endpoint,
         user_agent_prefix: Some(format!("mountpoint-s3/{}", build_info::FULL_VERSION)),
-        request_payer: args.request_payer,
+        request_payer: args.requester_pays.then_some("requester".to_owned()),
     };
 
     let client = create_client_for_bucket(
