@@ -170,7 +170,8 @@ impl Superblock {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
                             let last_modified = object.last_modified;
-                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now());
+                            let etag = Some(object.etag);
+                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), etag);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -320,7 +321,8 @@ impl Superblock {
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
-        let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry);
+        let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None);
+        //E-tag for the file will be set during lookup before reading it.
         let kind = InodeKind::File;
         let state = InodeState {
             stat: stat.clone(),
@@ -592,7 +594,8 @@ impl ReaddirHandle {
                 .filter(|(name, _object)| valid_inode_name(name))
                 .flat_map(|(name, object)| {
                     let last_modified = object.last_modified;
-                    let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now());
+                    let etag = Some(object.etag.clone());
+                    let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), etag);
                     let stat_clone = stat.clone();
                     let kind_data = InodeKindData::File {};
 
@@ -780,6 +783,8 @@ pub struct InodeStat {
     pub ctime: OffsetDateTime,
     /// Time of last access
     pub atime: OffsetDateTime,
+    /// Etag for the file (object)
+    pub etag: Option<String>,
 }
 
 /// Inode write status (local vs remote)
@@ -795,13 +800,14 @@ pub enum WriteStatus {
 
 impl InodeStat {
     /// Initialize an [InodeStat] for a file, given some metadata.
-    fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant) -> InodeStat {
+    fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant, etag: Option<String>) -> InodeStat {
         InodeStat {
             expiry,
             size,
             atime: datetime,
             ctime: datetime,
             mtime: datetime,
+            etag,
         }
     }
 
@@ -813,6 +819,7 @@ impl InodeStat {
             atime: datetime,
             ctime: datetime,
             mtime: datetime,
+            etag: None,
         }
     }
 }
@@ -1150,7 +1157,7 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, Instant::now());
+        let file_inodestat = InodeStat::for_file(128, ts, Instant::now(), None);
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);

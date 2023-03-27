@@ -104,6 +104,7 @@ pub struct PrefetchGetObject<Client: ObjectClient, Runtime> {
     next_request_size: usize,
     next_request_offset: u64,
     size: u64,
+    etag: Option<String>,
 }
 
 impl<Client, Runtime> PrefetchGetObject<Client, Runtime>
@@ -123,13 +124,19 @@ where
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             size,
+            etag: None,
         }
     }
 
     /// Read some bytes from the object. This function will always return exactly `size` bytes,
     /// except at the end of the object where it will return however many bytes are left (including
     /// possibly 0 bytes).
-    pub async fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
+    pub async fn read(
+        &mut self,
+        offset: u64,
+        length: usize,
+        etag: Option<String>,
+    ) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
         trace!(
             offset,
             length,
@@ -142,6 +149,7 @@ where
             return Ok(Bytes::new());
         }
         let mut to_read = (length as u64).min(remaining);
+        self.etag = etag;
 
         // Cancel and reset prefetching if this is an out-of-order read
         if self.next_sequential_read_offset != offset {
@@ -251,11 +259,11 @@ where
             let part_queue = Arc::clone(&part_queue);
             let bucket = self.bucket.to_owned();
             let key = self.key.to_owned();
-
+            let etag = self.etag.clone();
             let span = debug_span!("prefetch", range=?range);
 
             async move {
-                match client.get_object(&bucket, &key, Some(range.clone())).await {
+                match client.get_object(&bucket, &key, Some(range.clone()), etag).await {
                     Err(e) => {
                         error!(error=?e, "RequestTask get object failed");
                         part_queue.push(Err(e));
@@ -400,7 +408,7 @@ mod tests {
 
         let mut next_offset = 0;
         loop {
-            let buf = block_on(request.read(next_offset, read_size)).unwrap();
+            let buf = block_on(request.read(next_offset, read_size, None)).unwrap();
             if buf.is_empty() {
                 break;
             }
@@ -472,7 +480,7 @@ mod tests {
 
         let mut next_offset = 0;
         loop {
-            let buf = match block_on(request.read(next_offset, read_size)) {
+            let buf = match block_on(request.read(next_offset, read_size, None)) {
                 Ok(buf) => buf,
                 Err(_) => break,
             };
@@ -589,7 +597,7 @@ mod tests {
             assert!(offset < object_size);
             assert!(offset + length as u64 <= object_size);
             let expected = ramp_bytes((0xaa + offset) as usize, length);
-            let buf = block_on(request.read(offset, length)).unwrap();
+            let buf = block_on(request.read(offset, length, None)).unwrap();
             assert_eq!(buf.len(), expected.len());
             // Don't spew the giant buffer if this test fails
             if buf[..] != expected[..] {

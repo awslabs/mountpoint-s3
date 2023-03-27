@@ -32,6 +32,7 @@ pub trait ObjectClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<String>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix

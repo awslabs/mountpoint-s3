@@ -71,9 +71,10 @@ where
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<String>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, range.clone())?;
-        let get_result = self.client.get_object(bucket, key, range).await?;
+        let get_result = self.client.get_object(bucket, key, range, if_match).await?;
         Ok(FailureGetResult {
             state: wrapper.state,
             result_fn: wrapper.result_fn,
@@ -295,7 +296,7 @@ mod tests {
 
         let fail_set = HashSet::from([2, 4, 5]);
         for i in 1..=6 {
-            let r = fail_client.get_object(bucket, key, None).await;
+            let r = fail_client.get_object(bucket, key, None, None).await;
             if fail_set.contains(&i) {
                 assert!(r.is_err());
             } else {

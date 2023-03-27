@@ -26,10 +26,11 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<String>,
     ) -> Result<GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
         let span = request_span!(self, "get_object");
         span.in_scope(
-            || debug!(?bucket, ?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
+            || debug!(?bucket, ?key, ?range, ?if_match, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
         let mut message = self
@@ -46,6 +47,13 @@ impl S3CrtClient {
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .add_header(&Header::new("Range", range_value))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
+        if let Some(etag) = if_match {
+            // Return the object only if its entity tag (ETag) is matched
+            message
+                .add_header(&Header::new("If-Match", etag))
                 .map_err(S3RequestError::construction_failure)?;
         }
 

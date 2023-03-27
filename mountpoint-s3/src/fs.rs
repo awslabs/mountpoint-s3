@@ -40,6 +40,7 @@ struct FileHandle<Client: ObjectClient, Runtime> {
     inode: Inode,
     full_key: String,
     object_size: u64,
+    etag: Option<String>,
     typ: FileHandleType<Client, Runtime>,
 }
 
@@ -300,6 +301,7 @@ where
             inode: lookup.inode,
             full_key,
             object_size: lookup.stat.size as u64,
+            etag: lookup.stat.etag,
             typ: handle_type,
         };
         self.file_handles.write().await.insert(fh, handle);
@@ -339,7 +341,13 @@ where
             *request = Some(self.prefetcher.get(&self.bucket, &handle.full_key, handle.object_size));
         }
 
-        match request.as_mut().unwrap().read(offset as u64, size as usize).await {
+        let file_etag = handle.etag.clone();
+        match request
+            .as_mut()
+            .unwrap()
+            .read(offset as u64, size as usize, file_etag)
+            .await
+        {
             Ok(body) => reply.data(&body),
             Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
         }

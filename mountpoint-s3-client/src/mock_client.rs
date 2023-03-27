@@ -233,8 +233,9 @@ impl ObjectClient for MockClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<String>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
-        trace!(bucket, key, ?range, "GetObject");
+        trace!(bucket, key, ?range, ?if_match, "GetObject");
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
@@ -482,7 +483,7 @@ mod tests {
         client.add_object(key, MockObject::from_bytes(&body));
 
         let mut get_request = client
-            .get_object("test_bucket", key, range.clone())
+            .get_object("test_bucket", key, range.clone(), None)
             .await
             .expect("should not fail");
 
@@ -533,33 +534,33 @@ mod tests {
         }
 
         assert!(matches!(
-            client.get_object("wrong_bucket", "key1", None).await,
+            client.get_object("wrong_bucket", "key1", None, None).await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
         ));
 
         assert!(matches!(
-            client.get_object("test_bucket", "wrong_key", None).await,
+            client.get_object("test_bucket", "wrong_key", None, None).await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
         ));
 
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(0..2001)).await,
+            client.get_object("test_bucket", "key1", Some(0..2001), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(2000..2000)).await,
+            client.get_object("test_bucket", "key1", Some(2000..2000), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(500..2001)).await,
+            client.get_object("test_bucket", "key1", Some(500..2001), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(5000..2001)).await,
+            client.get_object("test_bucket", "key1", Some(5000..2001), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(5000..1)).await,
+            client.get_object("test_bucket", "key1", Some(5000..1), None).await,
             "invalid range, length=2000"
         );
     }
@@ -681,7 +682,7 @@ mod tests {
             .expect("put_object failed");
 
         let mut get_request = client
-            .get_object("test_bucket", "key1", None)
+            .get_object("test_bucket", "key1", None, None)
             .await
             .expect("get_object failed");
 
