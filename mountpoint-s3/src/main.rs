@@ -12,8 +12,9 @@ use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
 use mountpoint_s3_client::{
-    AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
+    AddressingStyle, Endpoint, HeadBucketError, ImdsCrtClient, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
+
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
@@ -227,7 +228,6 @@ fn main() -> anyhow::Result<()> {
     if args.foreground {
         init_tracing_subscriber(args.foreground, args.log_directory.as_deref())
             .context("failed to initialize logging")?;
-
         let _metrics = MetricsSink::init();
 
         // mount file system as a foreground process
@@ -339,6 +339,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .map(|uri| Endpoint::from_uri(&uri, addressing_style))
         .transpose()
         .context("Failed to parse endpoint URL")?;
+
+    let ec2_instance_type = retrieve_instance_type()?;
+    tracing::info!("ec2 instance type is: {}", &ec2_instance_type);
 
     let client_config = S3ClientConfig {
         throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
@@ -478,4 +481,15 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
     } else {
         Ok(perm)
     }
+}
+
+pub fn retrieve_instance_type() -> anyhow::Result<String> {
+    let imds_crt_client = ImdsCrtClient::new()?;
+
+    let output = futures::executor::block_on(async move {
+        let query = imds_crt_client.make_instance_type_query();
+        query.await.unwrap()
+    });
+
+    Ok(output.unwrap().into_string().unwrap())
 }

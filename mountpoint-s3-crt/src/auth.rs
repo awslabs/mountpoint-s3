@@ -7,6 +7,7 @@ use mountpoint_s3_crt_sys::aws_auth_library_init;
 use crate::common::allocator::Allocator;
 
 pub mod credentials;
+pub mod imds_client;
 pub mod signing_config;
 
 static AUTH_LIBRARY_INIT: Once = Once::new();
