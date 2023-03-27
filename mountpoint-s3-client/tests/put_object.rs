@@ -2,6 +2,8 @@
 
 pub mod common;
 
+use std::option::Option::None;
+
 use common::*;
 use futures::future;
 use futures::stream;
@@ -28,7 +30,7 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str)
         .await
         .expect("put_object failed");
 
-    let result = client.get_object(bucket, &key, None).await.expect("get_object failed");
+    let result = client.get_object(bucket, &key, None, None).await.expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
 }
 
