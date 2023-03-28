@@ -95,7 +95,8 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Prefix inside the bucket to mount [default: mount the entire bucket]",
+        help = "Prefix inside the bucket to mount, ending in '/' [default: mount the entire bucket]",
+        value_parser = parse_prefix,
         help_heading = BUCKET_OPTIONS_HEADER
     )]
     pub prefix: Option<String>,
@@ -477,5 +478,13 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
         Err(anyhow!("only user/group/other permissions are supported"))
     } else {
         Ok(perm)
+    }
+}
+
+fn parse_prefix(prefix: &str) -> Result<String, anyhow::Error> {
+    if !(prefix.is_empty() || prefix.ends_with('/')) {
+        Err(anyhow!("must end in '/'"))
+    } else {
+        Ok(prefix.to_owned())
     }
 }
