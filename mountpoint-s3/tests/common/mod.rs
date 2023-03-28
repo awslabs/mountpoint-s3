@@ -2,7 +2,7 @@ use aws_sdk_s3::types::ByteStream;
 use aws_sdk_s3::Region;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
-use mountpoint_s3::fs::{DirectoryReplier, ReadReplier};
+use mountpoint_s3::fs::{DirectoryReplier, Prefix, ReadReplier};
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 pub fn make_test_filesystem(
     bucket: &str,
-    prefix: &str,
+    prefix: Option<&Prefix>,
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>, ThreadPool>) {
     let client_config = MockClientConfig {

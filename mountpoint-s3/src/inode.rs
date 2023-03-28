@@ -68,15 +68,13 @@ struct SuperblockInner {
 
 impl Superblock {
     /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(bucket: &str, prefix: &str) -> Self {
-        assert!(prefix.is_empty() || prefix.ends_with('/'));
-
+    pub fn new(bucket: &str, prefix: Option<&Prefix>) -> Self {
         let mount_time = OffsetDateTime::now_utc();
         let root = InodeInner {
             ino: ROOT_INODE_NO,
             parent: ROOT_INODE_NO,
             name: String::new(),
-            full_key: prefix.to_owned(),
+            full_key: Prefix::to_string(prefix).to_owned(),
             kind: InodeKind::Directory,
             sync: RwLock::new(InodeState {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
@@ -839,6 +837,57 @@ pub enum InodeError {
     InodeNotReadableWhileWriting(InodeNo),
 }
 
+mod prefix {
+    use std::fmt::Display;
+    use std::str::FromStr;
+
+    use anyhow::anyhow;
+
+    /// A prefix string ending in `/`
+    #[derive(Debug, Clone)]
+    pub struct Prefix {
+        path: String,
+    }
+
+    impl Prefix {
+        pub fn new(prefix: &str) -> anyhow::Result<Self> {
+            if !Self::is_valid(prefix) {
+                Err(anyhow!("must end in '/'"))
+            } else {
+                Ok(Prefix {
+                    path: prefix.to_owned(),
+                })
+            }
+        }
+
+        pub fn is_valid(prefix: &str) -> bool {
+            prefix.is_empty() || prefix.ends_with('/')
+        }
+
+        pub fn to_string(prefix: Option<&Self>) -> &str {
+            match prefix {
+                None => "",
+                Some(prefix) => &prefix.path,
+            }
+        }
+    }
+
+    impl Display for Prefix {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_fmt(format_args!("{}", self.path))
+        }
+    }
+
+    impl FromStr for Prefix {
+        type Err = anyhow::Error;
+
+        fn from_str(s: &str) -> anyhow::Result<Self> {
+            Prefix::new(s)
+        }
+    }
+}
+pub use prefix::Prefix;
+
 #[cfg(test)]
 mod tests {
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
@@ -894,8 +943,9 @@ mod tests {
             client.add_object(key, obj);
         }
 
+        let valid_prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(bucket, prefix);
+        let superblock = Superblock::new(bucket, Some(&valid_prefix));
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -1000,8 +1050,9 @@ mod tests {
             client.add_object(key, obj);
         }
 
+        let valid_prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new("test_bucket", prefix);
+        let superblock = Superblock::new("test_bucket", Some(&valid_prefix));
 
         // Try it all twice to test inode reuse
         for _ in 0..2 {
@@ -1048,7 +1099,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket", "");
+        let superblock = Superblock::new("test_bucket", None);
 
         for _ in 0..2 {
             let dir1_1 = superblock
@@ -1090,7 +1141,7 @@ mod tests {
         client.add_object(&format!("dir/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
         client.add_object(&format!("dir-1/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket", "");
+        let superblock = Superblock::new("test_bucket", None);
 
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
@@ -1122,7 +1173,7 @@ mod tests {
         client.add_object("dir1/.", MockObject::constant(0xaa, 30));
         client.add_object("dir1/./a", MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket", "");
+        let superblock = Superblock::new("test_bucket", None);
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(

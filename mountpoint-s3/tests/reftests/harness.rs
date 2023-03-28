@@ -5,7 +5,7 @@ use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3::{
-    fs::{InodeNo, FUSE_ROOT_INODE},
+    fs::{InodeNo, Prefix, FUSE_ROOT_INODE},
     {S3Filesystem, S3FilesystemConfig},
 };
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
@@ -195,12 +195,12 @@ enum CheckType {
 }
 
 fn run_test(tree: TreeNode, check: CheckType, readdir_limit: usize) {
-    let test_prefix = "test_prefix/";
+    let test_prefix = Prefix::new("test_prefix/").expect("valid prefix");
     let config = S3FilesystemConfig {
         readdir_size: 5,
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("harness", test_prefix, config);
+    let (client, fs) = make_test_filesystem("harness", Some(&test_prefix), config);
 
     let namespace = flatten_tree(tree);
     for (key, object) in namespace.iter() {

@@ -6,6 +6,7 @@ mod readdir_test;
 mod write_test;
 
 use fuser::{BackgroundSession, MountOption, Session};
+use mountpoint_s3::fs::Prefix;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
@@ -47,8 +48,9 @@ mod mock_session {
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
 
+        let prefix = Prefix::new(&prefix).expect("valid prefix");
         let session = Session::new(
-            S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, &prefix, filesystem_config),
+            S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, Some(&prefix), filesystem_config),
             mount_dir.path(),
             &options,
         )
@@ -97,8 +99,9 @@ mod s3_session {
             MountOption::AllowOther,
         ];
 
+        let prefix = Prefix::new(&prefix).expect("valid prefix");
         let session = Session::new(
-            S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
+            S3FuseFilesystem::new(client, runtime, &bucket, Some(&prefix), filesystem_config),
             mount_dir.path(),
             &options,
         )

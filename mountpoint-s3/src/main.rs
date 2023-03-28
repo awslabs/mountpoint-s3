@@ -7,7 +7,7 @@ use std::{fs, fs::File};
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser};
 use fuser::{MountOption, Session};
-use mountpoint_s3::fs::S3FilesystemConfig;
+use mountpoint_s3::fs::{Prefix, S3FilesystemConfig};
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
@@ -96,10 +96,9 @@ struct CliArgs {
     #[clap(
         long,
         help = "Prefix inside the bucket to mount, ending in '/' [default: mount the entire bucket]",
-        value_parser = parse_prefix,
         help_heading = BUCKET_OPTIONS_HEADER
     )]
-    pub prefix: Option<String>,
+    pub prefix: Option<Prefix>,
 
     #[clap(
         long,
@@ -379,7 +378,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         client,
         runtime,
         &args.bucket_name,
-        args.prefix.as_deref().unwrap_or(""),
+        args.prefix.as_ref(),
         filesystem_config,
     );
 
@@ -478,13 +477,5 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
         Err(anyhow!("only user/group/other permissions are supported"))
     } else {
         Ok(perm)
-    }
-}
-
-fn parse_prefix(prefix: &str) -> Result<String, anyhow::Error> {
-    if !(prefix.is_empty() || prefix.ends_with('/')) {
-        Err(anyhow!("must end in '/'"))
-    } else {
-        Ok(prefix.to_owned())
     }
 }
