@@ -54,16 +54,19 @@ First, build the docker image using the below command.
     cd mountpoint-s3/docker
     docker build -t mount-s3 .
 
-Once docker build is successful, Set AWS credentials as environmental variables as specified in https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html
-Run the below command to mount s3 and list objects. Please fill the <<Bucket name>> before executing the below command.
- 
+Once the container build is successful, configure AWS credentials as environment variables.
+You can set short-term or long-term credentials using variables, such as those in the [AWS CLI environment variables documentation](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
+Run the following command to mount the S3 bucket and list some files.
+Replace `DOC-EXAMPLE-BUCKET` with the name of your bucket.
+
      docker run -it \
         --cap-add SYS_ADMIN \
         --device /dev/fuse \
         --env AWS_ACCESS_KEY_ID \
         --env AWS_SECRET_ACCESS_KEY \
+        --env AWS_SESSION_TOKEN \
         --env AWS_DEFAULT_REGION \
-        mount-s3 /bin/bash -c "./mount-s3 <<Bucket name>> /mnt; ls -l /mnt"
+        mount-s3 /bin/bash -c "./mount-s3 DOC-EXAMPLE-BUCKET /mnt; ls -l /mnt"
 
 ### Configuration
 
