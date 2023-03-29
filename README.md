@@ -80,7 +80,7 @@ For the alpha release, additional configuration is required to use Mountpoint fo
 
 ## Contributing
 
-We welcome contributions to Mountpoint for Amazon S3! Please see [CONTRIBUTING.md](doc/CONTRIBUTING.md) for more information on how to report bugs or submit pull requests, and [LOGGING.md](doc/LOGGING.md) for details on how to capture logging data for bug reports.
+We welcome contributions to Mountpoint for Amazon S3! Please see [CONTRIBUTING.md](doc/CONTRIBUTING.md) for more information on how to report bugs or submit pull requests, [LOGGING.md](doc/LOGGING.md) for details on how to capture logging data for bug reports, and [BENCHMARKING.md](doc/BENCHMARKING.md) for performance regression testing.
 
 ### Security
 
