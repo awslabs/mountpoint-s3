@@ -39,7 +39,9 @@ fn prefix_doesnt_end_in_slash() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     let prefix = "foo";
-    cmd.arg("test-bucket").arg(dir.path()).arg(format!("--prefix={}", prefix));
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg(format!("--prefix={}", prefix));
     let error_message = format!(
         "error: invalid value '{}' for '--prefix <PREFIX>': must end in '/'",
         prefix
