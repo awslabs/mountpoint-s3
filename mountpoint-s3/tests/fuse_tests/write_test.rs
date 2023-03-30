@@ -1,4 +1,4 @@
-use std::fs::{metadata, read, File};
+use std::fs::{metadata, read, read_dir, File};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::prelude::OpenOptionsExt;
 use std::path::Path;
@@ -35,9 +35,24 @@ where
     // Make sure there's an existing directory
     put_object_fn("dir/hello.txt", b"hello world").unwrap();
 
+    let subdir = mount_point.path().join("dir");
     let path = mount_point.path().join("dir/new.txt");
 
     let mut f = open_for_write(&path, append).unwrap();
+
+    // The file is visible with size 0 as soon as we open it for write
+    let m = metadata(&subdir).unwrap();
+    assert_eq!(m.len(), 0);
+
+    // verify the new file is visible in readdir
+    let dir = read_dir(&subdir).unwrap();
+    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
+    assert_eq!(
+        dirs.iter()
+            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        vec!["hello.txt", "new.txt"]
+    );
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
@@ -66,6 +81,16 @@ where
 
     let buf = read(&path).unwrap();
     assert_eq!(&buf[..], &body[..]);
+
+    // Readdir should still work correctly
+    let dir = read_dir(&subdir).unwrap();
+    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
+    assert_eq!(
+        dirs.iter()
+            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        vec!["hello.txt", "new.txt"]
+    );
 
     // We shouldn't be allowed to open the file for writing again
     let err = open_for_write(&path, append).expect_err("can't write existing file");
