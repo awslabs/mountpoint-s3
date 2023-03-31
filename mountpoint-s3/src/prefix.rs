@@ -5,7 +5,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum PrefixError {
-    #[error("prefixes must end in '/'")]
+    #[error("prefix must end in '/'")]
     MissingFinalDelimiter,
 }
 

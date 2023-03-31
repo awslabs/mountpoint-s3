@@ -43,7 +43,7 @@ fn prefix_doesnt_end_in_slash() -> Result<(), Box<dyn std::error::Error>> {
         .arg(dir.path())
         .arg(format!("--prefix={}", prefix));
     let error_message = format!(
-        "error: invalid value '{}' for '--prefix <PREFIX>': prefixes must end in '/'",
+        "error: invalid value '{}' for '--prefix <PREFIX>': prefix must end in '/'",
         prefix
     );
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
