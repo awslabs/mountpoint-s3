@@ -5,6 +5,7 @@ use std::time::Duration;
 use tracing::{instrument, Instrument};
 
 use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
+use crate::prefix::Prefix;
 use fuser::{
     FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, Request,
 };
@@ -23,7 +24,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Runtime: Spawn + Send + Sync,
 {
-    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
         let fs = S3Filesystem::new(client, runtime, bucket, prefix, config);
 
         Self { fs }

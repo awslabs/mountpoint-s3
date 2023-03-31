@@ -2,6 +2,7 @@
 
 use fuser::FileType;
 use mountpoint_s3::fs::FUSE_ROOT_INODE;
+use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::mock_client::MockObject;
 use mountpoint_s3_client::ObjectClient;
 use nix::unistd::{getgid, getuid};
@@ -17,7 +18,8 @@ use common::{assert_attr, make_test_filesystem, ReadReply};
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_read_dir_root(prefix: &str) {
-    let (client, fs) = make_test_filesystem("test_read_dir", prefix, Default::default());
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_read_dir", &prefix, Default::default());
 
     client.add_object(&format!("{prefix}file1.txt"), MockObject::constant(0xa1, 15));
     client.add_object(&format!("{prefix}file2.txt"), MockObject::constant(0xa2, 15));
@@ -80,7 +82,8 @@ async fn test_read_dir_root(prefix: &str) {
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_read_dir_nested(prefix: &str) {
-    let (client, fs) = make_test_filesystem("test_read_dir_nested", prefix, Default::default());
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_read_dir_nested", &prefix, Default::default());
 
     client.add_object(&format!("{prefix}dir1/file1.txt"), MockObject::constant(0xa1, 15));
     client.add_object(&format!("{prefix}dir1/file2.txt"), MockObject::constant(0xa2, 15));
@@ -142,7 +145,7 @@ async fn test_read_dir_nested(prefix: &str) {
 #[test_case(50 * 1024 * 1024; "large")]
 #[tokio::test]
 async fn test_random_read(object_size: usize) {
-    let (client, fs) = make_test_filesystem("test_random_read", "", Default::default());
+    let (client, fs) = make_test_filesystem("test_random_read", &Default::default(), Default::default());
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
     let mut expected = vec![0; object_size];
@@ -181,7 +184,8 @@ async fn test_random_read(object_size: usize) {
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_implicit_directory_shadow(prefix: &str) {
-    let (client, fs) = make_test_filesystem("test_implicit_directory_shadow", prefix, Default::default());
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_implicit_directory_shadow", &prefix, Default::default());
 
     // Make an object that matches a directory name. We want this object to be shadowed by the
     // directory.
@@ -230,7 +234,7 @@ async fn test_sequential_write(write_size: usize) {
     const BUCKET_NAME: &str = "test_sequential_write";
     const OBJECT_SIZE: usize = 50 * 1024;
 
-    let (client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
@@ -320,7 +324,7 @@ async fn test_sequential_write(write_size: usize) {
 async fn test_unordered_write_fails() {
     const BUCKET_NAME: &str = "test_unordered_write_fails";
 
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
@@ -356,7 +360,7 @@ async fn test_unordered_write_fails() {
 async fn test_duplicate_write_fails() {
     const BUCKET_NAME: &str = "test_duplicate_write_fails";
 
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
@@ -378,7 +382,7 @@ async fn test_duplicate_write_fails() {
 
 #[tokio::test]
 async fn test_stat_block_size() {
-    let (client, fs) = make_test_filesystem("test_stat_block_size", "", Default::default());
+    let (client, fs) = make_test_filesystem("test_stat_block_size", &Default::default(), Default::default());
 
     client.add_object("file0.txt", MockObject::constant(0xa1, 0));
     client.add_object("file1.txt", MockObject::constant(0xa2, 1));

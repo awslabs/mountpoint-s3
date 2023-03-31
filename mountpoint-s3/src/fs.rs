@@ -10,6 +10,7 @@ use mountpoint_s3_client::{ObjectClient, PutObjectParams};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
+use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 
@@ -99,7 +100,7 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     prefetcher: Prefetcher<Client, Runtime>,
     bucket: String,
     #[allow(unused)]
-    prefix: String,
+    prefix: Prefix,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
@@ -110,13 +111,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Runtime: Spawn + Send + Sync,
 {
-    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
-        // TODO is this required?
-        assert!(
-            prefix.is_empty() || prefix.ends_with('/'),
-            "prefix must be empty or end with `/`"
-        );
-
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
         let superblock = Superblock::new(bucket, prefix);
 
         let client = Arc::new(client);
@@ -129,7 +124,7 @@ where
             superblock,
             prefetcher,
             bucket: bucket.to_string(),
-            prefix: prefix.to_string(),
+            prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
             dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),

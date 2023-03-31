@@ -3,6 +3,7 @@ pub mod fuse;
 mod inode;
 pub mod metrics;
 pub mod prefetch;
+pub mod prefix;
 mod sync;
 
 pub use fs::{S3Filesystem, S3FilesystemConfig};

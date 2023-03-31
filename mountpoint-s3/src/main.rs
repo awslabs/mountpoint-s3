@@ -11,6 +11,7 @@ use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
+use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
     AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
@@ -95,11 +96,11 @@ struct CliArgs {
 
     #[clap(
         long,
+        default_value = "",
         help = "Prefix inside the bucket to mount, ending in '/' [default: mount the entire bucket]",
-        value_parser = parse_prefix,
         help_heading = BUCKET_OPTIONS_HEADER
     )]
-    pub prefix: Option<String>,
+    pub prefix: Prefix,
 
     #[clap(
         long,
@@ -375,13 +376,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         filesystem_config.prefetcher_config.part_alignment = part_size as usize;
     }
 
-    let fs = S3FuseFilesystem::new(
-        client,
-        runtime,
-        &args.bucket_name,
-        args.prefix.as_deref().unwrap_or(""),
-        filesystem_config,
-    );
+    let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &args.prefix, filesystem_config);
 
     let fs_name = String::from("mountpoint-s3");
     let mut options = vec![
@@ -478,13 +473,5 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
         Err(anyhow!("only user/group/other permissions are supported"))
     } else {
         Ok(perm)
-    }
-}
-
-fn parse_prefix(prefix: &str) -> Result<String, anyhow::Error> {
-    if !(prefix.is_empty() || prefix.ends_with('/')) {
-        Err(anyhow!("must end in '/'"))
-    } else {
-        Ok(prefix.to_owned())
     }
 }
