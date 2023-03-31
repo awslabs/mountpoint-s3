@@ -10,10 +10,11 @@ use mountpoint_s3_client::{ObjectClient, PutObjectParams};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
+use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 
-pub use crate::inode::{InodeNo, Prefix};
+pub use crate::inode::InodeNo;
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 

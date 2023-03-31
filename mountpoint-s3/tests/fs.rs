@@ -1,7 +1,8 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-use mountpoint_s3::fs::{Prefix, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::FUSE_ROOT_INODE;
+use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::mock_client::MockObject;
 use mountpoint_s3_client::ObjectClient;
 use nix::unistd::{getgid, getuid};

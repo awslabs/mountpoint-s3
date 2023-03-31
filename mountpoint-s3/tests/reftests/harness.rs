@@ -5,7 +5,8 @@ use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3::{
-    fs::{InodeNo, Prefix, FUSE_ROOT_INODE},
+    fs::{InodeNo, FUSE_ROOT_INODE},
+    prefix::Prefix,
     {S3Filesystem, S3FilesystemConfig},
 };
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};

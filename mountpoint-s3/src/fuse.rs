@@ -4,7 +4,8 @@ use std::ffi::OsStr;
 use std::time::Duration;
 use tracing::{instrument, Instrument};
 
-use crate::fs::{DirectoryReplier, InodeNo, Prefix, ReadReplier, S3Filesystem, S3FilesystemConfig};
+use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
+use crate::prefix::Prefix;
 use fuser::{
     FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, Request,
 };

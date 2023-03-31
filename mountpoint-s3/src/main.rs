@@ -7,10 +7,11 @@ use std::{fs, fs::File};
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser};
 use fuser::{MountOption, Session};
-use mountpoint_s3::fs::{Prefix, S3FilesystemConfig};
+use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
+use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
     AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
