@@ -17,17 +17,13 @@ pub struct Prefix {
 
 impl Prefix {
     pub fn new(prefix: &str) -> Result<Self, PrefixError> {
-        if !Self::is_valid(prefix) {
+        if !prefix.is_empty() && !prefix.ends_with('/') {
             Err(PrefixError::MissingFinalDelimiter)
         } else {
             Ok(Self {
                 path: prefix.to_owned(),
             })
         }
-    }
-
-    fn is_valid(prefix: &str) -> bool {
-        prefix.is_empty() || prefix.ends_with('/')
     }
 }
 
@@ -55,7 +51,7 @@ mod tests {
     #[test_case("hello"; "not ending in slash")]
     #[test_case("hello/world"; "nested folder not ending in slash")]
     fn test_invalid_prefix(prefix: &str) {
-        assert!(!Prefix::is_valid(prefix))
+        assert!(Prefix::new(prefix).is_err(), "Prefix should be invalid: '{}'", prefix);
     }
 
     #[test_case(""; "empty string")]
@@ -66,6 +62,6 @@ mod tests {
     #[test_case("//"; "double slash")]
     #[test_case("/hello/"; "starting with slash")]
     fn test_valid_prefix(prefix: &str) {
-        assert!(Prefix::is_valid(prefix))
+        assert!(Prefix::new(prefix).is_ok(), "Prefix should be valid: '{}'", prefix);
     }
 }
