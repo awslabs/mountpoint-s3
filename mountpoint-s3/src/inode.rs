@@ -126,7 +126,7 @@ impl Superblock {
             return Err(InodeError::NotADirectory(parent_ino));
         }
         let mut full_path = parent.full_key().to_owned();
-        assert!(Prefix::is_valid(&full_path));
+        assert!(full_path.is_empty() || full_path.ends_with('/'));
         full_path.push_str(name);
 
         let mut full_path_suffixed = full_path.clone();
