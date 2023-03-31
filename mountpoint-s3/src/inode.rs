@@ -68,13 +68,13 @@ struct SuperblockInner {
 
 impl Superblock {
     /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(bucket: &str, prefix: Option<&Prefix>) -> Self {
+    pub fn new(bucket: &str, prefix: &Prefix) -> Self {
         let mount_time = OffsetDateTime::now_utc();
         let root = InodeInner {
             ino: ROOT_INODE_NO,
             parent: ROOT_INODE_NO,
             name: String::new(),
-            full_key: Prefix::to_string(prefix).to_owned(),
+            full_key: prefix.to_string(),
             kind: InodeKind::Directory,
             sync: RwLock::new(InodeState {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
@@ -843,8 +843,8 @@ mod prefix {
 
     use anyhow::anyhow;
 
-    /// A prefix string ending in `/`
-    #[derive(Debug, Clone)]
+    /// A prefix string ending in `/`, or the empty string
+    #[derive(Debug, Clone, Default)]
     pub struct Prefix {
         path: String,
     }
@@ -854,7 +854,7 @@ mod prefix {
             if !Self::is_valid(prefix) {
                 Err(anyhow!("must end in '/'"))
             } else {
-                Ok(Prefix {
+                Ok(Self {
                     path: prefix.to_owned(),
                 })
             }
@@ -862,13 +862,6 @@ mod prefix {
 
         pub fn is_valid(prefix: &str) -> bool {
             prefix.is_empty() || prefix.ends_with('/')
-        }
-
-        pub fn to_string(prefix: Option<&Self>) -> &str {
-            match prefix {
-                None => "",
-                Some(prefix) => &prefix.path,
-            }
         }
     }
 
@@ -943,9 +936,9 @@ mod tests {
             client.add_object(key, obj);
         }
 
-        let valid_prefix = Prefix::new(prefix).expect("valid prefix");
+        let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(bucket, Some(&valid_prefix));
+        let superblock = Superblock::new(bucket, &prefix);
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -1050,9 +1043,9 @@ mod tests {
             client.add_object(key, obj);
         }
 
-        let valid_prefix = Prefix::new(prefix).expect("valid prefix");
+        let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new("test_bucket", Some(&valid_prefix));
+        let superblock = Superblock::new("test_bucket", &prefix);
 
         // Try it all twice to test inode reuse
         for _ in 0..2 {
@@ -1099,7 +1092,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket", None);
+        let superblock = Superblock::new("test_bucket", &Default::default());
 
         for _ in 0..2 {
             let dir1_1 = superblock
@@ -1141,7 +1134,7 @@ mod tests {
         client.add_object(&format!("dir/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
         client.add_object(&format!("dir-1/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket", None);
+        let superblock = Superblock::new("test_bucket", &Default::default());
 
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
@@ -1173,7 +1166,7 @@ mod tests {
         client.add_object("dir1/.", MockObject::constant(0xaa, 30));
         client.add_object("dir1/./a", MockObject::constant(0xaa, 30));
 
-        let superblock = Superblock::new("test_bucket", None);
+        let superblock = Superblock::new("test_bucket", &Default::default());
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(

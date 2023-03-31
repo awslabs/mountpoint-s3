@@ -200,7 +200,7 @@ fn run_test(tree: TreeNode, check: CheckType, readdir_limit: usize) {
         readdir_size: 5,
         ..Default::default()
     };
-    let (client, fs) = make_test_filesystem("harness", Some(&test_prefix), config);
+    let (client, fs) = make_test_filesystem("harness", &test_prefix, config);
 
     let namespace = flatten_tree(tree);
     for (key, object) in namespace.iter() {

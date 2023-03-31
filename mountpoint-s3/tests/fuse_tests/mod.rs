@@ -50,7 +50,7 @@ mod mock_session {
 
         let prefix = Prefix::new(&prefix).expect("valid prefix");
         let session = Session::new(
-            S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, Some(&prefix), filesystem_config),
+            S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
         )
@@ -101,7 +101,7 @@ mod s3_session {
 
         let prefix = Prefix::new(&prefix).expect("valid prefix");
         let session = Session::new(
-            S3FuseFilesystem::new(client, runtime, &bucket, Some(&prefix), filesystem_config),
+            S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
             mount_dir.path(),
             &options,
         )

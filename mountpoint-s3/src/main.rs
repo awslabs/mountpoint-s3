@@ -378,7 +378,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         client,
         runtime,
         &args.bucket_name,
-        args.prefix.as_ref(),
+        &args.prefix.unwrap_or_default(),
         filesystem_config,
     );
 

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 pub fn make_test_filesystem(
     bucket: &str,
-    prefix: Option<&Prefix>,
+    prefix: &Prefix,
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>, ThreadPool>) {
     let client_config = MockClientConfig {

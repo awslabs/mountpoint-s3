@@ -99,7 +99,7 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     prefetcher: Prefetcher<Client, Runtime>,
     bucket: String,
     #[allow(unused)]
-    prefix: Option<Prefix>,
+    prefix: Prefix,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
@@ -110,13 +110,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Runtime: Spawn + Send + Sync,
 {
-    pub fn new(
-        client: Client,
-        runtime: Runtime,
-        bucket: &str,
-        prefix: Option<&Prefix>,
-        config: S3FilesystemConfig,
-    ) -> Self {
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
         let superblock = Superblock::new(bucket, prefix);
 
         let client = Arc::new(client);
@@ -129,7 +123,7 @@ where
             superblock,
             prefetcher,
             bucket: bucket.to_string(),
-            prefix: prefix.cloned(),
+            prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
             dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),

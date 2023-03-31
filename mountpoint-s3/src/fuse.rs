@@ -23,13 +23,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Runtime: Spawn + Send + Sync,
 {
-    pub fn new(
-        client: Client,
-        runtime: Runtime,
-        bucket: &str,
-        prefix: Option<&Prefix>,
-        config: S3FilesystemConfig,
-    ) -> Self {
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
         let fs = S3Filesystem::new(client, runtime, bucket, prefix, config);
 
         Self { fs }
