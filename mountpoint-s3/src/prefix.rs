@@ -1,7 +1,13 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
-use anyhow::anyhow;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum PrefixError {
+    #[error("prefixes must end in '/'")]
+    MissingFinalDelimiter,
+}
 
 /// A prefix string ending in `/`, or the empty string
 #[derive(Debug, Clone, Default)]
@@ -10,9 +16,9 @@ pub struct Prefix {
 }
 
 impl Prefix {
-    pub fn new(prefix: &str) -> anyhow::Result<Self> {
+    pub fn new(prefix: &str) -> Result<Self, PrefixError> {
         if !Self::is_valid(prefix) {
-            Err(anyhow!("must end in '/'"))
+            Err(PrefixError::MissingFinalDelimiter)
         } else {
             Ok(Self {
                 path: prefix.to_owned(),
@@ -20,21 +26,21 @@ impl Prefix {
         }
     }
 
-    pub fn is_valid(prefix: &str) -> bool {
+    fn is_valid(prefix: &str) -> bool {
         prefix.is_empty() || prefix.ends_with('/')
     }
 }
 
 impl Display for Prefix {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}", self.path))
+        write!(f, "{}", self.path)
     }
 }
 
 impl FromStr for Prefix {
-    type Err = anyhow::Error;
+    type Err = PrefixError;
 
-    fn from_str(s: &str) -> anyhow::Result<Self> {
+    fn from_str(s: &str) -> Result<Self, PrefixError> {
         Prefix::new(s)
     }
 }
