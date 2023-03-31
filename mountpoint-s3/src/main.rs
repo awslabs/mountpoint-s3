@@ -96,10 +96,11 @@ struct CliArgs {
 
     #[clap(
         long,
+        default_value = "",
         help = "Prefix inside the bucket to mount, ending in '/' [default: mount the entire bucket]",
         help_heading = BUCKET_OPTIONS_HEADER
     )]
-    pub prefix: Option<Prefix>,
+    pub prefix: Prefix,
 
     #[clap(
         long,
@@ -375,13 +376,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         filesystem_config.prefetcher_config.part_alignment = part_size as usize;
     }
 
-    let fs = S3FuseFilesystem::new(
-        client,
-        runtime,
-        &args.bucket_name,
-        &args.prefix.unwrap_or_default(),
-        filesystem_config,
-    );
+    let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &args.prefix, filesystem_config);
 
     let fs_name = String::from("mountpoint-s3");
     let mut options = vec![
