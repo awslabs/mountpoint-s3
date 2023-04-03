@@ -20,7 +20,7 @@
 //! Some cached state is dependent on the inode kind; that state is hidden behind a [InodeStatKind]
 //! enum.
 
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
 use std::time::Instant;
@@ -278,7 +278,7 @@ impl Superblock {
             parent_ino,
             full_path: dir_key.to_string(),
             page_size,
-            results: Default::default(),
+            remote_results: Default::default(),
             local_results: Default::default(),
             next_continuation_token: Mutex::new(ReaddirStreamState::NotStarted),
         })
@@ -520,31 +520,6 @@ pub struct LookedUp {
     pub stat: InodeStat,
 }
 
-impl Ord for LookedUp {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.inode.name().cmp(self.inode.name())
-    }
-}
-
-impl PartialOrd for LookedUp {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for LookedUp {}
-
-impl PartialEq for LookedUp {
-    fn eq(&self, other: &Self) -> bool {
-        self.inode.ino() == other.inode.ino()
-            && self.inode.parent() == other.inode.parent()
-            && self.inode.name() == other.inode.name()
-            && self.inode.full_key() == other.inode.full_key()
-            && self.inode.kind() == other.inode.kind()
-            && self.stat == other.stat
-    }
-}
-
 /// Handle for an inflight directory listing
 #[derive(Debug)]
 pub struct ReaddirHandle {
@@ -553,10 +528,8 @@ pub struct ReaddirHandle {
     parent_ino: InodeNo,
     full_path: String,
     page_size: usize,
-    // Use binary heap as a priority queue
-    results: RwLock<BinaryHeap<LookedUp>>,
-    // A set of files that only exist locally, we use them for deduplication
-    local_results: RwLock<HashSet<InodeNo>>,
+    remote_results: RwLock<VecDeque<LookedUp>>,
+    local_results: RwLock<VecDeque<LookedUp>>,
     next_continuation_token: Mutex<ReaddirStreamState>,
 }
 
@@ -581,13 +554,12 @@ impl ReaddirStreamState {
 
 impl ReaddirHandle {
     pub async fn next<OC: ObjectClient>(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
-        // We will start fetching new results when number of items in the queue is less than number of local results
-        // so that we can make sure the order is correct
-        while self.results.read().unwrap().len() <= self.local_results.read().unwrap().len() {
+        // We will start fetching new results when number of items in the remote results queue is empty
+        while self.remote_results.read().unwrap().is_empty() {
             let continuation_token = {
                 let mut next_token = self.next_continuation_token.lock().unwrap();
 
-                // append local files before the first stream
+                // populate local results before the first stream
                 if *next_token == ReaddirStreamState::NotStarted {
                     let inode = self.inner.get(self.dir_ino)?;
                     let kind_data = &inode.inner.sync.read().unwrap().kind_data;
@@ -603,23 +575,21 @@ impl ReaddirHandle {
                         }),
                     };
 
-                    for file in local_files {
-                        match file {
-                            Ok(lookup) => {
-                                self.local_results.write().unwrap().insert(lookup.inode.ino());
-                                self.results.write().unwrap().push(lookup);
-                            }
-                            Err(e) => {
-                                error!(error=?e, "readdir failed");
-                                return Err(e);
-                            }
+                    match local_files.collect::<Result<Vec<_>, _>>() {
+                        Ok(mut new_results) => {
+                            new_results.sort_by(|left, right| left.inode.name().cmp(right.inode.name()));
+                            self.local_results.write().unwrap().extend(new_results);
+                        }
+                        Err(e) => {
+                            error!(error=?e, "readdir failed");
+                            return Err(e);
                         }
                     }
                 }
 
                 if *next_token == ReaddirStreamState::Finished {
                     trace!(self=?self as *const _, "readdir finished");
-                    return Ok(self.results.write().unwrap().pop());
+                    return Ok(self.compare_and_get_next());
                 }
                 next_token.take()
             };
@@ -684,34 +654,52 @@ impl ReaddirHandle {
                     }
                 });
 
-            for result in prefixes.chain(objects) {
-                match result {
-                    Ok(lookup) => {
-                        // some writes might have completed after the first LIST
-                        // we will not add them to the queue again and allow some stat inconsistency here
-                        let ino = lookup.inode.ino();
-                        if !self.local_results.read().unwrap().contains(&ino) {
-                            self.results.write().unwrap().push(lookup);
-                        }
-                    }
-                    Err(e) => {
-                        error!(error=?e, "readdir failed");
-                        return Err(e);
-                    }
+            // TODO would be nice to do this as a merge sort but the Result makes it messy
+            match prefixes.chain(objects).collect::<Result<Vec<_>, _>>() {
+                Ok(mut new_results) => {
+                    new_results.sort_by(|left, right| left.inode.name().cmp(right.inode.name()));
+                    self.remote_results.write().unwrap().extend(new_results);
+                }
+                Err(e) => {
+                    error!(error=?e, "readdir failed");
+                    return Err(e);
                 }
             }
         }
 
-        Ok(self.results.write().unwrap().pop())
+        Ok(self.compare_and_get_next())
     }
 
-    /// Re-add an entry to the queue if the consumer wasn't able to use it
+    /// Re-add an entry to the front of the queue if the consumer wasn't able to use it
     pub fn readd(&self, entry: LookedUp) {
-        self.results.write().unwrap().push(entry);
+        self.remote_results.write().unwrap().push_front(entry);
     }
 
     pub fn parent(&self) -> InodeNo {
         self.parent_ino
+    }
+
+    fn compare_and_get_next(&self) -> Option<LookedUp> {
+        let mut local_locked = self.local_results.write().unwrap();
+        let mut remote_locked = self.remote_results.write().unwrap();
+        match (local_locked.front(), remote_locked.front()) {
+            (None, None) => None,
+            (None, Some(_)) => remote_locked.pop_front(),
+            (Some(_), None) => local_locked.pop_front(),
+            (Some(local_lookup), Some(remote_lookup)) => {
+                let ordering = local_lookup.inode.name().cmp(remote_lookup.inode.name());
+                match ordering {
+                    std::cmp::Ordering::Less => local_locked.pop_front(),
+                    std::cmp::Ordering::Equal => {
+                        // we will return an item from the remote queue and remove it
+                        // from the local queue if the same item is found in both queues
+                        let _ = local_locked.pop_front();
+                        remote_locked.pop_front()
+                    }
+                    std::cmp::Ordering::Greater => remote_locked.pop_front(),
+                }
+            }
+        }
     }
 
     #[cfg(test)]
@@ -855,7 +843,7 @@ enum InodeKindData {
     },
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct InodeStat {
     #[allow(unused)] // TODO revalidate
     expiry: Instant,
