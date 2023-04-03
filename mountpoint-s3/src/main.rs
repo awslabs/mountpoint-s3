@@ -12,6 +12,7 @@ use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3_client::ImdsCrtClient;
 use mountpoint_s3_client::{
     AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
@@ -342,6 +343,14 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .transpose()
         .context("Failed to parse endpoint URL")?;
 
+    match retrieve_instance_type() {
+        Ok(ec2_instance_type) => {
+            // TODO: config throughtput_target_gbps here.
+            tracing::info!("The EC2 instance type is: {:?}", ec2_instance_type);
+        }
+        Err(e) => tracing::error!("failed to detect EC2 instance type. {:?}", e),
+    }
+
     let client_config = S3ClientConfig {
         throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
         part_size: args.part_size.map(|t| t as usize),
@@ -474,4 +483,15 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
     } else {
         Ok(perm)
     }
+}
+
+pub fn retrieve_instance_type() -> anyhow::Result<String> {
+    let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
+
+    let query = imds_crt_client
+        .make_instance_type_query()
+        .context("failed to send IMDS query")?;
+
+    let result = futures::executor::block_on(query).context("IMDS query failed")?;
+    Ok(result)
 }
