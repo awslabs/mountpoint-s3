@@ -277,8 +277,7 @@ where
                 return Err(libc::EINVAL);
             }
 
-            let parent_lookup = self.superblock.getattr(&self.client, lookup.inode.parent()).await?;
-            lookup.inode.start_writing(&parent_lookup.inode)?;
+            lookup.inode.start_writing()?;
             FileHandleType::Write {
                 parts: Default::default(),
             }

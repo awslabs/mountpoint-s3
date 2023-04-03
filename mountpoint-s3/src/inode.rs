@@ -311,7 +311,7 @@ impl Superblock {
         // Check again for the child now that the parent is locked, since we might have lost to a
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
         // hold that lock across the remote API calls).
-        let InodeKindData::Directory { children, writing_children: _ } = &mut parent_state.kind_data else {
+        let InodeKindData::Directory { children, .. } = &mut parent_state.kind_data else {
             return Err(InodeError::NotADirectory(dir));
         };
         if let Some(inode) = children.get(name) {
@@ -329,7 +329,7 @@ impl Superblock {
 
         let inode = self
             .inner
-            .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state)?;
+            .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
 
         Ok(LookedUp { inode, stat })
     }
@@ -396,7 +396,7 @@ impl SuperblockInner {
             kind_data,
             write_status: WriteStatus::Remote,
         };
-        self.create_inode_locked(&parent, &mut parent_state, name, kind, state)
+        self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
     }
 
     /// Update the inode for the given name in the parent directory and return `Ok(Some(inode))`
@@ -412,10 +412,7 @@ impl SuperblockInner {
     ) -> Result<Option<Inode>, InodeError> {
         match &parent_state.kind_data {
             InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
-            InodeKindData::Directory {
-                children,
-                writing_children: _,
-            } => {
+            InodeKindData::Directory { children, .. } => {
                 let Some(inode) = children.get(name).cloned() else {
                         return Ok(None);
                     };
@@ -459,6 +456,7 @@ impl SuperblockInner {
         name: &str,
         kind: InodeKind,
         state: InodeState,
+        is_new_file: bool,
     ) -> Result<Inode, InodeError> {
         if !valid_inode_name(name) {
             let kind = if kind == InodeKind::Directory {
@@ -498,9 +496,12 @@ impl SuperblockInner {
             }
             InodeKindData::Directory {
                 children,
-                writing_children: _,
+                writing_children,
             } => {
                 children.insert(name.to_owned(), inode.clone());
+                if is_new_file {
+                    writing_children.insert(next_ino);
+                }
             }
         }
 
@@ -764,22 +765,11 @@ impl Inode {
         &self.inner.full_key
     }
 
-    pub fn start_writing(&self, parent: &Inode) -> Result<(), InodeError> {
-        // acquire a lock on parent first
-        let mut parent_state = parent.inner.sync.write().unwrap();
+    pub fn start_writing(&self) -> Result<(), InodeError> {
         let mut state = self.inner.sync.write().unwrap();
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
-                match &mut parent_state.kind_data {
-                    InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
-                    InodeKindData::Directory {
-                        children: _,
-                        writing_children,
-                    } => {
-                        writing_children.insert(self.ino());
-                    }
-                }
                 Ok(())
             }
             WriteStatus::LocalOpen => {
@@ -794,7 +784,7 @@ impl Inode {
     }
 
     pub fn finish_writing(&self, new_size: usize, parent: &Inode) -> Result<(), InodeError> {
-        // acquire a lock on parent first
+        // acquire a lock on the parent first
         let mut parent_state = parent.inner.sync.write().unwrap();
         let mut state = self.inner.sync.write().unwrap();
         match state.write_status {
