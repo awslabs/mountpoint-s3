@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::object_client::{
-    self, DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
     ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
 };
@@ -71,7 +71,7 @@ impl MockClient {
         let mock_etag = ETag {
             etag: "Random ETag".to_string(),
         };
-        return mock_etag;
+        mock_etag
     }
 
     /// Remove object for the mock client's bucket

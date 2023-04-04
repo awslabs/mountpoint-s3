@@ -1,7 +1,6 @@
 use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
-use std::default;
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, trace};

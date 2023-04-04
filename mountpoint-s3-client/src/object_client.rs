@@ -110,6 +110,9 @@ pub enum GetObjectError {
 
     #[error("The key does not exist")]
     NoSuchKey,
+
+    #[error("ETag precondition failed")]
+    ETagNotMatch,
 }
 
 /// Result of a [ObjectClient::list_objects] request

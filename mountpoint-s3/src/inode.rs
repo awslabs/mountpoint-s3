@@ -27,7 +27,7 @@ use std::time::Instant;
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
-use mountpoint_s3_client::{ETag, HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
+use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};

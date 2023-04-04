@@ -106,3 +106,20 @@ async fn test_get_object_404_bucket() {
         Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
     ));
 }
+
+#[tokio::test]
+async fn test_get_object_412_if_match() {
+    let (_bucket, prefix) = get_test_bucket_and_prefix("test_get_object_412_if_match");
+    let key = format!("{prefix}/nonexistent_key");
+    let client: S3CrtClient = get_test_client();
+
+    let mut result = client
+        .get_object("DOC-EXAMPLE-BUCKET", &key, None)
+        .await
+        .expect("get_object failed");
+    let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
+    assert!(matches!(
+        next,
+        Err(ObjectClientError::ServiceError(GetObjectError::ETagNotMatch))
+    ));
+}
