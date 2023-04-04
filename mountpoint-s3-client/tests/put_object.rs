@@ -55,7 +55,10 @@ async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, pr
         .await
         .expect("put_object failed");
 
-    let result = client.get_object(bucket, &key, None, None).await.expect("get_object failed");
+    let result = client
+        .get_object(bucket, &key, None, None)
+        .await
+        .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
 }
 

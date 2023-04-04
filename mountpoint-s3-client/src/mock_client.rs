@@ -68,10 +68,9 @@ impl MockClient {
     /// Add an object to this mock client's bucket
     pub fn add_object(&self, key: &str, value: MockObject) -> ETag {
         self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
-        let mock_etag = ETag {
+        ETag {
             etag: "Random ETag".to_string(),
-        };
-        mock_etag
+        }
     }
 
     /// Remove object for the mock client's bucket

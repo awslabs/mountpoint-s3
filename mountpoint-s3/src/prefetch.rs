@@ -678,7 +678,7 @@ mod tests {
             };
             let client = MockClient::new(config);
 
-            client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
+            let file_etag = client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
             let test_config = PrefetcherConfig {
                 first_request_size,
@@ -689,7 +689,7 @@ mod tests {
 
             let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
 
-            let mut request = prefetcher.get("test-bucket", "hello", object_size);
+            let mut request = prefetcher.get("test-bucket", "hello", object_size, file_etag);
 
             let mut next_offset = 0;
             loop {
@@ -728,7 +728,7 @@ mod tests {
             };
             let client = MockClient::new(config);
 
-            client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
+            let file_etag = client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
             let test_config = PrefetcherConfig {
                 first_request_size,
@@ -739,7 +739,7 @@ mod tests {
 
             let prefetcher = Prefetcher::new(Arc::new(client), ShuttleRuntime, test_config);
 
-            let mut request = prefetcher.get("test-bucket", "hello", object_size);
+            let mut request = prefetcher.get("test-bucket", "hello", object_size, file_etag);
 
             let num_reads = rng.gen_range(10usize..50);
             for _ in 0..num_reads {
