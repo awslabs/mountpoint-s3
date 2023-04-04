@@ -19,7 +19,7 @@ use futures::pin_mut;
 use futures::stream::StreamExt;
 use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
-use mountpoint_s3_client::{GetObjectError, ObjectClient, ObjectClientError};
+use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
@@ -85,8 +85,8 @@ where
     }
 
     /// Start a new get request to the specified object.
-    pub fn get(&self, bucket: &str, key: &str, size: u64) -> PrefetchGetObject<Client, Runtime> {
-        PrefetchGetObject::new(Arc::clone(&self.inner), bucket, key, size)
+    pub fn get(&self, bucket: &str, key: &str, size: u64, etag: ETag) -> PrefetchGetObject<Client, Runtime> {
+        PrefetchGetObject::new(Arc::clone(&self.inner), bucket, key, size, etag)
     }
 }
 
@@ -104,7 +104,7 @@ pub struct PrefetchGetObject<Client: ObjectClient, Runtime> {
     next_request_size: usize,
     next_request_offset: u64,
     size: u64,
-    etag: Option<String>,
+    etag: ETag,
 }
 
 impl<Client, Runtime> PrefetchGetObject<Client, Runtime>
@@ -113,7 +113,7 @@ where
     Runtime: Spawn,
 {
     /// Create and spawn a new prefetching request for an object
-    fn new(inner: Arc<PrefetcherInner<Client, Runtime>>, bucket: &str, key: &str, size: u64) -> Self {
+    fn new(inner: Arc<PrefetcherInner<Client, Runtime>>, bucket: &str, key: &str, size: u64, etag: ETag) -> Self {
         PrefetchGetObject {
             inner: inner.clone(),
             current_task: None,
@@ -124,19 +124,14 @@ where
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             size,
-            etag: None,
+            etag,
         }
     }
 
     /// Read some bytes from the object. This function will always return exactly `size` bytes,
     /// except at the end of the object where it will return however many bytes are left (including
     /// possibly 0 bytes).
-    pub async fn read(
-        &mut self,
-        offset: u64,
-        length: usize,
-        etag: Option<String>,
-    ) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
+    pub async fn read(&mut self, offset: u64, length: usize) -> Result<Bytes, PrefetchReadError<TaskError<Client>>> {
         trace!(
             offset,
             length,
@@ -149,7 +144,6 @@ where
             return Ok(Bytes::new());
         }
         let mut to_read = (length as u64).min(remaining);
-        self.etag = etag;
 
         // Cancel and reset prefetching if this is an out-of-order read
         if self.next_sequential_read_offset != offset {
@@ -263,7 +257,7 @@ where
             let span = debug_span!("prefetch", range=?range);
 
             async move {
-                match client.get_object(&bucket, &key, Some(range.clone()), etag).await {
+                match client.get_object(&bucket, &key, Some(range.clone()), Some(etag)).await {
                     Err(e) => {
                         error!(error=?e, "RequestTask get object failed");
                         part_queue.push(Err(e));
@@ -392,7 +386,7 @@ mod tests {
         };
         let client = MockClient::new(config);
 
-        client.add_object("hello", MockObject::ramp(0xaa, size as usize));
+        let etag = client.add_object("hello", MockObject::ramp(0xaa, size as usize));
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
@@ -404,11 +398,11 @@ mod tests {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
-        let mut request = prefetcher.get("test-bucket", "hello", size);
+        let mut request = prefetcher.get("test-bucket", "hello", size, etag);
 
         let mut next_offset = 0;
         loop {
-            let buf = block_on(request.read(next_offset, read_size, None)).unwrap();
+            let buf = block_on(request.read(next_offset, read_size)).unwrap();
             if buf.is_empty() {
                 break;
             }
@@ -463,7 +457,7 @@ mod tests {
             part_size: test_config.client_part_size,
         };
         let client = MockClient::new(config);
-        client.add_object("hello", MockObject::ramp(0xaa, size as usize));
+        let etag = client.add_object("hello", MockObject::ramp(0xaa, size as usize));
 
         let client = countdown_failure_client(client, get_failures, HashMap::new(), HashMap::new());
 
@@ -476,11 +470,11 @@ mod tests {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
-        let mut request = prefetcher.get("test-bucket", "hello", size);
+        let mut request = prefetcher.get("test-bucket", "hello", size, etag);
 
         let mut next_offset = 0;
         loop {
-            let buf = match block_on(request.read(next_offset, read_size, None)) {
+            let buf = match block_on(request.read(next_offset, read_size)) {
                 Ok(buf) => buf,
                 Err(_) => break,
             };
@@ -547,8 +541,11 @@ mod tests {
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
+        let e_tag = ETag {
+            etag: "Random E-Tag".to_string(),
+        };
 
-        let mut request = prefetcher.get("test-bucket", "hello", object_size);
+        let mut request = prefetcher.get("test-bucket", "hello", object_size, e_tag);
 
         request.next_request_offset = next_request_offset as u64;
         request.next_request_size = current_request_size;
@@ -580,7 +577,7 @@ mod tests {
         };
         let client = MockClient::new(config);
 
-        client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
+        let etag = client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
@@ -591,13 +588,13 @@ mod tests {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
 
-        let mut request = prefetcher.get("test-bucket", "hello", object_size);
+        let mut request = prefetcher.get("test-bucket", "hello", object_size, etag);
 
         for (offset, length) in reads {
             assert!(offset < object_size);
             assert!(offset + length as u64 <= object_size);
             let expected = ramp_bytes((0xaa + offset) as usize, length);
-            let buf = block_on(request.read(offset, length, None)).unwrap();
+            let buf = block_on(request.read(offset, length)).unwrap();
             assert_eq!(buf.len(), expected.len());
             // Don't spew the giant buffer if this test fails
             if buf[..] != expected[..] {

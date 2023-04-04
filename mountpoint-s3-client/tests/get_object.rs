@@ -2,6 +2,8 @@
 
 pub mod common;
 
+use std::option::Option::None;
+
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
@@ -27,7 +29,10 @@ async fn test_get_object() {
 
     let client: S3CrtClient = get_test_client();
 
-    let result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object failed");
     check_get_result(result, None, &body[..]).await;
 }
 

@@ -523,7 +523,7 @@ impl ObjectClient for S3CrtClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-        if_match: Option<String>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         self.get_object(bucket, key, range, if_match)
     }

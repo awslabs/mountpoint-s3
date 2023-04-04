@@ -27,7 +27,7 @@ use std::time::Instant;
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
-use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
+use mountpoint_s3_client::{ETag, HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
@@ -170,8 +170,7 @@ impl Superblock {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
                             let last_modified = object.last_modified;
-                            let etag = Some(object.etag);
-                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), etag);
+                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), Some(object.etag.clone()));
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -321,8 +320,8 @@ impl Superblock {
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
+                                     // Objects dont have an ETag untill they are uploaded to S3
         let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None);
-        //E-tag for the file will be set during lookup before reading it.
         let kind = InodeKind::File;
         let state = InodeState {
             stat: stat.clone(),
@@ -594,8 +593,12 @@ impl ReaddirHandle {
                 .filter(|(name, _object)| valid_inode_name(name))
                 .flat_map(|(name, object)| {
                     let last_modified = object.last_modified;
-                    let etag = Some(object.etag.clone());
-                    let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), etag);
+                    let stat = InodeStat::for_file(
+                        object.size as usize,
+                        last_modified,
+                        Instant::now(),
+                        Some(object.etag.clone()),
+                    );
                     let stat_clone = stat.clone();
                     let kind_data = InodeKindData::File {};
 

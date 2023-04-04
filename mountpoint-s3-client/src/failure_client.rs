@@ -14,7 +14,7 @@ use crate::object_client::{
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError, ObjectClientResult,
     PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::{ListObjectsResult, ObjectAttribute, ObjectClient};
+use crate::{ETag, ListObjectsResult, ObjectAttribute, ObjectClient};
 
 // Wrapper for injecting failures into a get stream
 pub struct FailureGetWrapper<Client: ObjectClient, GetWrapperState> {
@@ -71,7 +71,7 @@ where
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-        if_match: Option<String>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, range.clone())?;
         let get_result = self.client.get_object(bucket, key, range, if_match).await?;

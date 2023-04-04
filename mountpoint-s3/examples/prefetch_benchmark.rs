@@ -5,7 +5,7 @@ use std::time::Instant;
 use clap::{Arg, Command};
 use futures::executor::{block_on, ThreadPool};
 use mountpoint_s3::prefetch::Prefetcher;
-use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
+use mountpoint_s3_client::{ETag, S3ClientConfig, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -80,8 +80,9 @@ fn main() {
         let received_size = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();
+        let etag = "Random ETag";
 
-        let mut request = manager.get(bucket, key, size);
+        let mut request = manager.get(bucket, key, size, ETag { etag: etag.to_string() });
         block_on(async {
             loop {
                 let offset = received_size.load(Ordering::SeqCst);

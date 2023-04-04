@@ -13,11 +13,11 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    self, DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
     ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::{Checksum, ObjectAttribute};
+use crate::{Checksum, ETag, ObjectAttribute};
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
@@ -66,8 +66,12 @@ impl MockClient {
     }
 
     /// Add an object to this mock client's bucket
-    pub fn add_object(&self, key: &str, value: MockObject) {
+    pub fn add_object(&self, key: &str, value: MockObject) -> ETag {
         self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
+        let mock_etag = ETag {
+            etag: "Random ETag".to_string(),
+        };
+        return mock_etag;
     }
 
     /// Remove object for the mock client's bucket
@@ -82,6 +86,7 @@ pub struct MockObject {
     // TODO Set storage class from [MockClient::put_object]
     storage_class: String,
     pub last_modified: OffsetDateTime,
+    pub etag: Option<ETag>,
 }
 
 impl MockObject {
@@ -97,6 +102,7 @@ impl MockObject {
             generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
+            etag: None,
         }
     }
 
@@ -106,6 +112,7 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
+            etag: None,
         }
     }
 
@@ -125,6 +132,9 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
+            etag: Some(ETag {
+                etag: "Random E-Tag".to_string(),
+            }),
         }
     }
 
@@ -233,7 +243,7 @@ impl ObjectClient for MockClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-        if_match: Option<String>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?range, ?if_match, "GetObject");
 

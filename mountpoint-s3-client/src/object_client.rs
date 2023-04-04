@@ -9,6 +9,11 @@ use time::OffsetDateTime;
 /// object and the bytes starting at that offset.
 pub type GetBodyPart = (u64, Box<[u8]>);
 
+#[derive(Debug, Clone)]
+pub struct ETag {
+    pub etag: String,
+}
+
 /// An [ObjectClient] is an S3-like blob storage interface
 #[async_trait]
 #[auto_impl(Arc)]
@@ -32,7 +37,7 @@ pub trait ObjectClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
-        if_match: Option<String>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
