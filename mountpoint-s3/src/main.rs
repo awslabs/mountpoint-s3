@@ -143,7 +143,6 @@ struct CliArgs {
         long,
         help = "Desired throughput in Gbps",
         value_name = "N",
-        default_value = "10",
         value_parser = value_parser!(u64).range(1..),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
@@ -336,6 +335,8 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
+    const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
+
     let addressing_style = args.addressing_style();
     let endpoint = args
         .endpoint_url
@@ -343,16 +344,20 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .transpose()
         .context("Failed to parse endpoint URL")?;
 
-    match retrieve_instance_type() {
-        Ok(ec2_instance_type) => {
-            // TODO: config throughtput_target_gbps here.
-            tracing::info!("The EC2 instance type is: {:?}", ec2_instance_type);
-        }
-        Err(e) => tracing::error!("failed to detect EC2 instance type. {:?}", e),
-    }
+    let throughput_target_gbps =
+        args.throughput_target_gbps
+            .map(|t| t as f64)
+            .unwrap_or_else(|| match calculate_network_throughput() {
+                Ok(throughput) => throughput,
+                Err(e) => {
+                    tracing::warn!("failed to detect network throughput: {:?}", e);
+                    DEFAULT_TARGET_THROUGHPUT
+                }
+            });
+    tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
     let client_config = S3ClientConfig {
-        throughput_target_gbps: args.throughput_target_gbps.map(|t| t as f64),
+        throughput_target_gbps: Some(throughput_target_gbps),
         part_size: args.part_size.map(|t| t as usize),
         endpoint,
         user_agent_prefix: Some(format!("mountpoint-s3/{}", build_info::FULL_VERSION)),
@@ -485,7 +490,13 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
     }
 }
 
-pub fn retrieve_instance_type() -> anyhow::Result<String> {
+fn calculate_network_throughput() -> anyhow::Result<f64> {
+    let instance_type = retrieve_instance_type().context("failed to retrieve instance type")?;
+    let throughput = get_maximum_network_throughput(&instance_type).context("failed to get network throughput")?;
+    Ok(throughput)
+}
+
+fn retrieve_instance_type() -> anyhow::Result<String> {
     let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
 
     let query = imds_crt_client
@@ -493,5 +504,16 @@ pub fn retrieve_instance_type() -> anyhow::Result<String> {
         .context("failed to send IMDS query")?;
 
     let result = futures::executor::block_on(query).context("IMDS query failed")?;
+    tracing::debug!("detected EC2 instance type {result}");
     Ok(result)
+}
+
+fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
+    let file = include_str!("../scripts/network_performance.json");
+    let throughput: serde_json::Value =
+        serde_json::from_str(file).context("failed to parse network_performance.json")?;
+    throughput
+        .get(ec2_instance_type)
+        .and_then(|t| t.as_f64())
+        .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
 }
