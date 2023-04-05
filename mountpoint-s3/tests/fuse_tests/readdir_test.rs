@@ -1,12 +1,12 @@
 use crate::fuse_tests::PutObjectFn;
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
+use rand::distributions::{Alphanumeric, DistString};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
-use test_case::test_case;
 
 // Unit Tests
 // Generate a filesystem with many entries
@@ -46,7 +46,8 @@ where
     let mut map = HashMap::new();
     let mut expected_list = Vec::new();
     for i in 0..readdir_size * 4 {
-        let file_name = format!("file{i}");
+        let random_str = Alphanumeric.sample_string(&mut rand::thread_rng(), 5);
+        let file_name = format!("file_{random_str}_{i}");
         map.insert(file_name.clone(), File::new((i % 256) as u8, 10 * i));
         expected_list.push(file_name);
     }
@@ -66,7 +67,7 @@ where
     );
 }
 
-fn readdir_while_writing<F>(creator_fn: F, prefix: &str, new_files: Vec<&str>)
+fn readdir_while_writing<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
 {
@@ -79,7 +80,8 @@ where
     let mut map = HashMap::new();
     let mut expected_list = Vec::new();
     for i in 0..readdir_size * 4 {
-        let file_name = format!("file{i}");
+        let random_str = Alphanumeric.sample_string(&mut rand::thread_rng(), 5);
+        let file_name = format!("file_{random_str}_{i}");
         map.insert(file_name.clone(), File::new((i % 256) as u8, 10 * i));
         expected_list.push(file_name);
     }
@@ -89,9 +91,12 @@ where
     prepare_fs(put_object_fn, &map);
 
     const OBJECT_SIZE: usize = 1024;
+    // open some new files for write and leave it open
     let mut opened_files = Vec::new();
-    for file_name in new_files {
-        let path = mount_point.path().join(file_name);
+    for i in 0..readdir_size {
+        let random_str = Alphanumeric.sample_string(&mut rand::thread_rng(), 8);
+        let file_name = format!("file_{random_str}_{i}");
+        let path = mount_point.path().join(&file_name);
         let mut options = fs::File::options();
         options.write(true);
         options.create(true);
@@ -101,8 +106,8 @@ where
         let mut body = vec![0u8; OBJECT_SIZE];
         rng.fill(&mut body[..]);
         opened_files.push(f);
-        map.insert(file_name.to_owned(), File::new(0, 0));
-        expected_list.push(file_name.to_owned());
+        map.insert(file_name.clone(), File::new(0, 0));
+        expected_list.push(file_name);
     }
     expected_list.sort();
 
@@ -119,13 +124,13 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn readdir_s3() {
-    readdir(crate::fuse_tests::s3_session::new, "readdir_s3");
+    readdir(crate::fuse_tests::s3_session::new, "");
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(vec!["aaa", "file150", "file151", "zzz"]; "new files at various positions")]
-fn readdir_while_writing_s3(new_files: Vec<&str>) {
-    readdir_while_writing(crate::fuse_tests::s3_session::new, "readdir_s3", new_files);
+#[test]
+fn readdir_while_writing_s3() {
+    readdir_while_writing(crate::fuse_tests::s3_session::new, "");
 }
 
 #[test]
@@ -133,7 +138,7 @@ fn readdir_mock() {
     readdir(crate::fuse_tests::mock_session::new, "");
 }
 
-#[test_case(vec!["aaa", "file150", "file151", "zzz"]; "new files at various positions")]
-fn readdir_while_writing_mock(new_files: Vec<&str>) {
-    readdir_while_writing(crate::fuse_tests::mock_session::new, "readdir_s3", new_files);
+#[test]
+fn readdir_while_writing_mock() {
+    readdir_while_writing(crate::fuse_tests::mock_session::new, "");
 }
