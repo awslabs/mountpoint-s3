@@ -261,11 +261,13 @@ impl Superblock {
     ) -> Result<WriteHandle, InodeError> {
         trace!(?ino, parent=?parent_ino, "write");
 
-        Ok(WriteHandle {
+        let handle = WriteHandle {
             inner: self.inner.clone(),
             ino,
             parent_ino,
-        })
+        };
+        handle.start_writing()?;
+        Ok(handle)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -762,11 +764,12 @@ impl ReaddirHandle {
             (Some(_), None) => local_locked.pop_front(),
             (Some(local_lookup), Some(remote_lookup)) => {
                 let ordering = local_lookup.inode.name().cmp(remote_lookup.inode.name());
+                // compare the inodes at the front of both queues by their names and return the one that has less ordering.
+                // in case both inodes have the same name we will prioritise the one from the remote queue,
+                // return it as a result and remove the one in the local queue.
                 match ordering {
                     std::cmp::Ordering::Less => local_locked.pop_front(),
                     std::cmp::Ordering::Equal => {
-                        // we will return an item from the remote queue and remove it
-                        // from the local queue if the same item is found in both queues
                         let _ = local_locked.pop_front();
                         remote_locked.pop_front()
                     }
@@ -1147,6 +1150,97 @@ mod tests {
             for entry in entries {
                 assert_inode_stat!(entry, InodeKind::File, last_modified, 30);
             }
+        }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_readdir_no_remote_keys(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        let mut expected_list = Vec::new();
+
+        // Create local keys
+        for i in 0..5 {
+            let filename = format!("file{i}.txt");
+            let new_inode = superblock
+                .create(&client, FUSE_ROOT_INODE, OsStr::from_bytes(filename.as_bytes()))
+                .await
+                .unwrap();
+            superblock
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+                .await
+                .unwrap();
+            expected_list.push(filename);
+        }
+
+        // Try it all twice to test inode reuse
+        for _ in 0..2 {
+            let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+            let entries = dir_handle.collect(&client).await.unwrap();
+            assert_eq!(
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+                expected_list
+            );
+        }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_readdir_local_keys_after_remote_keys(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        let mut expected_list = Vec::new();
+
+        let remote_filenames = ["file0.txt", "file1.txt", "file2.txt"];
+
+        let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
+        for filename in remote_filenames {
+            let mut obj = MockObject::constant(0xaa, 30);
+            obj.set_last_modified(last_modified);
+            let key = format!("{prefix}{filename}");
+            client.add_object(&key, obj);
+            expected_list.push(filename.to_owned());
+        }
+
+        // Create local keys
+        for i in 0..5 {
+            let filename = format!("newfile{i}.txt");
+            let new_inode = superblock
+                .create(&client, FUSE_ROOT_INODE, OsStr::from_bytes(filename.as_bytes()))
+                .await
+                .unwrap();
+            superblock
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+                .await
+                .unwrap();
+            expected_list.push(filename);
+        }
+
+        // Try it all twice to test inode reuse
+        for _ in 0..2 {
+            let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+            let entries = dir_handle.collect(&client).await.unwrap();
+            assert_eq!(
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+                expected_list
+            );
         }
     }
 

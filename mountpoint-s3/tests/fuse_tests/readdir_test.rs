@@ -2,6 +2,7 @@ use crate::fuse_tests::PutObjectFn;
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
+use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
@@ -33,7 +34,7 @@ fn prepare_fs(mut put_object_fn: PutObjectFn, map: &HashMap<String, File>) {
     }
 }
 
-fn readdir<F>(creator_fn: F, prefix: &str)
+fn readdir<F>(creator_fn: F, prefix: &str, rng_seed: usize)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
 {
@@ -46,7 +47,8 @@ where
     let mut map = HashMap::new();
     let mut expected_list = Vec::new();
     for i in 0..readdir_size * 4 {
-        let random_str = Alphanumeric.sample_string(&mut rand::thread_rng(), 5);
+        let mut rng = StdRng::seed_from_u64((rng_seed + i) as u64);
+        let random_str = Alphanumeric.sample_string(&mut rng, 5);
         let file_name = format!("file_{random_str}_{i}");
         map.insert(file_name.clone(), File::new((i % 256) as u8, 10 * i));
         expected_list.push(file_name);
@@ -63,11 +65,12 @@ where
         dirs.iter()
             .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
             .collect::<Vec<_>>(),
-        expected_list
+        expected_list,
+        "readdir test failed with random seed: {rng_seed}"
     );
 }
 
-fn readdir_while_writing<F>(creator_fn: F, prefix: &str)
+fn readdir_while_writing<F>(creator_fn: F, prefix: &str, rng_seed: usize)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
 {
@@ -80,7 +83,8 @@ where
     let mut map = HashMap::new();
     let mut expected_list = Vec::new();
     for i in 0..readdir_size * 4 {
-        let random_str = Alphanumeric.sample_string(&mut rand::thread_rng(), 5);
+        let mut rng = StdRng::seed_from_u64((rng_seed + i) as u64);
+        let random_str = Alphanumeric.sample_string(&mut rng, 5);
         let file_name = format!("file_{random_str}_{i}");
         map.insert(file_name.clone(), File::new((i % 256) as u8, 10 * i));
         expected_list.push(file_name);
@@ -94,7 +98,8 @@ where
     // open some new files for write and leave it open
     let mut opened_files = Vec::new();
     for i in 0..readdir_size {
-        let random_str = Alphanumeric.sample_string(&mut rand::thread_rng(), 8);
+        let mut rng = StdRng::seed_from_u64((rng_seed + map.len() + i) as u64);
+        let random_str = Alphanumeric.sample_string(&mut rng, 8);
         let file_name = format!("file_{random_str}_{i}");
         let path = mount_point.path().join(&file_name);
         let mut options = fs::File::options();
@@ -117,28 +122,39 @@ where
         dirs.iter()
             .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
             .collect::<Vec<_>>(),
-        expected_list
+        expected_list,
+        "readdir test failed with random seed: {rng_seed}"
     );
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn readdir_s3() {
-    readdir(crate::fuse_tests::s3_session::new, "");
+    let rng_seed = rand::thread_rng().gen();
+    readdir(crate::fuse_tests::s3_session::new, "", rng_seed);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn readdir_while_writing_s3() {
-    readdir_while_writing(crate::fuse_tests::s3_session::new, "");
+    let rng_seed = rand::thread_rng().gen();
+    readdir_while_writing(crate::fuse_tests::s3_session::new, "", rng_seed);
 }
 
 #[test]
 fn readdir_mock() {
-    readdir(crate::fuse_tests::mock_session::new, "");
+    let iteration = 10;
+    for _ in 0..iteration {
+        let rng_seed = rand::thread_rng().gen();
+        readdir(crate::fuse_tests::mock_session::new, "", rng_seed);
+    }
 }
 
 #[test]
 fn readdir_while_writing_mock() {
-    readdir_while_writing(crate::fuse_tests::mock_session::new, "");
+    let iteration = 10;
+    for _ in 0..iteration {
+        let rng_seed = rand::thread_rng().gen();
+        readdir_while_writing(crate::fuse_tests::mock_session::new, "", rng_seed);
+    }
 }

@@ -279,7 +279,6 @@ where
             }
 
             let inode_handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
-            inode_handle.start_writing()?;
             FileHandleType::Write {
                 parts: Default::default(),
                 handle: inode_handle,
