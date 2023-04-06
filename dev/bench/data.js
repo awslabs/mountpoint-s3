@@ -10628,9 +10628,113 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c51e305ba7d96ea68daa39f1b0588d5e31be839e",
+          "message": "Make opened files visible in readdir (#189)\n\n* Make opened files visible in readdir\r\n\r\nCurrently, new files that are opened for write will not be visible in\r\nthe file system until they are closed and their contents are uploaded to\r\nS3, but we want them to be visible as soon as we open the files.\r\n\r\nTo do this, we will store inodes of the opened files in its parent state\r\nand remove them once we finish writing. Then, on readdir, we can append\r\nthese inodes to the results we get from LIST API to make the opened files\r\nvisible in the file system.\r\n\r\nAnother problem is results ordering. Previously, we're using double-ended\r\nqueue to store the sorted LIST results but it doesn't work well with newly\r\ncreated files since we don't know their exact positions in paginated\r\nresults. That's why it's also replaced by priority queue in this commit.\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Address PR comments\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Use two VecDeques instead of BinaryHeap for results ordering\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Wrap the write state transition methods in WriteHandle\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Use random file names for readdir tests\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Improve testing\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2023-04-06T09:59:46-05:00",
+          "tree_id": "b06a13d177f24486cea0b4e87934169162a5d7c8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/c51e305ba7d96ea68daa39f1b0588d5e31be839e"
+        },
+        "date": 1680794482621,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.1630859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 6.384765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 8.5224609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 35.263671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 34.1484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 1.8779296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.568359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.443359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 727.6416015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 7.9091796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6015.171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 159.58203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 9.6064453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2021.0576171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 25.7353515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 24.560546875,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1680573621569,
+  "lastUpdate": 1680794483122,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
