@@ -20,7 +20,7 @@
 //! Some cached state is dependent on the inode kind; that state is hidden behind a [InodeStatKind]
 //! enum.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
 use std::time::Instant;
@@ -82,6 +82,7 @@ impl Superblock {
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::Directory {
                     children: Default::default(),
+                    writing_children: Default::default(),
                 },
             }),
         };
@@ -220,9 +221,8 @@ impl Superblock {
                     if found_directory {
                         trace!(?parent, ?name, "lookup ListObjects found a directory");
                         let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
-                        let kind_data = InodeKindData::Directory { children: Default::default() };
                         let inode =
-                            self.inner.update_or_insert(parent_ino, name, stat.clone(), InodeKind::Directory, kind_data)?;
+                            self.inner.update_or_insert(parent_ino, name, stat.clone(), InodeKind::Directory)?;
                         return Ok(LookedUp { inode, stat });
                     }
                 }
@@ -233,10 +233,9 @@ impl Superblock {
         // have a valid file, or both requests failed to find the object so it must not exist
         if let Some(stat) = file_state {
             trace!(?parent, ?name, "found a regular file");
-            let kind_data = InodeKindData::File {};
             let inode = self
                 .inner
-                .update_or_insert(parent_ino, name, stat.clone(), InodeKind::File, kind_data)?;
+                .update_or_insert(parent_ino, name, stat.clone(), InodeKind::File)?;
             Ok(LookedUp { inode, stat })
         } else {
             Err(InodeError::FileDoesNotExist)
@@ -251,6 +250,24 @@ impl Superblock {
         let stat = inode.inner.sync.read().unwrap().stat.clone();
 
         Ok(LookedUp { inode, stat })
+    }
+
+    /// Create a new write handle to be used for state transition
+    pub async fn write<OC: ObjectClient>(
+        &self,
+        _client: &OC,
+        ino: InodeNo,
+        parent_ino: InodeNo,
+    ) -> Result<WriteHandle, InodeError> {
+        trace!(?ino, parent=?parent_ino, "write");
+
+        let handle = WriteHandle {
+            inner: self.inner.clone(),
+            ino,
+            parent_ino,
+        };
+        handle.start_writing()?;
+        Ok(handle)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -279,7 +296,8 @@ impl Superblock {
             parent_ino,
             full_path: dir_key.to_string(),
             page_size,
-            results: Default::default(),
+            remote_results: Default::default(),
+            local_results: Default::default(),
             next_continuation_token: Mutex::new(ReaddirStreamState::NotStarted),
         })
     }
@@ -311,7 +329,7 @@ impl Superblock {
         // Check again for the child now that the parent is locked, since we might have lost to a
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
         // hold that lock across the remote API calls).
-        let InodeKindData::Directory { children } = &mut parent_state.kind_data else {
+        let InodeKindData::Directory { children, .. } = &mut parent_state.kind_data else {
             return Err(InodeError::NotADirectory(dir));
         };
         if let Some(inode) = children.get(name) {
@@ -329,7 +347,7 @@ impl Superblock {
 
         let inode = self
             .inner
-            .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state)?;
+            .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
 
         Ok(LookedUp { inode, stat })
     }
@@ -354,7 +372,6 @@ impl SuperblockInner {
         name: &str,
         stat: InodeStat,
         kind: InodeKind,
-        kind_data: InodeKindData,
     ) -> Result<Inode, InodeError> {
         let parent = {
             let inodes = self.inodes.read().unwrap();
@@ -384,12 +401,20 @@ impl SuperblockInner {
             return Ok(inode);
         }
 
+        let kind_data = match kind {
+            InodeKind::File => InodeKindData::File {},
+            InodeKind::Directory => InodeKindData::Directory {
+                children: Default::default(),
+                writing_children: Default::default(),
+            },
+        };
+
         let state = InodeState {
             stat,
             kind_data,
             write_status: WriteStatus::Remote,
         };
-        self.create_inode_locked(&parent, &mut parent_state, name, kind, state)
+        self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
     }
 
     /// Update the inode for the given name in the parent directory and return `Ok(Some(inode))`
@@ -405,7 +430,7 @@ impl SuperblockInner {
     ) -> Result<Option<Inode>, InodeError> {
         match &parent_state.kind_data {
             InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
-            InodeKindData::Directory { children } => {
+            InodeKindData::Directory { children, .. } => {
                 let Some(inode) = children.get(name).cloned() else {
                         return Ok(None);
                     };
@@ -449,6 +474,7 @@ impl SuperblockInner {
         name: &str,
         kind: InodeKind,
         state: InodeState,
+        is_new_file: bool,
     ) -> Result<Inode, InodeError> {
         if !valid_inode_name(name) {
             let kind = if kind == InodeKind::Directory {
@@ -486,8 +512,14 @@ impl SuperblockInner {
                 debug_assert!(false, "inodes never change kind");
                 return Err(InodeError::NotADirectory(parent.ino()));
             }
-            InodeKindData::Directory { children } => {
+            InodeKindData::Directory {
+                children,
+                writing_children,
+            } => {
                 children.insert(name.to_owned(), inode.clone());
+                if is_new_file {
+                    writing_children.insert(next_ino);
+                }
             }
         }
 
@@ -506,6 +538,64 @@ pub struct LookedUp {
     pub stat: InodeStat,
 }
 
+/// Handle for a file writing that we use to interact with [Superblock]
+#[derive(Debug)]
+pub struct WriteHandle {
+    inner: Arc<SuperblockInner>,
+    ino: InodeNo,
+    parent_ino: InodeNo,
+}
+
+impl WriteHandle {
+    /// Check the status on the inode and set it to writing state if it's writable
+    pub fn start_writing(&self) -> Result<(), InodeError> {
+        let inode = self.inner.get(self.ino)?;
+        let mut state = inode.inner.sync.write().unwrap();
+        match state.write_status {
+            WriteStatus::LocalUnopened => {
+                state.write_status = WriteStatus::LocalOpen;
+                Ok(())
+            }
+            WriteStatus::LocalOpen => {
+                error!(inode=?self.ino, "inode is already being written");
+                Err(InodeError::InodeNotWritable(self.ino))
+            }
+            WriteStatus::Remote => {
+                error!(inode=?self.ino, "inode already exists");
+                Err(InodeError::InodeNotWritable(self.ino))
+            }
+        }
+    }
+
+    /// Update status of the inode and its parent
+    pub fn finish_writing(self, object_size: usize) -> Result<(), InodeError> {
+        let inode = self.inner.get(self.ino)?;
+        let parent = self.inner.get(self.parent_ino)?;
+
+        // acquire a lock on the parent first
+        let mut parent_state = parent.inner.sync.write().unwrap();
+        let mut state = inode.inner.sync.write().unwrap();
+        match state.write_status {
+            WriteStatus::LocalOpen => {
+                state.write_status = WriteStatus::Remote;
+                state.stat.size = object_size;
+                match &mut parent_state.kind_data {
+                    InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
+                    InodeKindData::Directory {
+                        children: _,
+                        writing_children,
+                    } => {
+                        writing_children.remove(&inode.ino());
+                    }
+                }
+                // TODO force the file to be revalidated the next time it's `stat`ed?
+                Ok(())
+            }
+            _ => Err(InodeError::InodeNotWritable(inode.ino())),
+        }
+    }
+}
+
 /// Handle for an inflight directory listing
 #[derive(Debug)]
 pub struct ReaddirHandle {
@@ -514,7 +604,8 @@ pub struct ReaddirHandle {
     parent_ino: InodeNo,
     full_path: String,
     page_size: usize,
-    results: RwLock<VecDeque<LookedUp>>,
+    remote_results: RwLock<VecDeque<LookedUp>>,
+    local_results: RwLock<VecDeque<LookedUp>>,
     next_continuation_token: Mutex<ReaddirStreamState>,
 }
 
@@ -539,12 +630,42 @@ impl ReaddirStreamState {
 
 impl ReaddirHandle {
     pub async fn next<OC: ObjectClient>(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
-        while self.results.read().unwrap().is_empty() {
+        // We will start fetching new results when number of items in the remote results queue is empty
+        while self.remote_results.read().unwrap().is_empty() {
             let continuation_token = {
                 let mut next_token = self.next_continuation_token.lock().unwrap();
+
+                // populate local results before the first stream
+                if *next_token == ReaddirStreamState::NotStarted {
+                    let inode = self.inner.get(self.dir_ino)?;
+                    let kind_data = &inode.inner.sync.read().unwrap().kind_data;
+                    let local_files = match kind_data {
+                        InodeKindData::File { .. } => unreachable!("we know this is a directory"),
+                        InodeKindData::Directory {
+                            children: _,
+                            writing_children,
+                        } => writing_children.iter().map(|ino| {
+                            let inode = self.inner.get(*ino)?;
+                            let stat = inode.inner.sync.read().unwrap().stat.clone();
+                            Ok(LookedUp { inode, stat })
+                        }),
+                    };
+
+                    match local_files.collect::<Result<Vec<_>, _>>() {
+                        Ok(mut new_results) => {
+                            new_results.sort_by(|left, right| left.inode.name().cmp(right.inode.name()));
+                            self.local_results.write().unwrap().extend(new_results);
+                        }
+                        Err(e) => {
+                            error!(error=?e, "readdir failed");
+                            return Err(e);
+                        }
+                    }
+                }
+
                 if *next_token == ReaddirStreamState::Finished {
                     trace!(self=?self as *const _, "readdir finished");
-                    return Ok(None);
+                    return Ok(self.compare_and_get_next());
                 }
                 next_token.take()
             };
@@ -575,12 +696,9 @@ impl ReaddirHandle {
                 .map(|name| {
                     let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
                     let stat_clone = stat.clone();
-                    let kind_data = InodeKindData::Directory {
-                        children: Default::default(),
-                    };
 
                     self.inner
-                        .update_or_insert(self.dir_ino, name, stat_clone, InodeKind::Directory, kind_data)
+                        .update_or_insert(self.dir_ino, name, stat_clone, InodeKind::Directory)
                         .map(|inode| LookedUp { inode, stat })
                 });
             let objects = result
@@ -593,11 +711,10 @@ impl ReaddirHandle {
                     let last_modified = object.last_modified;
                     let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now());
                     let stat_clone = stat.clone();
-                    let kind_data = InodeKindData::File {};
 
                     let result = self
                         .inner
-                        .update_or_insert(self.dir_ino, name, stat_clone, InodeKind::File, kind_data)
+                        .update_or_insert(self.dir_ino, name, stat_clone, InodeKind::File)
                         .map(|inode| LookedUp { inode, stat });
                     // Skip over keys that are shadowed by a directory. We can do this here because
                     // common prefixes are iterated first, and the `sort_by` below is stable.
@@ -617,7 +734,7 @@ impl ReaddirHandle {
             match prefixes.chain(objects).collect::<Result<Vec<_>, _>>() {
                 Ok(mut new_results) => {
                     new_results.sort_by(|left, right| left.inode.name().cmp(right.inode.name()));
-                    self.results.write().unwrap().extend(new_results);
+                    self.remote_results.write().unwrap().extend(new_results);
                 }
                 Err(e) => {
                     error!(error=?e, "readdir failed");
@@ -626,16 +743,40 @@ impl ReaddirHandle {
             }
         }
 
-        Ok(self.results.write().unwrap().pop_front())
+        Ok(self.compare_and_get_next())
     }
 
     /// Re-add an entry to the front of the queue if the consumer wasn't able to use it
     pub fn readd(&self, entry: LookedUp) {
-        self.results.write().unwrap().push_front(entry);
+        self.remote_results.write().unwrap().push_front(entry);
     }
 
     pub fn parent(&self) -> InodeNo {
         self.parent_ino
+    }
+
+    fn compare_and_get_next(&self) -> Option<LookedUp> {
+        let mut local_locked = self.local_results.write().unwrap();
+        let mut remote_locked = self.remote_results.write().unwrap();
+        match (local_locked.front(), remote_locked.front()) {
+            (None, None) => None,
+            (None, Some(_)) => remote_locked.pop_front(),
+            (Some(_), None) => local_locked.pop_front(),
+            (Some(local_lookup), Some(remote_lookup)) => {
+                let ordering = local_lookup.inode.name().cmp(remote_lookup.inode.name());
+                // compare the inodes at the front of both queues by their names and return the one that has less ordering.
+                // in case both inodes have the same name we will prioritise the one from the remote queue,
+                // return it as a result and remove the one in the local queue.
+                match ordering {
+                    std::cmp::Ordering::Less => local_locked.pop_front(),
+                    std::cmp::Ordering::Equal => {
+                        let _ = local_locked.pop_front();
+                        remote_locked.pop_front()
+                    }
+                    std::cmp::Ordering::Greater => remote_locked.pop_front(),
+                }
+            }
+        }
     }
 
     #[cfg(test)]
@@ -689,37 +830,6 @@ impl Inode {
         &self.inner.full_key
     }
 
-    pub fn start_writing(&self) -> Result<(), InodeError> {
-        let mut state = self.inner.sync.write().unwrap();
-        match state.write_status {
-            WriteStatus::LocalUnopened => {
-                state.write_status = WriteStatus::LocalOpen;
-                Ok(())
-            }
-            WriteStatus::LocalOpen => {
-                error!(inode=?self.ino(), "inode is already being written");
-                Err(InodeError::InodeNotWritable(self.ino()))
-            }
-            WriteStatus::Remote => {
-                error!(inode=?self.ino(), "inode already exists");
-                Err(InodeError::InodeNotWritable(self.ino()))
-            }
-        }
-    }
-
-    pub fn finish_writing(&self, new_size: usize) -> Result<(), InodeError> {
-        let mut state = self.inner.sync.write().unwrap();
-        match state.write_status {
-            WriteStatus::LocalOpen => {
-                state.write_status = WriteStatus::Remote;
-                state.stat.size = new_size;
-                // TODO force the file to be revalidated the next time it's `stat`ed?
-                Ok(())
-            }
-            _ => Err(InodeError::InodeNotWritable(self.ino())),
-        }
-    }
-
     pub fn start_reading(&self) -> Result<(), InodeError> {
         let state = self.inner.sync.read().unwrap();
         match state.write_status {
@@ -762,6 +872,9 @@ enum InodeKindData {
     Directory {
         /// Mapping from child names to inodes
         children: HashMap<String, Inode>,
+
+        /// A set of inode numbers that have been opened for write but not completed yet.
+        writing_children: HashSet<InodeNo>,
     },
 }
 
@@ -1037,6 +1150,97 @@ mod tests {
             for entry in entries {
                 assert_inode_stat!(entry, InodeKind::File, last_modified, 30);
             }
+        }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_readdir_no_remote_keys(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        let mut expected_list = Vec::new();
+
+        // Create local keys
+        for i in 0..5 {
+            let filename = format!("file{i}.txt");
+            let new_inode = superblock
+                .create(&client, FUSE_ROOT_INODE, OsStr::from_bytes(filename.as_bytes()))
+                .await
+                .unwrap();
+            superblock
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+                .await
+                .unwrap();
+            expected_list.push(filename);
+        }
+
+        // Try it all twice to test inode reuse
+        for _ in 0..2 {
+            let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+            let entries = dir_handle.collect(&client).await.unwrap();
+            assert_eq!(
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+                expected_list
+            );
+        }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_readdir_local_keys_after_remote_keys(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        let mut expected_list = Vec::new();
+
+        let remote_filenames = ["file0.txt", "file1.txt", "file2.txt"];
+
+        let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
+        for filename in remote_filenames {
+            let mut obj = MockObject::constant(0xaa, 30);
+            obj.set_last_modified(last_modified);
+            let key = format!("{prefix}{filename}");
+            client.add_object(&key, obj);
+            expected_list.push(filename.to_owned());
+        }
+
+        // Create local keys
+        for i in 0..5 {
+            let filename = format!("newfile{i}.txt");
+            let new_inode = superblock
+                .create(&client, FUSE_ROOT_INODE, OsStr::from_bytes(filename.as_bytes()))
+                .await
+                .unwrap();
+            superblock
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+                .await
+                .unwrap();
+            expected_list.push(filename);
+        }
+
+        // Try it all twice to test inode reuse
+        for _ in 0..2 {
+            let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+            let entries = dir_handle.collect(&client).await.unwrap();
+            assert_eq!(
+                entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+                expected_list
+            );
         }
     }
 
