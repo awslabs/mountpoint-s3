@@ -52,10 +52,22 @@ impl FuseSession {
                 .name("fuse-worker-waiter".to_owned())
                 .spawn(move || {
                     for thd in workers {
-                        let result = thd.join().unwrap();
-                        if let Err(e) = result {
-                            error!("fuse worker thread failed: {e:?}");
-                        }
+                        let thread_name = thd
+                            .thread()
+                            .name()
+                            .expect("worker threads should have names")
+                            .to_owned();
+
+                        match thd.join() {
+                            Err(_panic_param) => {
+                                error!("thread {thread_name} panicked");
+                            }
+                            Ok(thd_result) => {
+                                if let Err(fuse_worker_error) = thd_result {
+                                    error!("thread {thread_name} failed: {fuse_worker_error:?}");
+                                }
+                            }
+                        };
                     }
 
                     let _ = tx.send(Message::WorkersExited);
