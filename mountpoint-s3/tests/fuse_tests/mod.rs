@@ -1,5 +1,6 @@
 mod fork_test;
 mod lookup_test;
+mod mkdir_test;
 mod mount_test;
 mod perm_test;
 mod readdir_test;
@@ -11,7 +12,15 @@ use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 
-pub type PutObjectFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), Box<dyn std::error::Error>>>;
+pub trait TestClient {
+    fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
+
+    fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
+
+    fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+}
+
+pub type TestClientBox = Box<dyn TestClient>;
 
 mod mock_session {
     use super::*;
@@ -22,7 +31,7 @@ mod mock_session {
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
-    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn) {
+    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox) {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let bucket = "test_bucket";
@@ -58,13 +67,36 @@ mod mock_session {
 
         let session = BackgroundSession::new(session).unwrap();
 
-        let put_object = move |key: &str, value: &[u8]| {
-            let full_key = format!("{prefix}{key}");
-            client.add_object(&full_key, value.into());
-            Ok(())
+        let test_client = MockTestClient {
+            prefix: prefix.to_string(),
+            client,
         };
 
-        (mount_dir, session, Box::new(put_object))
+        (mount_dir, session, Box::new(test_client))
+    }
+
+    struct MockTestClient {
+        prefix: String,
+        client: Arc<MockClient>,
+    }
+
+    impl TestClient for MockTestClient {
+        fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            self.client.add_object(&full_key, value.into());
+            Ok(())
+        }
+
+        fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            self.client.remove_object(&full_key);
+            Ok(())
+        }
+
+        fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            Ok(self.client.contains_prefix(&full_key))
+        }
     }
 }
 
@@ -76,12 +108,12 @@ mod s3_session {
 
     use std::future::Future;
 
-    use aws_sdk_s3::types::ByteStream;
     use aws_sdk_s3::Region;
+    use aws_sdk_s3::{types::ByteStream, Client};
     use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
-    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn) {
+    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox) {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
@@ -110,21 +142,13 @@ mod s3_session {
         let session = BackgroundSession::new(session).unwrap();
 
         let sdk_client = tokio_block_on(async { get_test_sdk_client(&region).await });
-        let put_object = move |key: &str, value: &[u8]| {
-            let full_key = format!("{prefix}{key}");
-            tokio_block_on(
-                sdk_client
-                    .put_object()
-                    .bucket(&bucket)
-                    .key(full_key)
-                    .body(ByteStream::from(value.to_vec()))
-                    .send(),
-            )
-            .map(|_| ())
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        let test_client = SDKTestClient {
+            prefix: prefix.to_string(),
+            bucket,
+            sdk_client,
         };
 
-        (mount_dir, session, Box::new(put_object))
+        (mount_dir, session, Box::new(test_client))
     }
 
     async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
@@ -142,5 +166,58 @@ mod s3_session {
             .build()
             .unwrap();
         runtime.block_on(future)
+    }
+
+    struct SDKTestClient {
+        prefix: String,
+        bucket: String,
+        sdk_client: Client,
+    }
+
+    impl TestClient for SDKTestClient {
+        fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            tokio_block_on(
+                self.sdk_client
+                    .put_object()
+                    .bucket(&self.bucket)
+                    .key(full_key)
+                    .body(ByteStream::from(value.to_vec()))
+                    .send(),
+            )
+            .map(|_| ())
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        }
+
+        fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            tokio_block_on(
+                self.sdk_client
+                    .delete_object()
+                    .bucket(&self.bucket)
+                    .key(full_key)
+                    .send(),
+            )
+            .map(|_| ())
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        }
+
+        fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            tokio_block_on(
+                self.sdk_client
+                    .list_objects_v2()
+                    .bucket(&self.bucket)
+                    .delimiter('/')
+                    .prefix(full_key)
+                    .send(),
+            )
+            .map(|output| {
+                let len = output.contents().map(|c| c.len()).unwrap_or_default()
+                    + output.common_prefixes().map(|c| c.len()).unwrap_or_default();
+                len > 0
+            })
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        }
     }
 }

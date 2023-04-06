@@ -223,6 +223,17 @@ where
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    fn mkdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, mode: u32, umask: u32, reply: ReplyEntry) {
+        // mode_t is u32 on Linux but u16 on macOS, so cast it here
+        let mode = mode as libc::mode_t;
+
+        match block_on(self.fs.mkdir(parent, name, mode, umask).in_current_span()) {
+            Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
+            Err(e) => reply.error(e),
+        }
+    }
+
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len()))]
     fn write(
         &self,

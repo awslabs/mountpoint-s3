@@ -11,7 +11,7 @@ use rand_chacha::ChaCha20Rng;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::PutObjectFn;
+use crate::fuse_tests::TestClientBox;
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -25,15 +25,15 @@ fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File>
 
 fn sequential_write_test<F>(creator_fn: F, prefix: &str, append: bool)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
 
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
     // Make sure there's an existing directory
-    put_object_fn("dir/hello.txt", b"hello world").unwrap();
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
 
     let subdir = mount_point.path().join("dir");
     let path = mount_point.path().join("dir/new.txt");
@@ -114,11 +114,11 @@ fn sequential_write_test_mock(prefix: &str, append: bool) {
 
 fn write_errors_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
-    put_object_fn("dir/hello.txt", b"hello world").unwrap();
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
 
     let path = mount_point.path().join("dir/hello.txt");
 

@@ -74,6 +74,17 @@ impl MockClient {
     pub fn remove_object(&self, key: &str) {
         self.objects.write().unwrap().remove(key);
     }
+
+    /// Returns `true` if this mock client's bucket contains the specified key
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.objects.read().unwrap().contains_key(key)
+    }
+
+    /// Returns `true` if this mock client's bucket contains the specified common prefix
+    pub fn contains_prefix(&self, prefix: &str) -> bool {
+        let prefix = format!("{prefix}/");
+        self.objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
+    }
 }
 
 pub struct MockObject {
