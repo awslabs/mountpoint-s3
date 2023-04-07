@@ -141,7 +141,7 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Desired throughput in Gbps",
+        help = "Desired throughput in Gbps [default: 10]",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
         help_heading = CLIENT_OPTIONS_HEADER

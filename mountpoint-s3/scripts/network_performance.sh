@@ -5,20 +5,23 @@
 
 version=v0.0.1 # release version
 result_file=network_performance.json
-temp_file=$(mktemp)
+temp_file=/tmp/temporary
+timestamp="$(date '+%Y-%m-%d')"
+region=us-east-1
+version_number=0.0.1
 
 # query
 query_ec2_instance_network_throughput="aws ec2 describe-instance-types
 --filters \"Name=instance-type,Values=*\"
 --query \"InstanceTypes[].[InstanceType, NetworkInfo.NetworkPerformance]\"
---region us-east-1
+--region ${region}
 --output json"
 
-(> ${mktmp})
+(> ${temp_file})
 
 generate_json_entry() {
     echo "{"
-    echo "\"version\":\"${version}\","
+    echo "\"version\":{\"region\":\"${region}\",\"timestamp\":\"${timestamp}\",\"version_number\":\"${version_number}\"},"
     eval $query_ec2_instance_network_throughput | \
         jq -c '.[]' | \
         while read line;do
@@ -32,11 +35,11 @@ generate_json_entry() {
             type_throughput_pair="$instance_type:$instance_throughput"
 
             # some instance types is missing throughput numbers, appending null to make it a legal json element.
-            [[ $type_throughput_pair =~ .*:$ ]] && echo $type_throughput_pair'null,' >> ${mktmp} || echo $type_throughput_pair',' >> ${mktmp}
+            [[ $type_throughput_pair =~ .*:$ ]] && echo $type_throughput_pair'null,' >> ${temp_file} || echo $type_throughput_pair',' >> ${temp_file}
         done;
 
-    # bind string in mktmp to a variable.
-    result=$(cat ${mktmp})
+    # bind string in temp_file to a variable.
+    result=$(cat ${temp_file})
 
     # remove last comma otherwise result invalid json format
     result=${result%*,}
@@ -50,10 +53,10 @@ generate_json_entry | jq -c . > >(tee ${result_file}) 2>&1
 
 if [ $? -eq 0 ]
 then
-    echo "generate ${result_file} succeeded, version: ${version}"
+    echo "generate ${result_file} succeeded"
 else
     echo "generate ${result_file} failed"
     rm ${result_file}
 fi
 
-rm ${mktmp}
+rm ${temp_file}
