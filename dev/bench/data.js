@@ -10836,9 +10836,113 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "122115681+eslrahc-swa@users.noreply.github.com",
+            "name": "Charles",
+            "username": "eslrahc-swa"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9ad4854b55890004a8c08865362a44a05882c7aa",
+          "message": "Enable auto configuration of network throughput based on EC2 instance type (#193)\n\n* Enable auto configure network throughput.\r\n\r\nWe promised customer to maximize network throughput. The change enables\r\nautomatic network throughput configuration if customer specified\r\nthroughput is missing.\r\n\r\nSigned-off-by: Charles Zhang <zyaoshen@amazon.com>\r\n\r\n* Addressing feedbacks.\r\n\r\n1. Simplify the throughput configuration logic - main.rs(commit#:65432b)\r\n2. Introduce \"version\" to network_performance.json.\r\n\r\n* Unit tests for function `get_maximum_network_throughput`.\r\n\r\nThe program reads network throughput form network_performance.json,\r\nadds unit tests for checking throughput correctness.\r\n\r\nSigned-off-by: Charles Zhang <zyaoshen@amazon.com>\r\n\r\n* Simplify unit tests\r\n\r\nBy using #[test_case] in stead of #[test]\r\n\r\nSigned-off-by: Charles Zhang <zyaoshen@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Charles Zhang <zyaoshen@amazon.com>\r\nCo-authored-by: Ubuntu <zyaoshen@amazon.com>",
+          "timestamp": "2023-04-09T14:38:23-05:00",
+          "tree_id": "d916c4e5377cd7937607812225a4ed27f0d09af3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/9ad4854b55890004a8c08865362a44a05882c7aa"
+        },
+        "date": 1681070436972,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.552734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 8.525390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 11.662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 33.9765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 28.408203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.3017578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 5.0654296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 5.068359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 649.8359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 9.1982421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6659.77734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 181.130859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 14.1416015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2078.7138671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 27.6328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 27.001953125,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1680795981588,
+  "lastUpdate": 1681070437587,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
