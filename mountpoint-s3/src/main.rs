@@ -509,11 +509,75 @@ fn retrieve_instance_type() -> anyhow::Result<String> {
 }
 
 fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
+    const INSTANCE_THROUGHPUT: &str = "instance_throughput";
     let file = include_str!("../scripts/network_performance.json");
     let throughput: serde_json::Value =
         serde_json::from_str(file).context("failed to parse network_performance.json")?;
+
     throughput
+        .get(INSTANCE_THROUGHPUT)
+        .context("failed to parse instance throughput in network_performance.json")?
         .get(ec2_instance_type)
         .and_then(|t| t.as_f64())
         .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_maximum_network_throughput;
+
+    #[test]
+    #[should_panic(expected = "no throughput configuration for EC2 instance type c4.large")]
+    fn test_get_maximum_network_throughput_on_c4_xlarge() {
+        get_maximum_network_throughput("c4.large").expect("no throughput specified for c4.large");
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_c5_large() {
+        let throughput =
+            get_maximum_network_throughput("c5.large").expect("throughput of instance type c5.large is 10 Gbps");
+        assert_eq!(throughput, 10_f64);
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_c5n_large() {
+        let throughput =
+            get_maximum_network_throughput("c5n.large").expect("throughput of instance type c5n.large is 25 Gbps");
+        assert_eq!(throughput, 25_f64);
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_c5n_18xlarge() {
+        let throughput =
+            get_maximum_network_throughput("c5n.18xlarge").expect("throughput of instance type c5.18xlarge is 25 Gbps");
+        assert_eq!(throughput, 100_f64);
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_c6i_large() {
+        let throughput =
+            get_maximum_network_throughput("c6i.large").expect("throughput of instance type c6i.large is 25 Gbps");
+        assert_eq!(throughput, 12.5_f64);
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_p4d_24xlarge() {
+        let throughput = get_maximum_network_throughput("p4d.24xlarge")
+            .expect("throughput of instance type p4d.24xlarge is 400 Gbps");
+        assert_eq!(throughput, 400_f64);
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_trn1_32xlarge() {
+        let throughput = get_maximum_network_throughput("trn1.32xlarge")
+            .expect("throughput of instance type tr1.32xlarge is 800 Gbps");
+        assert_eq!(throughput, 800_f64);
+    }
+
+    #[test]
+    fn test_get_maximum_network_throughput_on_dl1_24xlarge() {
+        let throughput = get_maximum_network_throughput("dl1.24xlarge")
+            .expect("throughput of instance type dl1.24xlarge is 400 Gbps");
+        assert_eq!(throughput, 400_f64);
+    }
 }
