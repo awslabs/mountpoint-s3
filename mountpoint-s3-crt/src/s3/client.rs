@@ -624,10 +624,11 @@ impl MetaRequestResult {
 
 /// Create a new [SigningConfig] with the default configuration for signing S3 requests to a region
 /// using the given [CredentialsProvider]
-pub fn init_default_signing_config(region: &str, credentials_provider: &mut CredentialsProvider) -> SigningConfig {
+pub fn init_default_signing_config(region: &str, credentials_provider: CredentialsProvider) -> SigningConfig {
     let mut signing_config = Box::new(SigningConfigInner {
         inner: Default::default(),
         region: region.to_owned().into(),
+        credentials_provider,
         _pinned: Default::default(),
     });
 
@@ -639,7 +640,7 @@ pub fn init_default_signing_config(region: &str, credentials_provider: &mut Cred
         aws_s3_init_default_signing_config(
             &mut signing_config.inner,
             region_cursor,
-            credentials_provider.inner.as_ptr(),
+            signing_config.credentials_provider.inner.as_ptr(),
         );
     }
     signing_config.inner.flags.set_use_double_uri_encode(false as u32);

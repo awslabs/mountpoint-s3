@@ -201,6 +201,16 @@ struct CliArgs {
 
     #[clap(short, long, help = "Run as foreground process")]
     pub foreground: bool,
+
+    #[clap(
+        short,
+        long,
+        help = "Do not sign requests. Credentials will not be loaded if this argument is provided."
+    )]
+    pub no_sign_request: bool,
+
+    #[clap(long, help = "Use a specific profile from your credential file. [default: default]")]
+    pub profile: Option<String>,
 }
 
 impl CliArgs {
@@ -357,6 +367,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
     let client_config = S3ClientConfig {
+        profile_name_override: args.profile,
+        no_sign_request: args.no_sign_request,
         throughput_target_gbps: Some(throughput_target_gbps),
         part_size: args.part_size.map(|t| t as usize),
         endpoint,
