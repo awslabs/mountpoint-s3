@@ -38,7 +38,10 @@ Finally, compile the client:
 
 The final binary will be at `target/release/mount-s3`.
 
-To use the client, first ensure you have [access to valid AWS credentials](https://docs.aws.amazon.com/sdkref/latest/guide/access.html). For example, you could [create a new IAM user and add it to the `~/.aws/credentials` file](https://docs.aws.amazon.com/sdkref/latest/guide/access-users.html), or [configure an EC2 instance with an IAM role](https://docs.aws.amazon.com/sdkref/latest/guide/access-iam-roles-for-ec2.html).
+The following instructions assume you have the binary on your path.
+Add it to a location on your path now, or prefix `mount-s3` commands with the path to the binary.
+
+To use the client, ensure you have [access to valid AWS credentials](https://docs.aws.amazon.com/sdkref/latest/guide/access.html). For example, you could [create a new IAM user and add it to the `~/.aws/credentials` file](https://docs.aws.amazon.com/sdkref/latest/guide/access-users.html), or [configure an EC2 instance with an IAM role](https://docs.aws.amazon.com/sdkref/latest/guide/access-iam-roles-for-ec2.html).
 
 Then run the client, specifying the directory in which your S3 bucket should be mounted (here, `~/mnt`):
 
