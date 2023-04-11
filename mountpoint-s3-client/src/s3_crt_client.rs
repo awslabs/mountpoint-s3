@@ -236,7 +236,7 @@ impl S3CrtClient {
                 metrics::counter!("s3.meta_requests", 1, "op" => op);
 
                 if request_result.is_err() {
-                    warn!(
+                    debug!(
                         request_id = request_id.as_deref().unwrap_or("unknown"),
                         duration_us = start_time.elapsed().as_micros(),
                         ?request_result,
