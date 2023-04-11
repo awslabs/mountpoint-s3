@@ -51,10 +51,10 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        if let Some(e_tag) = if_match {
+        if let Some(etag) = if_match {
             // Return the object only if its entity tag (ETag) is matched
             message
-                .add_header(&Header::new("If-Match", e_tag.etag))
+                .add_header(&Header::new("If-Match", etag.as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
@@ -141,6 +141,16 @@ fn parse_get_object_error(result: &MetaRequestResult) -> Option<GetObjectError> 
             match error_str.deref() {
                 "NoSuchBucket" => Some(GetObjectError::NoSuchBucket),
                 "NoSuchKey" => Some(GetObjectError::NoSuchKey),
+                _ => None,
+            }
+        }
+        412 => {
+            let body = result.error_response_body.as_ref()?;
+            let root = xmltree::Element::parse(body.as_bytes()).ok()?;
+            let error_code = root.get_child("Code")?;
+            let error_str = error_code.get_text()?;
+            match error_str.deref() {
+                "PreconditionFailed" => Some(GetObjectError::PreconditionFailed),
                 _ => None,
             }
         }

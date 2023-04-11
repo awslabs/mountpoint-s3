@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use fuser::{Filesystem, Session, SessionUnmounter};
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::sync::mpsc;
 use crate::sync::thread;

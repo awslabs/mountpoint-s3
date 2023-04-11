@@ -68,9 +68,7 @@ impl MockClient {
     /// Add an object to this mock client's bucket
     pub fn add_object(&self, key: &str, value: MockObject) -> ETag {
         self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
-        ETag {
-            etag: "Random ETag".to_string(),
-        }
+        ETag::from_str("Random E-Tag")
     }
 
     /// Remove object for the mock client's bucket
@@ -131,9 +129,7 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: Some(ETag {
-                etag: "Random E-Tag".to_string(),
-            }),
+            etag: Some(ETag::from_str("Random E-Tag")),
         }
     }
 

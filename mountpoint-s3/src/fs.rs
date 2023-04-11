@@ -289,15 +289,12 @@ where
             }
         } else {
             lookup.inode.start_reading()?;
-            let file_etag = ETag {
-                etag: match lookup.stat.etag {
-                    None => return Err(libc::EBADF),
-                    Some(etag) => etag,
-                },
-            };
             FileHandleType::Read {
                 request: Default::default(),
-                etag: file_etag,
+                etag: match lookup.stat.etag {
+                    None => return Err(libc::EBADF),
+                    Some(etag) => ETag::from_str(&etag),
+                },
             }
         };
 

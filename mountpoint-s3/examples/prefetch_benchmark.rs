@@ -82,7 +82,7 @@ fn main() {
         let start = Instant::now();
         let etag = "Random ETag";
 
-        let mut request = manager.get(bucket, key, size, ETag { etag: etag.to_string() });
+        let mut request = manager.get(bucket, key, size, ETag::from_str(etag));
         block_on(async {
             loop {
                 let offset = received_size.load(Ordering::SeqCst);

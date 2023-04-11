@@ -11,7 +11,18 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 
 #[derive(Debug, Clone)]
 pub struct ETag {
-    pub etag: String,
+    etag: String,
+}
+impl ETag {
+    pub fn as_str(&self) -> &str {
+        &self.etag
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        ETag {
+            etag: value.to_string(),
+        }
+    }
 }
 
 /// An [ObjectClient] is an S3-like blob storage interface
@@ -111,8 +122,8 @@ pub enum GetObjectError {
     #[error("The key does not exist")]
     NoSuchKey,
 
-    #[error("ETag precondition failed")]
-    ETagNotMatch,
+    #[error("If-Match precondition failed")]
+    PreconditionFailed,
 }
 
 /// Result of a [ObjectClient::list_objects] request

@@ -541,11 +541,9 @@ mod tests {
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
-        let e_tag = ETag {
-            etag: "Random E-Tag".to_string(),
-        };
+        let etag = ETag::from_str("Random E-Tag");
 
-        let mut request = prefetcher.get("test-bucket", "hello", object_size, e_tag);
+        let mut request = prefetcher.get("test-bucket", "hello", object_size, etag);
 
         request.next_request_offset = next_request_offset as u64;
         request.next_request_size = current_request_size;
