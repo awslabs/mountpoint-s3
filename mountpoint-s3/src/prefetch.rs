@@ -489,8 +489,10 @@ mod tests {
         assert!(next_offset < size); // Since we're injecting failures, shouldn't make it to the end
     }
 
-    #[test]
-    fn fail_request_sequential_small() {
+    #[test_case("invalid range; length=42")]
+    // test case for the request failure due to etag not matching
+    #[test_case("At least one of the pre-conditions you specified did not hold")]
+    fn fail_request_sequential_small(err_value: &str) {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 1024 * 1024 * 1024,
@@ -502,7 +504,7 @@ mod tests {
         get_failures.insert(
             2,
             Err(ObjectClientError::ClientError(MockClientError(
-                "invalid range; length=42".into(),
+                err_value.to_owned().into(),
             ))),
         );
 
@@ -541,7 +543,7 @@ mod tests {
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
-        let etag = ETag::from_str("Random E-Tag");
+        let etag = ETag::etag_from_str("Random E-Tag");
 
         let mut request = prefetcher.get("test-bucket", "hello", object_size, etag);
 

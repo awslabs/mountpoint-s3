@@ -293,7 +293,7 @@ where
                 request: Default::default(),
                 etag: match lookup.stat.etag {
                     None => return Err(libc::EBADF),
-                    Some(etag) => ETag::from_str(&etag),
+                    Some(etag) => ETag::etag_from_str(&etag),
                 },
             }
         };

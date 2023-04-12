@@ -26,12 +26,12 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str)
             stream::once(future::ready(&contents[..])),
         )
         .await
-        .expect("put_object failed");
+        .expect("put_object should succeed");
 
     let result = client
         .get_object(bucket, &key, None, None)
         .await
-        .expect("get_object failed");
+        .expect("get_object should succeed");
     check_get_result(result, None, &contents[..]).await;
 }
 

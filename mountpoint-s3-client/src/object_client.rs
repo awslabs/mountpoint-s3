@@ -13,12 +13,13 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 pub struct ETag {
     etag: String,
 }
+
 impl ETag {
-    pub fn as_str(&self) -> &str {
+    pub fn etag_as_str(&self) -> &str {
         &self.etag
     }
 
-    pub fn from_str(value: &str) -> Self {
+    pub fn etag_from_str(value: &str) -> Self {
         ETag {
             etag: value.to_string(),
         }

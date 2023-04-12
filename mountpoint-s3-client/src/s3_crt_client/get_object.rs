@@ -54,7 +54,7 @@ impl S3CrtClient {
         if let Some(etag) = if_match {
             // Return the object only if its entity tag (ETag) is matched
             message
-                .add_header(&Header::new("If-Match", etag.as_str()))
+                .add_header(&Header::new("If-Match", etag.etag_as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
