@@ -52,11 +52,7 @@ impl FuseSession {
                 .name("fuse-worker-waiter".to_owned())
                 .spawn(move || {
                     for thd in workers {
-                        let thread_name = thd
-                            .thread()
-                            .name()
-                            .map(ToOwned::to_owned);
-
+                        let thread_name = thd.thread().name().map(ToOwned::to_owned);
                         match thd.join() {
                             Err(panic_param) => {
                                 // Try to downcast as &str or String to log
