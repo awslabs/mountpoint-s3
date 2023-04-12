@@ -239,7 +239,7 @@ impl S3CrtClient {
                 let duration_us = start_time.elapsed().as_micros();
                 if request_result.is_err() {
                     let res_status_code = request_result.response_status;
-                    if (res_status_code >= 200 && res_status_code <= 399) || res_status_code == 404 {
+                    if (200..=399).contains(&res_status_code) || res_status_code == 404 {
                         // Use debug level for less severe response codes.
                         debug!(request_id, duration_us, ?request_result, "request failed");
                     } else {
