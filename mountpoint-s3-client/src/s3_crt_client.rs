@@ -241,19 +241,9 @@ impl S3CrtClient {
                     let res_status_code = request_result.response_status;
                     if (res_status_code >= 200 && res_status_code <= 399) || res_status_code == 404 {
                         // Use debug level for less severe response codes.
-                        debug!(
-                            request_id,
-                            duration_us,
-                            ?request_result,
-                            "request failed"
-                        );
+                        debug!(request_id, duration_us, ?request_result, "request failed");
                     } else {
-                        warn!(
-                            request_id,
-                            duration_us,
-                            ?request_result,
-                            "request failed"
-                        );
+                        warn!(request_id, duration_us, ?request_result, "request failed");
                     }
 
                     // If it's not a real HTTP status, encode the CRT error instead
@@ -264,11 +254,7 @@ impl S3CrtClient {
                     };
                     metrics::counter!("s3.meta_request_failures", 1, "op" => op, "status" => format!("{error_status}"));
                 } else {
-                    debug!(
-                        request_id,
-                        duration_us,
-                        "request finished"
-                    );
+                    debug!(request_id, duration_us, "request finished");
                 }
 
                 let result = on_finish(request_result);
