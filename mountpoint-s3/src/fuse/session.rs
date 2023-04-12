@@ -55,16 +55,20 @@ impl FuseSession {
                         let thread_name = thd
                             .thread()
                             .name()
-                            .expect("worker threads should have names")
-                            .to_owned();
+                            .map(ToOwned::to_owned);
 
                         match thd.join() {
-                            Err(_panic_param) => {
-                                error!("thread {thread_name} panicked");
+                            Err(panic_param) => {
+                                // Try to downcast as &str or String to log
+                                let panic_msg = match panic_param.downcast_ref::<&str>() {
+                                    Some(s) => Some(*s),
+                                    None => panic_param.downcast_ref::<String>().map(AsRef::as_ref),
+                                };
+                                error!(thread_name, panic_msg, "worker thread panicked");
                             }
                             Ok(thd_result) => {
                                 if let Err(fuse_worker_error) = thd_result {
-                                    error!("thread {thread_name} failed: {fuse_worker_error:?}");
+                                    error!(thread_name, "worker thread failed: {fuse_worker_error:?}");
                                 }
                             }
                         };
