@@ -1838,6 +1838,7 @@ dependencies = [
  "proptest-derive",
  "rand",
  "rand_chacha",
+ "regex",
  "serde_json",
  "sha2",
  "shuttle",
