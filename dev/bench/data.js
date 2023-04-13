@@ -11356,9 +11356,113 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "56cf403c6737b08d4c08dea7819de7088ac81614",
+          "message": "Add basic validation of bucket name (#207)\n\n* Do some basic validation of bucket names\r\n\r\nThis will help catch common CLI errors like #203. Customers coming from\r\nthe AWS CLI might expect to be able to pass an s3:// URI as a bucket\r\nname, which we don't support. It's also possible to accidentally swap\r\nthe bucket name and mount point arguments -- mount points will often be\r\ninvalid bucket names, so some validation helps us catch some of these\r\ncases more quickly.\r\n\r\nArguably we could support parsing s3:// URIs, including using the key as\r\na prefix for the mount. But that would be a bigger feature and I'm not\r\ntotally sure it's the right thing, so for now some validation is better\r\nthan nothing.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* Allow underscores in bucket names\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-04-13T16:34:07+01:00",
+          "tree_id": "9042f2e28ede4453e15ca03c8b7963667ba233b8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/56cf403c6737b08d4c08dea7819de7088ac81614"
+        },
+        "date": 1681401335018,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.19921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 6.4990234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 8.84765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 36.55859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 27.18359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 1.8466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.587890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.3896484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1096.8125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 7.2529296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 5650.9853515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 162.810546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 8.3662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2196.39453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 25.1689453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 24.0419921875,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1681311472347,
+  "lastUpdate": 1681401335539,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
