@@ -504,7 +504,7 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
 
     // Actual bucket names must start/end with a letter, but bucket aliases can end with numbers
     // (-s3), so let's just naively check for invalid characters.
-    let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\.]+$").unwrap();
+    let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
     if !bucket_regex.is_match(bucket_name) {
         return Err(anyhow!("bucket names can only contain letters, numbers, . and -"));
     }
@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test_case("test-bucket", true)]
-    #[test_case("test-123.bucket", true)]
+    #[test_case("test-123.buc_ket", true)]
     #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", true)]
     #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", true)]
     #[test_case("s3://test-bucket", false)]
