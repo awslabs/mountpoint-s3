@@ -81,9 +81,8 @@ fn main() {
         let received_size = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();
-        let etag = "Random E-Tag";
 
-        let mut request = manager.get(bucket, key, size, ETag::from_str(etag).unwrap());
+        let mut request = manager.get(bucket, key, size, ETag::for_tests());
         block_on(async {
             loop {
                 let offset = received_size.load(Ordering::SeqCst);
