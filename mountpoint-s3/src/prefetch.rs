@@ -385,8 +385,10 @@ mod tests {
             part_size: test_config.client_part_size,
         };
         let client = MockClient::new(config);
+        let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
+        let etag = object.etag.clone().expect("E-Tag should be set");
 
-        let etag = client.add_object("hello", MockObject::ramp(0xaa, size as usize));
+        client.add_object("hello", object);
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
@@ -457,7 +459,10 @@ mod tests {
             part_size: test_config.client_part_size,
         };
         let client = MockClient::new(config);
-        let etag = client.add_object("hello", MockObject::ramp(0xaa, size as usize));
+        let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
+        let etag = object.etag.clone().expect("E-Tag should be set");
+
+        client.add_object("hello", object);
 
         let client = countdown_failure_client(client, get_failures, HashMap::new(), HashMap::new());
 
@@ -543,7 +548,7 @@ mod tests {
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
-        let etag = ETag::etag_from_str("Random E-Tag");
+        let etag = ETag::for_tests();
 
         let mut request = prefetcher.get("test-bucket", "hello", object_size, etag);
 
@@ -576,8 +581,10 @@ mod tests {
             part_size: test_config.client_part_size,
         };
         let client = MockClient::new(config);
+        let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
+        let etag = object.etag.clone().expect("E-Tag should be set");
 
-        let etag = client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
+        client.add_object("hello", object);
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,
@@ -677,8 +684,10 @@ mod tests {
                 part_size,
             };
             let client = MockClient::new(config);
+            let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
+            let file_etag = object.etag.clone().expect("E-Tag should be set");
 
-            let file_etag = client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
+            client.add_object("hello", object);
 
             let test_config = PrefetcherConfig {
                 first_request_size,
@@ -727,8 +736,10 @@ mod tests {
                 part_size,
             };
             let client = MockClient::new(config);
+            let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
+            let file_etag = object.etag.clone().expect("E-Tag should be set");
 
-            let file_etag = client.add_object("hello", MockObject::ramp(0xaa, object_size as usize));
+            client.add_object("hello", object);
 
             let test_config = PrefetcherConfig {
                 first_request_size,

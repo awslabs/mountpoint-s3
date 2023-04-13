@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -82,7 +83,7 @@ fn main() {
         let start = Instant::now();
         let etag = "Random E-Tag";
 
-        let mut request = manager.get(bucket, key, size, ETag::etag_from_str(etag));
+        let mut request = manager.get(bucket, key, size, ETag::from_str(etag).unwrap());
         block_on(async {
             loop {
                 let offset = received_size.load(Ordering::SeqCst);

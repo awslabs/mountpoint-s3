@@ -281,7 +281,7 @@ mod tests {
         });
 
         let body = vec![0u8; 50];
-        client.add_object(key, MockObject::from_bytes(&body));
+        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_failures = HashMap::new();
         get_failures.insert(

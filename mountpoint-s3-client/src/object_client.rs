@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
-use std::{fmt, ops::Range};
+use std::str::FromStr;
+use std::{fmt, ops::Range, string::ParseError};
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -15,14 +16,24 @@ pub struct ETag {
 }
 
 impl ETag {
-    pub fn etag_as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         &self.etag
     }
 
-    pub fn etag_from_str(value: &str) -> Self {
-        ETag {
-            etag: value.to_string(),
+    pub fn for_tests() -> Self {
+        Self {
+            etag: "test_etag".to_string(),
         }
+    }
+}
+
+// Implemented FromStr trait because there was already a method from_str there
+impl FromStr for ETag {
+    type Err = ParseError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(ETag {
+            etag: value.to_string(),
+        })
     }
 }
 

@@ -851,7 +851,12 @@ pub enum InodeError {
 
 #[cfg(test)]
 mod tests {
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use std::str::FromStr;
+
+    use mountpoint_s3_client::{
+        mock_client::{MockClient, MockClientConfig, MockObject},
+        ETag,
+    };
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
@@ -898,7 +903,7 @@ mod tests {
         let object_size = 30;
         let mut last_modified = OffsetDateTime::UNIX_EPOCH;
         for key in keys {
-            let mut obj = MockObject::constant(0xaa, object_size);
+            let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
             client.add_object(key, obj);
@@ -1005,7 +1010,7 @@ mod tests {
 
         let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
         for key in keys {
-            let mut obj = MockObject::constant(0xaa, 30);
+            let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
             client.add_object(key, obj);
         }
@@ -1056,7 +1061,7 @@ mod tests {
             part_size: 1024 * 1024,
         };
         let client = Arc::new(MockClient::new(client_config));
-        client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30));
+        client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
         let superblock = Superblock::new("test_bucket", "");
 
@@ -1097,8 +1102,14 @@ mod tests {
         // common prefix when we do ListObjects with prefix = 'dir'. But `dir` comes before `dir-1`
         // in lexicographical order, so `dir` will be the first common prefix when we do ListObjects
         // with prefix = ''.
-        client.add_object(&format!("dir/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
-        client.add_object(&format!("dir-1/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
+        client.add_object(
+            &format!("dir/{subdir}file1.txt"),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
+        client.add_object(
+            &format!("dir-1/{subdir}file1.txt"),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
 
         let superblock = Superblock::new("test_bucket", "");
 
@@ -1126,11 +1137,26 @@ mod tests {
 
         // The only valid key here is "dir1/a", so we should see a directory called "dir1" and a
         // file inside it called "a".
-        client.add_object("dir1/", MockObject::constant(0xaa, 30));
-        client.add_object("dir1//", MockObject::constant(0xaa, 30));
-        client.add_object("dir1/a", MockObject::constant(0xaa, 30));
-        client.add_object("dir1/.", MockObject::constant(0xaa, 30));
-        client.add_object("dir1/./a", MockObject::constant(0xaa, 30));
+        client.add_object(
+            "dir1/",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_1").unwrap()),
+        );
+        client.add_object(
+            "dir1//",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_2").unwrap()),
+        );
+        client.add_object(
+            "dir1/a",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_3").unwrap()),
+        );
+        client.add_object(
+            "dir1/.",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_4").unwrap()),
+        );
+        client.add_object(
+            "dir1/./a",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_5").unwrap()),
+        );
 
         let superblock = Superblock::new("test_bucket", "");
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();

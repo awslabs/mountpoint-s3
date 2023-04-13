@@ -3,6 +3,7 @@
 pub mod common;
 
 use std::option::Option::None;
+use std::str::FromStr;
 
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
@@ -132,14 +133,10 @@ async fn test_get_object_success_if_match() {
         .unwrap();
 
     let client: S3CrtClient = get_test_client();
+    let etag = Some(ETag::from_str(response.e_tag().expect("E-Tag should be set")).unwrap());
 
     let result = client
-        .get_object(
-            &bucket,
-            &key,
-            None,
-            Some(ETag::etag_from_str(response.e_tag().expect("E-Tag should be set"))),
-        )
+        .get_object(&bucket, &key, None, etag)
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
@@ -163,9 +160,10 @@ async fn test_get_object_412_if_match() {
         .unwrap();
 
     let client: S3CrtClient = get_test_client();
+    let etag = Some(ETag::from_str("incorrect_etag").unwrap());
 
     let mut result = client
-        .get_object(&bucket, &key, None, Some(ETag::etag_from_str("Random E-Tag")))
+        .get_object(&bucket, &key, None, etag)
         .await
         .expect("get_object should succeed");
 

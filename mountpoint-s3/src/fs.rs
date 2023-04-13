@@ -2,6 +2,7 @@ use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, trace};
 
@@ -293,7 +294,7 @@ where
                 request: Default::default(),
                 etag: match lookup.stat.etag {
                     None => return Err(libc::EBADF),
-                    Some(etag) => ETag::etag_from_str(&etag),
+                    Some(etag) => ETag::from_str(&etag).expect("E-Tag should be set"),
                 },
             }
         };

@@ -66,9 +66,8 @@ impl MockClient {
     }
 
     /// Add an object to this mock client's bucket
-    pub fn add_object(&self, key: &str, value: MockObject) -> ETag {
+    pub fn add_object(&self, key: &str, value: MockObject) {
         self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
-        ETag::etag_from_str("Random E-Tag")
     }
 
     /// Remove object for the mock client's bucket
@@ -92,28 +91,28 @@ impl MockObject {
         (self.generator)(offset, size.min(read_size))
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn from_bytes(bytes: &[u8], etag: ETag) -> Self {
         let bytes: Box<[u8]> = bytes.into();
         Self {
             size: bytes.len(),
             generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: None,
+            etag: Some(etag),
         }
     }
 
-    pub fn constant(v: u8, size: usize) -> Self {
+    pub fn constant(v: u8, size: usize, etag: ETag) -> Self {
         Self {
             generator: Box::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: None,
+            etag: Some(etag),
         }
     }
 
-    pub fn ramp(seed: u8, size: usize) -> Self {
+    pub fn ramp(seed: u8, size: usize, etag: ETag) -> Self {
         Self {
             generator: Box::new(move |offset, mut size| {
                 // Byte at offset k is (seed + k) % RAMP_MODULUS
@@ -129,7 +128,7 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: Some(ETag::etag_from_str("Random E-Tag")),
+            etag: Some(etag),
         }
     }
 
@@ -148,7 +147,7 @@ impl MockObject {
 
 impl<T: AsRef<[u8]>> From<T> for MockObject {
     fn from(bytes: T) -> Self {
-        MockObject::from_bytes(bytes.as_ref())
+        MockObject::from_bytes(bytes.as_ref(), ETag::for_tests())
     }
 }
 
@@ -485,7 +484,7 @@ mod tests {
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
-        client.add_object(key, MockObject::from_bytes(&body));
+        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_request = client
             .get_object("test_bucket", key, range.clone(), None)
@@ -585,7 +584,7 @@ mod tests {
             keys.push(format!("dirs/dir2/file{i}.txt"));
         }
         for key in &keys {
-            client.add_object(key, MockObject::constant(0u8, 5));
+            client.add_object(key, MockObject::constant(0u8, 5, ETag::for_tests()));
         }
 
         macro_rules! check {
@@ -661,7 +660,7 @@ mod tests {
     async fn test_put_object() {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
-        let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE);
+        let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
@@ -704,7 +703,7 @@ mod tests {
     proptest::proptest! {
         #[test]
         fn test_ramp(size in 1..2*RAMP_BUFFER_SIZE, read_size in 1..2*RAMP_BUFFER_SIZE, offset in 0..RAMP_BUFFER_SIZE) {
-            let obj = MockObject::ramp(0xaa, size);
+            let obj = MockObject::ramp(0xaa, size, ETag::for_tests());
             let r = obj.read(offset as u64, read_size);
             let expected_len = size.saturating_sub(offset).min(read_size);
             let expected = ramp_bytes(0xaa + offset, expected_len);
