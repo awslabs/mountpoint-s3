@@ -238,7 +238,27 @@ impl Superblock {
                 .update_or_insert(parent_ino, name, stat.clone(), InodeKind::File)?;
             Ok(LookedUp { inode, stat })
         } else {
-            Err(InodeError::FileDoesNotExist)
+            // if object with the given name doesn't exist we will look it up locally since it could be an uncommitted inode
+            let parent_state = parent.inner.sync.read().unwrap();
+            match &parent_state.kind_data {
+                InodeKindData::File { .. } => unreachable!("we know this is a directory"),
+                InodeKindData::Directory {
+                    children,
+                    writing_children,
+                } => {
+                    if let Some(inode) = children.get(name) {
+                        if writing_children.contains(&inode.ino()) {
+                            let inode = inode.clone();
+                            let stat = inode.inner.sync.read().unwrap().stat.clone();
+                            Ok(LookedUp { inode, stat })
+                        } else {
+                            Err(InodeError::FileDoesNotExist)
+                        }
+                    } else {
+                        Err(InodeError::FileDoesNotExist)
+                    }
+                }
+            }
         }
     }
 
