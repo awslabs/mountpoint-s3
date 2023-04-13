@@ -34,6 +34,24 @@ fn mount_point_isnt_dir() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn prefix_doesnt_end_in_slash() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    let prefix = "foo";
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg(format!("--prefix={}", prefix));
+    let error_message = format!(
+        "error: invalid value '{}' for '--prefix <PREFIX>': prefix must end in '/'",
+        prefix
+    );
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[test]
 fn max_dir_mode_exceeded() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("mount-s3")?;

@@ -9,8 +9,9 @@ use tracing::{debug, error, trace};
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, ObjectClient, PutObjectParams};
 
-use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock};
+use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
+use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 
@@ -52,6 +53,7 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
     },
     Write {
         parts: AsyncMutex<Vec<Box<[u8]>>>,
+        handle: WriteHandle,
     },
 }
 
@@ -101,7 +103,7 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     prefetcher: Prefetcher<Client, Runtime>,
     bucket: String,
     #[allow(unused)]
-    prefix: String,
+    prefix: Prefix,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
@@ -112,13 +114,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Runtime: Spawn + Send + Sync,
 {
-    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &str, config: S3FilesystemConfig) -> Self {
-        // TODO is this required?
-        assert!(
-            prefix.is_empty() || prefix.ends_with('/'),
-            "prefix must be empty or end with `/`"
-        );
-
+    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
         let superblock = Superblock::new(bucket, prefix);
 
         let client = Arc::new(client);
@@ -131,7 +127,7 @@ where
             superblock,
             prefetcher,
             bucket: bucket.to_string(),
-            prefix: prefix.to_string(),
+            prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
             dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),
@@ -284,9 +280,10 @@ where
                 return Err(libc::EINVAL);
             }
 
-            lookup.inode.start_writing()?;
+            let inode_handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
             FileHandleType::Write {
                 parts: Default::default(),
+                handle: inode_handle,
             }
         } else {
             lookup.inode.start_reading()?;
@@ -412,7 +409,7 @@ where
             return Err(libc::EBADF);
         };
         let mut request = match &handle.typ {
-            FileHandleType::Write { parts } => parts.lock().await,
+            FileHandleType::Write { parts, .. } => parts.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
 
@@ -530,18 +527,18 @@ where
         _lock_owner: Option<u64>,
         _flush: bool,
     ) -> Result<(), libc::c_int> {
-        let handle = {
+        let file_handle = {
             let mut file_handles = self.file_handles.write().await;
             file_handles.remove(&fh).ok_or(libc::EBADF)?
         };
 
-        match handle.typ {
-            FileHandleType::Write { parts } => {
+        match file_handle.typ {
+            FileHandleType::Write { parts, handle } => {
                 // TODO how do we make sure we didn't already handle this via `flush`?
                 let parts = parts.into_inner();
                 let size = parts.iter().map(|part| part.len()).sum::<usize>();
                 let stream = futures::stream::iter(parts);
-                let key = handle.full_key;
+                let key = file_handle.full_key;
 
                 let put = self
                     .client
@@ -560,13 +557,13 @@ where
                     }
                 };
 
-                handle.inode.finish_writing(size)?;
+                handle.finish_writing(size)?;
 
                 result
             }
             FileHandleType::Read { request: _, etag: _ } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
-                handle.inode.finish_reading()?;
+                file_handle.inode.finish_reading()?;
                 Ok(())
             }
         }

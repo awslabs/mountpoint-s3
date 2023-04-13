@@ -2,8 +2,9 @@
 
 use fuser::FileType;
 use mountpoint_s3::fs::FUSE_ROOT_INODE;
-use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{mock_client::MockObject, ETag};
+use mountpoint_s3_client::ObjectClient;
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -18,20 +19,12 @@ use common::{assert_attr, make_test_filesystem, ReadReply};
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_read_dir_root(prefix: &str) {
-    let (client, fs) = make_test_filesystem("test_read_dir", prefix, Default::default());
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_read_dir", &prefix, Default::default());
 
-    client.add_object(
-        &format!("{prefix}file1.txt"),
-        MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}file2.txt"),
-        MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}file3.txt"),
-        MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()),
-    );
+    client.add_object(&format!("{prefix}file1.txt"), MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()));
+    client.add_object(&format!("{prefix}file2.txt"), MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()));
+    client.add_object(&format!("{prefix}file3.txt"), MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()));
 
     let uid = getuid().into();
     let gid = getgid().into();
@@ -90,20 +83,12 @@ async fn test_read_dir_root(prefix: &str) {
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_read_dir_nested(prefix: &str) {
-    let (client, fs) = make_test_filesystem("test_read_dir_nested", prefix, Default::default());
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_read_dir_nested", &prefix, Default::default());
 
-    client.add_object(
-        &format!("{prefix}dir1/file1.txt"),
-        MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}dir1/file2.txt"),
-        MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}dir2/file3.txt"),
-        MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()),
-    );
+    client.add_object(&format!("{prefix}dir1/file1.txt"), MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()));
+    client.add_object(&format!("{prefix}dir1/file2.txt"), MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()));
+    client.add_object(&format!("{prefix}dir2/file3.txt"), MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()));
 
     let uid = getuid().into();
     let gid = getgid().into();
@@ -161,7 +146,7 @@ async fn test_read_dir_nested(prefix: &str) {
 #[test_case(50 * 1024 * 1024; "large")]
 #[tokio::test]
 async fn test_random_read(object_size: usize) {
-    let (client, fs) = make_test_filesystem("test_random_read", "", Default::default());
+    let (client, fs) = make_test_filesystem("test_random_read", &Default::default(), Default::default());
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
     let mut expected = vec![0; object_size];
@@ -200,18 +185,13 @@ async fn test_random_read(object_size: usize) {
 #[test_case("test_prefix/"; "prefixed")]
 #[tokio::test]
 async fn test_implicit_directory_shadow(prefix: &str) {
-    let (client, fs) = make_test_filesystem("test_implicit_directory_shadow", prefix, Default::default());
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_implicit_directory_shadow", &prefix, Default::default());
 
     // Make an object that matches a directory name. We want this object to be shadowed by the
     // directory.
-    client.add_object(
-        &format!("{prefix}dir1/"),
-        MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        &format!("{prefix}dir1/file2.txt"),
-        MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
-    );
+    client.add_object(&format!("{prefix}dir1/"), MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()));
+    client.add_object(&format!("{prefix}dir1/file2.txt"), MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()));
 
     let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
     assert_eq!(entry.attr.kind, FileType::Directory);
@@ -255,7 +235,7 @@ async fn test_sequential_write(write_size: usize) {
     const BUCKET_NAME: &str = "test_sequential_write";
     const OBJECT_SIZE: usize = 50 * 1024;
 
-    let (client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
@@ -290,10 +270,7 @@ async fn test_sequential_write(write_size: usize) {
     fs.release(file_ino, fh, 0, None, false).await.unwrap();
 
     // Check that the object made it to S3 as we expected
-    let get = client
-        .get_object(BUCKET_NAME, "dir1/file2.bin", None, None)
-        .await
-        .unwrap();
+    let get = client.get_object(BUCKET_NAME, "dir1/file2.bin", None, None).await.unwrap();
     let actual = get.collect().await.unwrap();
     assert_eq!(&actual[..], &body[..]);
 
@@ -348,7 +325,7 @@ async fn test_sequential_write(write_size: usize) {
 async fn test_unordered_write_fails() {
     const BUCKET_NAME: &str = "test_unordered_write_fails";
 
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
@@ -384,7 +361,7 @@ async fn test_unordered_write_fails() {
 async fn test_duplicate_write_fails() {
     const BUCKET_NAME: &str = "test_duplicate_write_fails";
 
-    let (_client, fs) = make_test_filesystem(BUCKET_NAME, "", Default::default());
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs
@@ -406,24 +383,12 @@ async fn test_duplicate_write_fails() {
 
 #[tokio::test]
 async fn test_stat_block_size() {
-    let (client, fs) = make_test_filesystem("test_stat_block_size", "", Default::default());
+    let (client, fs) = make_test_filesystem("test_stat_block_size", &Default::default(), Default::default());
 
-    client.add_object(
-        "file0.txt",
-        MockObject::constant(0xa1, 0, ETag::from_str("test_etag_1").unwrap()),
-    );
-    client.add_object(
-        "file1.txt",
-        MockObject::constant(0xa2, 1, ETag::from_str("test_etag_2").unwrap()),
-    );
-    client.add_object(
-        "file4096.txt",
-        MockObject::constant(0xa3, 4096, ETag::from_str("test_etag_3").unwrap()),
-    );
-    client.add_object(
-        "file4097.txt",
-        MockObject::constant(0xa3, 4097, ETag::from_str("test_etag_4").unwrap()),
-    );
+    client.add_object("file0.txt", MockObject::constant(0xa1, 0, ETag::from_str("test_etag_1").unwrap()));
+    client.add_object("file1.txt", MockObject::constant(0xa2, 1, ETag::from_str("test_etag_2").unwrap()));
+    client.add_object("file4096.txt", MockObject::constant(0xa3, 4096, ETag::from_str("test_etag_3").unwrap()));
+    client.add_object("file4097.txt", MockObject::constant(0xa3, 4097, ETag::from_str("test_etag_4").unwrap()));
 
     let lookup = fs.lookup(FUSE_ROOT_INODE, "file0.txt".as_ref()).await.unwrap();
     assert_eq!(lookup.attr.blocks, 0);

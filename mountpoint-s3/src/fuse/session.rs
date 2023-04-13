@@ -52,10 +52,22 @@ impl FuseSession {
                 .name("fuse-worker-waiter".to_owned())
                 .spawn(move || {
                     for thd in workers {
-                        let result = thd.join().unwrap();
-                        if let Err(e) = result {
-                            error!("fuse worker thread failed: {e:?}");
-                        }
+                        let thread_name = thd.thread().name().map(ToOwned::to_owned);
+                        match thd.join() {
+                            Err(panic_param) => {
+                                // Try to downcast as &str or String to log
+                                let panic_msg = match panic_param.downcast_ref::<&str>() {
+                                    Some(s) => Some(*s),
+                                    None => panic_param.downcast_ref::<String>().map(AsRef::as_ref),
+                                };
+                                error!(thread_name, panic_msg, "worker thread panicked");
+                            }
+                            Ok(thd_result) => {
+                                if let Err(fuse_worker_error) = thd_result {
+                                    error!(thread_name, "worker thread failed: {fuse_worker_error:?}");
+                                }
+                            }
+                        };
                     }
 
                     let _ = tx.send(Message::WorkersExited);

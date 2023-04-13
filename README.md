@@ -38,7 +38,10 @@ Finally, compile the client:
 
 The final binary will be at `target/release/mount-s3`.
 
-To use the client, first ensure you have [access to valid AWS credentials](https://docs.aws.amazon.com/sdkref/latest/guide/access.html). For example, you could [create a new IAM user and add it to the `~/.aws/credentials` file](https://docs.aws.amazon.com/sdkref/latest/guide/access-users.html), or [configure an EC2 instance with an IAM role](https://docs.aws.amazon.com/sdkref/latest/guide/access-iam-roles-for-ec2.html).
+The following instructions assume you have the binary on your path.
+Add it to a location on your path now, or prefix `mount-s3` commands with the path to the binary.
+
+To use the client, ensure you have [access to valid AWS credentials](https://docs.aws.amazon.com/sdkref/latest/guide/access.html). For example, you could [create a new IAM user and add it to the `~/.aws/credentials` file](https://docs.aws.amazon.com/sdkref/latest/guide/access-users.html), or [configure an EC2 instance with an IAM role](https://docs.aws.amazon.com/sdkref/latest/guide/access-iam-roles-for-ec2.html).
 
 Then run the client, specifying the directory in which your S3 bucket should be mounted (here, `~/mnt`):
 
@@ -46,6 +49,27 @@ Then run the client, specifying the directory in which your S3 bucket should be 
     mount-s3 my-s3-bucket-name ~/mnt
 
 The client will run in the background by default, and the `~/mnt` directory now gives access to the objects in your S3 bucket.
+
+### Mountpoint for Amazon S3 using Docker
+
+First, build the docker image using the below command.
+
+    cd mountpoint-s3/docker
+    docker build -t mount-s3 .
+
+Once the container build is successful, configure AWS credentials as environment variables.
+You can set short-term or long-term credentials using variables, such as those in the [AWS CLI environment variables documentation](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
+Run the following command to mount the S3 bucket and list some files.
+Replace `DOC-EXAMPLE-BUCKET` with the name of your bucket.
+
+     docker run -it \
+        --cap-add SYS_ADMIN \
+        --device /dev/fuse \
+        --env AWS_ACCESS_KEY_ID \
+        --env AWS_SECRET_ACCESS_KEY \
+        --env AWS_SESSION_TOKEN \
+        --env AWS_DEFAULT_REGION \
+        mount-s3 /bin/bash -c "./mount-s3 DOC-EXAMPLE-BUCKET /mnt; ls -l /mnt"
 
 ### Configuration
 
