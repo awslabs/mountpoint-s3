@@ -136,3 +136,25 @@ fn addressing_style_mutually_exclusive() -> Result<(), Box<dyn std::error::Error
 
     Ok(())
 }
+
+#[test]
+fn bucket_name_and_directory_swapped() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test/dir").arg("my-bucket-name");
+    let error_message = "bucket names can only contain letters, numbers, . and -";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[test]
+fn s3_uri_as_bucket_name() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("s3://test-bucket/").arg("test/dir");
+    let error_message = "bucket name should not be an s3:// URI";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
