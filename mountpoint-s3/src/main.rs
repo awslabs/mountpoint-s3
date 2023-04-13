@@ -19,6 +19,7 @@ use mountpoint_s3_client::{
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
+use regex::Regex;
 use time::format_description::FormatItem;
 use time::macros;
 use time::OffsetDateTime;
@@ -86,7 +87,7 @@ const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
 #[clap(about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
 #[clap(group(ArgGroup::new("addressing-style").args(&["virtual_addressing", "path_addressing"])))]
 struct CliArgs {
-    #[clap(help = "Name of bucket to mount")]
+    #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
     pub bucket_name: String,
 
     #[clap(help = "Mount point for file system")]
@@ -502,6 +503,27 @@ fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
     }
 }
 
+/// Validate a bucket name. This isn't intended to be an exhaustive validation, just a quick filter
+/// to catch common CLI mistakes like using an S3 URI (`s3://bucket/`) or a path (`~/mnt`).
+fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
+    if bucket_name.len() < 3 || bucket_name.len() > 255 {
+        return Err(anyhow!("bucket names must be 3-255 characters long"));
+    }
+
+    if bucket_name.contains("s3://") {
+        return Err(anyhow!("bucket name should not be an s3:// URI (provide the bare bucket name instead; use --prefix for prefix mounts)"));
+    }
+
+    // Actual bucket names must start/end with a letter, but bucket aliases can end with numbers
+    // (-s3), so let's just naively check for invalid characters.
+    let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
+    if !bucket_regex.is_match(bucket_name) {
+        return Err(anyhow!("bucket names can only contain letters, numbers, . and -"));
+    }
+
+    Ok(bucket_name.to_owned())
+}
+
 fn calculate_network_throughput() -> anyhow::Result<f64> {
     let instance_type = retrieve_instance_type().context("failed to retrieve instance type")?;
     let throughput = get_maximum_network_throughput(&instance_type).context("failed to get network throughput")?;
@@ -536,7 +558,7 @@ fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64
 
 #[cfg(test)]
 mod tests {
-    use super::get_maximum_network_throughput;
+    use super::*;
     use test_case::test_case;
 
     #[test_case("c4.large", None)] // We let "Moderate" fall through to default
@@ -550,5 +572,20 @@ mod tests {
     fn test_get_maximum_network_throughput(instance_type: &str, throughput: Option<f64>) {
         let actual = get_maximum_network_throughput(instance_type).ok();
         assert_eq!(actual, throughput);
+    }
+
+    #[test_case("test-bucket", true)]
+    #[test_case("test-123.buc_ket", true)]
+    #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", true)]
+    #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", true)]
+    #[test_case("s3://test-bucket", false)]
+    #[test_case("~/mnt", false)]
+    fn validate_bucket_name(bucket_name: &str, valid: bool) {
+        let parsed = parse_bucket_name(bucket_name);
+        if valid {
+            assert_eq!(parsed.expect("valid bucket name"), bucket_name);
+        } else {
+            parsed.expect_err("invalid bucket name");
+        }
     }
 }
