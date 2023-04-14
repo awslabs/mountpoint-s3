@@ -2,11 +2,12 @@ use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::{ObjectClient, PutObjectParams};
+use mountpoint_s3_client::{ETag, ObjectClient, PutObjectParams};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
@@ -48,6 +49,7 @@ struct FileHandle<Client: ObjectClient, Runtime> {
 enum FileHandleType<Client: ObjectClient, Runtime> {
     Read {
         request: AsyncMutex<Option<PrefetchGetObject<Client, Runtime>>>,
+        etag: ETag,
     },
     Write {
         parts: AsyncMutex<Vec<Box<[u8]>>>,
@@ -287,6 +289,10 @@ where
             lookup.inode.start_reading()?;
             FileHandleType::Read {
                 request: Default::default(),
+                etag: match lookup.stat.etag {
+                    None => return Err(libc::EBADF),
+                    Some(etag) => ETag::from_str(&etag).expect("E-Tag should be set"),
+                },
             }
         };
 
@@ -327,13 +333,20 @@ where
         let Some(handle) = file_handles.get(&fh) else {
             return reply.error(libc::EBADF);
         };
+        let file_etag: ETag;
         let mut request = match &handle.typ {
             FileHandleType::Write { .. } => return reply.error(libc::EBADF),
-            FileHandleType::Read { request } => request.lock().await,
+            FileHandleType::Read { request, etag } => {
+                file_etag = etag.clone();
+                request.lock().await
+            }
         };
 
         if request.is_none() {
-            *request = Some(self.prefetcher.get(&self.bucket, &handle.full_key, handle.object_size));
+            *request = Some(
+                self.prefetcher
+                    .get(&self.bucket, &handle.full_key, handle.object_size, file_etag),
+            );
         }
 
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
@@ -548,7 +561,7 @@ where
 
                 result
             }
-            FileHandleType::Read { request: _ } => {
+            FileHandleType::Read { request: _, etag: _ } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 file_handle.inode.finish_reading()?;
                 Ok(())

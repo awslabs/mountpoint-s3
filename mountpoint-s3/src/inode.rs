@@ -170,7 +170,7 @@ impl Superblock {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
                             let last_modified = object.last_modified;
-                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now());
+                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), Some(object.etag.clone()));
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -354,7 +354,8 @@ impl Superblock {
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
-        let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry);
+                                     // Objects don't have an ETag until they are uploaded to S3
+        let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None);
         let kind = InodeKind::File;
         let state = InodeState {
             stat: stat.clone(),
@@ -726,7 +727,12 @@ impl ReaddirHandle {
                 .filter(|(name, _object)| valid_inode_name(name))
                 .flat_map(|(name, object)| {
                     let last_modified = object.last_modified;
-                    let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now());
+                    let stat = InodeStat::for_file(
+                        object.size as usize,
+                        last_modified,
+                        Instant::now(),
+                        Some(object.etag.clone()),
+                    );
                     let stat_clone = stat.clone();
 
                     let result = self
@@ -909,6 +915,8 @@ pub struct InodeStat {
     pub ctime: OffsetDateTime,
     /// Time of last access
     pub atime: OffsetDateTime,
+    /// Etag for the file (object)
+    pub etag: Option<String>,
 }
 
 /// Inode write status (local vs remote)
@@ -924,13 +932,14 @@ pub enum WriteStatus {
 
 impl InodeStat {
     /// Initialize an [InodeStat] for a file, given some metadata.
-    fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant) -> InodeStat {
+    fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant, etag: Option<String>) -> InodeStat {
         InodeStat {
             expiry,
             size,
             atime: datetime,
             ctime: datetime,
             mtime: datetime,
+            etag,
         }
     }
 
@@ -942,6 +951,7 @@ impl InodeStat {
             atime: datetime,
             ctime: datetime,
             mtime: datetime,
+            etag: None,
         }
     }
 }
@@ -970,7 +980,12 @@ pub enum InodeError {
 
 #[cfg(test)]
 mod tests {
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use std::str::FromStr;
+
+    use mountpoint_s3_client::{
+        mock_client::{MockClient, MockClientConfig, MockObject},
+        ETag,
+    };
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
@@ -1017,7 +1032,7 @@ mod tests {
         let object_size = 30;
         let mut last_modified = OffsetDateTime::UNIX_EPOCH;
         for key in keys {
-            let mut obj = MockObject::constant(0xaa, object_size);
+            let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
             client.add_object(key, obj);
@@ -1125,7 +1140,7 @@ mod tests {
 
         let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
         for key in keys {
-            let mut obj = MockObject::constant(0xaa, 30);
+            let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
             client.add_object(key, obj);
         }
@@ -1229,7 +1244,7 @@ mod tests {
 
         let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
         for filename in remote_filenames {
-            let mut obj = MockObject::constant(0xaa, 30);
+            let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
             let key = format!("{prefix}{filename}");
             client.add_object(&key, obj);
@@ -1268,7 +1283,7 @@ mod tests {
             part_size: 1024 * 1024,
         };
         let client = Arc::new(MockClient::new(client_config));
-        client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30));
+        client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
         let superblock = Superblock::new("test_bucket", &Default::default());
 
@@ -1309,8 +1324,14 @@ mod tests {
         // common prefix when we do ListObjects with prefix = 'dir'. But `dir` comes before `dir-1`
         // in lexicographical order, so `dir` will be the first common prefix when we do ListObjects
         // with prefix = ''.
-        client.add_object(&format!("dir/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
-        client.add_object(&format!("dir-1/{subdir}file1.txt"), MockObject::constant(0xaa, 30));
+        client.add_object(
+            &format!("dir/{subdir}file1.txt"),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
+        client.add_object(
+            &format!("dir-1/{subdir}file1.txt"),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
 
         let superblock = Superblock::new("test_bucket", &Default::default());
 
@@ -1338,11 +1359,26 @@ mod tests {
 
         // The only valid key here is "dir1/a", so we should see a directory called "dir1" and a
         // file inside it called "a".
-        client.add_object("dir1/", MockObject::constant(0xaa, 30));
-        client.add_object("dir1//", MockObject::constant(0xaa, 30));
-        client.add_object("dir1/a", MockObject::constant(0xaa, 30));
-        client.add_object("dir1/.", MockObject::constant(0xaa, 30));
-        client.add_object("dir1/./a", MockObject::constant(0xaa, 30));
+        client.add_object(
+            "dir1/",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_1").unwrap()),
+        );
+        client.add_object(
+            "dir1//",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_2").unwrap()),
+        );
+        client.add_object(
+            "dir1/a",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_3").unwrap()),
+        );
+        client.add_object(
+            "dir1/.",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_4").unwrap()),
+        );
+        client.add_object(
+            "dir1/./a",
+            MockObject::constant(0xaa, 30, ETag::from_str("test_etag_5").unwrap()),
+        );
 
         let superblock = Superblock::new("test_bucket", &Default::default());
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
@@ -1372,7 +1408,7 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, Instant::now());
+        let file_inodestat = InodeStat::for_file(128, ts, Instant::now(), None);
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);

@@ -1,5 +1,6 @@
 use fuser::FileType;
 use mountpoint_s3_client::mock_client::MockObject;
+use mountpoint_s3_client::ETag;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Component, Path};
@@ -97,7 +98,7 @@ impl Reference {
                     let dir = dir.as_os_str().to_str().unwrap().to_string();
                     if children.get(&dir).is_none() {
                         let data = if components.peek().is_none() {
-                            Node::File(MockObject::ramp(pattern, length))
+                            Node::File(MockObject::ramp(pattern, length, ETag::for_tests()))
                         } else {
                             Node::Directory(BTreeMap::new())
                         };

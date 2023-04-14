@@ -14,7 +14,7 @@ use crate::object_client::{
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError, ObjectClientResult,
     PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::{ListObjectsResult, ObjectAttribute, ObjectClient};
+use crate::{ETag, ListObjectsResult, ObjectAttribute, ObjectClient};
 
 // Wrapper for injecting failures into a get stream
 pub struct FailureGetWrapper<Client: ObjectClient, GetWrapperState> {
@@ -31,6 +31,7 @@ pub struct FailureClient<Client: ObjectClient, State, GetWrapperState> {
         &str,
         &str,
         Option<Range<u64>>,
+        Option<ETag>,
     ) -> Result<
         FailureGetWrapper<Client, GetWrapperState>,
         ObjectClientError<GetObjectError, Client::ClientError>,
@@ -71,9 +72,16 @@ where
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
-        let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, range.clone())?;
-        let get_result = self.client.get_object(bucket, key, range).await?;
+        let wrapper = (self.get_object_cb)(
+            &mut *self.state.lock().unwrap(),
+            bucket,
+            key,
+            range.clone(),
+            if_match.clone(),
+        )?;
+        let get_result = self.client.get_object(bucket, key, range, if_match).await?;
         Ok(FailureGetResult {
             state: wrapper.state,
             result_fn: wrapper.result_fn,
@@ -213,7 +221,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
     FailureClient {
         client,
         state,
-        get_object_cb: |state, _bucket, _key, _range| {
+        get_object_cb: |state, _bucket, _key, _range, _if_match| {
             state.get_count += 1;
             let (fail_count, error) = if let Some(result) = state.get_results.remove(&state.get_count) {
                 let (fail_count, error) = result?;
@@ -273,7 +281,7 @@ mod tests {
         });
 
         let body = vec![0u8; 50];
-        client.add_object(key, MockObject::from_bytes(&body));
+        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_failures = HashMap::new();
         get_failures.insert(
@@ -295,7 +303,7 @@ mod tests {
 
         let fail_set = HashSet::from([2, 4, 5]);
         for i in 1..=6 {
-            let r = fail_client.get_object(bucket, key, None).await;
+            let r = fail_client.get_object(bucket, key, None, None).await;
             if fail_set.contains(&i) {
                 assert!(r.is_err());
             } else {

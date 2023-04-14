@@ -77,7 +77,7 @@ fn main() {
         let received_size_clone = Arc::clone(&received_size);
         futures::executor::block_on(async move {
             let mut request = client
-                .get_object(bucket, key, None)
+                .get_object(bucket, key, None, None)
                 .await
                 .expect("couldn't create get request");
             loop {

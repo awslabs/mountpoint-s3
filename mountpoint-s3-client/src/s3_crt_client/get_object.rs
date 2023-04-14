@@ -15,6 +15,7 @@ use tracing::debug;
 
 use crate::object_client::{GetBodyPart, GetObjectError, ObjectClientError};
 use crate::s3_crt_client::S3HttpRequest;
+use crate::ETag;
 use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
 
 impl S3CrtClient {
@@ -26,10 +27,11 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<ETag>,
     ) -> Result<GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
         let span = request_span!(self, "get_object");
         span.in_scope(
-            || debug!(?bucket, ?key, ?range, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
+            || debug!(?bucket, ?key, ?range, ?if_match, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
         let mut message = self
@@ -46,6 +48,13 @@ impl S3CrtClient {
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .add_header(&Header::new("Range", range_value))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
+        if let Some(etag) = if_match {
+            // Return the object only if its entity tag (ETag) is matched
+            message
+                .add_header(&Header::new("If-Match", etag.as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
@@ -135,6 +144,7 @@ fn parse_get_object_error(result: &MetaRequestResult) -> Option<GetObjectError> 
                 _ => None,
             }
         }
+        412 => Some(GetObjectError::PreconditionFailed),
         _ => None,
     }
 }

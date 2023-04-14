@@ -32,7 +32,10 @@ async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {
     };
     let client = S3CrtClient::new(&region, config).expect("could not create test client");
 
-    let result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
 }
 

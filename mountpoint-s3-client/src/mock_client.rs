@@ -17,7 +17,7 @@ use crate::object_client::{
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
     ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::{Checksum, ObjectAttribute};
+use crate::{Checksum, ETag, ObjectAttribute};
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
@@ -82,6 +82,7 @@ pub struct MockObject {
     // TODO Set storage class from [MockClient::put_object]
     storage_class: String,
     pub last_modified: OffsetDateTime,
+    pub etag: Option<ETag>,
 }
 
 impl MockObject {
@@ -90,26 +91,28 @@ impl MockObject {
         (self.generator)(offset, size.min(read_size))
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn from_bytes(bytes: &[u8], etag: ETag) -> Self {
         let bytes: Box<[u8]> = bytes.into();
         Self {
             size: bytes.len(),
             generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
+            etag: Some(etag),
         }
     }
 
-    pub fn constant(v: u8, size: usize) -> Self {
+    pub fn constant(v: u8, size: usize, etag: ETag) -> Self {
         Self {
             generator: Box::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
+            etag: Some(etag),
         }
     }
 
-    pub fn ramp(seed: u8, size: usize) -> Self {
+    pub fn ramp(seed: u8, size: usize, etag: ETag) -> Self {
         Self {
             generator: Box::new(move |offset, mut size| {
                 // Byte at offset k is (seed + k) % RAMP_MODULUS
@@ -125,6 +128,7 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
+            etag: Some(etag),
         }
     }
 
@@ -143,7 +147,7 @@ impl MockObject {
 
 impl<T: AsRef<[u8]>> From<T> for MockObject {
     fn from(bytes: T) -> Self {
-        MockObject::from_bytes(bytes.as_ref())
+        MockObject::from_bytes(bytes.as_ref(), ETag::for_tests())
     }
 }
 
@@ -233,8 +237,9 @@ impl ObjectClient for MockClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
-        trace!(bucket, key, ?range, "GetObject");
+        trace!(bucket, key, ?range, ?if_match, "GetObject");
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
@@ -479,10 +484,10 @@ mod tests {
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
-        client.add_object(key, MockObject::from_bytes(&body));
+        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_request = client
-            .get_object("test_bucket", key, range.clone())
+            .get_object("test_bucket", key, range.clone(), None)
             .await
             .expect("should not fail");
 
@@ -533,33 +538,33 @@ mod tests {
         }
 
         assert!(matches!(
-            client.get_object("wrong_bucket", "key1", None).await,
+            client.get_object("wrong_bucket", "key1", None, None).await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
         ));
 
         assert!(matches!(
-            client.get_object("test_bucket", "wrong_key", None).await,
+            client.get_object("test_bucket", "wrong_key", None, None).await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
         ));
 
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(0..2001)).await,
+            client.get_object("test_bucket", "key1", Some(0..2001), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(2000..2000)).await,
+            client.get_object("test_bucket", "key1", Some(2000..2000), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(500..2001)).await,
+            client.get_object("test_bucket", "key1", Some(500..2001), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(5000..2001)).await,
+            client.get_object("test_bucket", "key1", Some(5000..2001), None).await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(5000..1)).await,
+            client.get_object("test_bucket", "key1", Some(5000..1), None).await,
             "invalid range, length=2000"
         );
     }
@@ -579,7 +584,7 @@ mod tests {
             keys.push(format!("dirs/dir2/file{i}.txt"));
         }
         for key in &keys {
-            client.add_object(key, MockObject::constant(0u8, 5));
+            client.add_object(key, MockObject::constant(0u8, 5, ETag::for_tests()));
         }
 
         macro_rules! check {
@@ -655,7 +660,7 @@ mod tests {
     async fn test_put_object() {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
-        let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE);
+        let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
@@ -681,7 +686,7 @@ mod tests {
             .expect("put_object failed");
 
         let mut get_request = client
-            .get_object("test_bucket", "key1", None)
+            .get_object("test_bucket", "key1", None, None)
             .await
             .expect("get_object failed");
 
@@ -698,7 +703,7 @@ mod tests {
     proptest::proptest! {
         #[test]
         fn test_ramp(size in 1..2*RAMP_BUFFER_SIZE, read_size in 1..2*RAMP_BUFFER_SIZE, offset in 0..RAMP_BUFFER_SIZE) {
-            let obj = MockObject::ramp(0xaa, size);
+            let obj = MockObject::ramp(0xaa, size, ETag::for_tests());
             let r = obj.read(offset as u64, read_size);
             let expected_len = size.saturating_sub(offset).min(read_size);
             let expected = ramp_bytes(0xaa + offset, expected_len);

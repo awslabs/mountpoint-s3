@@ -1,4 +1,5 @@
 use mountpoint_s3_client::mock_client::MockObject;
+use mountpoint_s3_client::ETag;
 use proptest::prelude::*;
 use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
@@ -36,7 +37,7 @@ pub struct Content(pub u8, pub FileSize);
 
 impl Content {
     pub fn to_mock_object(&self) -> MockObject {
-        MockObject::constant(self.0, self.1.into())
+        MockObject::constant(self.0, self.1.into(), ETag::for_tests())
     }
 }
 

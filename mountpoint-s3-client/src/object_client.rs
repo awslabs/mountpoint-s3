@@ -1,13 +1,40 @@
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
-use std::{fmt, ops::Range};
+use std::str::FromStr;
+use std::{fmt, ops::Range, string::ParseError};
 use thiserror::Error;
 use time::OffsetDateTime;
 
 /// A single element of the [ObjectClient::get_object] response is a pair of offset within the
 /// object and the bytes starting at that offset.
 pub type GetBodyPart = (u64, Box<[u8]>);
+
+#[derive(Debug, Clone)]
+pub struct ETag {
+    etag: String,
+}
+
+impl ETag {
+    pub fn as_str(&self) -> &str {
+        &self.etag
+    }
+
+    pub fn for_tests() -> Self {
+        Self {
+            etag: "test_etag".to_string(),
+        }
+    }
+}
+
+impl FromStr for ETag {
+    type Err = ParseError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(ETag {
+            etag: value.to_string(),
+        })
+    }
+}
 
 /// An [ObjectClient] is an S3-like blob storage interface
 #[async_trait]
@@ -32,6 +59,7 @@ pub trait ObjectClient {
         bucket: &str,
         key: &str,
         range: Option<Range<u64>>,
+        if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
@@ -104,6 +132,9 @@ pub enum GetObjectError {
 
     #[error("The key does not exist")]
     NoSuchKey,
+
+    #[error("At least one of the preconditions specified did not hold")]
+    PreconditionFailed,
 }
 
 /// Result of a [ObjectClient::list_objects] request

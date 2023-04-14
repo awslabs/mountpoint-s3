@@ -2,10 +2,14 @@
 
 pub mod common;
 
+use std::option::Option::None;
+use std::str::FromStr;
+
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;
+use mountpoint_s3_client::ETag;
 use mountpoint_s3_client::{GetObjectError, ObjectClient, ObjectClientError, S3CrtClient};
 
 #[tokio::test]
@@ -27,7 +31,10 @@ async fn test_get_object() {
 
     let client: S3CrtClient = get_test_client();
 
-    let result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
 }
 
@@ -49,12 +56,15 @@ async fn test_get_object_large() {
 
     let client: S3CrtClient = get_test_client();
 
-    let result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
 
     let range = (body.len() / 3) as u64..body.len() as u64;
     let result = client
-        .get_object(&bucket, &key, Some(range.clone()))
+        .get_object(&bucket, &key, Some(range.clone()), None)
         .await
         .expect("get_object failed");
     check_get_result(
@@ -73,7 +83,10 @@ async fn test_get_object_404_key() {
 
     let client: S3CrtClient = get_test_client();
 
-    let mut result = client.get_object(&bucket, &key, None).await.expect("get_object failed");
+    let mut result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
     assert!(matches!(
         next,
@@ -92,12 +105,72 @@ async fn test_get_object_404_bucket() {
     let client: S3CrtClient = get_test_client();
 
     let mut result = client
-        .get_object("DOC-EXAMPLE-BUCKET", &key, None)
+        .get_object("DOC-EXAMPLE-BUCKET", &key, None, None)
         .await
         .expect("get_object failed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
     assert!(matches!(
         next,
         Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
+    ));
+}
+
+#[tokio::test]
+async fn test_get_object_success_if_match() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_if_match");
+
+    // Create one object named "hello"
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    let response = sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+    let etag = Some(ETag::from_str(response.e_tag().expect("E-Tag should be set")).unwrap());
+
+    let result = client
+        .get_object(&bucket, &key, None, etag)
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
+}
+
+#[tokio::test]
+async fn test_get_object_412_if_match() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_412_if_match");
+
+    // Create one object named "hello"
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+    let etag = Some(ETag::from_str("incorrect_etag").unwrap());
+
+    let mut result = client
+        .get_object(&bucket, &key, None, etag)
+        .await
+        .expect("get_object should succeed");
+
+    let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
+
+    assert!(matches!(
+        next,
+        Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed))
     ));
 }
