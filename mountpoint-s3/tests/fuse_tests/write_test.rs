@@ -41,7 +41,7 @@ where
     let mut f = open_for_write(&path, append).unwrap();
 
     // The file is visible with size 0 as soon as we open it for write
-    let m = metadata(&subdir).unwrap();
+    let m = metadata(&path).unwrap();
     assert_eq!(m.len(), 0);
 
     // verify the new file is visible in readdir

@@ -230,7 +230,7 @@ impl Superblock {
         }
 
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
-        // have a valid file, or both requests failed to find the object so it must not exist
+        // have a valid file, or both requests failed to find the object so the file must not exist remotely
         if let Some(stat) = file_state {
             trace!(?parent, ?name, "found a regular file");
             let inode = self
@@ -238,7 +238,24 @@ impl Superblock {
                 .update_or_insert(parent_ino, name, stat.clone(), InodeKind::File)?;
             Ok(LookedUp { inode, stat })
         } else {
-            Err(InodeError::FileDoesNotExist)
+            // if object with the given name doesn't exist we will look it up locally since it could be an uncommitted inode
+            let parent_state = parent.inner.sync.read().unwrap();
+            match &parent_state.kind_data {
+                InodeKindData::File { .. } => unreachable!("we know this is a directory"),
+                InodeKindData::Directory {
+                    children,
+                    writing_children,
+                } => {
+                    if let Some(inode) = children.get(name) {
+                        if writing_children.contains(&inode.ino()) {
+                            let inode = inode.clone();
+                            let stat = inode.inner.sync.read().unwrap().stat.clone();
+                            return Ok(LookedUp { inode, stat });
+                        }
+                    }
+                    Err(InodeError::FileDoesNotExist)
+                }
+            }
         }
     }
 
