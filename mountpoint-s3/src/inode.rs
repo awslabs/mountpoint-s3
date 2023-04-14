@@ -230,7 +230,7 @@ impl Superblock {
         }
 
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
-        // have a valid file, or both requests failed to find the object so it must not exist
+        // have a valid file, or both requests failed to find the object so the file must not exist remotely
         if let Some(stat) = file_state {
             trace!(?parent, ?name, "found a regular file");
             let inode = self
@@ -250,13 +250,10 @@ impl Superblock {
                         if writing_children.contains(&inode.ino()) {
                             let inode = inode.clone();
                             let stat = inode.inner.sync.read().unwrap().stat.clone();
-                            Ok(LookedUp { inode, stat })
-                        } else {
-                            Err(InodeError::FileDoesNotExist)
+                            return Ok(LookedUp { inode, stat });
                         }
-                    } else {
-                        Err(InodeError::FileDoesNotExist)
                     }
+                    Err(InodeError::FileDoesNotExist)
                 }
             }
         }
