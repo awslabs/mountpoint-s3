@@ -134,7 +134,7 @@ pub enum GetObjectError {
     #[error("The key does not exist")]
     NoSuchKey,
 
-    #[error("If-Match precondition failed")]
+    #[error("Precondition failed")]
     PreconditionFailed,
 }
 
