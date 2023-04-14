@@ -102,17 +102,19 @@ impl S3CrtClient {
                         bootstrap: &mut client_bootstrap,
                         profile_name_override: Some(&profile_name_override),
                     };
-                    CredentialsProvider::new_profile(&allocator, &credentials_profile_options).unwrap()
+                    CredentialsProvider::new_profile(&allocator, credentials_profile_options)
+                        .map_err(|_| CredentialsError::ProfileNotFound)
                 }
                 None => {
                     let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                         bootstrap: &mut client_bootstrap,
                     };
-                    CredentialsProvider::new_chain_default(&allocator, &credentials_chain_default_options).unwrap()
+                    CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
+                        .map_err(|_| CredentialsError::NoValidCredentials)
                 }
             };
 
-            let signing_config = init_default_signing_config(region, credentials_provider);
+            let signing_config = init_default_signing_config(region, credentials_provider?);
             client_config.signing_config(signing_config);
         }
 
@@ -482,6 +484,16 @@ pub enum NewClientError {
     /// Invalid S3 endpoint
     #[error("invalid S3 endpoint")]
     InvalidEndpoint(#[from] EndpointError),
+    #[error("invalid AWS credentials")]
+    InvalideCredentials(#[from] CredentialsError),
+}
+
+#[derive(Debug, Error)]
+pub enum CredentialsError {
+    #[error("given profile doesn't not exist")]
+    ProfileNotFound,
+    #[error("unable to detect valid credentials")]
+    NoValidCredentials,
 }
 
 /// Failed S3 request results

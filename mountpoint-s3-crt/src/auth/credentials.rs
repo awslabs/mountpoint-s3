@@ -11,6 +11,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::{CrtError as _, StringExt};
+use mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_CREDENTIALS_PROVIDER_PROFILE_SOURCE_FAILURE;
 use std::ptr::NonNull;
 
 /// Options for creating a default credentials provider
@@ -61,11 +62,15 @@ impl CredentialsProvider {
     pub fn new_profile(allocator: &Allocator, options: &CredentialsProviderProfileOptions) -> Result<Self, Error> {
         auth_library_init(allocator);
 
+        let profile_name = options
+            .profile_name_override
+            .ok_or(Error::from(AWS_AUTH_CREDENTIALS_PROVIDER_PROFILE_SOURCE_FAILURE as i32))?;
+
         // SAFETY: CredentialProvider does not modify contents of profile_name_override,
         // aws_credentials_provider_new_profile makes a copy of the contents of profile_name_override.
         let inner = unsafe {
             let inner_options = aws_credentials_provider_profile_options {
-                profile_name_override: options.profile_name_override.unwrap().as_aws_byte_cursor(),
+                profile_name_override: profile_name.as_aws_byte_cursor(),
                 ..Default::default()
             };
 

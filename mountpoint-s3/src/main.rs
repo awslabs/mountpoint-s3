@@ -204,13 +204,12 @@ struct CliArgs {
     pub foreground: bool,
 
     #[clap(
-        short,
         long,
         help = "Do not sign requests. Credentials will not be loaded if this argument is provided."
     )]
     pub no_sign_request: bool,
 
-    #[clap(long, help = "Use a specific profile from your credential file. [default: default]")]
+    #[clap(long, help = "Use a specific profile from your credential file.")]
     pub profile: Option<String>,
 }
 
