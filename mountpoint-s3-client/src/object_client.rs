@@ -27,7 +27,6 @@ impl ETag {
     }
 }
 
-// Implemented FromStr trait because there was already a method from_str there
 impl FromStr for ETag {
     type Err = ParseError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -134,7 +133,7 @@ pub enum GetObjectError {
     #[error("The key does not exist")]
     NoSuchKey,
 
-    #[error("Precondition failed")]
+    #[error("At least one of the preconditions specified did not hold")]
     PreconditionFailed,
 }
 
