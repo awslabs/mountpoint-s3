@@ -1,19 +1,22 @@
 //! Configuration for signing requests to AWS APIs
 
-use mountpoint_s3_crt_sys::*;
+use crate::auth::credentials::CredentialsProvider;
+use mountpoint_s3_crt_sys::aws_signing_config_aws;
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::sync::Arc;
 
-#[derive(Default)]
 pub(crate) struct SigningConfigInner {
     /// The raw `aws_signing_config` for this config
     pub(crate) inner: aws_signing_config_aws,
 
-    /// An owned copy of the region string, since the signing config holds a pointer to it
+    /// An owned copy of the region string, since the `aws_signing_config_aws` holds a pointer to it.
     pub(crate) region: OsString,
+
+    /// An owned CredentialProvider, since the holds `aws_signing_config_aws` a pointer to it inner.
+    pub(crate) credentials_provider: CredentialsProvider,
 
     /// This forces the struct to be !Unpin, because the signing config can contain pointers to itself
     pub(crate) _pinned: PhantomPinned,
