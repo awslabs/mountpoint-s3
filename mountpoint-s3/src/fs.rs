@@ -1,4 +1,5 @@
 use futures::task::Spawn;
+use futures::TryFutureExt;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -554,6 +555,13 @@ where
                 Ok(())
             }
         }
+    }
+
+    pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
+        self.superblock
+            .unlink(&self.client, parent_ino, name)
+            .map_err(Into::into)
+            .await
     }
 }
 

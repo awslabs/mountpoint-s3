@@ -3,6 +3,7 @@ mod lookup_test;
 mod mount_test;
 mod perm_test;
 mod readdir_test;
+mod unlink_test;
 mod write_test;
 
 use fuser::{BackgroundSession, MountOption, Session};

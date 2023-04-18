@@ -30,7 +30,7 @@ use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -351,6 +351,53 @@ impl Superblock {
 
         Ok(LookedUp { inode, stat })
     }
+
+    /// Unlink the entry described by parent ino and name.
+    ///
+    /// If the entry exists, delete it from S3 and then the superblock.
+    pub async fn unlink<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &OsStr,
+    ) -> Result<(), InodeError> {
+        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+
+        let write_status = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.write_status
+        };
+
+        match write_status {
+            WriteStatus::LocalUnopened => {
+                // TODO: should I be locking here so someone can't open in the meantime?
+                debug!("unlink called on unopened local file, delete inode only");
+            }
+            WriteStatus::LocalOpen => {
+                // TODO: should I be locking here so someone can't commit the file to S3 in the meantime?
+                debug!("unlink called on opened local file, will need to cancel upload and delete inode");
+                todo!("CANCEL UPLOAD");
+            }
+            WriteStatus::Remote => {
+                // TODO: Should this wait for last reference of inode to be dropped before deleting?
+                debug!("unlink called on remote file, will delete from S3");
+                let (bucket, s3_key) = (self.inner.bucket.as_str(), inode.full_key());
+                let delete_obj_result = client.delete_object(bucket, s3_key).await;
+
+                match delete_obj_result {
+                    Ok(_res) => debug!("successfully deleted object with key {s3_key}"),
+                    Err(e) => {
+                        error!(error=?e, "unlink failed when trying to perform S3 DeleteObject call, not dropping inode");
+                        Err(InodeError::ClientError(e.into()))?;
+                    }
+                };
+            }
+        }
+
+        self.inner.delete_inode(&inode)?;
+
+        Ok(())
+    }
 }
 
 impl SuperblockInner {
@@ -527,6 +574,45 @@ impl SuperblockInner {
         assert!(previous.is_none(), "inode numbers are never reused");
 
         Ok(inode)
+    }
+
+    /// Deletes the given [Inode] from its parent and the superblock.
+    ///
+    /// Note, this **does not remove other references** that may exist such as in file handles.
+    fn delete_inode(&self, inode: &Inode) -> Result<(), InodeError> {
+        let ino = inode.ino();
+
+        let parent = self.get(inode.parent())?;
+        let mut parent_state = parent.inner.sync.write().unwrap();
+        match &mut parent_state.kind_data {
+            InodeKindData::File {} => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.ino()));
+            }
+            InodeKindData::Directory {
+                children,
+                writing_children,
+            } => {
+                let was_remote = children.remove(inode.name()).is_some();
+                let was_local = writing_children.remove(&ino);
+
+                match (was_remote, was_local) {
+                    (false, false) => warn!(?inode, ?parent, "inode was not a child of parent"),
+                    (true, true) => warn!(?inode, ?parent, "inode was recorded as both local and remote child"),
+                    _ => {}
+                };
+            }
+        }
+
+        let deleted_inode = {
+            let mut inodes = self.inodes.write().unwrap();
+            inodes.remove(&ino)
+        };
+
+        match deleted_inode {
+            Some(_) => Ok(()),
+            None => Err(InodeError::InodeDoesNotExist(ino)),
+        }
     }
 }
 
