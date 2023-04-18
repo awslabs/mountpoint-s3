@@ -55,15 +55,16 @@ do
         exit 1
     fi
 
-	# verify that the target directory exists before running the benchmark
-	if [ ! -d "${target_dir}" ]; then
-		echo "Target directory ${target_dir} does not exist."
-		exit 1
-	fi
+    # verify that the target directory exists before running the benchmark
+    if [ ! -d "${target_dir}" ]; then
+      echo "Target directory ${target_dir} does not exist."
+      exit 1
+    fi
 
     sleep $startdelay
     # run each case for 10 iterations
-    for i in {1..10};
+    iteration=10
+    for i in $(seq 1 $iteration);
     do
         /usr/bin/time -o ${results_dir}/time_output.txt -v ls -f "${target_dir}" >/dev/null 2>&1
 
@@ -80,7 +81,7 @@ do
         # pause for a while before running next iteration
         sleep 1
     done
-    average=$(awk "BEGIN {print $sum/10}")
+    average=$(awk "BEGIN {print $sum/$iteration}")
     # now convert it to json
     json_data="{\"name\":\"$job_name\",\"value\":$average,\"unit\":\"seconds\"}"
     echo $json_data | jq '.' | tee ${results_dir}/${job_name}.json
