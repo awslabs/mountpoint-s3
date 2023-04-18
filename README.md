@@ -22,11 +22,21 @@ There are some notable restrictions in this first release:
 
 The alpha release of Mountpoint for Amazon S3 is only available by building from source, and only supports Linux. These instructions are for Amazon Linux 2 and Amazon Linux 2023, but other Linux distributions should be similar.
 
-First, install dependencies, including the Rust compiler via [rustup](https://rustup.rs/):
+First, install dependencies:
+
+For RPM based distributions:
 
     sudo yum install fuse fuse-devel cmake3 clang-devel git
+    
+For Deb based distributions:
+
+    sudo apt install fuse libfuse-dev cmake libclang-dev git
+
+Secondly, install the Rust compiler via [rustup](https://rustup.rs/):
+
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     source "$HOME/.cargo/env"
+    
 
 Now clone this repository and its submodules:
 
