@@ -25,7 +25,7 @@ project_dir="${base_dir}/../.."
 cd ${project_dir}
 
 results_dir=results
-jobs_dir=mountpoint-s3/scripts/fio
+jobs_dir=mountpoint-s3/scripts/fio/read
 target_gbps=100
 thread_count=4
 
