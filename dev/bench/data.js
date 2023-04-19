@@ -2,110 +2,6 @@ window.BENCHMARK_DATA = {
   "entries": {
     "Benchmark": [
       {
-        "benches": [
-          {
-            "name": "random_read",
-            "unit": "MiB/s",
-            "value": 1.32421875
-          },
-          {
-            "name": "random_read_four_threads",
-            "unit": "MiB/s",
-            "value": 7.326171875
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "unit": "MiB/s",
-            "value": 10.15234375
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "unit": "MiB/s",
-            "value": 33.0498046875
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "unit": "MiB/s",
-            "value": 35.1982421875
-          },
-          {
-            "name": "random_read_direct_io",
-            "unit": "MiB/s",
-            "value": 2.1650390625
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "unit": "MiB/s",
-            "value": 4.73828125
-          },
-          {
-            "name": "random_read_small_file",
-            "unit": "MiB/s",
-            "value": 4.2353515625
-          },
-          {
-            "name": "sequential_read",
-            "unit": "MiB/s",
-            "value": 982.2255859375
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "unit": "MiB/s",
-            "value": 7.318359375
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "unit": "MiB/s",
-            "value": 6489.51953125
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "unit": "MiB/s",
-            "value": 171.1259765625
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "unit": "MiB/s",
-            "value": 10.4697265625
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "unit": "MiB/s",
-            "value": 2108.3857421875
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "unit": "MiB/s",
-            "value": 24.1728515625
-          },
-          {
-            "name": "sequential_read_small_file",
-            "unit": "MiB/s",
-            "value": 24.1533203125
-          }
-        ],
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "monthonk",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2932b11d31b1ea185936ead34764f1d72df8a1a6",
-          "message": "Add benchmarking documentation (#179)\n\n* Add benchmarking documentation\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Change some wording\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Update per comments\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2023-03-24T14:42:06Z",
-          "tree_id": "c1fb1a438c11b30178e29b390807acf43f997f01",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/2932b11d31b1ea185936ead34764f1d72df8a1a6"
-        },
-        "date": 1679670259407,
-        "tool": "customBiggerIsBetter"
-      },
-      {
         "commit": {
           "author": {
             "email": "arjvik@gmail.com",
@@ -2080,9 +1976,113 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "jb2cool@gmail.com",
+            "name": "Jason Bramwell",
+            "username": "jb2cool"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70b2b684e949c0966c5d2507f875279ae380a9f9",
+          "message": "Adding instructions for building on Debian/Ubuntu (#215)\n\n* Adding instructions for building on Debian/Ubuntu\r\n\r\nAdded in dependencies for Debian/Ubuntu and broke RPM/Deb out into their own lines.\r\n\r\nSigned-off-by: Jason Bramwell <jb2cool@gmail.com>\r\n\r\n* Minor tweaks\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Jason Bramwell <jb2cool@gmail.com>\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\nCo-authored-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-04-19T03:26:46Z",
+          "tree_id": "c4e5f1ee5bf2bcfb9718fdbd1118984fa74da9f4",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/70b2b684e949c0966c5d2507f875279ae380a9f9"
+        },
+        "date": 1681876039399,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.8662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 10.1708984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 12.4248046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 32.8173828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 37.1513671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.4931640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.7109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.73046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1001.7197265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 6.8232421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6467.009765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 165.59375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 10.689453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1949.404296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 26.0458984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 24.97265625,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1681874948103,
+  "lastUpdate": 1681876039903,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
