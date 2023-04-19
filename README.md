@@ -20,15 +20,13 @@ There are some notable restrictions in this first release:
 
 ## Getting started
 
-The alpha release of Mountpoint for Amazon S3 is only available by building from source, and only supports Linux. These instructions are for Amazon Linux 2 and Amazon Linux 2023, but other Linux distributions should be similar.
+The alpha release of Mountpoint for Amazon S3 is only available by building from source, and only supports Linux.
 
-First, install dependencies:
-
-For RPM based distributions:
+First, install the necessary dependencies. For RPM-based distributions (Amazon Linux 2 and 2023, Fedora, CentOS, etc):
 
     sudo yum install fuse fuse-devel cmake3 clang-devel git
-    
-For Deb based distributions:
+
+or for apt-based distributions (Debian, Ubuntu, etc):
 
     sudo apt install fuse libfuse-dev cmake libclang-dev git
 
