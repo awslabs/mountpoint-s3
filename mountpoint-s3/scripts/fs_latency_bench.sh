@@ -25,7 +25,6 @@ project_dir="${base_dir}/../.."
 cd ${project_dir}
 
 results_dir=results
-jobs_dir=mountpoint-s3/scripts/fio
 target_gbps=100
 thread_count=4
 
@@ -94,6 +93,51 @@ do
     
     # increase directory size
     dir_size=$(awk "BEGIN {print $dir_size*10}")
+done
+
+
+# start time to first byte benchmark
+jobs_dir=mountpoint-s3/scripts/fio/read_latency
+for job_file in "${jobs_dir}"/*.fio; do
+  mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
+  job_name=$(basename "${job_file}")
+  job_name="${job_name%.*}"
+
+  echo "Running ${job_name}"
+
+  # mount file system
+  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+    --prefix=${S3_BUCKET_TEST_PREFIX} \
+    --throughput-target-gbps=${target_gbps} \
+    --thread-count=${thread_count}
+  mount_status=$?
+  if [ $mount_status -ne 0 ]; then
+    echo "Failed to mount file system"
+    exit 1
+  fi
+
+  # set bench file
+  bench_file=${S3_BUCKET_BENCH_FILE}
+  # run against small file if the job file ends with small.fio
+  if [[ $job_file == *small.fio ]]; then
+    bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
+  fi
+
+  fio --thread \
+    --output=${results_dir}/${job_name}.json \
+    --output-format=json \
+    --directory=${mount_dir} \
+    --filename=${bench_file} \
+    ${job_file}
+
+  jq -n 'inputs.jobs[] | if (."job options".rw == "read") 
+    then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
+    elif (."job options".rw == "randread") then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
+    elif (."job options".rw == "randwrite") then {name: .jobname, value: (.write.lat_ns.mean / 1000000), unit: "milliseconds"} 
+    else {name: .jobname, value: (.write.lat_ns.mean / 1000000), unit: "milliseconds"} end' ${results_dir}/${job_name}.json | tee ${results_dir}/${job_name}_parsed.json
+
+  # delete the raw output file from fio
+  rm ${results_dir}/${job_name}.json
 done
 
 # combine all bench results into one json file
