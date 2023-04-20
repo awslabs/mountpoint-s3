@@ -158,3 +158,15 @@ fn s3_uri_as_bucket_name() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn invalid_profile() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test-bucket").arg(dir.path()).arg("--profile").arg("INVALID");
+    let error_message = "invalid AWS credentials";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
