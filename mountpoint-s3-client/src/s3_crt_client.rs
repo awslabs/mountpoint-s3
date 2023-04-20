@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
+use mountpoint_s3_crt::auth::credentials::{
+    CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
+};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
@@ -43,12 +45,15 @@ pub(crate) mod delete_object;
 pub(crate) mod get_object;
 pub(crate) mod get_object_attributes;
 pub(crate) mod head_bucket;
+
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
 pub(crate) mod put_object;
 
 #[derive(Debug, Clone, Default)]
 pub struct S3ClientConfig {
+    pub profile_name_override: Option<String>,
+    pub no_sign_request: bool,
     pub throughput_target_gbps: Option<f64>,
     pub part_size: Option<usize>,
     pub endpoint: Option<Endpoint>,
@@ -89,12 +94,7 @@ impl S3CrtClient {
 
         let mut client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
 
-        let creds_options = CredentialsProviderChainDefaultOptions {
-            bootstrap: &mut client_bootstrap,
-        };
-
-        let mut creds_provider = CredentialsProvider::new_chain_default(&allocator, &creds_options).unwrap();
-        let signing_config = init_default_signing_config(region, &mut creds_provider);
+        let mut client_config = ClientConfig::new();
 
         let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
         // Match the SDK "legacy" retry strategies
@@ -103,11 +103,29 @@ impl S3CrtClient {
         retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
         let retry_strategy = RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap();
 
-        let mut client_config = ClientConfig::new();
+        if !config.no_sign_request {
+            let credentials_provider = match config.profile_name_override {
+                Some(profile_name_override) => {
+                    let credentials_profile_options = CredentialsProviderProfileOptions {
+                        bootstrap: &mut client_bootstrap,
+                        profile_name_override: &profile_name_override,
+                    };
+                    CredentialsProvider::new_profile(&allocator, credentials_profile_options)
+                }
+                None => {
+                    let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
+                        bootstrap: &mut client_bootstrap,
+                    };
+                    CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
+                }
+            }
+            .map_err(NewClientError::ProviderFailure)?;
+            let signing_config = init_default_signing_config(region, credentials_provider);
+            client_config.signing_config(signing_config);
+        }
 
         client_config
             .client_bootstrap(client_bootstrap)
-            .signing_config(signing_config)
             .retry_strategy(retry_strategy);
 
         if let Some(throughput_target_gbps) = config.throughput_target_gbps {
@@ -465,6 +483,9 @@ pub enum NewClientError {
     /// Invalid S3 endpoint
     #[error("invalid S3 endpoint")]
     InvalidEndpoint(#[from] EndpointError),
+    /// Invalid AWS credentials
+    #[error("invalid AWS credentials")]
+    ProviderFailure(#[from] mountpoint_s3_crt::common::error::Error),
 }
 
 /// Failed S3 request results
