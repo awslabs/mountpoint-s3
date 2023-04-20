@@ -206,7 +206,8 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Do not sign requests. Credentials will not be loaded if this argument is provided."
+        help = "Do not sign requests. Credentials will not be loaded if this argument is provided.",
+        help_heading = AWS_CREDENTIALS
     )]
     pub no_sign_request: bool,
 
