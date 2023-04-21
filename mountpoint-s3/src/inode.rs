@@ -402,7 +402,6 @@ impl SuperblockInner {
             UpdateStatus::Neither => Err(InodeError::FileDoesNotExist),
             UpdateStatus::Updated(lookedup) => Ok(lookedup),
             UpdateStatus::LocalOnly(inode) => {
-                let inode = inode.clone();
                 match &mut parent_state.kind_data {
                     InodeKindData::File {} => unreachable!("we know parent is a directory"),
                     InodeKindData::Directory {
@@ -435,11 +434,8 @@ impl SuperblockInner {
                     kind_data,
                     write_status: WriteStatus::Remote,
                 };
-                self.create_inode_locked(&parent, &mut parent_state, name, *kind, state, false)
-                    .map(|inode| LookedUp {
-                        inode,
-                        stat: stat.clone(),
-                    })
+                self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
+                    .map(|inode| LookedUp { inode, stat })
             }
         }
     }
@@ -447,19 +443,19 @@ impl SuperblockInner {
     /// Try to update the inode for the given name in the parent directory and
     /// return an [UpdateStatus].
     /// Don't use this directly -- use [SuperblockInner::update_from_remote] instead.
-    fn try_update_child<'n, 'r>(
-        parent_state: &'n InodeState,
+    fn try_update_child(
+        parent_state: &InodeState,
         name: &str,
-        remote: &'r Option<RemoteLookup>,
-    ) -> Result<UpdateStatus<'n, 'r>, InodeError> {
+        remote: &Option<RemoteLookup>,
+    ) -> Result<UpdateStatus, InodeError> {
         let inode = match &parent_state.kind_data {
             InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
             InodeKindData::Directory { children, .. } => children.get(name),
         };
         match (remote, inode) {
             (None, None) => Ok(UpdateStatus::Neither),
-            (None, Some(inode)) => Ok(UpdateStatus::LocalOnly(inode)),
-            (Some(remote), None) => Ok(UpdateStatus::RemoteKey(remote)),
+            (None, Some(inode)) => Ok(UpdateStatus::LocalOnly(inode.clone())),
+            (Some(remote), None) => Ok(UpdateStatus::RemoteKey(remote.clone())),
             (Some(remote @ RemoteLookup { kind, stat }), Some(inode)) => {
                 let mut inode_state = inode.inner.sync.write().unwrap();
 
@@ -477,7 +473,7 @@ impl SuperblockInner {
                     // overwrite it, since directories shadow files.
                     (InodeKind::File, InodeKind::Directory) => {
                         warn!(parent=?inode.parent(), name=?inode.name(), ino=?inode.ino(), "inode changed from file to directory, will recreate it");
-                        Ok(UpdateStatus::RemoteKey(remote))
+                        Ok(UpdateStatus::RemoteKey(remote.clone()))
                     }
                     // Otherwise, we'll just update this inode in place.
                     (InodeKind::File, InodeKind::File) | (InodeKind::Directory, InodeKind::Directory) => {
@@ -560,7 +556,7 @@ impl SuperblockInner {
 }
 
 /// Data from a remote object.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RemoteLookup {
     kind: InodeKind,
     stat: InodeStat,
@@ -568,12 +564,12 @@ pub struct RemoteLookup {
 
 /// Result of a call to [SuperblockInner::try_update_child].
 #[derive(Debug)]
-enum UpdateStatus<'n, 'r> {
+enum UpdateStatus {
     /// Key not found on remote, but local inode exists.
-    LocalOnly(&'n Inode),
+    LocalOnly(Inode),
 
     /// New key on remote, no local inode.
-    RemoteKey(&'r RemoteLookup),
+    RemoteKey(RemoteLookup),
 
     /// Local inode already up to date with remote.
     Updated(LookedUp),
