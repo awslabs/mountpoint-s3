@@ -388,8 +388,10 @@ impl SuperblockInner {
         // Fast path: try with only a read lock on the directory first.
         {
             let parent_state = parent.inner.sync.read().unwrap();
-            if let UpdateStatus::Updated(lookedup) = Self::try_update_child(&parent_state, name, &remote)? {
-                return Ok(lookedup);
+            match Self::try_update_child(&parent_state, name, &remote)? {
+                UpdateStatus::Neither => return Err(InodeError::FileDoesNotExist),
+                UpdateStatus::Updated(lookedup) => return Ok(lookedup),
+                _ => {} // Fallback, we need a write lock to update the parent.
             }
         }
 
