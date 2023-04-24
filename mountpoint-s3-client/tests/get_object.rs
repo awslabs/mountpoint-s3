@@ -76,6 +76,32 @@ async fn test_get_object_large() {
 }
 
 #[tokio::test]
+async fn test_get_object_one_byte_range() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_one_byte_range");
+
+    // Create one object named "onebyte"
+    let key = format!("{prefix}/onebyte");
+    let body = b".";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .get_object(&bucket, &key, Some(0..1), None)
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
+}
+
+#[tokio::test]
 async fn test_get_object_404_key() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404_key");
 
