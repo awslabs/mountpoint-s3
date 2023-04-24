@@ -615,45 +615,49 @@ impl WriteHandle {
 
     /// Update status of the inode and its parent
     pub fn finish_writing(self, object_size: usize) -> Result<(), InodeError> {
-        fn remove_from_writing_children(parent_state_data: &mut InodeKindData, ino: &InodeNo) {
-            match parent_state_data {
-                InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
-                InodeKindData::Directory {
-                    children: _,
-                    writing_children,
-                } => {
-                    writing_children.remove(ino);
-                }
-            }
-        }
-
         let inode = self.inner.get(self.ino)?;
-        let parent = self.inner.get(self.parent_ino)?;
 
-        // acquire a lock on the parent first
-        let mut parent_state = parent.inner.sync.write().unwrap();
+        // Ancestor inodes, from parent to first remote ancestor
+        let ancestors = {
+            let mut ancestors = Vec::new();
+            let mut ancestor_ino = self.parent_ino;
+            loop {
+                let ancestor = self.inner.get(ancestor_ino)?;
+                ancestors.push(ancestor.clone());
+                if ancestor.ino() == ROOT_INODE_NO
+                    || ancestor.inner.sync.read().unwrap().write_status == WriteStatus::Remote
+                {
+                    break;
+                }
+                ancestor_ino = ancestor.parent();
+            }
+            ancestors
+        };
+
+        // acquire locks on ancestors first
+        // ancestors_states goes from first remote ancestor to parent
+        let mut ancestors_states: Vec<_> = ancestors
+            .iter()
+            .rev()
+            .map(|inode| inode.inner.sync.write().unwrap())
+            .collect();
+
         let mut state = inode.inner.sync.write().unwrap();
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
                 state.stat.size = object_size;
-                remove_from_writing_children(&mut parent_state.kind_data, &inode.ino());
-                if parent_state.write_status != WriteStatus::Remote {
-                    parent_state.write_status = WriteStatus::Remote;
 
-                    let mut ancestor_ino = parent.inner.parent;
-                    let mut child_ino = parent.ino();
-                    loop {
-                        let ancestor = self.inner.get(ancestor_ino)?;
-                        let mut ancestor_state = ancestor.inner.sync.write().unwrap();
-                        remove_from_writing_children(&mut ancestor_state.kind_data, &child_ino);
-                        if ancestor_ino == ROOT_INODE_NO || ancestor_state.write_status == WriteStatus::Remote {
-                            break;
+                // traverse ancestors from parent to first remote ancestor
+                let children_inos = std::iter::once(self.ino).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
+                for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
+                    match &mut ancestor_state.kind_data {
+                        InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
+                        InodeKindData::Directory { writing_children, .. } => {
+                            writing_children.remove(&child_ino);
                         }
-                        ancestor_state.write_status = WriteStatus::Remote;
-                        child_ino = ancestor_ino;
-                        ancestor_ino = ancestor.inner.parent;
                     }
+                    ancestor_state.write_status = WriteStatus::Remote;
                 }
                 // TODO force the file to be revalidated the next time it's `stat`ed?
                 Ok(())
