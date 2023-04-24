@@ -24,7 +24,6 @@ pub enum Response<'a> {
     Slice(&'a [u8]),
 }
 
-#[must_use]
 impl<'a> Response<'a> {
     pub(crate) fn with_iovec<F: FnOnce(&[IoSlice<'_>]) -> T, T>(
         &self,
@@ -418,6 +417,7 @@ impl DirEntList {
 
 #[derive(Debug)]
 pub struct DirEntryPlus<T: AsRef<Path>> {
+    #[allow(unused)] // We use `attr.ino` instead
     ino: INodeNo,
     generation: Generation,
     offset: DirEntOffset,

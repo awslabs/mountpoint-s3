@@ -27,6 +27,7 @@ pub struct Request<'a> {
     /// Channel sender for sending the reply
     ch: ChannelSender,
     /// Request raw data
+    #[allow(unused)]
     data: &'a [u8],
     /// Parsed request
     request: ll::AnyRequest<'a>,
