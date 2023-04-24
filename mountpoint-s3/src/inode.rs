@@ -345,10 +345,9 @@ impl Superblock {
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
-        let datetime = OffsetDateTime::now_utc();
         let stat = match kind {
-            InodeKind::File => InodeStat::for_file(0, datetime, expiry, None), // Objects don't have an ETag until they are uploaded to S3
-            InodeKind::Directory => InodeStat::for_directory(datetime, expiry),
+            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None), // Objects don't have an ETag until they are uploaded to S3
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, expiry),
         };
         let state = InodeState {
             stat: stat.clone(),
