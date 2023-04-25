@@ -445,3 +445,38 @@ async fn test_stat_block_size() {
     assert_eq!(lookup.attr.blocks, 9);
     assert_eq!(lookup.attr.blksize, 4096);
 }
+
+#[test_case("foo"; "remove file")]
+#[test_case("bar/foo"; "remove directory")]
+#[tokio::test]
+async fn test_lookup_removes_old_children(key: &str) {
+    let (client, fs) = make_test_filesystem(
+        "test_lookup_removes_old_children",
+        &Default::default(),
+        Default::default(),
+    );
+
+    client.add_object(key, MockObject::constant(0xa1, 0, ETag::for_tests()));
+
+    let child_name = key.split_once('/').map(|(p, _)| p).unwrap_or(key);
+
+    // Ensure the file is visible in mountpoint
+    fs.lookup(FUSE_ROOT_INODE, child_name.as_ref()).await.unwrap();
+
+    // Remove object on the client
+    client.remove_object(key);
+
+    fs.lookup(FUSE_ROOT_INODE, child_name.as_ref())
+        .await
+        .expect_err("the child should not be visible");
+
+    fs.mknod(
+        FUSE_ROOT_INODE,
+        child_name.as_ref(),
+        libc::S_IFREG | libc::S_IRWXU,
+        0,
+        0,
+    )
+    .await
+    .expect("should create a new child with the same name");
+}
