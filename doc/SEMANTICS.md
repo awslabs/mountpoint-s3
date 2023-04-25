@@ -79,16 +79,14 @@ Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 File deletion (`unlink`) is planned but not yet supported (see [#78](https://github.com/awslabs/mountpoint-s3/issues/78)).
 When `unlink` is implemented, the following semantics are proposed.
 
-For files not yet committed to S3, the client will make a best effort to stop the file being uploaded.
+For files not yet committed to S3, the client will make a best effort to stop any inflight uploads,
+and immediately remove the file from its directory.
+If there are any open file handles to the file, future writes to them will fail.
 
-- If the file was not yet opened for writing, the file entry will be deleted.
-- If a file is already open and being written to, the multipart upload will be cancelled and any future bytes written to the file handle will be discarded.
-
-Where the file is already uploaded to S3,
-an unlink operation will _immediately_ perform the delete on S3 and unlink the Inode from its parent.
-
-- If a file was open for reading locally, future reads to the file handle will fail with an IO error.
-- If a file was open for reading on another Mountpoint S3 process / host, future reads will fail with an IO error.
+For files already committed to S3, the client will _immediately_ delete the corresponding object from S3,
+and remove the file from its directory.
+If there are still open file handles to the file, future reads to them will fail.
+Because the object is immediately deleted from S3, future reads from other hosts will also fail.
 
 ### Directory operations
 
@@ -96,7 +94,7 @@ Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supp
 
 Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
-File deletion (`unlink`) semantics are described under the file operations section.
+File deletion (`unlink`) semantics are described in the [Deletes](#Deletes) section.
 
 Empty directory removal (`rmdir`) is not supported.
 
