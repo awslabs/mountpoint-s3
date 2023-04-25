@@ -240,6 +240,8 @@ where
         let lookup = self.superblock.lookup(&self.client, parent, name).await?;
         let attr = self.make_attr(&lookup);
 
+        lookup.inode.inc_lookup_count();
+
         Ok(Entry {
             ttl: self.config.stat_ttl,
             attr,
@@ -257,6 +259,11 @@ where
             ttl: self.config.stat_ttl,
             attr,
         })
+    }
+
+    pub async fn forget(&self, ino: InodeNo, n: u64) {
+        trace!("fs:forget with ino {:?} n {:?}", ino, n);
+        self.superblock.forget(ino, n).await;
     }
 
     pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, libc::c_int> {
@@ -298,6 +305,7 @@ where
 
         let full_key = lookup.inode.full_key().to_owned();
 
+        lookup.inode.inc_lookup_count();
         let fh = self.next_handle();
         let handle = FileHandle {
             inode: lookup.inode,
@@ -379,6 +387,8 @@ where
             .await?;
         let attr = self.make_attr(&lookup);
 
+        lookup.inode.inc_lookup_count();
+
         Ok(Entry {
             ttl: self.config.stat_ttl,
             attr,
@@ -398,6 +408,8 @@ where
             .create(&self.client, parent, name, InodeKind::Directory)
             .await?;
         let attr = self.make_attr(&lookup);
+
+        lookup.inode.inc_lookup_count();
 
         Ok(Entry {
             ttl: self.config.stat_ttl,
@@ -544,12 +556,13 @@ where
 
     pub async fn release(
         &self,
-        _ino: InodeNo,
+        ino: InodeNo,
         fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
     ) -> Result<(), libc::c_int> {
+        trace!("fs:release with ino {:?} fh {:?}", ino, fh);
         let file_handle = {
             let mut file_handles = self.file_handles.write().await;
             file_handles.remove(&fh).ok_or(libc::EBADF)?

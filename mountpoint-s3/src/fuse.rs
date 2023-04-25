@@ -57,6 +57,11 @@ where
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino, nlookup))]
+    fn forget(&self, _req: &Request<'_>, ino: u64, nlookup: u64) {
+        block_on(self.fs.forget(ino, nlookup));
+    }
+
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
     fn open(&self, _req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.open(ino, flags).in_current_span()) {

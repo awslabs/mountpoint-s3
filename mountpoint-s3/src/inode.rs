@@ -81,6 +81,7 @@ impl Superblock {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
+                lookup_count: 1,
             }),
         };
         let root = Inode { inner: Arc::new(root) };
@@ -95,6 +96,30 @@ impl Superblock {
             mount_time,
         };
         Self { inner: Arc::new(inner) }
+    }
+
+    /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
+    /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
+    /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
+    pub async fn forget(&self, ino: InodeNo, n: u64) {
+        let mut inodes = self.inner.inodes.write().unwrap();
+        match inodes.get(&ino) {
+            None => {
+                debug_assert!(
+                    false,
+                    "forget should not be called on inode already removed from superblock"
+                );
+                error!("forget called on inode {ino} already removed from the superblock");
+            }
+            Some(inode) => {
+                let lookup_count = inode.dec_lookup_count(n);
+                if lookup_count < 1 {
+                    // Safe to remove, kernel no longer has a reference to it.
+                    trace!(ino, "removing inode from superblock");
+                    inodes.remove(&ino);
+                }
+            }
+        }
     }
 
     /// Lookup an inode in the parent directory with the given name
@@ -352,6 +377,7 @@ impl Superblock {
         let state = InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
+            lookup_count: 1,
             write_status: WriteStatus::LocalUnopened,
         };
         let inode = self
@@ -429,6 +455,7 @@ impl SuperblockInner {
                     stat: stat.clone(),
                     kind_data: InodeKindData::default_for(kind),
                     write_status: WriteStatus::Remote,
+                    lookup_count: 1,
                 };
                 self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
                     .map(|inode| LookedUp { inode, stat })
@@ -913,6 +940,29 @@ impl Inode {
         &self.inner.full_key
     }
 
+    /// Increment lookup count for [Inode] by 1, returning the new value.
+    /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
+    ///
+    /// Locks [InodeState] for writing.
+    pub fn inc_lookup_count(&self) -> u64 {
+        let mut state = self.inner.sync.write().unwrap();
+        let lookup_count = &mut state.lookup_count;
+        *lookup_count += 1;
+        trace!(new_lookup_count = lookup_count, "incremented lookup count");
+        *lookup_count
+    }
+
+    /// Decrement lookup count by `n` for [Inode], returning the new value.
+    ///
+    /// Locks [InodeState] for writing.
+    pub fn dec_lookup_count(&self, n: u64) -> u64 {
+        let mut state = self.inner.sync.write().unwrap();
+        let lookup_count = &mut state.lookup_count;
+        *lookup_count -= n;
+        trace!(new_lookup_count = lookup_count, "decremented lookup count");
+        *lookup_count
+    }
+
     pub fn start_reading(&self) -> Result<(), InodeError> {
         let state = self.inner.sync.read().unwrap();
         match state.write_status {
@@ -932,6 +982,9 @@ struct InodeState {
     stat: InodeStat,
     write_status: WriteStatus,
     kind_data: InodeKindData,
+    /// Number of references the kernel is holding to the [Inode].
+    /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
+    lookup_count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1184,6 +1237,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_forget() {
+        let superblock = Superblock::new("test_bucket", &Default::default());
+        let ino = 1;
+        let inode_name = String::from("made-up-inode");
+        let inode = Inode {
+            inner: Arc::new(InodeInner {
+                ino,
+                parent: ROOT_INODE_NO,
+                name: inode_name.clone(),
+                full_key: inode_name.clone(),
+                kind: InodeKind::File,
+                sync: RwLock::new(InodeState {
+                    write_status: WriteStatus::Remote,
+                    stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), Instant::now(), None),
+                    kind_data: InodeKindData::File {},
+                    lookup_count: 5,
+                }),
+            }),
+        };
+        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
+
+        superblock.forget(ino, 3).await;
+        let lookup_count = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.lookup_count
+        };
+        assert_eq!(lookup_count, 2, "lookup should have been reduced");
+        assert!(
+            superblock.inner.get(ino).is_ok(),
+            "inode should be present in superblock"
+        );
+
+        superblock.forget(ino, 2).await;
+        let lookup_count = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.lookup_count
+        };
+        assert_eq!(lookup_count, 0, "lookup should have been reduced");
+        assert!(
+            superblock.inner.inodes.read().unwrap().get(&ino).is_none(),
+            "inode should not be present in superblock"
+        );
     }
 
     #[test_case(""; "unprefixed")]
