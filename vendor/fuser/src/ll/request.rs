@@ -102,9 +102,9 @@ impl From<INodeNo> for u64 {
 /// the same [FileHandle], just as a single INode can have multiple
 /// [FileHandle]s open at one time.  Every time a single file-descriptor is
 /// closed a [Flush] request is made.  This gives filesystem implementations
-/// an oppertunity to return an error message from that `close()` call.  After
+/// an opportunity to return an error message from that `close()` call.  After
 /// all the file-descriptors are closed that own a given [FileHandle] the
-/// [Release]/[ReleaseDir] request will be made.  This is an oppertunity for
+/// [Release]/[ReleaseDir] request will be made.  This is an opportunity for
 /// the filesystem implementation to free any internal per-FileHandle data
 /// structures it has allocated.
 ///
@@ -894,7 +894,7 @@ mod op {
     }
     impl_request!(ListXAttr<'a>);
     impl<'a> ListXAttr<'a> {
-        /// The size of the buffer the caller has allocated to recieve the list of
+        /// The size of the buffer the caller has allocated to receive the list of
         /// XAttrs.  If this is 0 the user is just probing to find how much space is
         /// required to fit the whole list.
         ///
@@ -1340,6 +1340,7 @@ mod op {
     #[derive(Debug)]
     pub struct NotifyReply<'a> {
         header: &'a fuse_in_header,
+        #[allow(unused)]
         arg: &'a [u8],
     }
     #[cfg(feature = "abi-7-15")]
@@ -1350,6 +1351,7 @@ mod op {
     #[derive(Debug)]
     pub struct BatchForget<'a> {
         header: &'a fuse_in_header,
+        #[allow(unused)]
         arg: &'a fuse_batch_forget_in,
         nodes: &'a [fuse_forget_one],
     }
@@ -1587,6 +1589,7 @@ mod op {
     #[derive(Debug)]
     pub struct CuseInit<'a> {
         header: &'a fuse_in_header,
+        #[allow(unused)]
         arg: &'a fuse_init_in,
     }
     #[cfg(feature = "abi-7-12")]

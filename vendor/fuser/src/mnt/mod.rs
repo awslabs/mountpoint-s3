@@ -117,15 +117,6 @@ fn is_mounted(fuse_device: &File) -> bool {
     }
 }
 
-/// Ensures that an os error is never 0/Success
-fn ensure_last_os_error() -> io::Error {
-    let err = io::Error::last_os_error();
-    match err.raw_os_error() {
-        Some(0) => io::Error::new(io::ErrorKind::Other, "Unspecified Error"),
-        _ => err,
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
