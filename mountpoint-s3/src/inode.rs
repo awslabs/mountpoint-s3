@@ -119,6 +119,8 @@ impl Superblock {
             return Err(InodeError::InvalidFileName(name.into()));
         }
 
+        // TODO use caches. if we already know about this name, we just need to revalidate the stat
+        // cache and then read it.
         let remote = self.remote_lookup(client, parent_ino, name).await?;
         self.inner.update_from_remote(parent_ino, name, remote)
     }
@@ -238,13 +240,16 @@ impl Superblock {
 
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
         // have a valid file, or both requests failed to find the object so the file must not exist remotely
-        Ok(file_state.map(|stat| {
+        if let Some(stat) = file_state {
             trace!(?parent, ?name, "found a regular file");
-            RemoteLookup {
+            Ok(Some(RemoteLookup {
                 kind: InodeKind::File,
                 stat,
-            }
-        }))
+            }))
+        } else {
+            trace!(?parent, ?name, "not found");
+            Ok(None)
+        }
     }
 
     /// Retrieve the attributes for an inode
@@ -411,14 +416,15 @@ impl SuperblockInner {
                         if writing_children.contains(&inode.ino()) {
                             // Return the local inode.
                             let stat = inode.inner.sync.read().unwrap().stat.clone();
-                            return Ok(LookedUp { inode, stat });
+                            Ok(LookedUp { inode, stat })
+                        } else {
+                            // Remove from children.
+                            // TODO: also handle inode in [Self::inodes].
+                            children.remove(name);
+                            Err(InodeError::FileDoesNotExist)
                         }
-                        // Remove from children.
-                        // TODO: also handle inode in [Self::inodes].
-                        children.remove(name);
                     }
                 }
-                Err(InodeError::FileDoesNotExist)
             }
             UpdateStatus::RemoteKey(RemoteLookup { stat, kind }) => {
                 let kind_data = match kind {
@@ -572,6 +578,7 @@ enum UpdateStatus {
     RemoteKey(RemoteLookup),
 
     /// Local inode already up to date with remote.
+    /// [LookedUp] contains the inode and its updated `stat`.
     Updated(LookedUp),
 
     /// No remote key, no local inode.
