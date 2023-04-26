@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1682438500403,
+  "lastUpdate": 1682504200566,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -239,6 +239,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 52.4507301,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0962c03350cc2e48a287641210d6c0ceeeffc3a2",
+          "message": "Update vendored fuser to 076c9d9 (#222)\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-04-26T11:05:57+01:00",
+          "tree_id": "f8a8a7160b164bf0820cfbb374e59c1f6979212c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0962c03350cc2e48a287641210d6c0ceeeffc3a2"
+        },
+        "date": 1682504199978,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.091,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.18,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.169,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.034,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 77.7565524,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 54.5862751,
             "unit": "milliseconds"
           }
         ]
