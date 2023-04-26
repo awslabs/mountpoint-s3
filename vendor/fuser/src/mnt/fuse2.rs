@@ -1,4 +1,4 @@
-use super::{ensure_last_os_error, fuse2_sys::*, with_fuse_args, MountOption};
+use super::{fuse2_sys::*, with_fuse_args, MountOption};
 use log::warn;
 use std::{
     ffi::CString,
@@ -8,6 +8,15 @@ use std::{
     path::Path,
     sync::Arc,
 };
+
+/// Ensures that an os error is never 0/Success
+fn ensure_last_os_error() -> io::Error {
+    let err = io::Error::last_os_error();
+    match err.raw_os_error() {
+        Some(0) => io::Error::new(io::ErrorKind::Other, "Unspecified Error"),
+        _ => err,
+    }
+}
 
 #[derive(Debug)]
 pub struct Mount {
