@@ -20,8 +20,9 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.67
           target: x86_64-unknown-linux-musl
+          default: true
 
       - name: Run tests
         run: |
@@ -45,8 +46,9 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.67
           components: rustfmt, clippy
+          default: true
 
       - name: Cache cargo registry
         uses: actions/cache@v1
