@@ -612,15 +612,18 @@ impl WriteHandle {
         }
     }
 
-    /// Update status of the inode and its parent
+    /// Update status of the inode and of containing "local" directories.
     pub fn finish_writing(self, object_size: usize) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
 
-        // Ancestor inodes, from parent to first remote ancestor
+        // Collect ancestor inodes that may need updating,
+        // from parent to first remote ancestor.
         let ancestors = {
             let mut ancestors = Vec::new();
             let mut ancestor_ino = self.parent_ino;
+            let mut visited = HashSet::new();
             loop {
+                assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
                 let ancestor = self.inner.get(ancestor_ino)?;
                 ancestors.push(ancestor.clone());
                 if ancestor.ino() == ROOT_INODE_NO
@@ -633,8 +636,7 @@ impl WriteHandle {
             ancestors
         };
 
-        // acquire locks on ancestors first
-        // ancestors_states goes from first remote ancestor to parent
+        // Acquire locks on ancestors in descending order to avoid deadlocks.
         let mut ancestors_states: Vec<_> = ancestors
             .iter()
             .rev()
@@ -647,7 +649,8 @@ impl WriteHandle {
                 state.write_status = WriteStatus::Remote;
                 state.stat.size = object_size;
 
-                // traverse ancestors from parent to first remote ancestor
+                // Walk up the ancestors from parent to first remote ancestor to transition
+                // the inode and all "local" containing directories to "remote".
                 let children_inos = std::iter::once(self.ino).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
                 for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
                     match &mut ancestor_state.kind_data {
