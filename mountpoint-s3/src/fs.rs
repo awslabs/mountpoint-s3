@@ -10,7 +10,7 @@ use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, ObjectClient, PutObjectParams};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
-use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
+use crate::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
@@ -351,7 +351,7 @@ where
 
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
             Ok(body) => reply.data(&body),
-            Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
+            Err(_) => reply.error(libc::EIO),
         }
     }
 

@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1cefc6aa7160d95c9497b4f4407115c749a2f97e74c5dd3a5e0f68f33edc5a41 # shrinks to size = 3, read_factor = 2, config = TestConfig { first_request_size: 16, max_request_size: 16, sequential_prefetch_multiplier: 1, client_part_size: 16 }
+cc 5766b08dab3255bc3f26382330b9cb738e51542bf25f0e86bf2c8cfaa8ff1f88 # shrinks to size = 241849, read_size = 1, config = TestConfig { first_request_size: 16, max_request_size: 16, sequential_prefetch_multiplier: 1, client_part_size: 16 }
+cc 3e1688fb734cb931736cf60002a8bd2ec417e67676d2b08fd7bc9ace755e6a38 # shrinks to size = 275240, read_size = 2, config = TestConfig { first_request_size: 16, max_request_size: 16, sequential_prefetch_multiplier: 1, client_part_size: 57639 }

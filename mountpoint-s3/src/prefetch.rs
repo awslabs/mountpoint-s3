@@ -20,6 +20,7 @@ use futures::stream::StreamExt;
 use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
 use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
+use mountpoint_s3_crt::checksums::crc::checksums_crc32c;
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
@@ -27,7 +28,12 @@ use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::PartQueue;
 use crate::sync::{Arc, RwLock};
 
-type TaskError<Client> = ObjectClientError<GetObjectError, <Client as ObjectClient>::ClientError>;
+use self::part::PartMismatchError;
+
+/// CRC32C checksum
+pub type ChecksumCrc = u32;
+
+type TaskError<Client> = PrefetchTaskError<ObjectClientError<GetObjectError, <Client as ObjectClient>::ClientError>>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrefetcherConfig {
@@ -100,6 +106,8 @@ pub struct PrefetchGetObject<Client: ObjectClient, Runtime> {
     future_tasks: Arc<RwLock<VecDeque<RequestTask<TaskError<Client>>>>>,
     bucket: String,
     key: String,
+    // preferred part size in the prefetcher's part queue, not the object part
+    preferred_part_size: usize,
     next_sequential_read_offset: u64,
     next_request_size: usize,
     next_request_offset: u64,
@@ -119,6 +127,7 @@ where
             current_task: None,
             future_tasks: Default::default(),
             next_request_size: inner.config.first_request_size,
+            preferred_part_size: 0,
             next_sequential_read_offset: 0,
             next_request_offset: 0,
             bucket: bucket.to_owned(),
@@ -138,6 +147,12 @@ where
             next_seq_offset = self.next_sequential_read_offset,
             "read"
         );
+
+        // Currently, preferred part size is the current read size.
+        // This is a naive assumption that the read size will be the same for most sequential
+        // read and it can be aligned to the size of prefetched data. Even so, it's worth to
+        // try since the performance will be a lot better when the conditions are met.
+        self.preferred_part_size = length;
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
@@ -173,6 +188,7 @@ where
         }
 
         let mut response = BytesMut::new();
+        let mut expected_checksum: ChecksumCrc = 0;
         while to_read > 0 {
             let current_task = self.current_task.as_mut().unwrap();
             debug_assert!(current_task.remaining > 0);
@@ -186,8 +202,11 @@ where
                 }
                 Ok(part) => part,
             };
-            let part_bytes = part.into_bytes(&self.key, self.next_sequential_read_offset).unwrap();
-
+            let part_checksum = part.checksum();
+            let part_size = part.len();
+            let part_bytes = part
+                .into_bytes(&self.key, self.next_sequential_read_offset)
+                .map_err(PrefetchReadError::PartReadFailed)?;
             self.next_sequential_read_offset += part_bytes.len() as u64;
 
             // If we can complete the read with just a single buffer, early return to avoid copying
@@ -198,6 +217,9 @@ where
             }
 
             response.extend_from_slice(&part_bytes[..]);
+            // CRT doesn't provide any functions we can calculate the combine checksum
+            // so we have to use crc32c crate here.
+            expected_checksum = crc32c::crc32c_combine(expected_checksum, part_checksum, part_size);
             to_read -= part_bytes.len() as u64;
             if current_task.remaining == 0 {
                 self.prepare_requests();
@@ -207,7 +229,12 @@ where
             }
         }
 
-        Ok(response.freeze())
+        let response = response.freeze();
+        let response_checksum = checksums_crc32c(&response, None);
+        if expected_checksum != response_checksum {
+            return Err(PrefetchReadError::ResponseChecksumMismatch);
+        }
+        Ok(response)
     }
 
     /// Runs on every read to prepare and spawn any requests our prefetching logic requires
@@ -250,6 +277,7 @@ where
 
         let request_task = {
             let client = Arc::clone(&self.inner.client);
+            let preferred_part_size = self.preferred_part_size;
             let part_queue = Arc::clone(&part_queue);
             let bucket = self.bucket.to_owned();
             let key = self.key.to_owned();
@@ -257,22 +285,45 @@ where
             let span = debug_span!("prefetch", range=?range);
 
             async move {
+                // CRC32C checksum of the data from get object result
+                // TODO get this value from S3 API if possible
+                let mut get_object_checksum: ChecksumCrc = 0;
+                let mut parts_checksum: ChecksumCrc = 0;
                 match client.get_object(&bucket, &key, Some(range.clone()), Some(etag)).await {
                     Err(e) => {
                         error!(error=?e, "RequestTask get object failed");
-                        part_queue.push(Err(e));
+                        part_queue.push(Err(e.into()));
                     }
                     Ok(request) => {
                         pin_mut!(request);
                         loop {
                             match request.next().await {
                                 Some(Ok((offset, body))) => {
-                                    let part = Part::new(&key, offset, body.into());
-                                    part_queue.push(Ok(part));
+                                    get_object_checksum = checksums_crc32c(body.as_ref(), None);
+
+                                    // pre-split the body into multiple parts as suggested by the preferred part size
+                                    let mut body_offset = 0;
+                                    let mut remaining = body.len();
+                                    while remaining > 0 {
+                                        let to = (body_offset + preferred_part_size).min(body.len());
+
+                                        let part = Part::new(
+                                            &key,
+                                            offset + body_offset as u64,
+                                            Bytes::copy_from_slice(&body[body_offset..to]),
+                                        );
+                                        let part_size = part.len();
+                                        parts_checksum = checksums_crc32c(part.bytes_ref(), Some(parts_checksum));
+                                        trace!(preferred_part_size, offset, actual_size = part.len(), "create_part");
+                                        part_queue.push(Ok(part));
+
+                                        body_offset += part_size;
+                                        remaining -= part_size;
+                                    }
                                 }
                                 Some(Err(e)) => {
                                     error!(error=?e, "RequestTask body part failed");
-                                    part_queue.push(Err(e));
+                                    part_queue.push(Err(e.into()));
                                     break;
                                 }
                                 None => break,
@@ -280,6 +331,9 @@ where
                         }
                         trace!("finished");
                     }
+                }
+                if get_object_checksum != parts_checksum {
+                    part_queue.push(Err(PrefetchTaskError::PartQueueChecksumMismatch));
                 }
             }
             .instrument(span)
@@ -347,6 +401,21 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
 pub enum PrefetchReadError<E: std::error::Error> {
     #[error("get request failed")]
     GetRequestFailed(#[from] E),
+
+    #[error("part read failed")]
+    PartReadFailed(#[source] PartMismatchError),
+
+    #[error("response checksum mismatch")]
+    ResponseChecksumMismatch,
+}
+
+#[derive(Debug, Error)]
+pub enum PrefetchTaskError<E: std::error::Error> {
+    #[error("get request failed")]
+    GetRequestFailed(#[from] E),
+
+    #[error("checksum mismatch at part queue creation")]
+    PartQueueChecksumMismatch,
 }
 
 #[cfg(test)]

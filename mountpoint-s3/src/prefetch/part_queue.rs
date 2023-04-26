@@ -29,7 +29,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     }
 
     /// Read up to `length` bytes from the queue at the current offset. This function always returns
-    /// a contiguous [Bytes], and so may return fewer than `length` bytes it it would need to copy
+    /// a contiguous [Bytes], and so may return fewer than `length` bytes if it would need to copy
     /// or reallocate to make the return value contiguous. This function blocks only if the queue is
     /// empty.
     ///
@@ -68,7 +68,13 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         if length >= part.len() {
             Ok(part)
         } else {
-            let tail = part.split_off(length);
+            let tail = match part.split_off(length) {
+                Ok(part) => part,
+                Err(e) => {
+                    self.failed.store(true, Ordering::SeqCst);
+                    return Err(PrefetchReadError::PartReadFailed(e));
+                }
+            };
             *current_part = Some(tail);
             Ok(part)
         }
