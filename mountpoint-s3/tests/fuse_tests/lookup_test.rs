@@ -5,17 +5,21 @@ use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::PutObjectFn;
+use crate::fuse_tests::TestClientBox;
 
 /// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test<F>(creator_fn: F, prefix: &str, subdir: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
-    put_object_fn(&format!("dir/{subdir}hello.txt"), b"hello world").unwrap();
-    put_object_fn(&format!("dir-1/{subdir}hello.txt"), b"hello world").unwrap();
+    test_client
+        .put_object(&format!("dir/{subdir}hello.txt"), b"hello world")
+        .unwrap();
+    test_client
+        .put_object(&format!("dir-1/{subdir}hello.txt"), b"hello world")
+        .unwrap();
 
     let test_dir = read_dir(mount_point.path()).unwrap();
     let dirs: Vec<_> = test_dir.map(|f| f.unwrap()).collect();
@@ -50,9 +54,9 @@ fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
 
 fn lookup_weird_characters_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
     let keys = &[
         "weird$dir name",
@@ -63,7 +67,9 @@ where
     ];
 
     for (i, key) in keys.iter().enumerate() {
-        put_object_fn(key, format!("hello world {i}").as_bytes()).unwrap();
+        test_client
+            .put_object(key, format!("hello world {i}").as_bytes())
+            .unwrap();
     }
 
     let test_dir = read_dir(mount_point.path()).unwrap();

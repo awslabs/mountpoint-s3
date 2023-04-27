@@ -80,10 +80,7 @@ impl Superblock {
             sync: RwLock::new(InodeState {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
                 write_status: WriteStatus::Remote,
-                kind_data: InodeKindData::Directory {
-                    children: Default::default(),
-                    writing_children: Default::default(),
-                },
+                kind_data: InodeKindData::default_for(InodeKind::Directory),
             }),
         };
         let root = Inode { inner: Arc::new(root) };
@@ -312,12 +309,13 @@ impl Superblock {
         })
     }
 
-    /// Create a new regular file inode ready to be opened in write-only mode
+    /// Create a new regular file or directory inode ready to be opened in write-only mode
     pub async fn create<OC: ObjectClient>(
         &self,
         client: &OC,
         dir: InodeNo,
         name: &OsStr,
+        kind: InodeKind,
     ) -> Result<LookedUp, InodeError> {
         trace!(parent=?dir, ?name, "create");
 
@@ -347,15 +345,15 @@ impl Superblock {
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
-                                     // Objects don't have an ETag until they are uploaded to S3
-        let stat = InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None);
-        let kind = InodeKind::File;
+        let stat = match kind {
+            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None), // Objects don't have an ETag until they are uploaded to S3
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, expiry),
+        };
         let state = InodeState {
             stat: stat.clone(),
-            kind_data: InodeKindData::File {},
+            kind_data: InodeKindData::default_for(kind),
             write_status: WriteStatus::LocalUnopened,
         };
-
         let inode = self
             .inner
             .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
@@ -427,17 +425,9 @@ impl SuperblockInner {
                 }
             }
             UpdateStatus::RemoteKey(RemoteLookup { stat, kind }) => {
-                let kind_data = match kind {
-                    InodeKind::File => InodeKindData::File {},
-                    InodeKind::Directory => InodeKindData::Directory {
-                        children: Default::default(),
-                        writing_children: Default::default(),
-                    },
-                };
-
                 let state = InodeState {
                     stat: stat.clone(),
-                    kind_data,
+                    kind_data: InodeKindData::default_for(kind),
                     write_status: WriteStatus::Remote,
                 };
                 self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
@@ -622,26 +612,54 @@ impl WriteHandle {
         }
     }
 
-    /// Update status of the inode and its parent
+    /// Update status of the inode and of containing "local" directories.
     pub fn finish_writing(self, object_size: usize) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
-        let parent = self.inner.get(self.parent_ino)?;
 
-        // acquire a lock on the parent first
-        let mut parent_state = parent.inner.sync.write().unwrap();
+        // Collect ancestor inodes that may need updating,
+        // from parent to first remote ancestor.
+        let ancestors = {
+            let mut ancestors = Vec::new();
+            let mut ancestor_ino = self.parent_ino;
+            let mut visited = HashSet::new();
+            loop {
+                assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
+                let ancestor = self.inner.get(ancestor_ino)?;
+                ancestors.push(ancestor.clone());
+                if ancestor.ino() == ROOT_INODE_NO
+                    || ancestor.inner.sync.read().unwrap().write_status == WriteStatus::Remote
+                {
+                    break;
+                }
+                ancestor_ino = ancestor.parent();
+            }
+            ancestors
+        };
+
+        // Acquire locks on ancestors in descending order to avoid deadlocks.
+        let mut ancestors_states: Vec<_> = ancestors
+            .iter()
+            .rev()
+            .map(|inode| inode.inner.sync.write().unwrap())
+            .collect();
+
         let mut state = inode.inner.sync.write().unwrap();
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
                 state.stat.size = object_size;
-                match &mut parent_state.kind_data {
-                    InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
-                    InodeKindData::Directory {
-                        children: _,
-                        writing_children,
-                    } => {
-                        writing_children.remove(&inode.ino());
+
+                // Walk up the ancestors from parent to first remote ancestor to transition
+                // the inode and all "local" containing directories to "remote".
+                let children_inos = std::iter::once(self.ino).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
+                for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
+                    match &mut ancestor_state.kind_data {
+                        InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
+                        InodeKindData::Directory { writing_children, .. } => {
+                            writing_children.remove(&child_ino);
+                        }
                     }
+                    ancestor_state.write_status = WriteStatus::Remote;
                 }
                 // TODO force the file to be revalidated the next time it's `stat`ed?
                 Ok(())
@@ -941,6 +959,18 @@ enum InodeKindData {
         /// A set of inode numbers that have been opened for write but not completed yet.
         writing_children: HashSet<InodeNo>,
     },
+}
+
+impl InodeKindData {
+    fn default_for(kind: InodeKind) -> Self {
+        match kind {
+            InodeKind::File => Self::File {},
+            InodeKind::Directory => Self::Directory {
+                children: Default::default(),
+                writing_children: Default::default(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1246,7 +1276,12 @@ mod tests {
         for i in 0..5 {
             let filename = format!("file{i}.txt");
             let new_inode = superblock
-                .create(&client, FUSE_ROOT_INODE, OsStr::from_bytes(filename.as_bytes()))
+                .create(
+                    &client,
+                    FUSE_ROOT_INODE,
+                    OsStr::from_bytes(filename.as_bytes()),
+                    InodeKind::File,
+                )
                 .await
                 .unwrap();
             superblock
@@ -1297,7 +1332,12 @@ mod tests {
         for i in 0..5 {
             let filename = format!("newfile{i}.txt");
             let new_inode = superblock
-                .create(&client, FUSE_ROOT_INODE, OsStr::from_bytes(filename.as_bytes()))
+                .create(
+                    &client,
+                    FUSE_ROOT_INODE,
+                    OsStr::from_bytes(filename.as_bytes()),
+                    InodeKind::File,
+                )
                 .await
                 .unwrap();
             superblock
@@ -1316,6 +1356,101 @@ mod tests {
                 expected_list
             );
         }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_create_local_dir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .unwrap();
+
+        let lookedup = superblock
+            .lookup(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("lookup should succeed on local dirs");
+        assert_eq!(
+            lookedup.inode.inner.sync.read().unwrap().write_status,
+            WriteStatus::LocalUnopened
+        );
+
+        let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        assert_eq!(
+            entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+            vec![dirname]
+        );
+
+        // Check that local directories are not present in the client
+        let prefix = format!("{prefix}{dirname}");
+        assert!(!client.contains_prefix(&prefix));
+    }
+
+    #[tokio::test]
+    async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let superblock = Superblock::new("test_bucket", &Default::default());
+
+        let nested_dirs = (0..5).map(|i| format!("level{i}")).collect::<Vec<_>>();
+        let leaf_dir_ino = {
+            let mut parent_dir_ino = FUSE_ROOT_INODE;
+            for dirname in &nested_dirs {
+                let dir_lookedup = superblock
+                    .create(&client, parent_dir_ino, dirname.as_ref(), InodeKind::Directory)
+                    .await
+                    .unwrap();
+
+                assert_eq!(
+                    dir_lookedup.inode.inner.sync.read().unwrap().write_status,
+                    WriteStatus::LocalUnopened
+                );
+
+                parent_dir_ino = dir_lookedup.inode.ino();
+            }
+            parent_dir_ino
+        };
+
+        // Create object under leaf dir
+        let filename = "newfile.txt";
+        let new_inode = superblock
+            .create(
+                &client,
+                leaf_dir_ino,
+                OsStr::from_bytes(filename.as_bytes()),
+                InodeKind::File,
+            )
+            .await
+            .unwrap();
+
+        let writehandle = superblock
+            .write(&client, new_inode.inode.ino(), leaf_dir_ino)
+            .await
+            .unwrap();
+
+        // Invoke [finish_writing], without actually adding the
+        // object to the client
+        writehandle.finish_writing(0).unwrap();
+
+        // All nested dirs disappear
+        let dirname = nested_dirs.first().unwrap();
+        let lookedup = superblock.lookup(&client, FUSE_ROOT_INODE, dirname.as_ref()).await;
+        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist)));
     }
 
     #[tokio::test]

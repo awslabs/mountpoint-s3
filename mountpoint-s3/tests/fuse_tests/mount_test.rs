@@ -8,20 +8,20 @@ use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
 use tempfile::TempDir;
 
-use crate::fuse_tests::PutObjectFn;
+use crate::fuse_tests::TestClientBox;
 
 fn basic_read_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
-    put_object_fn("hello.txt", b"hello world").unwrap();
+    test_client.put_object("hello.txt", b"hello world").unwrap();
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
-    put_object_fn("test2MiB.bin", &two_mib_body).unwrap();
+    test_client.put_object("test2MiB.bin", &two_mib_body).unwrap();
 
     let test_dir = read_dir(mount_point.path()).unwrap();
     let files: Vec<_> = test_dir.map(|f| f.unwrap()).collect();

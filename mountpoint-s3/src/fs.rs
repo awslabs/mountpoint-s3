@@ -373,7 +373,30 @@ where
             return Err(libc::EINVAL);
         }
 
-        let lookup = self.superblock.create(&self.client, parent, name).await?;
+        let lookup = self
+            .superblock
+            .create(&self.client, parent, name, InodeKind::File)
+            .await?;
+        let attr = self.make_attr(&lookup);
+
+        Ok(Entry {
+            ttl: self.config.stat_ttl,
+            attr,
+            generation: 0,
+        })
+    }
+
+    pub async fn mkdir(
+        &self,
+        parent: InodeNo,
+        name: &OsStr,
+        _mode: libc::mode_t,
+        _umask: u32,
+    ) -> Result<Entry, libc::c_int> {
+        let lookup = self
+            .superblock
+            .create(&self.client, parent, name, InodeKind::Directory)
+            .await?;
         let attr = self.make_attr(&lookup);
 
         Ok(Entry {
