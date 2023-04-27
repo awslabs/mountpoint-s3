@@ -7,12 +7,12 @@ use std::io::Seek;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::PutObjectFn;
+use crate::fuse_tests::TestClientBox;
 
 // test for checking either prefetching fails or read original object when object is mutated during read.
 fn prefetch_test_etag<F>(creator_fn: F, prefix: &str, request_size: usize, read_size: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const OBJECT_SIZE: usize = 1024 * 1024;
     const SEEK_POS: u64 = 200 * 1024;
@@ -27,11 +27,11 @@ where
         ..Default::default()
     };
 
-    let (mount_point, _session, mut put_object_fn) = creator_fn(prefix, test_config);
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
     let mut read_buf = vec![0u8; OBJECT_SIZE];
 
     // Make sure there's an existing directory
-    put_object_fn("dir/hello.txt", &mut read_buf).unwrap();
+    test_client.put_object("dir/hello.txt", &read_buf).unwrap();
 
     let mut path = mount_point.path().join("dir/hello.txt");
 
@@ -45,7 +45,7 @@ where
     f.read_exact(&mut buf).expect("Should be able to read file to buf");
 
     read_buf = vec![255u8; OBJECT_SIZE];
-    put_object_fn("dir/hello.txt", &mut read_buf).unwrap();
+    test_client.put_object("dir/hello.txt", &read_buf).unwrap();
 
     // In order to read from a position where prefetching next block is necessary
     f.seek(std::io::SeekFrom::Start(SEEK_POS))
@@ -68,7 +68,7 @@ where
     f.read_exact(&mut dest_buf).expect("Should be able to read file to buf");
     // Now 'dest_buf' should have new data.
     assert_eq!(dest_buf, vec![255u8; read_size]);
-    
+
     drop(f);
 }
 
