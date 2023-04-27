@@ -480,3 +480,46 @@ async fn test_lookup_removes_old_children(key: &str) {
     .await
     .expect("should create a new child with the same name");
 }
+
+#[test_case(""; "unprefixed")]
+#[test_case("test_prefix/"; "prefixed")]
+#[tokio::test]
+async fn test_local_dir(prefix: &str) {
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let (client, fs) = make_test_filesystem("test_local_dir", &prefix, Default::default());
+
+    // Create local directory
+    let dirname = "local";
+    let dir_entry = fs
+        .mkdir(FUSE_ROOT_INODE, dirname.as_ref(), libc::S_IFDIR, 0)
+        .await
+        .unwrap();
+
+    assert_eq!(dir_entry.attr.kind, FileType::Directory);
+    let dir_ino = dir_entry.attr.ino;
+
+    assert!(!client.contains_prefix(&format!("{prefix}{dirname}")));
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr, dir_entry.attr);
+
+    // Write an object into the directory
+    let filename = "file.bin";
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let file_entry = fs.mknod(dir_ino, filename.as_ref(), mode, 0, 0).await.unwrap();
+    let file_ino = file_entry.attr.ino;
+    let file_handle = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    fs.release(file_ino, file_handle, 0, None, false).await.unwrap();
+
+    // Remove the new object from the client
+    client.remove_object(&format!("{prefix}{dirname}/{filename}"));
+
+    // Verify that the directory disappeared
+    let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
+    assert!(matches!(lookup, Err(libc::ENOENT)));
+}

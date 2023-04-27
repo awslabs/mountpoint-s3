@@ -10,11 +10,11 @@ use nix::unistd::{getgid, getuid};
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::PutObjectFn;
+use crate::fuse_tests::TestClientBox;
 
 fn perm_test<F>(creator_fn: F, uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let mut config = S3FilesystemConfig::default();
     if let Some(id) = uid {
@@ -30,7 +30,7 @@ where
         config.file_mode = mode;
     }
 
-    let (mount_point, _session, mut put_object_fn) = creator_fn("", config);
+    let (mount_point, _session, mut test_client) = creator_fn("", config);
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -43,8 +43,8 @@ where
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    put_object_fn("file1.txt", b"hello world").unwrap();
-    put_object_fn("dir/file2.txt", b"hello world").unwrap();
+    test_client.put_object("file1.txt", b"hello world").unwrap();
+    test_client.put_object("dir/file2.txt", b"hello world").unwrap();
 
     // verify readdir works on mount point
     let dir = fs::read_dir(&mount_point).unwrap();
@@ -95,7 +95,7 @@ fn perm_test_negative<F>(
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let mut config = S3FilesystemConfig::default();
     if let Some(id) = uid {
@@ -111,7 +111,7 @@ fn perm_test_negative<F>(
         config.file_mode = mode;
     }
 
-    let (mount_point, _session, mut put_object_fn) = creator_fn("", config);
+    let (mount_point, _session, mut test_client) = creator_fn("", config);
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -123,8 +123,8 @@ fn perm_test_negative<F>(
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    put_object_fn("file1.txt", b"hello world").unwrap();
-    put_object_fn("dir/file2.txt", b"hello world").unwrap();
+    test_client.put_object("file1.txt", b"hello world").unwrap();
+    test_client.put_object("dir/file2.txt", b"hello world").unwrap();
 
     // verify readdir returns permission denied on mount point
     let readdir_result = fs::read_dir(&mount_point).map_err(|e| e.kind());

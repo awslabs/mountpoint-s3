@@ -1,4 +1,4 @@
-use crate::fuse_tests::PutObjectFn;
+use crate::fuse_tests::TestClientBox;
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
@@ -27,16 +27,16 @@ impl File {
     }
 }
 
-fn prepare_fs(mut put_object_fn: PutObjectFn, map: &HashMap<String, File>) {
+fn prepare_fs(mut test_client: TestClientBox, map: &HashMap<String, File>) {
     for (name, file) in map {
         let content = vec![file.pat; file.len];
-        put_object_fn(name, &content).unwrap();
+        test_client.put_object(name, &content).unwrap();
     }
 }
 
 fn readdir<F>(creator_fn: F, prefix: &str, rng_seed: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
@@ -55,9 +55,9 @@ where
     }
     expected_list.sort();
 
-    let (mount_point, _session, put_object_fn) = creator_fn(prefix, filesystem_config);
+    let (mount_point, _session, test_client) = creator_fn(prefix, filesystem_config);
 
-    prepare_fs(put_object_fn, &map);
+    prepare_fs(test_client, &map);
 
     let dir = fs::read_dir(mount_point.path()).unwrap();
     let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
@@ -72,7 +72,7 @@ where
 
 fn readdir_while_writing<F>(creator_fn: F, prefix: &str, rng_seed: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, PutObjectFn),
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {

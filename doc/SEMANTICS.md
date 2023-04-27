@@ -78,6 +78,12 @@ Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
 Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported.
 
+Creating directories (`mkdir`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/77):
+
+* `mkdir` will create a new empty directory in the file system, but not affect the S3 bucket.
+* Note that this is different from e.g. the S3 Console, which creates "directory markers" (i.e. zero-byte objects with `<directory-name>/` key) in the bucket.
+* If a file is created under the new (or a nested) directory and committed to S3, Mountpoint for Amazon S3 will revert to using the default mapping of S3 object keys. This implies that the directory will be visible as long as there are keys which contain it as a prefix.
+
 Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
 File deletion (`unlink`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/78).
