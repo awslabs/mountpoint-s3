@@ -2,20 +2,6 @@
 
 Mountpoint for Amazon S3 imports the required [AWS Common Runtime (CRT)](https://docs.aws.amazon.com/sdkref/latest/guide/common-runtime.html) libraries through git submodules, located under the `mountpoint-s3-crt-sys/crt` directory.
 
-Currently the imported libraries are:
-
-* `aws-c-auth`
-* `aws-c-cal`
-* `aws-c-common`
-* `aws-c-compression`
-* `aws-c-http`
-* `aws-c-io`
-* `aws-c-s3`
-* `aws-c-sdkutils`
-* `aws-checksums`
-* `aws-lc`
-* `s2n-tls`
-
 ## Update Submodules
 
 The CRT submodules can be updated by following these steps:
@@ -23,12 +9,22 @@ The CRT submodules can be updated by following these steps:
 1. Update every submodule to the latest tagged release. E.g. by running:
 
    ```sh
-   git submodule foreach -q 'git checkout `git tag -l --sort=-v:refname | head -1`'
+   git submodule foreach 'git fetch -q --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`'
    ```
 
-2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.).
+2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
+
+   ```sh
+   git diff --submodule mountpoint-s3-crt-sys/crt/aws-c-s3 
+   ```
 
 3. Build and test `mountpoint-s3`.
+
+4. Stage and commit the changes:
+
+   ```sh
+   git commit -a -s -m "Update CRT submodules to latest releases"
+   ```
 
 ## Check Current Version
 
