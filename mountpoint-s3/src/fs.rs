@@ -1,3 +1,31 @@
+//! File system types and operations, not relying on our FUSE library.
+//!
+//! **Note:** this abstraction is not intended to abstract FUSE itself,
+//! only allow us to run tests without FUSE in the loop.
+//! If and when we add a new filesystem view that isn't FUSE related,
+//! we can consider how to ensure this module is generic.
+//!
+//! #### Counting references to [Inode]
+//!
+//! One of the responsibilities of [S3Filesystem] is to track the _lookup count_.
+//! Lookup count is a FUSE concept and tracks the number of times we provide a reference to an [InodeNo] to the FUSE driver,
+//! ensuring that we never delete an [Inode] that may be references in the future by the FUSE driver.
+//! Note - this should not be confused with any counting of references to an [Inode] from its parent or a [FileHandle].
+//!
+//! Some operations will not return a new [InodeNo] but rather one the FUSE driver already knows about.
+//! `open` is one such case since FUSE already provides the [InodeNo] as an argument when it calls open.
+//!
+//! The [libfuse fuse_lowlevel_ops documentation](https://libfuse.github.io/doxygen/structfuse__lowlevel__ops.html#a9fca05bcb3594ccd68d288ebd37a8467)
+//! provides some information regarding lookup count and when it should be updated.
+//! While it claims that you should increment the count whenever you return a `fuse_reply_entry` or `fuse_reply_create` struct,
+//! there are other cases we must consider.
+//! For example, we must increment the lookup count when returning references to an [InodeNo] via `readdirplus`.
+//!
+//! When implementing new operations,
+//! we must review both the operations argument and the structures it replies with to determine if it will include any new [InodeNo].
+//! At the same time, some structures (such as `readdirent`) include the [InodeNo] but don't actually use it - fun!
+//! Anyhow - if the FUSE driver plans to make use of the [InodeNo], we must increment the lookup count on the [Inode].
+
 use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;

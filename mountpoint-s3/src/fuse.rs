@@ -1,3 +1,8 @@
+//! `fuser`-specific bindings, mostly wrapping the generic filesystem code in [crate::fs].
+//!
+//! Note that the purpose of this module is not necessarily to abstract away FUSE from a FileSystem,
+//! but instead to provide a thin wrapper between the `fuser` library and our filesystem handlers.
+
 use futures::executor::block_on;
 use futures::task::Spawn;
 use std::ffi::OsStr;
