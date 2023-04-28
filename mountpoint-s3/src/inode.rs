@@ -961,7 +961,12 @@ impl Inode {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         *lookup_count -= n;
-        trace!(ino = self.ino(), n, new_lookup_count = lookup_count, "decremented lookup count");
+        trace!(
+            ino = self.ino(),
+            n,
+            new_lookup_count = lookup_count,
+            "decremented lookup count"
+        );
         *lookup_count
     }
 

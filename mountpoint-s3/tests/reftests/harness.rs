@@ -53,7 +53,11 @@ impl Harness {
 
             if reply.entries.is_empty() {
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, true, &mut reply).await.unwrap();
+                let _reply = self
+                    .fs
+                    .readdir(fs_dir, dir_handle, offset, true, &mut reply)
+                    .await
+                    .unwrap();
             }
 
             let e1 = reply.entries.pop_front().unwrap();
@@ -103,7 +107,11 @@ impl Harness {
                     }
                 }
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, true, &mut reply).await.unwrap();
+                let _reply = self
+                    .fs
+                    .readdir(fs_dir, dir_handle, offset, true, &mut reply)
+                    .await
+                    .unwrap();
             }
 
             assert!(

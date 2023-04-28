@@ -578,10 +578,8 @@ where
             ) {
                 handle.handle.readd(next);
                 return Ok(reply);
-            } else {
-                if plus {
-                    next.inode.inc_lookup_count();
-                }
+            } else if plus {
+                next.inode.inc_lookup_count();
             }
             handle.next_offset();
         }
