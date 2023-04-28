@@ -23,7 +23,8 @@ The CRT submodules can be updated by following these steps:
 4. Stage and commit the changes:
 
    ```sh
-   git commit -a -s -m "Update CRT submodules to latest releases"
+   git add mountpoint-s3-crt-sys/crt
+   git commit --signoff -m "Update CRT submodules to latest releases"
    ```
 
 ## Check Current Version
