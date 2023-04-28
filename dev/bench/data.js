@@ -4,110 +4,6 @@ window.BENCHMARK_DATA = {
       {
         "commit": {
           "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7d3f5c8e68359ebe7c34b4b84065194e48dc5a66",
-          "message": "Allow `mountpoint-s3-crt-sys` to link to an existing CRT installation (#192)\n\nSome customers may already have a build of the CRT they'd like to use\r\nwith Mountpoint rather than building the one we include; for example,\r\none installed by their package manager. This change lets us specify\r\nenvironment variables pointing to an existing CRT build rather than\r\nalways building it ourselves.\r\n\r\nThere's not a great versioning or compatibility story for CRT shared\r\nlibraries, so this change should only be used when the customer can\r\nguarantee a suitable CRT version will be linked.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-04-06T10:27:30-05:00",
-          "tree_id": "416baa6de96c1e2a33408d64dcba63fda74138cd",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7d3f5c8e68359ebe7c34b4b84065194e48dc5a66"
-        },
-        "date": 1680795981027,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read",
-            "value": 1.3818359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 7.1201171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 9.1533203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 33.5537109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 34.291015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 1.9501953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 4.701171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 4.58203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 816.8212890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 7.5029296875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 6033.71484375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 162.017578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 11.6435546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1851.9560546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 24.33984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 24.0908203125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
-      {
-        "commit": {
-          "author": {
             "email": "122115681+eslrahc-swa@users.noreply.github.com",
             "name": "Charles",
             "username": "eslrahc-swa"
@@ -2080,9 +1976,113 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0329646254f252c2b1da508a214df3e249c2908f",
+          "message": "Add range argument to client download example (#227)\n\nThis was helpful for debugging #218 and #226.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-04-28T12:45:35-05:00",
+          "tree_id": "1c6a61f6710d44fb629b432813ea8da47445530b",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0329646254f252c2b1da508a214df3e249c2908f"
+        },
+        "date": 1682705168193,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read",
+            "value": 1.466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 7.8662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 10.2158203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 32.8564453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 36.3447265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.1923828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 4.46484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 4.7099609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 993.5,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 7.6806640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6293.478515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 164.8291015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 11.333984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2194.9677734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 23.8427734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 25.931640625,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1682672228645,
+  "lastUpdate": 1682705168790,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
