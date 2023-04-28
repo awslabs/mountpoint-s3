@@ -305,7 +305,6 @@ where
 
         let full_key = lookup.inode.full_key().to_owned();
 
-        lookup.inode.inc_lookup_count();
         let fh = self.next_handle();
         let handle = FileHandle {
             inode: lookup.inode,

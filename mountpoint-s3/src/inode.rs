@@ -39,6 +39,8 @@ use crate::sync::{Arc, Mutex, RwLock};
 pub type InodeNo = u64;
 
 pub const ROOT_INODE_NO: InodeNo = 1;
+/// Starts at zero, as it tracks references Kernel has to the [Inode]. It's zero until returned in a FUSE reply.
+const DEFAULT_LOOKUP_COUNT: u64 = 0;
 
 pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
     let name = name.as_ref();
@@ -81,7 +83,7 @@ impl Superblock {
                 stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
-                lookup_count: 1,
+                lookup_count: DEFAULT_LOOKUP_COUNT,
             }),
         };
         let root = Inode { inner: Arc::new(root) };
@@ -107,9 +109,9 @@ impl Superblock {
             None => {
                 debug_assert!(
                     false,
-                    "forget should not be called on inode already removed from superblock"
+                    "forget should not be called on inode {ino} missing from superblock"
                 );
-                error!("forget called on inode {ino} already removed from the superblock");
+                error!(ino, "forget called on inode missing from the superblock");
             }
             Some(inode) => {
                 let lookup_count = inode.dec_lookup_count(n);
@@ -377,7 +379,7 @@ impl Superblock {
         let state = InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
-            lookup_count: 1,
+            lookup_count: DEFAULT_LOOKUP_COUNT,
             write_status: WriteStatus::LocalUnopened,
         };
         let inode = self
@@ -455,7 +457,7 @@ impl SuperblockInner {
                     stat: stat.clone(),
                     kind_data: InodeKindData::default_for(kind),
                     write_status: WriteStatus::Remote,
-                    lookup_count: 1,
+                    lookup_count: DEFAULT_LOOKUP_COUNT,
                 };
                 self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
                     .map(|inode| LookedUp { inode, stat })
@@ -959,7 +961,7 @@ impl Inode {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         *lookup_count -= n;
-        trace!(new_lookup_count = lookup_count, "decremented lookup count");
+        trace!(ino = self.ino(), n, new_lookup_count = lookup_count, "decremented lookup count");
         *lookup_count
     }
 
@@ -982,7 +984,8 @@ struct InodeState {
     stat: InodeStat,
     write_status: WriteStatus,
     kind_data: InodeKindData,
-    /// Number of references the kernel is holding to the [Inode].
+    /// Number of references the kernel is holding to the [InodeNo].
+    /// It is the responsibility of the filesystem view (such as our FUSE layer) to maintain this.
     /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
     lookup_count: u64,
 }
