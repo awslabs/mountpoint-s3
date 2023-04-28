@@ -43,7 +43,7 @@ impl Harness {
             let mut keys = children.keys().cloned().collect::<HashSet<_>>();
 
             let mut reply = DirectoryReply::new(self.readdir_limit);
-            let _reply = self.fs.readdir(fs_dir, dir_handle, 0, &mut reply).await.unwrap();
+            let _reply = self.fs.readdir(fs_dir, dir_handle, 0, true, &mut reply).await.unwrap();
 
             // TODO `stat` on these needs to work
             let e0 = reply.entries.pop_front().unwrap();
@@ -53,7 +53,7 @@ impl Harness {
 
             if reply.entries.is_empty() {
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
+                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, true, &mut reply).await.unwrap();
             }
 
             let e1 = reply.entries.pop_front().unwrap();
@@ -63,7 +63,7 @@ impl Harness {
 
             if reply.entries.is_empty() {
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await;
+                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, true, &mut reply).await;
                 _reply.unwrap();
             }
 
@@ -103,7 +103,7 @@ impl Harness {
                     }
                 }
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
+                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, true, &mut reply).await.unwrap();
             }
 
             assert!(

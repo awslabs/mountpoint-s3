@@ -483,11 +483,13 @@ where
         Ok(Opened { fh, flags: 0 })
     }
 
+    /// Implementation for both FUSE `readdir` and `readdirplus`.
     pub async fn readdir<R: DirectoryReplier>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
+        plus: bool,
         mut reply: R,
     ) -> Result<R, libc::c_int> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
@@ -548,6 +550,10 @@ where
             ) {
                 handle.handle.readd(next);
                 return Ok(reply);
+            } else {
+                if plus {
+                    next.inode.inc_lookup_count();
+                }
             }
             handle.next_offset();
         }
