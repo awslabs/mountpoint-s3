@@ -1868,6 +1868,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libc-stdhandle",
+ "md-5",
  "metrics",
  "mountpoint-s3-crt",
  "percent-encoding",

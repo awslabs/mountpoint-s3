@@ -85,6 +85,23 @@ impl MockClient {
         let prefix = format!("{prefix}/");
         self.objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
     }
+
+    /// Returns E-Tag for the object in the mock client with specified key. Return default if etag not set.
+    pub fn get_etag(&self, key: &str) -> ETag {
+        if let Some(etag) = self
+            .objects
+            .read()
+            .unwrap()
+            .get(key)
+            .expect("object key should be set")
+            .etag
+            .clone()
+        {
+            etag
+        } else {
+            ETag::for_tests()
+        }
+    }
 }
 
 pub struct MockObject {
@@ -252,6 +269,12 @@ impl ObjectClient for MockClient {
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?range, ?if_match, "GetObject");
 
+        if let Some(etag) = if_match {
+            if etag != self.get_etag(key) {
+                return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
+            }
+        }
+
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
         }
@@ -291,13 +314,14 @@ impl ObjectClient for MockClient {
 
         let objects = self.objects.read().unwrap();
         if let Some(object) = objects.get(key) {
+            let etag = object.etag.clone().expect("E-Tag should be set");
             Ok(HeadObjectResult {
                 bucket: bucket.to_string(),
                 object: ObjectInfo {
                     key: key.to_string(),
                     size: object.size as u64,
                     last_modified: object.last_modified,
-                    etag: "TODO".to_string(),
+                    etag: ETag::as_str(&etag).to_string(),
                     storage_class: None,
                 },
             })

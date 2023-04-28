@@ -9,7 +9,7 @@ use test_case::test_case;
 
 use crate::fuse_tests::TestClientBox;
 
-// test for checking either prefetching fails or read original object when object is mutated during read.
+/// test for checking either prefetching fails or read original object when object is mutated during read.
 fn prefetch_test_etag<F>(creator_fn: F, prefix: &str, request_size: usize, read_size: usize)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
@@ -30,12 +30,10 @@ where
     let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
     let mut read_buf = vec![0u8; OBJECT_SIZE];
 
-    // Make sure there's an existing directory
     test_client.put_object("dir/hello.txt", &read_buf).unwrap();
 
     let mut path = mount_point.path().join("dir/hello.txt");
 
-    // Opening the file to read and write
     let mut f = OpenOptions::new()
         .read(true)
         .open(path)
@@ -44,6 +42,7 @@ where
     let mut buf = vec![0u8; read_size];
     f.read_exact(&mut buf).expect("Should be able to read file to buf");
 
+    // changed the value of read_buf to distinguish it from previous data of the object.
     read_buf = vec![255u8; OBJECT_SIZE];
     test_client.put_object("dir/hello.txt", &read_buf).unwrap();
 
@@ -58,7 +57,7 @@ where
 
     drop(f);
 
-    // File wont be mutated during read now to check if prefetcher reads correctly otherwise.
+    // Since we are reopening the file, prefetching will start again. So, it will be able to read new data in the object.
     path = mount_point.path().join("dir/hello.txt");
     let mut f = OpenOptions::new()
         .read(true)
@@ -85,16 +84,16 @@ where
 #[test_case(512 * 1024, 1; "first request size greater than seek position reading 1 byte")]
 #[test_case(256 * 1024, 200 * 1024; "default first request size reading till seek")]
 fn prefetch_test_etag_mock(request_size: usize, read_size: usize) {
-    // prefetch_test_etag(
-    //     crate::fuse_tests::mock_session::new,
-    //     "prefetch_etag_test",
-    //     request_size,
-    //     read_size,
-    // );
+    prefetch_test_etag(
+        crate::fuse_tests::mock_session::new,
+        "prefetch_etag_test_mock",
+        request_size,
+        read_size,
+    );
 
     prefetch_test_etag(
         crate::fuse_tests::s3_session::new,
-        "prefetch_etag_test",
+        "prefetch_etag_test_s3",
         request_size,
         read_size,
     );
