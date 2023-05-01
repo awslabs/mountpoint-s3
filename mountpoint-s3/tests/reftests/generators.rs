@@ -5,10 +5,14 @@ use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
 use std::collections::BTreeMap;
 
-fn name_strategy() -> impl Strategy<Value = String> {
+pub fn valid_name_strategy() -> impl Strategy<Value = String> {
+    string_regex("[a-]{1,3}").unwrap()
+}
+
+pub fn name_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
         // Valid keys
-        5 => string_regex("[a-]{1,3}").unwrap(),
+        5 => valid_name_strategy(),
         // Potentially invalid keys
         1 => string_regex("[a\\-\\./\0]{1,3}").unwrap(),
     ]
@@ -33,22 +37,28 @@ impl From<FileSize> for usize {
 }
 
 #[derive(Clone, Debug, Arbitrary)]
-pub struct Content(pub u8, pub FileSize);
+pub struct FileContent(pub u8, pub FileSize);
 
-impl Content {
+impl FileContent {
     pub fn to_mock_object(&self) -> MockObject {
         MockObject::constant(self.0, self.1.into(), ETag::for_tests())
+    }
+
+    pub fn to_boxed_slice(&self) -> Box<[u8]> {
+        let size: usize = self.1.into();
+        let obj = self.to_mock_object();
+        obj.read(0, size)
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum TreeNode {
-    File(Content),
+    File(FileContent),
     Directory(BTreeMap<Name, TreeNode>),
 }
 
 pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> impl Strategy<Value = TreeNode> {
-    let leaf = prop_oneof![any::<Content>().prop_map(TreeNode::File),];
+    let leaf = prop_oneof![any::<FileContent>().prop_map(TreeNode::File),];
     leaf.prop_recursive(
         depth,     // levels
         max_size,  // max number of nodes
@@ -63,8 +73,8 @@ pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> 
 }
 
 /// Take a generated tree and create the corresponding S3 namespace (list of keys)
-pub fn flatten_tree(node: TreeNode) -> Vec<(String, Content)> {
-    fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, Content)>) {
+pub fn flatten_tree(node: TreeNode) -> Vec<(String, FileContent)> {
+    fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, FileContent)>) {
         match node {
             TreeNode::File(content) => {
                 acc.push((path, content));
