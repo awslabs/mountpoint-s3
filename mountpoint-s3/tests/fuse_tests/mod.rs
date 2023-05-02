@@ -29,7 +29,7 @@ mod mock_session {
     use std::sync::Arc;
 
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
     pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox) {
