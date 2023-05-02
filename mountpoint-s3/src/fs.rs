@@ -351,7 +351,9 @@ where
 
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
             Ok(body) => reply.data(&body),
-            Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
+            Err(PrefetchReadError::GetRequestFailed(_)) | Err(PrefetchReadError::GetRequestTerminatedUnexpectedly) => {
+                reply.error(libc::EIO)
+            }
         }
     }
 

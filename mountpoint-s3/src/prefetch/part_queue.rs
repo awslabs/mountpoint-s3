@@ -1,5 +1,7 @@
 use std::time::Instant;
 
+use tracing::log::trace;
+
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, Sender};
@@ -11,25 +13,31 @@ use crate::sync::AsyncMutex;
 #[derive(Debug)]
 pub struct PartQueue<E> {
     current_part: AsyncMutex<Option<Part>>,
-    sender: Sender<Result<Part, E>>,
     receiver: Receiver<Result<Part, E>>,
     failed: AtomicBool,
 }
 
+/// Producer side of the queue of [Part]s.
+#[derive(Debug)]
+pub struct PartQueueProducer<E> {
+    sender: Sender<Result<Part, E>>,
+}
+
+/// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
+pub fn unbounded_part_queue<E>() -> (PartQueue<E>, PartQueueProducer<E>) {
+    let (sender, receiver) = unbounded();
+    let part_queue = PartQueue {
+        current_part: AsyncMutex::new(None),
+        receiver,
+        failed: AtomicBool::new(false),
+    };
+    let part_queue_producer = PartQueueProducer { sender };
+    (part_queue, part_queue_producer)
+}
+
 impl<E: std::error::Error + Send + Sync> PartQueue<E> {
-    pub fn new() -> Self {
-        let (sender, receiver) = unbounded();
-
-        Self {
-            current_part: AsyncMutex::new(None),
-            sender,
-            receiver,
-            failed: AtomicBool::new(false),
-        }
-    }
-
     /// Read up to `length` bytes from the queue at the current offset. This function always returns
-    /// a contiguous [Bytes], and so may return fewer than `length` bytes it it would need to copy
+    /// a contiguous [Bytes], and so may return fewer than `length` bytes if it would need to copy
     /// or reallocate to make the return value contiguous. This function blocks only if the queue is
     /// empty.
     ///
@@ -47,19 +55,22 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         } else {
             // Do `try_recv` first so we can track whether the read is starved or not
             if let Ok(part) = self.receiver.try_recv() {
-                part
+                part.map_err(|e| e.into())
             } else {
                 let start = Instant::now();
-                let part = self.receiver.recv().await.expect("channel should not close");
+                let part = self.receiver.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
-                part
+                match part {
+                    Err(_) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
+                    Ok(part) => part.map_err(|e| e.into()),
+                }
             }
         };
 
         let mut part = match part {
             Err(e) => {
                 self.failed.store(true, Ordering::SeqCst);
-                return Err(e.into());
+                return Err(e);
             }
             Ok(part) => part,
         };
@@ -73,11 +84,15 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             Ok(part)
         }
     }
+}
 
+impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, E>) {
         // Unbounded channel will never actually block
-        self.sender.send_blocking(part).unwrap();
+        if self.sender.send_blocking(part).is_err() {
+            trace!("closed channel");
+        }
     }
 }
 
@@ -102,7 +117,7 @@ mod tests {
 
     async fn run_test(ops: Vec<Op>) {
         let part_key = "key";
-        let part_queue = PartQueue::<DummyError>::new();
+        let (part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
         let mut current_offset = 0;
         let mut current_length = 0;
         for op in ops {
@@ -137,7 +152,7 @@ mod tests {
                     let offset = current_offset + current_length as u64;
                     let bytes: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
                     let part = Part::new(part_key, offset, bytes.into());
-                    part_queue.push(Ok(part));
+                    part_queue_producer.push(Ok(part));
                     current_length += n;
                 }
             }
