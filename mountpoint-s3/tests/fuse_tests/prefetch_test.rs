@@ -15,7 +15,6 @@ where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const OBJECT_SIZE: usize = 1024 * 1024;
-    const SEEK_POS: u64 = 200 * 1024;
 
     let prefetcher_config = PrefetcherConfig {
         first_request_size: request_size,
@@ -28,9 +27,9 @@ where
     };
 
     let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
-    let mut read_buf = vec![0u8; OBJECT_SIZE];
+    let original_data_buf = vec![0u8; OBJECT_SIZE];
 
-    test_client.put_object("dir/hello.txt", &read_buf).unwrap();
+    test_client.put_object("dir/hello.txt", &original_data_buf).unwrap();
 
     let mut path = mount_point.path().join("dir/hello.txt");
 
@@ -39,21 +38,33 @@ where
         .open(path)
         .expect("should be able to open the file");
 
-    let mut buf = vec![0u8; read_size];
-    f.read_exact(&mut buf).expect("Should be able to read file to buf");
+    let mut reader_buf = vec![0u8; read_size];
+    f.read_exact(&mut reader_buf)
+        .expect("Should be able to read file to buf");
 
-    // changed the value of read_buf to distinguish it from previous data of the object.
-    read_buf = vec![255u8; OBJECT_SIZE];
-    test_client.put_object("dir/hello.txt", &read_buf).unwrap();
+    // changed the value of data buf to distinguish it from previous data of the object.
+    let final_data_buf = vec![255u8; OBJECT_SIZE];
+    test_client.put_object("dir/hello.txt", &final_data_buf).unwrap();
 
-    // In order to read from a position where prefetching next block is necessary
-    f.seek(std::io::SeekFrom::Start(SEEK_POS))
-        .expect("Seek position should be less than object size");
+    let mut seek_pos: u64 = 0;
     let mut dest_buf = vec![0u8; read_size];
-    match f.read_exact(&mut dest_buf) {
-        Ok(()) => assert_eq!(buf, dest_buf),
-        Err(err) => assert_eq!(err.raw_os_error(), Some(libc::EIO)),
-    };
+
+    // Reading the file untill we keep getting the prefetched data or we get an IO error where E-Tag did not match.
+    loop {
+        seek_pos = match f.seek(std::io::SeekFrom::Start(seek_pos + read_size as u64)) {
+            Ok(pos) => pos,
+            Err(..) => break,
+        };
+
+        match f.read_exact(&mut dest_buf) {
+            // since all bytes are same, we can assert every slice will be equal.
+            Ok(()) => assert_eq!(reader_buf, dest_buf),
+            Err(err) => {
+                assert_eq!(err.raw_os_error(), Some(libc::EIO));
+                break;
+            }
+        };
+    }
 
     drop(f);
 
@@ -64,36 +75,44 @@ where
         .open(path)
         .expect("should be able to open the file");
 
-    f.read_exact(&mut dest_buf).expect("Should be able to read file to buf");
-    // Now 'dest_buf' should have new data.
-    assert_eq!(dest_buf, vec![255u8; read_size]);
+    let mut new_dest_buf = Vec::new();
+
+    f.read_to_end(&mut new_dest_buf)
+        .expect("Should be able to read file to buf");
+    // Now 'new_dest_buf' should have new data.
+    assert_eq!(new_dest_buf, final_data_buf);
 
     drop(f);
 }
 
 // Prefetching of next request occurs when more than half of the current request is being read.
-// In the cases below, when the read size is 1 byte, it will only prefetch the first request.
-// So, when the seek positon (200 KB) is greater than first request size, it will try to prefetch that request and fail (due to E-Tag change).
-// For other cases, mutation of object wont affect. It should read the original bytes as they were already prefetched.
-//
-// When the read size is 200 KB, it will always prefetch the request at the seek position.
-// Hence, it will read the original object and writing to the object should not affect.
-#[cfg(feature = "s3_tests")]
-#[test_case(256 * 1024, 1; "default first request size reading 1 byte")]
-#[test_case(64 * 1024, 1; "first request size smaller than seek position reading 1 byte")]
-#[test_case(512 * 1024, 1; "first request size greater than seek position reading 1 byte")]
-#[test_case(256 * 1024, 200 * 1024; "default first request size reading till seek")]
+// In the cases below, first read (i.e. before we put new data in the object) will prefetch data for the requests where previous request
+// more than half is read.
+// Therefore, in case of request size being greater than buffer read size, only first reqeust will be prefetched.
+// For the final case multiple requests will be prefetched in first read. But, thee read will eevntually fail
+// when it do not get the right e-tag for new prefetch requests.
+#[test_case(256 * 1024, 1024; "default first request size reading 1 KiB")]
+#[test_case(64 * 1024, 1024; "first request size smaller than default reading 1 KiB")]
+#[test_case(512 * 1024, 1024; "first request size greater than default reading 1 KiB")]
+#[test_case(64 * 1024, 500 * 1024; "dfirst request size smaller than read size")]
 fn prefetch_test_etag_mock(request_size: usize, read_size: usize) {
     prefetch_test_etag(
         crate::fuse_tests::mock_session::new,
-        "prefetch_etag_test_mock",
+        "prefetch_test_etag_mock",
         request_size,
         read_size,
     );
+}
 
+#[cfg(feature = "s3_tests")]
+#[test_case(256 * 1024, 1024; "default first request size reading 1 KiB")]
+#[test_case(64 * 1024, 1024; "first request size smaller than seek position reading 1 KiB")]
+#[test_case(512 * 1024, 1024; "first request size greater than seek position reading 1 KiB")]
+#[test_case(256 * 1024, 256 * 1024; "default first request size reading till seek")]
+fn prefetch_test_etag_s3(request_size: usize, read_size: usize) {
     prefetch_test_etag(
         crate::fuse_tests::s3_session::new,
-        "prefetch_etag_test_s3",
+        "prefetch_test_etag_s3",
         request_size,
         read_size,
     );

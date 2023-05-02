@@ -85,23 +85,6 @@ impl MockClient {
         let prefix = format!("{prefix}/");
         self.objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
     }
-
-    /// Returns E-Tag for the object in the mock client with specified key. Return default if etag not set.
-    pub fn get_etag(&self, key: &str) -> ETag {
-        if let Some(etag) = self
-            .objects
-            .read()
-            .unwrap()
-            .get(key)
-            .expect("object key should be set")
-            .etag
-            .clone()
-        {
-            etag
-        } else {
-            ETag::for_tests()
-        }
-    }
 }
 
 pub struct MockObject {
@@ -175,7 +158,7 @@ impl MockObject {
 
 impl<T: AsRef<[u8]>> From<T> for MockObject {
     fn from(bytes: T) -> Self {
-        MockObject::from_bytes(bytes.as_ref(), ETag::for_tests())
+        MockObject::from_bytes(bytes.as_ref(), ETag::from_object_bytes(bytes.as_ref()))
     }
 }
 
@@ -269,18 +252,26 @@ impl ObjectClient for MockClient {
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?range, ?if_match, "GetObject");
 
-        if let Some(etag) = if_match {
-            if etag != self.get_etag(key) {
-                return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
-            }
-        }
-
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
         }
 
         let objects = self.objects.read().unwrap();
         if let Some(object) = objects.get(key) {
+            let etag = self
+                .objects
+                .read()
+                .unwrap()
+                .get(key)
+                .expect("object key should be set")
+                .etag
+                .clone();
+            if let Some(etag_match) = if_match {
+                if etag_match != etag.expect("E-Tag should be set") {
+                    return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
+                }
+            }
+
             let (next_offset, length) = if let Some(range) = range {
                 if range.start >= object.len() as u64 || range.end > object.len() as u64 {
                     return mock_client_error(format!("invalid range, length={}", object.len()));
@@ -417,7 +408,7 @@ impl ObjectClient for MockClient {
                     key: key.to_string(),
                     size: object.len() as u64,
                     last_modified: object.last_modified,
-                    etag: "TODO".to_string(),
+                    etag: object.etag.clone().expect("E-Tag should be set").as_str().to_string(),
                     storage_class: None,
                 });
             }
