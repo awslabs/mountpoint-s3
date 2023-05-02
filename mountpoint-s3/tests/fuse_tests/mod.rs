@@ -84,7 +84,7 @@ mod mock_session {
     impl TestClient for MockTestClient {
         fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            self.client.add_object(&full_key, MockObject::from(value));
+            self.client.add_object(&full_key, value.into());
             Ok(())
         }
 
