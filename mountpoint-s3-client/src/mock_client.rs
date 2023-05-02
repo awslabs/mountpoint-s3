@@ -257,16 +257,10 @@ impl ObjectClient for MockClient {
         }
 
         let objects = self.objects.read().unwrap();
+
         if let Some(object) = objects.get(key) {
-            let etag = self
-                .objects
-                .read()
-                .unwrap()
-                .get(key)
-                .expect("object key should be set")
-                .etag
-                .clone();
             if let Some(etag_match) = if_match {
+                let etag = objects.get(key).expect("object key should be set").etag.clone();
                 if etag_match != etag {
                     return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
                 }
@@ -312,7 +306,7 @@ impl ObjectClient for MockClient {
                     key: key.to_string(),
                     size: object.size as u64,
                     last_modified: object.last_modified,
-                    etag: ETag::as_str(&etag).to_string(),
+                    etag: etag.as_str().to_string(),
                     storage_class: None,
                 },
             })
@@ -408,7 +402,7 @@ impl ObjectClient for MockClient {
                     key: key.to_string(),
                     size: object.len() as u64,
                     last_modified: object.last_modified,
-                    etag: object.etag.clone().as_str().to_string(),
+                    etag: object.etag.as_str().to_string(),
                     storage_class: None,
                 });
             }

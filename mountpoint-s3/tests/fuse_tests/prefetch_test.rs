@@ -56,13 +56,11 @@ where
             Err(..) => break,
         };
 
-        match f.read_exact(&mut dest_buf) {
+        match f.read(&mut dest_buf) {
             // since all bytes are same, we can assert every slice will be equal.
-            Ok(()) => assert_eq!(reader_buf, dest_buf),
+            Ok(n) => assert_eq!(&reader_buf[0..n], dest_buf),
             Err(err) => {
-                if let Some(error) = err.raw_os_error() {
-                    assert_eq!(error, libc::EIO);
-                }
+                assert_eq!(err.raw_os_error(), Some(libc::EIO));
                 break;
             }
         };
