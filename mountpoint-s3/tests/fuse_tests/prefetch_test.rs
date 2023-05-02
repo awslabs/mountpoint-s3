@@ -60,7 +60,9 @@ where
             // since all bytes are same, we can assert every slice will be equal.
             Ok(()) => assert_eq!(reader_buf, dest_buf),
             Err(err) => {
-                assert_eq!(err.raw_os_error(), Some(libc::EIO));
+                if let Some(error) = err.raw_os_error() {
+                    assert_eq!(error, libc::EIO);
+                }
                 break;
             }
         };
@@ -94,7 +96,7 @@ where
 #[test_case(256 * 1024, 1024; "default first request size reading 1 KiB")]
 #[test_case(64 * 1024, 1024; "first request size smaller than default reading 1 KiB")]
 #[test_case(512 * 1024, 1024; "first request size greater than default reading 1 KiB")]
-#[test_case(64 * 1024, 500 * 1024; "dfirst request size smaller than read size")]
+#[test_case(64 * 1024, 500 * 1024; "first request size smaller than read size")]
 fn prefetch_test_etag_mock(request_size: usize, read_size: usize) {
     prefetch_test_etag(
         crate::fuse_tests::mock_session::new,
