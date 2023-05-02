@@ -1,12 +1,48 @@
 use fuser::BackgroundSession;
 use mountpoint_s3::prefetch::PrefetcherConfig;
 use mountpoint_s3::S3FilesystemConfig;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Read;
 use tempfile::TempDir;
 use test_case::test_case;
 
 use crate::fuse_tests::TestClientBox;
+
+fn read_test<F>(creator_fn: F, object_size: usize)
+where
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let (mount_point, _session, mut test_client) = creator_fn(Default::default(), Default::default());
+
+    let file_name = "hello.bin";
+    let object = vec![255u8; object_size];
+    test_client.put_object(file_name, &object).unwrap();
+
+    let file_path = mount_point.path().join(file_name);
+    let buf = {
+        let mut buf = Vec::new();
+        let mut file = File::open(file_path).unwrap();
+        file.read_to_end(&mut buf).unwrap();
+        buf
+    };
+
+    assert_eq!(buf, object);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case(0; "empty file")]
+#[test_case(1; "single-byte file")]
+#[test_case(1024*1024; "1MiB file")]
+fn read_test_s3(object_size: usize) {
+    read_test(crate::fuse_tests::s3_session::new, object_size);
+}
+
+#[test_case(0; "empty file")]
+#[test_case(1; "single-byte file")]
+#[test_case(1024*1024; "1MiB file")]
+fn read_test_mock(object_size: usize) {
+    read_test(crate::fuse_tests::mock_session::new, object_size);
+}
 
 /// test for checking either prefetching fails or read original object when object is mutated during read.
 /// Prefetching of next request occurs when more than half of the current request is being read.
