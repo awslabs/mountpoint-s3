@@ -685,7 +685,7 @@ mod tests {
             };
             let client = MockClient::new(config);
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
-            let file_etag = object.etag.clone().expect("E-Tag should be set");
+            let file_etag = object.etag.clone();
 
             client.add_object("hello", object);
 
@@ -737,7 +737,7 @@ mod tests {
             };
             let client = MockClient::new(config);
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
-            let file_etag = object.etag.clone().expect("E-Tag should be set");
+            let file_etag = object.etag.clone();
 
             client.add_object("hello", object);
 
