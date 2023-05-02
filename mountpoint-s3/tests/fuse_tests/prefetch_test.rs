@@ -101,10 +101,10 @@ fn prefetch_test_etag_mock(request_size: usize, read_size: usize) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(256 * 1024, 1024; "default first request size reading 1 KiB")]
-#[test_case(64 * 1024, 1024; "first request size smaller than seek position reading 1 KiB")]
-#[test_case(512 * 1024, 1024; "first request size greater than seek position reading 1 KiB")]
-#[test_case(256 * 1024, 256 * 1024; "default first request size reading till seek")]
+#[test_case(256 * 1024, 1024; "default first request size, much larger than first block read size")]
+#[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
+#[test_case(512 * 1024, 1024; "first request size greater than default,  much larger than first block read size")]
+#[test_case(256 * 1024, 256 * 1024; "first request size smaller than first block read size")]
 fn prefetch_test_etag_s3(request_size: usize, read_size: usize) {
     prefetch_test_etag(
         crate::fuse_tests::s3_session::new,
