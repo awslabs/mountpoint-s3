@@ -3,6 +3,7 @@ mod lookup_test;
 mod mkdir_test;
 mod mount_test;
 mod perm_test;
+mod prefetch_test;
 mod readdir_test;
 mod write_test;
 

@@ -92,8 +92,8 @@ pub struct MockObject {
     size: usize,
     // TODO Set storage class from [MockClient::put_object]
     storage_class: String,
-    pub last_modified: OffsetDateTime,
-    pub etag: Option<ETag>,
+    last_modified: OffsetDateTime,
+    etag: ETag,
 }
 
 impl MockObject {
@@ -109,7 +109,7 @@ impl MockObject {
             generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: Some(etag),
+            etag,
         }
     }
 
@@ -119,7 +119,7 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: Some(etag),
+            etag,
         }
     }
 
@@ -139,7 +139,7 @@ impl MockObject {
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
-            etag: Some(etag),
+            etag,
         }
     }
 
@@ -154,11 +154,15 @@ impl MockObject {
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }
+
+    pub fn etag(&self) -> ETag {
+        self.etag.clone()
+    }
 }
 
 impl<T: AsRef<[u8]>> From<T> for MockObject {
     fn from(bytes: T) -> Self {
-        MockObject::from_bytes(bytes.as_ref(), ETag::for_tests())
+        MockObject::from_bytes(bytes.as_ref(), ETag::from_object_bytes(bytes.as_ref()))
     }
 }
 
@@ -257,7 +261,14 @@ impl ObjectClient for MockClient {
         }
 
         let objects = self.objects.read().unwrap();
+
         if let Some(object) = objects.get(key) {
+            if let Some(etag_match) = if_match {
+                if etag_match != object.etag {
+                    return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
+                }
+            }
+
             let (next_offset, length) = if let Some(range) = range {
                 if range.start >= object.len() as u64 || range.end > object.len() as u64 {
                     return mock_client_error(format!("invalid range, length={}", object.len()));
@@ -297,7 +308,7 @@ impl ObjectClient for MockClient {
                     key: key.to_string(),
                     size: object.size as u64,
                     last_modified: object.last_modified,
-                    etag: "TODO".to_string(),
+                    etag: object.etag.as_str().to_string(),
                     storage_class: None,
                 },
             })
@@ -393,7 +404,7 @@ impl ObjectClient for MockClient {
                     key: key.to_string(),
                     size: object.len() as u64,
                     last_modified: object.last_modified,
-                    etag: "TODO".to_string(),
+                    etag: object.etag.as_str().to_string(),
                     storage_class: None,
                 });
             }

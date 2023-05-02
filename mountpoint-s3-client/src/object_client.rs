@@ -6,11 +6,13 @@ use std::{fmt, ops::Range, string::ParseError};
 use thiserror::Error;
 use time::OffsetDateTime;
 
+use md5::{Digest, Md5};
+
 /// A single element of the [ObjectClient::get_object] response is a pair of offset within the
 /// object and the bytes starting at that offset.
 pub type GetBodyPart = (u64, Box<[u8]>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ETag {
     etag: String,
 }
@@ -20,10 +22,21 @@ impl ETag {
         &self.etag
     }
 
+    // Creating default etag for tests
     pub fn for_tests() -> Self {
         Self {
             etag: "test_etag".to_string(),
         }
+    }
+
+    // Creating unique etag from bytes
+    pub fn from_object_bytes(data: &[u8]) -> Self {
+        let mut hasher = Md5::new();
+        hasher.update(data);
+
+        let hash = hasher.finalize();
+        let result = format!("{:x}", hash);
+        Self { etag: result }
     }
 }
 
