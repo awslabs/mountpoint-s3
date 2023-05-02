@@ -386,7 +386,7 @@ mod tests {
         };
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
-        let etag = object.etag.clone();
+        let etag = object.etag();
 
         client.add_object("hello", object);
 
@@ -460,7 +460,7 @@ mod tests {
         };
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
-        let etag = object.etag.clone();
+        let etag = object.etag();
 
         client.add_object("hello", object);
 
@@ -582,7 +582,7 @@ mod tests {
         };
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
-        let etag = object.etag.clone();
+        let etag = object.etag();
 
         client.add_object("hello", object);
 
@@ -685,7 +685,7 @@ mod tests {
             };
             let client = MockClient::new(config);
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
-            let file_etag = object.etag.clone();
+            let file_etag = object.etag();
 
             client.add_object("hello", object);
 
@@ -737,7 +737,7 @@ mod tests {
             };
             let client = MockClient::new(config);
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
-            let file_etag = object.etag.clone();
+            let file_etag = object.etag();
 
             client.add_object("hello", object);
 

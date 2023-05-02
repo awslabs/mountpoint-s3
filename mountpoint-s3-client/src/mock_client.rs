@@ -92,8 +92,8 @@ pub struct MockObject {
     size: usize,
     // TODO Set storage class from [MockClient::put_object]
     storage_class: String,
-    pub last_modified: OffsetDateTime,
-    pub etag: ETag,
+    last_modified: OffsetDateTime,
+    etag: ETag,
 }
 
 impl MockObject {
@@ -153,6 +153,10 @@ impl MockObject {
 
     pub fn is_empty(&self) -> bool {
         self.size == 0
+    }
+
+    pub fn etag(&self) -> ETag {
+        self.etag.clone()
     }
 }
 
