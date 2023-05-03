@@ -1,4 +1,5 @@
 use futures::task::Spawn;
+use futures::TryFutureExt;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -616,6 +617,13 @@ where
         let mut dir_handles = self.dir_handles.write().await;
         dir_handles.remove(&fh).map(|_| ()).ok_or(libc::EBADF)
     }
+
+    pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
+        self.superblock
+            .unlink(&self.client, parent_ino, name)
+            .map_err(Into::into)
+            .await
+    }
 }
 
 impl From<InodeError> for i32 {
@@ -626,12 +634,14 @@ impl From<InodeError> for i32 {
             InodeError::InodeDoesNotExist(_) => libc::ENOENT,
             InodeError::InvalidFileName(_) => libc::EINVAL,
             InodeError::NotADirectory(_) => libc::ENOTDIR,
+            InodeError::IsDirectory(_) => libc::EPERM,
             InodeError::ShadowedByDirectory(_, _) => libc::ENOENT,
             InodeError::FileAlreadyExists(_) => libc::EEXIST,
-            // Not obvious what these two cases should be -- EINVAL would also be reasonable, or
-            // EROFS for not-writable -- but we'll treat it like a sealed file
+            // Not obvious what InodeNotWritable, InodeNotReadableWhileWriting should be.
+            // EINVAL or EROFS would also be reasonable -- but we'll treat them like a sealed file for now.
             InodeError::InodeNotWritable(_) => libc::EPERM,
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
+            InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
         }
     }
 }

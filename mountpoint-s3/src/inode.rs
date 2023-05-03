@@ -30,7 +30,7 @@ use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -353,6 +353,68 @@ impl Superblock {
             .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
 
         Ok(LookedUp { inode, stat })
+    }
+
+    /// Unlink the entry described by `parent_ino` and `name`.
+    ///
+    /// If the entry exists, delete it from S3 and the superblock.
+    pub async fn unlink<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &OsStr,
+    ) -> Result<(), InodeError> {
+        let parent = self.inner.get(parent_ino)?;
+        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+
+        if inode.kind() == InodeKind::Directory {
+            return Err(InodeError::IsDirectory(inode.ino()));
+        }
+
+        let write_status = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.write_status
+        };
+
+        match write_status {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpen => {
+                // In the future, we may permit `unlink` and cancel any in-flight uploads.
+                debug!("unlink called on local file, unlink not supported until write is complete");
+                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.ino()));
+            }
+            WriteStatus::Remote => {
+                debug!("unlink called on remote file, will delete from S3 and unlink from parent");
+                let (bucket, s3_key) = (self.inner.bucket.as_str(), inode.full_key());
+                let delete_obj_result = client.delete_object(bucket, s3_key).await;
+
+                match delete_obj_result {
+                    Ok(_res) => debug!("object with key {s3_key} successfully deleted, if it existed"),
+                    Err(e) => {
+                        error!(error=?e, "unlink failed when trying to perform S3 DeleteObject call, not unlinking from parent inode");
+                        Err(InodeError::ClientError(e.into()))?;
+                    }
+                };
+            }
+        }
+
+        let mut parent_state = parent.inner.sync.write().unwrap();
+        match &mut parent_state.kind_data {
+            InodeKindData::File { .. } => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.ino()));
+            }
+            InodeKindData::Directory {
+                children,
+                writing_children,
+            } => {
+                writing_children.remove(&inode.ino());
+                if children.remove(inode.name()).is_none() {
+                    debug!("child was not present, another operation may have occurred in parallel");
+                }
+            }
+        };
+
+        Ok(())
     }
 }
 
@@ -748,6 +810,7 @@ enum InodeKindData {
         children: HashMap<String, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
+        /// This should be a subset of the [children](Self::Directory::children) field.
         writing_children: HashSet<InodeNo>,
     },
 }
@@ -833,12 +896,16 @@ pub enum InodeError {
     ShadowedByDirectory(String, InodeNo),
     #[error("inode {0} is not a directory")]
     NotADirectory(InodeNo),
+    #[error("inode {0} is a directory")]
+    IsDirectory(InodeNo),
     #[error("file already exists at inode {0}")]
     FileAlreadyExists(InodeNo),
     #[error("inode {0} is not writable")]
     InodeNotWritable(InodeNo),
     #[error("inode {0} is not readable while being written")]
     InodeNotReadableWhileWriting(InodeNo),
+    #[error("inode {0} cannot be unlinked while being written")]
+    UnlinkNotPermittedWhileWriting(InodeNo),
 }
 
 #[cfg(test)]
