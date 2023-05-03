@@ -12,10 +12,10 @@ use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::metrics::{metrics_tracing_span_layer, MetricsSink};
 use mountpoint_s3::prefix::Prefix;
-use mountpoint_s3_client::ImdsCrtClient;
 use mountpoint_s3_client::{
     AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
+use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
@@ -374,9 +374,21 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
             });
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
+    let auth_config = if args.no_sign_request {
+        S3ClientAuthConfig::None
+    } else if let Some(profile_name) = args.profile {
+        // The CRT profile provider will prefer the AWS_PROFILE environment variable over this
+        // override if set, which is the opposite of the AWS CLI's documented behavior. Let's match
+        // the CLI by explicitly unsetting AWS_PROFILE for this process if a profile was specified.
+        std::env::remove_var("AWS_PROFILE");
+
+        S3ClientAuthConfig::Profile(profile_name)
+    } else {
+        S3ClientAuthConfig::Default
+    };
+
     let client_config = S3ClientConfig {
-        profile_name_override: args.profile,
-        no_sign_request: args.no_sign_request,
+        auth_config,
         throughput_target_gbps: Some(throughput_target_gbps),
         part_size: args.part_size.map(|t| t as usize),
         endpoint,

@@ -52,13 +52,25 @@ pub(crate) mod put_object;
 
 #[derive(Debug, Clone, Default)]
 pub struct S3ClientConfig {
-    pub profile_name_override: Option<String>,
-    pub no_sign_request: bool,
+    pub auth_config: S3ClientAuthConfig,
     pub throughput_target_gbps: Option<f64>,
     pub part_size: Option<usize>,
     pub endpoint: Option<Endpoint>,
     pub user_agent_prefix: Option<String>,
     pub request_payer: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum S3ClientAuthConfig {
+    /// The default AWS credentials resolution chain, similar to the AWS CLI
+    #[default]
+    Default,
+    /// Do not sign requests at all
+    None,
+    /// Explicitly load the given profile name from the AWS CLI configuration file
+    Profile(String),
+    /// Use a custom credentials provider
+    Provider(CredentialsProvider),
 }
 
 #[derive(Debug)]
@@ -103,23 +115,32 @@ impl S3CrtClient {
         retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
         let retry_strategy = RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap();
 
-        if !config.no_sign_request {
-            let credentials_provider = match config.profile_name_override {
-                Some(profile_name_override) => {
-                    let credentials_profile_options = CredentialsProviderProfileOptions {
-                        bootstrap: &mut client_bootstrap,
-                        profile_name_override: &profile_name_override,
-                    };
-                    CredentialsProvider::new_profile(&allocator, credentials_profile_options)
-                }
-                None => {
-                    let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
-                        bootstrap: &mut client_bootstrap,
-                    };
+        trace!("constructing client with auth config {:?}", config.auth_config);
+        let credentials_provider = match config.auth_config {
+            S3ClientAuthConfig::Default => {
+                let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
+                    bootstrap: &mut client_bootstrap,
+                };
+                Some(
                     CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
-                }
+                        .map_err(NewClientError::ProviderFailure)?,
+                )
             }
-            .map_err(NewClientError::ProviderFailure)?;
+            S3ClientAuthConfig::None => None,
+            S3ClientAuthConfig::Profile(profile_name) => {
+                let credentials_profile_options = CredentialsProviderProfileOptions {
+                    bootstrap: &mut client_bootstrap,
+                    profile_name_override: &profile_name,
+                };
+                Some(
+                    CredentialsProvider::new_profile(&allocator, credentials_profile_options)
+                        .map_err(NewClientError::ProviderFailure)?,
+                )
+            }
+            S3ClientAuthConfig::Provider(provider) => Some(provider),
+        };
+
+        if let Some(credentials_provider) = credentials_provider {
             let signing_config = init_default_signing_config(region, credentials_provider);
             client_config.signing_config(signing_config);
         }
