@@ -74,6 +74,19 @@ Synchronization operations (`fsync`, `fdatasync`) are currently no-ops because w
 
 Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
+#### Deletes
+
+File deletion (`unlink`) is planned but not yet supported (see [#78](https://github.com/awslabs/mountpoint-s3/issues/78)).
+When `unlink` is implemented, the following semantics are proposed.
+
+For files not yet committed to S3, the client will not permit `unlink` operations.
+The file should be closed and thus committed to S3, at which point an `unlink` can be performed on the remote file.
+
+For files already committed to S3, the client will _immediately_ delete the corresponding object from S3,
+and remove the file from its directory.
+If there are still open file handles to the file, future reads to them will fail.
+Because the object is immediately deleted from S3, future reads from other hosts will also fail.
+
 ### Directory operations
 
 Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported.
@@ -86,7 +99,7 @@ Creating directories (`mkdir`) is not currently supported, but will be [in the f
 
 Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
-File deletion (`unlink`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/78).
+File deletion (`unlink`) semantics are described in the [Deletes](#Deletes) section.
 
 Empty directory removal (`rmdir`) is not supported.
 
