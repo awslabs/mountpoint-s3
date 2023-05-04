@@ -236,7 +236,7 @@ pub fn build_reference(flat: Vec<(String, FileContent)>) -> Reference {
     }
 
     let mut directories = vec!["/".into()];
-    let root = convert(tree.take(), "", &mut directories);
+    let root = convert(tree.take(), "/", &mut directories);
     Reference {
         root: Node::Directory(root),
         directories,
