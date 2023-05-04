@@ -88,7 +88,11 @@ Renaming files and directories (`rename`, `renameat`) is not currently supported
 
 File deletion (`unlink`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/78).
 
-Empty directory removal (`rmdir`) is not supported.
+Empty directory removal (`rmdir`) is not currently supported, but will be in the future](https://github.com/awslabs/mountpoint-s3/issues/194). The following semantics are proposed:
+
+* `rmdir` will be a local only operation. It will delete a local directory only if it is empty.
+* If the directory marker (i.e. zero-byte objects with `<directory-name>/` key) is present remotely on the S3 bucket, `rmdir` should fail even if it is empty locally.
+* This means if the directory is empty and only present locally, it should be deleted immediately. Any future read or writing to directory( creating a file/subdirectory) should fail.
 
 Synchronization operations (`fsync`) on directories are not supported.
 
