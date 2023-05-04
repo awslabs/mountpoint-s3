@@ -205,7 +205,7 @@ impl Superblock {
                     {
                         if result.objects[0].key == full_path_suffixed {
                             trace!(
-                                ?parent,
+                                parent = ?parent_ino,
                                 ?name,
                                 size = result.objects[0].size,
                                 "found a directory that shadows this name"
@@ -227,7 +227,7 @@ impl Superblock {
                     // We don't have to wait for the HeadObject to complete because in our
                     // semantics, directories always shadow files.
                     if found_directory {
-                        trace!(?parent, ?name, "lookup ListObjects found a directory");
+                        trace!(parent = ?parent_ino, ?name, "lookup ListObjects found a directory");
                         let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
                         return Ok(Some(RemoteLookup { kind: InodeKind::Directory, stat }));
                     }
@@ -238,13 +238,13 @@ impl Superblock {
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
         // have a valid file, or both requests failed to find the object so the file must not exist remotely
         if let Some(stat) = file_state {
-            trace!(?parent, ?name, "found a regular file");
+            trace!(parent = ?parent_ino, ?name, "found a regular file");
             Ok(Some(RemoteLookup {
                 kind: InodeKind::File,
                 stat,
             }))
         } else {
-            trace!(?parent, ?name, "not found");
+            trace!(parent = ?parent_ino, ?name, "not found");
             Ok(None)
         }
     }
@@ -516,7 +516,7 @@ impl SuperblockInner {
             full_key.push('/');
         }
 
-        trace!(?parent, ?name, ?kind, new_ino=?next_ino, ?full_key, "creating new inode");
+        trace!(parent=?parent.ino(), ?name, ?kind, new_ino=?next_ino, ?full_key, "creating new inode");
 
         let inode = InodeInner {
             ino: next_ino,

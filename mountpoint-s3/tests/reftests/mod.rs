@@ -1,3 +1,3 @@
-mod gen_tree;
+mod generators;
 mod harness;
 mod reference;
