@@ -2,7 +2,7 @@ use fuser::FileType;
 use mountpoint_s3_client::mock_client::MockObject;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
 use crate::reftests::generators::{FileContent, FileSize};
@@ -54,10 +54,10 @@ impl Node {
 pub struct Reference {
     root: Node,
     /// Full path of all directories
-    directories: Vec<String>,
+    directories: Vec<PathBuf>,
     /// Full path of all inflight writes
     #[allow(unused)] // TODO when we test partially written files
-    inflight_writes: Vec<String>,
+    inflight_writes: Vec<PathBuf>,
 }
 
 impl Reference {
@@ -100,10 +100,8 @@ impl Reference {
     }
 
     // Add file to the reference, creating internal nodes as necessary
-    pub fn add_file(&mut self, path: &str, file: &FileContent) {
-        let path = Path::new(path);
-
-        let mut components = path.components().peekable();
+    pub fn add_file(&mut self, path: impl AsRef<Path>, file: &FileContent) {
+        let mut components = path.as_ref().components().peekable();
         assert_eq!(components.next(), Some(Component::RootDir));
 
         let mut node = &mut self.root;
@@ -126,28 +124,29 @@ impl Reference {
         }
     }
 
-    /// Get a node from a full path, if it exists
-    pub fn lookup(&self, path: &str) -> Option<&Node> {
-        let path = Path::new(path);
-
-        let mut components = path.components().peekable();
+    /// Get a node from a full path, if it exists. If any path component does not exist in the
+    /// reference, returns None.
+    pub fn lookup(&self, path: impl AsRef<Path>) -> Option<&Node> {
+        let mut components = path.as_ref().components();
         assert_eq!(components.next(), Some(Component::RootDir));
 
         let mut node = &self.root;
-        for dir in components {
+        for component in components {
             node = match node {
                 Node::Directory(children) => {
-                    let dir = dir.as_os_str().to_str().unwrap().to_string();
+                    let dir = component.as_os_str().to_str().unwrap().to_string();
                     children.get(&dir)?
                 }
-                _ => panic!("unexpected internal file node"),
+                _ => return None,
             };
         }
 
         Some(node)
     }
 
-    pub fn directories(&self) -> &[String] {
+    /// A list of absolute paths for every directory in the reference. This is never empty as "/" is
+    /// always a valid directory, even in an empty file system.
+    pub fn directories(&self) -> &[impl AsRef<Path>] {
         &self.directories
     }
 }
@@ -215,14 +214,18 @@ pub fn build_reference(flat: Vec<(String, FileContent)>) -> Reference {
         }
     }
 
-    fn convert(node: BTreeMap<String, RefNode>, path: String, directories: &mut Vec<String>) -> BTreeMap<String, Node> {
+    fn convert(
+        node: BTreeMap<String, RefNode>,
+        path: impl AsRef<Path>,
+        directories: &mut Vec<PathBuf>,
+    ) -> BTreeMap<String, Node> {
         let mut out = BTreeMap::new();
         for (key, node) in node {
             let node = match node {
                 RefNode::Directory(contents) => {
-                    let path = format!("{path}/{key}");
+                    let path = path.as_ref().join(&key);
                     directories.push(path.clone());
-                    let converted = convert(contents.take(), path, directories);
+                    let converted = convert(contents.take(), &path, directories);
                     Node::Directory(converted)
                 }
                 RefNode::File(contents) => Node::File(File::Remote(contents.to_mock_object())),
@@ -233,7 +236,7 @@ pub fn build_reference(flat: Vec<(String, FileContent)>) -> Reference {
     }
 
     let mut directories = vec!["/".into()];
-    let root = convert(tree.take(), "".into(), &mut directories);
+    let root = convert(tree.take(), "", &mut directories);
     Reference {
         root: Node::Directory(root),
         directories,

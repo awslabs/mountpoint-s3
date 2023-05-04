@@ -39,7 +39,7 @@ pub struct DirectoryIndex(usize);
 impl DirectoryIndex {
     /// Get the full path to the directory at the given index in the reference (wrapping around if
     /// the index is larger than the number of directories)
-    fn get<'a>(&self, reference: &'a Reference) -> &'a str {
+    fn get<'a>(&self, reference: &'a Reference) -> impl AsRef<Path> + 'a {
         let directories = reference.directories();
         assert!(!directories.is_empty(), "directories can never be empty");
         let idx = self.0 % directories.len();
@@ -71,11 +71,11 @@ impl Harness {
             debug!(?op, "executing operation");
             match &op {
                 Op::WriteFile(name, directory_index, contents) => {
-                    let dir = Path::new(directory_index.get(&self.reference));
-                    let full_path = format!("{}/{name}", dir.display());
+                    let dir = directory_index.get(&self.reference);
+                    let full_path = dir.as_ref().join(name);
 
                     // Find the inode for the directory by walking the file system tree
-                    let mut components = dir.components();
+                    let mut components = dir.as_ref().components();
                     assert_eq!(components.next(), Some(Component::RootDir));
                     let mut inode = FUSE_ROOT_INODE;
                     for component in components {
@@ -91,6 +91,7 @@ impl Harness {
                             panic!("unexpected path component {component:?}");
                         }
                     }
+                    drop(dir);
 
                     // Random paths can shadow existing ones, so we check that we aren't allowed to
                     // overwrite an existing inode. The existing node could be either a file or
