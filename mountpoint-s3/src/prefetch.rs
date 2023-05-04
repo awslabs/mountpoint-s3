@@ -348,7 +348,7 @@ pub enum PrefetchReadError<E: std::error::Error> {
     #[error("get request failed")]
     GetRequestFailed(#[from] E),
 
-    #[error("get request terminate unexpectedly")]
+    #[error("get request terminated unexpectedly")]
     GetRequestTerminatedUnexpectedly,
 }
 

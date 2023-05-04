@@ -1,10 +1,10 @@
 use std::time::Instant;
 
-use tracing::log::trace;
+use tracing::warn;
 
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
-use crate::sync::async_channel::{unbounded, Receiver, Sender};
+use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::AsyncMutex;
 
@@ -61,7 +61,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
                 let part = self.receiver.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
                 match part {
-                    Err(_) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
+                    Err(RecvError) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
                     Ok(part) => part.map_err(|e| e.into()),
                 }
             }
@@ -90,8 +90,9 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, E>) {
         // Unbounded channel will never actually block
-        if self.sender.send_blocking(part).is_err() {
-            trace!("closed channel");
+        let send_result = self.sender.send_blocking(part);
+        if send_result.is_err() {
+            warn!("closed channel");
         }
     }
 }
