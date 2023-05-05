@@ -8,7 +8,7 @@ use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
 use tempfile::TempDir;
 
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
 
 fn basic_read_test<F>(creator_fn: F, prefix: &str)
 where
@@ -23,18 +23,11 @@ where
     rng.fill_bytes(&mut two_mib_body);
     test_client.put_object("test2MiB.bin", &two_mib_body).unwrap();
 
-    let test_dir = read_dir(mount_point.path()).unwrap();
-    let files: Vec<_> = test_dir.map(|f| f.unwrap()).collect();
+    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["hello.txt", "test2MiB.bin"]);
 
-    assert_eq!(
-        files
-            .iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["hello.txt", "test2MiB.bin"]
-    );
-
-    let mut hello = File::open(files[0].path()).unwrap();
+    let mut hello = File::open(mount_point.path().join("hello.txt")).unwrap();
     let mut hello_contents = String::new();
     hello.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
@@ -42,7 +35,7 @@ where
 
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
     // so we can make it weird.
-    let mut bin = File::open(files[1].path()).unwrap();
+    let mut bin = File::open(mount_point.path().join("test2MiB.bin")).unwrap();
     let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
@@ -58,7 +51,7 @@ where
     assert_eq!(bytes_read, 2 * 1024 * 1024);
     assert_eq!(two_mib_body, two_mib_read);
 
-    let mut hello = File::open(files[0].path()).unwrap();
+    let mut hello = File::open(mount_point.path().join("hello.txt")).unwrap();
     hello.seek(SeekFrom::Start(50)).unwrap();
     let result = hello.read(&mut [0; 4]).unwrap();
     assert_eq!(result, 0);

@@ -8,7 +8,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
 
 fn mkdir_test<F>(creator_fn: F, prefix: &str)
 where
@@ -41,14 +41,9 @@ where
     test_client.remove_object(&format!("{dirname}/{filename}")).unwrap();
 
     // Verify that the directory disappeared
-    let dir = read_dir(mount_point.path()).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        Vec::<String>::new()
-    );
+    let read_dir_iter = fs::read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, Vec::<String>::new());
 }
 
 #[cfg(feature = "s3_tests")]
