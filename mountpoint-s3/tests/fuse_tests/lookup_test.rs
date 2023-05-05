@@ -5,7 +5,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
 
 /// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test<F>(creator_fn: F, prefix: &str, subdir: &str)
@@ -21,15 +21,9 @@ where
         .put_object(&format!("dir-1/{subdir}hello.txt"), b"hello world")
         .unwrap();
 
-    let test_dir = read_dir(mount_point.path()).unwrap();
-    let dirs: Vec<_> = test_dir.map(|f| f.unwrap()).collect();
-
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["dir", "dir-1"]
-    );
+    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["dir", "dir-1"]);
 
     let m = metadata(mount_point.path().join("dir")).unwrap();
     assert!(m.file_type().is_dir());
@@ -72,28 +66,19 @@ where
             .unwrap();
     }
 
-    let test_dir = read_dir(mount_point.path()).unwrap();
-    let dirs: Vec<_> = test_dir.map(|f| f.unwrap()).collect();
-
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["weird$dir name", "weirder_.-@dir +name"]
-    );
+    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["weird$dir name", "weirder_.-@dir +name"]);
 
     let m = metadata(mount_point.path().join(keys[0])).unwrap();
     assert!(m.file_type().is_dir());
     let m = metadata(mount_point.path().join(keys[3])).unwrap();
     assert!(m.file_type().is_dir());
 
-    let test_dir = read_dir(mount_point.path().join(keys[0])).unwrap();
-    let dirs: Vec<_> = test_dir.map(|f| f.unwrap()).collect();
-
+    let read_dir_iter = read_dir(mount_point.path().join(keys[0])).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
+        dir_entry_names,
         vec!["my 1st file~.jpg", "my 2nd file: the better one.jpg"]
     );
 

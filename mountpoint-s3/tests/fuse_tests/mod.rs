@@ -7,6 +7,9 @@ mod prefetch_test;
 mod readdir_test;
 mod write_test;
 
+use std::ffi::OsStr;
+use std::fs::ReadDir;
+
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefix::Prefix;
@@ -221,4 +224,19 @@ mod s3_session {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
     }
+}
+
+/// Take a `read_dir` iterator and return the entry names
+pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
+    read_dir_iter
+        .map(|entry| {
+            let entry = entry.expect("no io err during readdir");
+            let entry_path = entry.path();
+            let name = entry_path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .expect("path should end with valid unicode file or dir name");
+            name.to_owned()
+        })
+        .collect::<Vec<_>>()
 }

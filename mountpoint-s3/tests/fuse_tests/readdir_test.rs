@@ -1,4 +1,4 @@
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
@@ -59,13 +59,10 @@ where
 
     prepare_fs(test_client, &map);
 
-    let dir = fs::read_dir(mount_point.path()).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
+    let read_dir_iter = fs::read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        expected_list,
+        dir_entry_names, expected_list,
         "readdir test failed with random seed: {rng_seed}"
     );
 }
@@ -116,13 +113,10 @@ where
     }
     expected_list.sort();
 
-    let dir = fs::read_dir(mount_point.path()).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
+    let read_dir_iter = fs::read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        expected_list,
+        dir_entry_names, expected_list,
         "readdir test failed with random seed: {rng_seed}"
     );
 }

@@ -8,6 +8,7 @@ use std::process::Stdio;
 use std::{path::PathBuf, process::Command}; // Run programs
 
 use crate::common::{create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region};
+use crate::fuse_tests::read_dir_to_entry_names;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -216,24 +217,14 @@ fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathB
     create_objects(bucket, prefix, region, "dir/file2.txt", b"hello world");
 
     // verify readdir works on mount point
-    let dir = fs::read_dir(mount_point).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["dir", "file1.txt"]
-    );
+    let read_dir_iter = fs::read_dir(mount_point).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["dir", "file1.txt"]);
 
     // verify readdir works
-    let dir = fs::read_dir(mount_point.as_path().join("dir")).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["file2.txt"]
-    );
+    let read_dir_iter = fs::read_dir(mount_point.join("dir")).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["file2.txt"]);
 
     // verify read file works
     let file_content = fs::read_to_string(mount_point.as_path().join("file1.txt")).unwrap();

@@ -10,7 +10,7 @@ use nix::unistd::{getgid, getuid};
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
 
 fn perm_test<F>(creator_fn: F, uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>)
 where
@@ -47,14 +47,9 @@ where
     test_client.put_object("dir/file2.txt", b"hello world").unwrap();
 
     // verify readdir works on mount point
-    let dir = fs::read_dir(&mount_point).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["dir", "file1.txt"]
-    );
+    let read_dir_iter = fs::read_dir(&mount_point).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["dir", "file1.txt"]);
 
     // verify inner directory metadata
     let m = metadata(mount_point.path().join("dir")).unwrap();
@@ -62,14 +57,9 @@ where
     assert_perm(m, uid, gid, dir_mode);
 
     // verify readdir works
-    let dir = fs::read_dir(mount_point.path().join("dir")).unwrap();
-    let dirs: Vec<_> = dir.map(|f| f.unwrap()).collect();
-    assert_eq!(
-        dirs.iter()
-            .map(|f| f.path().file_name().unwrap().to_str().unwrap().to_owned())
-            .collect::<Vec<_>>(),
-        vec!["file2.txt"]
-    );
+    let read_dir_iter = fs::read_dir(mount_point.path().join("dir")).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["file2.txt"]);
 
     // verify file metadata
     let m = metadata(mount_point.path().join("file1.txt")).unwrap();
