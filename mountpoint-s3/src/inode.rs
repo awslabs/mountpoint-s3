@@ -379,18 +379,28 @@ impl Superblock {
         match write_status {
             WriteStatus::LocalUnopened | WriteStatus::LocalOpen => {
                 // In the future, we may permit `unlink` and cancel any in-flight uploads.
-                debug!("unlink called on local file, unlink not supported until write is complete");
+                error!(
+                    parent = parent_ino,
+                    ?name,
+                    "unlink called on local file, unlink not supported until write is complete",
+                );
                 return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.ino()));
             }
             WriteStatus::Remote => {
-                debug!("unlink called on remote file, will delete from S3 and unlink from parent");
                 let (bucket, s3_key) = (self.inner.bucket.as_str(), inode.full_key());
+                debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
                 let delete_obj_result = client.delete_object(bucket, s3_key).await;
 
                 match delete_obj_result {
-                    Ok(_res) => debug!("object with key {s3_key} successfully deleted, if it existed"),
+                    Ok(_res) => (),
                     Err(e) => {
-                        error!(error=?e, "unlink failed when trying to perform S3 DeleteObject call, not unlinking from parent inode");
+                        error!(
+                            parent=parent_ino,
+                            ?name,
+                            s3_key,
+                            error=?e,
+                            "unlink failed when trying to perform S3 DeleteObject call, not unlinking from parent inode",
+                        );
                         Err(InodeError::ClientError(e.into()))?;
                     }
                 };
