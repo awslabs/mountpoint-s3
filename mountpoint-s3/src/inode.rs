@@ -23,7 +23,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
@@ -32,6 +32,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
 
+use crate::fs::CacheConfig;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
@@ -42,6 +43,9 @@ pub use readdir::ReaddirHandle;
 pub type InodeNo = u64;
 
 pub const ROOT_INODE_NO: InodeNo = 1;
+
+// 200 years seems long enough
+const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
     let name = name.as_ref();
@@ -68,12 +72,14 @@ struct SuperblockInner {
     inodes: RwLock<HashMap<InodeNo, Inode>>,
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
+    cache_config: CacheConfig,
 }
 
 impl Superblock {
     /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(bucket: &str, prefix: &Prefix) -> Self {
+    pub fn new(bucket: &str, prefix: &Prefix, cache_config: CacheConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
+
         let root = InodeInner {
             ino: ROOT_INODE_NO,
             parent: ROOT_INODE_NO,
@@ -81,7 +87,9 @@ impl Superblock {
             full_key: prefix.to_string(),
             kind: InodeKind::Directory,
             sync: RwLock::new(InodeState {
-                stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
+                // The root inode never expires because there's no remote to consult for its
+                // metadata, and it always exists.
+                stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
             }),
@@ -96,6 +104,7 @@ impl Superblock {
             inodes: RwLock::new(inodes),
             next_ino: AtomicU64::new(2),
             mount_time,
+            cache_config,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -180,8 +189,7 @@ impl Superblock {
                 result = file_lookup => {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
-                            let last_modified = object.last_modified;
-                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), Some(object.etag.clone()));
+                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), self.inner.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -231,7 +239,7 @@ impl Superblock {
                     // semantics, directories always shadow files.
                     if found_directory {
                         trace!(parent = ?parent_ino, ?name, "lookup ListObjects found a directory");
-                        let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
+                        let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
                         return Ok(Some(RemoteLookup { kind: InodeKind::Directory, stat }));
                     }
                 }
@@ -240,8 +248,10 @@ impl Superblock {
 
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
         // have a valid file, or both requests failed to find the object so the file must not exist remotely
-        if let Some(stat) = file_state {
+        if let Some(mut stat) = file_state {
             trace!(parent = ?parent_ino, ?name, "found a regular file");
+            // Update the validity of the stat in case the racing ListObjects took a long time
+            stat.update_validity(self.inner.cache_config.file_ttl);
             Ok(Some(RemoteLookup {
                 kind: InodeKind::File,
                 stat,
@@ -253,13 +263,24 @@ impl Superblock {
     }
 
     /// Retrieve the attributes for an inode
-    pub async fn getattr<OC: ObjectClient>(&self, _client: &OC, ino: InodeNo) -> Result<LookedUp, InodeError> {
+    pub async fn getattr<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        ino: InodeNo,
+        force_revalidate: bool,
+    ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
 
-        // TODO revalidate if expired
-        let stat = inode.inner.sync.read().unwrap().stat.clone();
+        if !force_revalidate {
+            let sync = inode.inner.sync.read().unwrap();
+            if sync.stat.is_valid() {
+                let stat = sync.stat.clone();
+                drop(sync);
+                return Ok(LookedUp { inode, stat });
+            }
+        }
 
-        Ok(LookedUp { inode, stat })
+        self.lookup(client, inode.parent(), inode.name().as_ref()).await
     }
 
     /// Create a new write handle to be used for state transition
@@ -338,11 +359,13 @@ impl Superblock {
             return Err(InodeError::FileAlreadyExists(inode.ino()));
         }
 
-        let expiry = Instant::now(); // TODO local inode stats never expire?
+        // Local inode stats never expire, because they can't be looked up remotely
         let stat = match kind {
-            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None), // Objects don't have an ETag until they are uploaded to S3
-            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, expiry),
+            // Objects don't have an ETag until they are uploaded to S3
+            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), None, NEVER_EXPIRE_TTL),
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, NEVER_EXPIRE_TTL),
         };
+
         let state = InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
@@ -467,6 +490,7 @@ impl SuperblockInner {
                     }
                     // Otherwise, we'll just update this inode in place.
                     (InodeKind::File, InodeKind::File) | (InodeKind::Directory, InodeKind::Directory) => {
+                        trace!(parent=?inode.parent(), name=?inode.name(), ino=?inode.ino(), "updating inode in place");
                         inode_state.stat = stat.clone();
                         Ok(UpdateStatus::Updated(LookedUp {
                             inode: inode.clone(),
@@ -570,11 +594,19 @@ enum UpdateStatus {
 }
 
 /// Result of a call to [Superblock::lookup] or [Superblock::getattr]. `stat` is a copy of the
-/// inode's `stat` field that has already had its expiry checked and so is guaranteed to be valid.
+/// inode's `stat` field that has already had its expiry checked and so is guaranteed to be valid
+/// until `stat.expiry`.
 #[derive(Debug, Clone)]
 pub struct LookedUp {
     pub inode: Inode,
     pub stat: InodeStat,
+}
+
+impl LookedUp {
+    /// How much longer this lookup will be valid for
+    pub fn validity(&self) -> Duration {
+        self.stat.expiry.saturating_duration_since(Instant::now())
+    }
 }
 
 /// Handle for a file writing that we use to interact with [Superblock]
@@ -607,7 +639,7 @@ impl WriteHandle {
     }
 
     /// Update status of the inode and of containing "local" directories.
-    pub fn finish_writing(self, object_size: usize) -> Result<(), InodeError> {
+    pub fn finish_writing(self) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
 
         // Collect ancestor inodes that may need updating,
@@ -641,7 +673,9 @@ impl WriteHandle {
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
-                state.stat.size = object_size;
+
+                // Invalidate the inode's stats so we refresh them from S3 when next queried
+                state.stat.update_validity(Duration::from_secs(0));
 
                 // Walk up the ancestors from parent to first remote ancestor to transition
                 // the inode and all "local" containing directories to "remote".
@@ -655,7 +689,7 @@ impl WriteHandle {
                     }
                     ancestor_state.write_status = WriteStatus::Remote;
                 }
-                // TODO force the file to be revalidated the next time it's `stat`ed?
+
                 Ok(())
             }
             _ => Err(InodeError::InodeNotWritable(inode.ino())),
@@ -766,7 +800,7 @@ impl InodeKindData {
 
 #[derive(Debug, Clone)]
 pub struct InodeStat {
-    #[allow(unused)] // TODO revalidate
+    /// Time this stat becomes invalid and needs to be refreshed
     expiry: Instant,
 
     /// Size in bytes
@@ -794,8 +828,15 @@ pub enum WriteStatus {
 }
 
 impl InodeStat {
+    fn is_valid(&self) -> bool {
+        self.expiry >= Instant::now()
+    }
+
     /// Initialize an [InodeStat] for a file, given some metadata.
-    fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant, etag: Option<String>) -> InodeStat {
+    fn for_file(size: usize, datetime: OffsetDateTime, etag: Option<String>, validity: Duration) -> InodeStat {
+        let expiry = Instant::now()
+            .checked_add(validity)
+            .expect("64-bit time shouldn't overflow");
         InodeStat {
             expiry,
             size,
@@ -807,7 +848,10 @@ impl InodeStat {
     }
 
     /// Initialize an [InodeStat] for a directory, given some metadata.
-    fn for_directory(datetime: OffsetDateTime, expiry: Instant) -> InodeStat {
+    fn for_directory(datetime: OffsetDateTime, validity: Duration) -> InodeStat {
+        let expiry = Instant::now()
+            .checked_add(validity)
+            .expect("64-bit time shouldn't overflow");
         InodeStat {
             expiry,
             size: 0,
@@ -816,6 +860,12 @@ impl InodeStat {
             mtime: datetime,
             etag: None,
         }
+    }
+
+    fn update_validity(&mut self, validity: Duration) {
+        self.expiry = Instant::now()
+            .checked_add(validity)
+            .expect("64-bit time shouldn't overflow");
     }
 }
 
@@ -903,7 +953,7 @@ mod tests {
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(bucket, &prefix);
+        let superblock = Superblock::new(bucket, &prefix, Default::default());
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -1010,7 +1060,7 @@ mod tests {
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Try it all twice to test inode reuse
         for _ in 0..2 {
@@ -1059,7 +1109,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         let mut expected_list = Vec::new();
 
@@ -1104,7 +1154,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         let mut expected_list = Vec::new();
 
@@ -1159,7 +1209,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Create local directory
         let dirname = "local_dir";
@@ -1196,7 +1246,7 @@ mod tests {
             part_size: 1024 * 1024,
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
         let nested_dirs = (0..5).map(|i| format!("level{i}")).collect::<Vec<_>>();
         let leaf_dir_ino = {
@@ -1236,7 +1286,7 @@ mod tests {
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        writehandle.finish_writing(0).unwrap();
+        writehandle.finish_writing().unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -1253,7 +1303,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
         for _ in 0..2 {
             let dir1_1 = superblock
@@ -1301,7 +1351,7 @@ mod tests {
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
 
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
@@ -1348,7 +1398,7 @@ mod tests {
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_5").unwrap()),
         );
 
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(
@@ -1376,14 +1426,14 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, Instant::now(), None);
+        let file_inodestat = InodeStat::for_file(128, ts, None, Default::default());
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
         assert_eq!(file_inodestat.mtime, ts);
 
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(180);
-        let file_inodestat = InodeStat::for_directory(ts, Instant::now());
+        let file_inodestat = InodeStat::for_directory(ts, Default::default());
         assert_eq!(file_inodestat.size, 0);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
