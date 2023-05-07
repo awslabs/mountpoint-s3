@@ -300,13 +300,7 @@ impl Superblock {
         let dir_key = dir.full_key();
         assert!(dir_key.is_empty() || dir_key.ends_with('/'));
 
-        Ok(ReaddirHandle::new(
-            self.inner.clone(),
-            dir_ino,
-            parent_ino,
-            dir_key.to_string(),
-            page_size,
-        ))
+        ReaddirHandle::new(self.inner.clone(), dir_ino, parent_ino, dir_key.to_string(), page_size)
     }
 
     /// Create a new regular file or directory inode ready to be opened in write-only mode
