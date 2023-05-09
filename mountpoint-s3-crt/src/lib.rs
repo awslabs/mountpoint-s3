@@ -5,6 +5,7 @@
 use mountpoint_s3_crt_sys::*;
 
 pub mod auth;
+pub mod checksums;
 pub mod common;
 pub mod http;
 pub mod io;
