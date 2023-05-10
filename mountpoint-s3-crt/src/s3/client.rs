@@ -18,6 +18,7 @@ use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// A client for high-throughput access to Amazon S3
 #[derive(Debug)]
@@ -84,13 +85,13 @@ impl ClientConfig {
 
     /// Size of parts the files will be downloaded or uploaded in.
     pub fn part_size(&mut self, part_size: usize) -> &mut Self {
-        self.inner.part_size = part_size;
+        self.inner.part_size = part_size as u64;
         self
     }
 
     /// If the part size needs to be adjusted for service limits, this is the maximum size it will be adjusted to.
     pub fn max_part_size(&mut self, max_part_size: usize) -> &mut Self {
-        self.inner.max_part_size = max_part_size;
+        self.inner.max_part_size = max_part_size as u64;
         self
     }
 
@@ -107,6 +108,9 @@ impl ClientConfig {
         self
     }
 }
+
+/// Callback for telemetry received as part of a successful meta request.
+type TelemetryCallback = Box<dyn Fn(&RequestMetrics) + Send>;
 
 /// Callback for when headers are received as part of a successful HTTP request. Given (headers, response_status).
 type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
@@ -132,6 +136,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned signing config, if provided.
     signing_config: Option<SigningConfig>,
 
+    /// Telemetry callback, if provided
+    on_telemetry: Option<TelemetryCallback>,
+
     /// Headers callback, if provided.
     on_headers: Option<HeadersCallback>,
 
@@ -146,16 +153,23 @@ struct MetaRequestOptionsInner<'a> {
 }
 
 impl<'a> MetaRequestOptionsInner<'a> {
-    /// Convert from user_data in a callback to a reference to this struct. Safety: Don't use except
-    /// in a MetaRequest callback. The lifetime 'a of the returned [MetaRequestOptionsInner] is
-    /// unconstrained, so make sure that the lifetime of the returned reference does not outlive it.
+    /// Convert from user_data in a callback to a reference to this struct.
+    ///
+    /// ## Safety
+    ///
+    /// Don't use except in a MetaRequest callback. The lifetime 'a of the returned
+    /// [MetaRequestOptionsInner] is unconstrained, so the caller must make sure that the lifetime
+    /// of the returned reference does not outlive the [MetaRequestOptionsInner].
     unsafe fn from_user_data_ptr(user_data: *mut libc::c_void) -> &'a mut Self {
         (user_data as *mut Self).as_mut().unwrap()
     }
 
     /// Convert from user_data in a callback to an owned Box holding this struct, so it will be
     /// freed when dropped.
-    /// Safety: don't use except in the shutdown callback, once we are certain not to be called back again.
+    ///
+    /// ## Safety
+    ///
+    /// Don't use except in the shutdown callback, once we are certain not to be called back again.
     unsafe fn from_user_data_ptr_owned(user_data: *mut libc::c_void) -> Box<Self> {
         Box::from_raw(user_data as *mut Self)
     }
@@ -185,6 +199,7 @@ impl<'a> MetaRequestOptions<'a> {
         // the address of the inner struct is.
         let options = Box::new(MetaRequestOptionsInner {
             inner: aws_s3_meta_request_options {
+                telemetry_callback: Some(meta_request_telemetry_callback),
                 headers_callback: Some(meta_request_headers_callback),
                 body_callback: Some(meta_request_receive_body_callback),
                 finish_callback: Some(meta_request_finish_callback),
@@ -195,6 +210,7 @@ impl<'a> MetaRequestOptions<'a> {
             message: None,
             endpoint: None,
             signing_config: None,
+            on_telemetry: None,
             on_headers: None,
             on_body: None,
             on_finish: None,
@@ -242,6 +258,17 @@ impl<'a> MetaRequestOptions<'a> {
         options.signing_config = Some(signing_config);
         options.inner.signing_config =
             options.signing_config.as_mut().unwrap().to_inner_ptr() as *mut aws_signing_config_aws;
+        self
+    }
+
+    /// Provide a callback to run when telemetry for individual requests made by this meta request
+    /// arrives. The callback is invoked once for each request made, after the request completes
+    /// (including failures). This callback may be invoked concurrently by multiple threads for
+    /// different requests.
+    pub fn on_telemetry(&mut self, callback: impl Fn(&RequestMetrics) + Send + 'static) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.on_telemetry = Some(Box::new(callback));
         self
     }
 
@@ -310,6 +337,25 @@ impl From<MetaRequestType> for aws_s3_meta_request_type {
 }
 
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
+unsafe extern "C" fn meta_request_telemetry_callback(
+    _request: *mut aws_s3_meta_request,
+    metrics: *mut aws_s3_request_metrics,
+    user_data: *mut libc::c_void,
+) {
+    // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
+    // in MetaRequestOptions::new.
+    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+
+    if let Some(callback) = user_data.on_telemetry.as_ref() {
+        let metrics = NonNull::new(metrics as *mut aws_s3_request_metrics).expect("request metrics is never null");
+        let metrics = RequestMetrics { inner: metrics };
+        // The docs say "`metrics` is only valid for the duration of the callback", so we need to
+        // pass a reference here.
+        callback(&metrics);
+    }
+}
+
+/// SAFETY: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn meta_request_headers_callback(
     _request: *mut aws_s3_meta_request,
     headers: *const aws_http_headers,
@@ -321,7 +367,7 @@ unsafe extern "C" fn meta_request_headers_callback(
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
     if let Some(callback) = user_data.on_headers.as_mut() {
-        let headers = NonNull::new(headers as *mut aws_http_headers).expect("Got headers == NULL in request callback");
+        let headers = NonNull::new(headers as *mut aws_http_headers).expect("request headers is never null");
         let headers = Headers::from_crt(headers);
         callback(&headers, response_status);
     }
@@ -618,6 +664,134 @@ impl MetaRequestResult {
             crt_error: inner.error_code.into(),
             error_response_headers,
             error_response_body,
+        }
+    }
+}
+
+/// Metrics for an individual request
+#[derive(Debug)]
+pub struct RequestMetrics {
+    inner: NonNull<aws_s3_request_metrics>,
+}
+
+impl RequestMetrics {
+    /// Return the type of this request
+    pub fn request_type(&self) -> RequestType {
+        let mut out: aws_s3_request_type = aws_s3_request_type::AWS_S3_REQUEST_TYPE_MAX;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe { aws_s3_request_metrics_get_request_type(self.inner.as_ptr(), &mut out) };
+        out.into()
+    }
+
+    /// Return the request ID for this request, or None if unavailable (e.g. the request failed
+    /// before sending).
+    pub fn request_id(&self) -> Option<String> {
+        let mut out: *const aws_string = std::ptr::null();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_request_id(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        assert!(!out.is_null(), "request ID should be available if call succeeded");
+        // SAFETY: `out` is now a valid pointer to an aws_string, and we'll copy the bytes
+        // out of it so it won't live beyond this function call
+        unsafe {
+            let byte_cursor = aws_byte_cursor_from_string(out);
+            let os_str = OsStr::from_bytes(aws_byte_cursor_as_slice(&byte_cursor));
+            Some(os_str.to_string_lossy().into_owned())
+        }
+    }
+
+    /// Return the response status code for this request, or None if unavailable (e.g. the
+    /// request failed before sending).
+    pub fn status_code(&self) -> Option<i32> {
+        let mut out: i32 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_response_status_code(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        Some(out)
+    }
+
+    /// Return the response headers for this request, or None if unavailable (e.g. the request
+    /// failed before sending).
+    pub fn response_headers(&self) -> Option<Headers> {
+        let mut out: *mut aws_http_headers = std::ptr::null_mut();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_response_headers(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        assert!(!out.is_null(), "headers should be available if call succeeded");
+        // SAFETY: `out` is now a valid pointer to an aws_http_headers, and [Headers::from_crt]
+        // will acquire a reference to keep it alive after this function call, so it's safe to
+        // return the owned version here.
+        unsafe { Some(Headers::from_crt(NonNull::new_unchecked(out))) }
+    }
+
+    /// Return the total duration for this request
+    pub fn total_duration(&self) -> Duration {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe { aws_s3_request_metrics_get_total_duration_ns(self.inner.as_ptr(), &mut out) };
+        Duration::from_nanos(out)
+    }
+
+    /// Return the first-byte latency for this request (time first byte received - time last byte sent)
+    pub fn time_to_first_byte(&self) -> Duration {
+        let mut send_end: u64 = 0;
+        let mut receive_start: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_send_end_timestamp_ns(self.inner.as_ptr(), &mut send_end);
+            aws_s3_request_metrics_get_receive_start_timestamp_ns(self.inner.as_ptr(), &mut receive_start);
+        };
+        Duration::from_nanos(receive_start - send_end)
+    }
+}
+
+/// The type of an S3 request reported by [RequestMetrics]. A single meta request might perform
+/// multiple requests to various S3 APIs; this type can be used to distinguish them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestType {
+    /// Same as the original HTTP request passed to [Client::make_meta_request]
+    Default,
+    /// HeadObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html
+    HeadObject,
+    /// GetObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
+    GetObject,
+    /// ListParts: https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListParts.html
+    ListParts,
+    /// CreateMultipartUpload: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html
+    CreateMultipartUpload,
+    /// UploadPart: https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html
+    UploadPart,
+    /// AbortMultipartUpload: https://docs.aws.amazon.com/AmazonS3/latest/API/API_AbortMultipartUpload.html
+    AbortMultipartUpload,
+    /// CompleteMultipartUpload: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html
+    CompleteMultipartUpload,
+    /// UploadPartCopy: https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html
+    UploadPartCopy,
+}
+
+impl From<aws_s3_request_type> for RequestType {
+    fn from(value: aws_s3_request_type) -> Self {
+        use aws_s3_request_type::*;
+        match value {
+            AWS_S3_REQUEST_TYPE_DEFAULT => RequestType::Default,
+            AWS_S3_REQUEST_TYPE_HEAD_OBJECT => RequestType::HeadObject,
+            AWS_S3_REQUEST_TYPE_GET_OBJECT => RequestType::GetObject,
+            AWS_S3_REQUEST_TYPE_LIST_PARTS => RequestType::ListParts,
+            AWS_S3_REQUEST_TYPE_CREATE_MULTIPART_UPLOAD => RequestType::CreateMultipartUpload,
+            AWS_S3_REQUEST_TYPE_UPLOAD_PART => RequestType::UploadPart,
+            AWS_S3_REQUEST_TYPE_ABORT_MULTIPART_UPLOAD => RequestType::AbortMultipartUpload,
+            AWS_S3_REQUEST_TYPE_COMPLETE_MULTIPART_UPLOAD => RequestType::CompleteMultipartUpload,
+            AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
+            _ => panic!("unknown request type {:?}", value),
         }
     }
 }
