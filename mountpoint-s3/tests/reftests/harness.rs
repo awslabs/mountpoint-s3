@@ -255,8 +255,7 @@ impl Harness {
                 "reference contained elements not in the filesystem: {keys:?}"
             );
 
-            // Not implemented
-            // self.fs.releasedir(dir_handle).unwrap();
+            self.fs.releasedir(fs_dir, dir_handle, 0).await.unwrap();
         }
         .boxed()
     }

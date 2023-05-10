@@ -84,8 +84,7 @@ async fn test_read_dir_root(prefix: &str) {
         .unwrap();
     assert_eq!(reply.entries.len(), 0);
 
-    // Not implemented
-    // fs.releasedir(fh).unwrap();
+    fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
 }
 
 #[test_case(""; "unprefixed")]
@@ -156,8 +155,7 @@ async fn test_read_dir_nested(prefix: &str) {
     let _reply = fs.readdir(dir_ino, dir_handle, offset, &mut reply).await.unwrap();
     assert_eq!(reply.entries.len(), 0);
 
-    // Not implemented
-    // fs.releasedir(fh).unwrap();
+    fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
 }
 
 #[test_case(1024 * 1024; "small")]
@@ -197,6 +195,7 @@ async fn test_random_read(object_size: usize) {
     }
 
     fs.release(ino, fh, 0, None, true).await.unwrap();
+    fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
 }
 
 #[test_case(""; "unprefixed")]
@@ -248,8 +247,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     // TODO test removing the directory, removing the file
 
-    // Not implemented
-    // fs.releasedir(fh).unwrap();
+    fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
 }
 
 #[test_case(1024; "small")]

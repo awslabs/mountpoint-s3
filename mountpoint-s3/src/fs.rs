@@ -593,6 +593,11 @@ where
             }
         }
     }
+
+    pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), libc::c_int> {
+        let mut dir_handles = self.dir_handles.write().await;
+        dir_handles.remove(&fh).map(|_| ()).ok_or(libc::EBADF)
+    }
 }
 
 impl From<InodeError> for i32 {
