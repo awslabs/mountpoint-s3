@@ -5,7 +5,7 @@ use crate::{ObjectClientError, PutObjectRequest, PutObjectResult, S3CrtClient, S
 use async_trait::async_trait;
 use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
-use mountpoint_s3_crt::s3::client::MetaRequestType;
+use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType};
 use tracing::{debug, Span};
 
 use super::{S3CrtClientInner, S3HttpRequest};
@@ -66,6 +66,11 @@ impl S3PutObjectRequest {
         message
             .set_request_path(&key)
             .map_err(S3RequestError::construction_failure)?;
+
+        if self.params.trailing_checksums {
+            let checksum_config = ChecksumConfig::trailing_crc32c();
+            message.set_checksum_config(Some(checksum_config));
+        }
 
         let (body_async_stream, writer) = async_stream::new_stream(&self.client.allocator);
         message.set_body_stream(Some(body_async_stream));

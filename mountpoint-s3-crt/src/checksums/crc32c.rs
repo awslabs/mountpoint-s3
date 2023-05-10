@@ -9,6 +9,11 @@ impl Crc32c {
     pub fn new(value: u32) -> Crc32c {
         Crc32c(value)
     }
+
+    /// The CRC32C checksum value.
+    pub fn value(&self) -> u32 {
+        self.0
+    }
 }
 
 /// Computes the CRC32C checksum of a byte slice.

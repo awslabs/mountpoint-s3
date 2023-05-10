@@ -68,10 +68,8 @@ where
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
-        let request = inner
-            .client
-            .put_object(bucket, key, &PutObjectParams::default())
-            .await?;
+        let params = PutObjectParams::new().trailing_checksums(true);
+        let request = inner.client.put_object(bucket, key, &params).await?;
 
         Ok(Self {
             bucket: bucket.to_owned(),
