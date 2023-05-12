@@ -360,6 +360,67 @@ impl Superblock {
 
         Ok(LookedUp { inode, stat })
     }
+
+    /// Remove local-only empty directory, i.e., the ones created by mkdir.
+    /// It does not affects empty directories represented remotely with directory markers.  
+    pub async fn rmdir<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &OsStr,
+    ) -> Result<(), InodeError> {
+        let parent = self.inner.get(parent_ino)?;
+        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+
+        if inode.kind() == InodeKind::File {
+            return Err(InodeError::NotADirectory(inode.ino()));
+        }
+
+        let write_status = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.write_status
+        };
+
+        match write_status {
+            WriteStatus::Remote => {
+                error!(parent = parent_ino, ?name, "rmdir called on a remote directory",);
+                return Err(InodeError::RemoteDirectory(inode.ino()));
+            }
+            WriteStatus::Deleted => {
+                error!(parent = parent_ino, ?name, "rmdir called on a non existent directory",);
+                return Err(InodeError::InodeDoesNotExist(inode.ino()));
+            }
+            // Although Local Open is not possible for directories, I have added it to be on safe side.
+            // Also, not sure what should I return if get Local Open.
+            WriteStatus::LocalOpen | WriteStatus::LocalUnopened => {
+                let dir_handle = self.readdir(client, inode.ino(), 100).await.unwrap();
+                if !dir_handle.local_results.read().unwrap().is_empty() {
+                    error!(parent = parent_ino, ?name, "directory is not empty");
+                    return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                }
+            }
+        }
+
+        let mut parent_state = parent.inner.sync.write().unwrap();
+        match &mut parent_state.kind_data {
+            InodeKindData::File {} => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.ino()));
+            }
+            InodeKindData::Directory {
+                children,
+                writing_children,
+            } => {
+                if children.contains_key(inode.full_key()) {
+                    error!(parent = parent_ino, ?name, "rmdir called on a remote directory",);
+                    return Err(InodeError::RemoteDirectory(inode.ino()));
+                }
+
+                writing_children.remove(&inode.ino());
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SuperblockInner {
@@ -608,6 +669,10 @@ impl WriteHandle {
             WriteStatus::Remote => {
                 error!(inode=?self.ino, "inode already exists");
                 Err(InodeError::InodeNotWritable(self.ino))
+            }
+            WriteStatus::Deleted => {
+                error!(inode=?self.ino, "inode is deleted");
+                Err(InodeError::InodeDeleted(self.ino))
             }
         }
     }
@@ -1000,6 +1065,8 @@ pub enum WriteStatus {
     LocalOpen,
     /// Remote inode
     Remote,
+    /// Inode deleted (currently for directories)
+    Deleted,
 }
 
 impl InodeStat {
@@ -1048,6 +1115,12 @@ pub enum InodeError {
     InodeNotWritable(InodeNo),
     #[error("inode {0} is not readable while being written")]
     InodeNotReadableWhileWriting(InodeNo),
+    #[error("remote directory cannot be removed at inode {0}")]
+    RemoteDirectory(InodeNo),
+    #[error("non-empty directory cannot be removed at inode {0}")]
+    DirectoryNotEmpty(InodeNo),
+    #[error("inode {0} has been deleted")]
+    InodeDeleted(InodeNo),
 }
 
 #[cfg(test)]

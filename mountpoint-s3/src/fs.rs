@@ -593,6 +593,11 @@ where
             }
         }
     }
+
+    pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
+        self.superblock.rmdir(&self.client, parent_ino, name).await?;
+        Ok(())
+    }
 }
 
 impl From<InodeError> for i32 {
@@ -609,6 +614,9 @@ impl From<InodeError> for i32 {
             // EROFS for not-writable -- but we'll treat it like a sealed file
             InodeError::InodeNotWritable(_) => libc::EPERM,
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
+            InodeError::RemoteDirectory(_) => libc::EPERM,
+            InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
+            InodeError::InodeDeleted(_) => libc::ENOENT,
         }
     }
 }

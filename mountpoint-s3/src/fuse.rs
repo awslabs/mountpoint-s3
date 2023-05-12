@@ -256,4 +256,12 @@ where
             Err(e) => reply.error(e),
         }
     }
+
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    fn rmdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        match block_on(self.fs.rmdir(parent, name).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => reply.error(e),
+        }
+    }
 }
