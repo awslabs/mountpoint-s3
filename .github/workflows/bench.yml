@@ -14,13 +14,11 @@ on:
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
-  S3_BUCKET_NAME: s3-file-connector-github-test-bucket
-  S3_BUCKET_TEST_PREFIX: read-only-mount-test/
-  S3_BUCKET_BENCH_FILE: bench100GB.bin
-  S3_BUCKET_SMALL_BENCH_FILE: bench5MB.bin
-  # A bucket our IAM role has no access to, but is in the right region, for permissions tests
-  S3_FORBIDDEN_BUCKET_NAME: s3-file-connector-github-test-bucket-forbidden
-  S3_REGION: us-east-1
+  S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+  S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX }}
+  S3_BUCKET_BENCH_FILE: ${{ vars.BENCH_FILE_NAME }}
+  S3_BUCKET_SMALL_BENCH_FILE: ${{ vars.SMALL_BENCH_FILE_NAME }}
+  S3_REGION: ${{ vars.S3_REGION }}
 
 jobs:
   bench:
@@ -33,8 +31,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
-        aws-region: us-east-1
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
       uses: actions/checkout@v3
       with:
@@ -104,8 +102,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
-        aws-region: us-east-1
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
       uses: actions/checkout@v3
       with:
