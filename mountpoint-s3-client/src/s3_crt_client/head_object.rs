@@ -85,6 +85,7 @@ impl S3CrtClient {
 
             self.make_meta_request(
                 message,
+                None,
                 MetaRequestType::Default,
                 span,
                 move |headers, _status| {

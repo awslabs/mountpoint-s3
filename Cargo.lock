@@ -1914,6 +1914,7 @@ dependencies = [
 name = "mountpoint-s3-crt"
 version = "0.2.1"
 dependencies = [
+ "async-channel",
  "criterion",
  "ctor",
  "futures",

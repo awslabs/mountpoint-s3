@@ -6,6 +6,7 @@ use mountpoint_s3_crt_sys::aws_io_library_init;
 
 use crate::common::allocator::Allocator;
 
+pub mod async_stream;
 pub mod channel_bootstrap;
 pub mod event_loop;
 pub mod futures;

@@ -3,9 +3,8 @@
 pub mod common;
 
 use common::*;
-use futures::future;
-use futures::stream;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::PutObjectRequest;
 use rand::Rng;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
@@ -18,15 +17,13 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str)
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
-    client
-        .put_object(
-            bucket,
-            &key,
-            &Default::default(),
-            stream::once(future::ready(&contents[..])),
-        )
+    let mut request = client
+        .put_object(bucket, &key, &Default::default())
         .await
         .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+    request.complete().await.unwrap();
 
     let result = client
         .get_object(bucket, &key, None, None)
@@ -47,13 +44,16 @@ async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, pr
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
-    // Create a multi-part stream of contents by splitting up into four parts.
-    let contents_stream = stream::iter(contents.chunks(contents.len() / 4));
-
-    client
-        .put_object(bucket, &key, &Default::default(), contents_stream)
+    let mut request = client
+        .put_object(bucket, &key, &Default::default())
         .await
         .expect("put_object failed");
+
+    // Create a multi-part stream of contents by splitting up into four parts.
+    for chunk in contents.chunks(contents.len() / 4) {
+        request.write(chunk).await.unwrap();
+    }
+    request.complete().await.unwrap();
 
     let result = client
         .get_object(bucket, &key, None, None)

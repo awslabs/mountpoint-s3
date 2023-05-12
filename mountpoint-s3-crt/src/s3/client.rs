@@ -6,6 +6,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
+use crate::io::async_stream::AsyncInputStream;
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
@@ -130,6 +131,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned copy of the message, if provided.
     message: Option<Message<'a>>,
 
+    /// Owned copy of the body, if provided.
+    send_async_stream: Option<AsyncInputStream>,
+
     /// Owned copy of the endpoint URI, if provided
     endpoint: Option<Uri>,
 
@@ -208,6 +212,7 @@ impl<'a> MetaRequestOptions<'a> {
                 ..Default::default()
             },
             message: None,
+            send_async_stream: None,
             endpoint: None,
             signing_config: None,
             on_telemetry: None,
@@ -301,6 +306,15 @@ impl<'a> MetaRequestOptions<'a> {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.inner.type_ = request_type.into();
+        self
+    }
+
+    /// Set the body of the request.
+    pub fn send_async_stream(&mut self, async_stream: AsyncInputStream) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.send_async_stream = Some(async_stream);
+        options.inner.send_async_stream = options.send_async_stream.as_mut().unwrap().inner.as_ptr();
         self
     }
 }

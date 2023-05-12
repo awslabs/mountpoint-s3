@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
+use std::fmt::Debug;
 use std::str::FromStr;
 use std::{fmt, ops::Range, string::ParseError};
 use thiserror::Error;
@@ -54,6 +55,7 @@ impl FromStr for ETag {
 #[auto_impl(Arc)]
 pub trait ObjectClient {
     type GetObjectResult: Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send;
+    type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + Send + Sync + 'static;
 
     /// Delete a single object from the object store.
@@ -94,13 +96,12 @@ pub trait ObjectClient {
 
     /// Put an object into the object store.
     /// The contents are provided by the client as an async stream of buffers.
-    async fn put_object(
-        &self,
+    async fn put_object<'a>(
+        &'a self,
         bucket: &str,
         key: &str,
         params: &PutObjectParams,
-        contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
+    ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError>;
 
     /// Retrieves all the metadata from an object without returning the object contents.
     async fn get_object_attributes(
@@ -244,6 +245,17 @@ pub enum GetObjectAttributesError {
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct PutObjectParams {}
+
+#[async_trait]
+pub trait PutObjectRequest: Debug {
+    type ClientError: std::error::Error + Send + Sync + 'static;
+
+    /// write
+    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError>;
+
+    /// complete
+    async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
+}
 
 /// Result of a [ObjectClient::put_object] request
 /// TODO: Populate this struct with return fields from the S3 API, e.g., etag.

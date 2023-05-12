@@ -14,6 +14,7 @@ use mountpoint_s3_crt::auth::credentials::{
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
+use mountpoint_s3_crt::io::async_stream::{AsyncInputStream, AsyncStreamWriter};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
@@ -237,9 +238,11 @@ impl S3CrtClient {
     /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
     /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
     /// succeeded.
+    #[allow(clippy::too_many_arguments)] // TODO: review
     fn make_meta_request<T: Send + 'static, E: Send + 'static>(
         &self,
         message: S3Message,
+        send_async_stream: Option<AsyncInputStream>,
         meta_request_type: MetaRequestType,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
@@ -341,6 +344,10 @@ impl S3CrtClient {
             })
             .request_type(meta_request_type);
 
+        if let Some(send_async_stream) = send_async_stream {
+            options.send_async_stream(send_async_stream);
+        }
+
         // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
         // the resulting meta request, as it's a reference-counted object.
         self.s3_client.make_meta_request(options)?;
@@ -362,12 +369,29 @@ impl S3CrtClient {
         request_span: Span,
         on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
+        self.make_http_request(message, None, request_type, request_span, on_error)
+    }
+
+    /// Make an HTTP request using this S3 client that returns the body on success or invokes the
+    /// given callback on failure.
+    ///
+    /// The `on_error` callback can assume that `result.is_err()` is true for the result it
+    /// receives.
+    fn make_http_request<E: Send + 'static>(
+        &self,
+        message: S3Message,
+        send_async_stream: Option<AsyncInputStream>,
+        request_type: MetaRequestType,
+        request_span: Span,
+        on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
+    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
         let body_clone = Arc::clone(&body);
 
         self.make_meta_request(
             message,
+            send_async_stream,
             request_type,
             request_span,
             |_, _| (),
@@ -630,9 +654,46 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
     Some(start..end + 1)
 }
 
+#[derive(Debug)]
+pub struct S3PutObjectRequest {
+    body: S3HttpRequest<Vec<u8>, PutObjectError>,
+    writer: AsyncStreamWriter,
+}
+
+impl S3PutObjectRequest {
+    fn new(body: S3HttpRequest<Vec<u8>, PutObjectError>, writer: AsyncStreamWriter) -> Self {
+        Self { body, writer }
+    }
+}
+
+#[async_trait]
+impl PutObjectRequest for S3PutObjectRequest {
+    type ClientError = S3RequestError;
+
+    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        self.writer
+            .write(slice)
+            .await
+            .map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
+    }
+
+    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        let body = {
+            self.writer
+                .complete()
+                .await
+                .map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
+            self.body
+        };
+        body.await?;
+        Ok(PutObjectResult {})
+    }
+}
+
 #[async_trait]
 impl ObjectClient for S3CrtClient {
     type GetObjectResult = GetObjectRequest;
+    type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
     async fn delete_object(
@@ -680,9 +741,8 @@ impl ObjectClient for S3CrtClient {
         bucket: &str,
         key: &str,
         params: &PutObjectParams,
-        contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        self.put_object(bucket, key, params, contents).await
+    ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
+        self.put_object(bucket, key, params).await
     }
 
     async fn get_object_attributes(

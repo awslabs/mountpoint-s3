@@ -9,13 +9,14 @@ use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::{ETag, ObjectClient, PutObjectParams};
+use mountpoint_s3_client::{ETag, ObjectClient};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
+use crate::upload::{UploadRequest, Uploader};
 
 pub use crate::inode::InodeNo;
 
@@ -54,7 +55,7 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
         etag: ETag,
     },
     Write {
-        parts: AsyncMutex<Vec<Box<[u8]>>>,
+        request: AsyncMutex<UploadRequest<Client>>,
         handle: WriteHandle,
     },
 }
@@ -125,6 +126,7 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     client: Arc<Client>,
     superblock: Superblock,
     prefetcher: Prefetcher<Client, Runtime>,
+    uploader: Uploader<Client>,
     bucket: String,
     #[allow(unused)]
     prefix: Prefix,
@@ -144,12 +146,14 @@ where
         let client = Arc::new(client);
 
         let prefetcher = Prefetcher::new(client.clone(), runtime, config.prefetcher_config);
+        let uploader = Uploader::new(client.clone());
 
         Self {
             config,
             client,
             superblock,
             prefetcher,
+            uploader,
             bucket: bucket.to_string(),
             prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
@@ -304,10 +308,15 @@ where
                 return Err(libc::EINVAL);
             }
 
-            let inode_handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
+            let handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
+            let request = self
+                .uploader
+                .put(&self.bucket, lookup.inode.full_key())
+                .await
+                .map_err(|_| libc::EIO)?;
             FileHandleType::Write {
-                parts: Default::default(),
-                handle: inode_handle,
+                request: request.into(),
+                handle,
             }
         } else {
             lookup.inode.start_reading()?;
@@ -446,8 +455,6 @@ where
         _flags: i32,
         _lock_owner: Option<u64>,
     ) -> Result<u32, libc::c_int> {
-        const MAX_OBJECT_SIZE: usize = 5 * 1024 * 1024 * 1024;
-
         trace!(
             "fs:write with ino {:?} fh {:?} offset {:?} size {:?}",
             ino,
@@ -464,25 +471,13 @@ where
             }
         };
         let mut request = match &handle.typ {
-            FileHandleType::Write { parts, .. } => parts.lock().await,
+            FileHandleType::Write { request, .. } => request.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
 
-        let next_offset = request.iter().map(|p| p.len()).sum::<usize>();
-        if offset != next_offset as i64 {
-            error!("out of order write; expected offset {next_offset} but got {offset}");
-            return Err(libc::EINVAL);
-        }
-
-        // If we'd go over the size limit, fail the entire write rather than short-writing
-        if next_offset + data.len() > MAX_OBJECT_SIZE {
-            error!("object too large");
-            return Err(libc::EFBIG);
-        }
+        request.push(offset, data).await?;
 
         let len = data.len();
-        // TODO wrap this in the `Part` machinery and validate it on PUT (and checksum)
-        request.push(data.into());
         Ok(len as u32)
     }
 
@@ -602,19 +597,15 @@ where
         };
 
         match file_handle.typ {
-            FileHandleType::Write { parts, handle } => {
-                // TODO how do we make sure we didn't already handle this via `flush`?
-                let parts = parts.into_inner();
-                let size = parts.iter().map(|part| part.len()).sum::<usize>();
-                let stream = futures::stream::iter(parts);
+            FileHandleType::Write { request, handle } => {
                 let key = file_handle.full_key;
 
-                let put = self
-                    .client
-                    .put_object(&self.bucket, &key, &PutObjectParams::default(), stream)
-                    .await;
+                // TODO how do we make sure we didn't already handle this via `flush`?
+                let mut request = request.lock().await;
+                let size = request.size() as usize;
+                let put = request.complete().await;
                 let result = match put {
-                    Ok(_result) => {
+                    Ok(_) => {
                         debug!(key, size, "put succeeded");
                         Ok(())
                     }
@@ -622,7 +613,7 @@ where
                         error!(key, size, "put failed, object was not uploaded: {e:?}");
                         // This won't actually be seen by the user because `release` is async, but
                         // it's the right thing to do.
-                        Err(libc::EIO)
+                        Err(e)
                     }
                 };
 
