@@ -5,6 +5,7 @@ mod mount_test;
 mod perm_test;
 mod prefetch_test;
 mod readdir_test;
+mod semantics_doc_test;
 mod write_test;
 
 use std::ffi::OsStr;
