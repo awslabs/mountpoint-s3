@@ -384,13 +384,16 @@ impl Superblock {
                 error!(parent = parent_ino, ?name, "rmdir called on a non existent directory",);
                 return Err(InodeError::InodeDoesNotExist(inode.ino()));
             }
-            // Although Local Open is not possible for directories, I have added it to be on safe side.
-            // Also, not sure what should I return if get Local Open.
+            // Although Local Open is not possible for directories, added it to be on safe side.
             WriteStatus::LocalOpen | WriteStatus::LocalUnopened => {
-                let dir_handle = self.readdir(client, inode.ino(), 100).await.unwrap();
-                if !dir_handle.local_results.read().unwrap().is_empty() {
-                    error!(parent = parent_ino, ?name, "directory is not empty");
-                    return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                let inode_state = inode.inner.sync.read().unwrap();
+                let inode_kind_data = &inode_state.kind_data;
+                // Since it cannot be a remote directory, it only can have writing children which are not commited remotely.
+                // In such cases the direcotry is not empty locally.
+                if let InodeKindData::Directory { writing_children, .. } = inode_kind_data {
+                    if !writing_children.is_empty() {
+                        return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                    }
                 }
             }
         }
@@ -411,6 +414,7 @@ impl Superblock {
                 }
 
                 writing_children.remove(&inode.ino());
+                parent_state.write_status = WriteStatus::Deleted;
             }
         }
         Ok(())
