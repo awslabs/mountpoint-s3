@@ -370,12 +370,9 @@ impl Superblock {
             return Err(InodeError::NotADirectory(inode.ino()));
         }
 
-        let write_status = {
-            let inode_state = inode.inner.sync.read().unwrap();
-            inode_state.write_status
-        };
+        let mut inode_state = inode.inner.sync.write().unwrap();
 
-        match write_status {
+        match inode_state.write_status {
             WriteStatus::Remote => {
                 error!(parent = parent_ino, ?name, "rmdir called on a remote directory",);
                 return Err(InodeError::RemoteDirectory(inode.ino()));
@@ -414,9 +411,9 @@ impl Superblock {
                 }
 
                 writing_children.remove(&inode.ino());
-                parent_state.write_status = WriteStatus::Deleted;
             }
         }
+        inode_state.write_status = WriteStatus::Deleted;
         Ok(())
     }
 }
