@@ -90,8 +90,9 @@ File deletion (`unlink`) is not currently supported, but will be [in the future]
 
 Empty directory removal (`rmdir`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/194). The following semantics are proposed:
 
-* `rmdir` will be a local-only operation, i.e., it will only delete empty local directories created by `mkdir`.
+* `rmdir` will only delete empty directories created by `mkdir`.
 * `rmdir` will fail on directories backed on S3 by a directory marker (i.e. zero-byte object with `<directory-name>/` key).
+* Once, the files are commited to S3 bucket for a directory, `rmdir` will not affect those directories any further, even if they are created by `mkdir`.
 * On success, the directory will be deleted immediately. Subsequent reads or writes to the directory (e.g. creating a file or subdirectory) will fail.
 
 Synchronization operations (`fsync`) on directories are not supported.
