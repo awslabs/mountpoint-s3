@@ -52,13 +52,13 @@ where
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
 
-#[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_test_mock(prefix: &str) {
     rmdir_test(crate::fuse_tests::mock_session::new, prefix);
 }
 
+#[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_test_s3(prefix: &str) {
