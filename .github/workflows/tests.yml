@@ -110,6 +110,35 @@ jobs:
     - name: Check all targets
       run: cargo check --locked --all-targets --all-features
 
+  bench:
+    name: Cargo benchmarks
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install fuse
+      run: sudo apt-get install fuse libfuse-dev
+    - name: Run benchmarks
+      run: cargo bench
+
   shuttle:
     name: Shuttle tests
     runs-on: ubuntu-22.04

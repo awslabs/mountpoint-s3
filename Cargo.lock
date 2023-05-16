@@ -1898,6 +1898,7 @@ dependencies = [
  "libc",
  "log",
  "mountpoint-s3-crt-sys",
+ "rand",
  "smallstr",
  "static_assertions",
  "tempfile",
