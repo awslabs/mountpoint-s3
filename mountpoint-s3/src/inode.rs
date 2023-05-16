@@ -413,7 +413,9 @@ impl Superblock {
                 writing_children.remove(&inode.ino());
             }
         }
+        // Changing the write status of the inode to deleted so that no further operations could be performed on it.
         inode_state.write_status = WriteStatus::Deleted;
+
         Ok(())
     }
 }
