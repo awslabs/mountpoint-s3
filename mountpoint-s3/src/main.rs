@@ -34,46 +34,52 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
     const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
         macros::format_description!("mountpoint_s3_[year][month][day][hour][minute][second].log");
 
+    /// Create the logging config from the RUST_LOG environment variable or the default config if
+    /// that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
+    /// need a second copy of it in the foreground case to replicate logs to stdout.
+    fn create_env_filter() -> EnvFilter {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,awscrt=off,fuser=error"))
+    }
+    let env_filter = create_env_filter();
+
+    // Don't create the files or subscribers if we'll never emit any logs
+    if env_filter.max_level_hint() == Some(LevelFilter::OFF) {
+        return Ok(());
+    }
+
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
-    let default_environment_filter = EnvFilter::from_default_env();
-    if default_environment_filter.max_level_hint() != Some(LevelFilter::OFF) {
-        let filename = OffsetDateTime::now_utc()
-            .format(LOG_FILE_NAME_FORMAT)
-            .context("couldn't format log file name")?;
+    let filename = OffsetDateTime::now_utc()
+        .format(LOG_FILE_NAME_FORMAT)
+        .context("couldn't format log file name")?;
 
-        let file = if let Some(path) = log_directory {
-            fs::create_dir_all(path).context("failed to create log folder")?;
-            File::create(path.join(filename)).context("failed to create log file")?
-        } else {
-            let default_log_directory = home::home_dir()
-                .ok_or(anyhow!("no home directory found!"))?
-                .join(LOG_DIRECTORY);
-            fs::create_dir_all(&default_log_directory).context("failed to create log folder")?;
-            File::create(default_log_directory.join(filename)).context("failed to create log file")?
-        };
+    let file = if let Some(path) = log_directory {
+        fs::create_dir_all(path).context("failed to create log folder")?;
+        File::create(path.join(filename)).context("failed to create log file")?
+    } else {
+        let default_log_directory = home::home_dir()
+            .ok_or(anyhow!("no home directory found"))?
+            .join(LOG_DIRECTORY);
+        fs::create_dir_all(&default_log_directory).context("failed to create log folder")?;
+        File::create(default_log_directory.join(filename)).context("failed to create log file")?
+    };
 
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_ansi(false)
-            .with_writer(file)
-            .with_filter(default_environment_filter);
-        let registry = tracing_subscriber::registry()
-            .with(fmt_layer)
-            .with(metrics_tracing_span_layer());
-        if is_foreground {
-            // Brutal hack because tracing-subscriber doesn't allow us to specify *multiple* default
-            // directives -- we want warning-level logging except for the CRT, which is very spammy.
-            if std::env::var("RUST_LOG") == Err(std::env::VarError::NotPresent) {
-                std::env::set_var("RUST_LOG", "info,awscrt=off,fuser=error");
-            }
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_writer(file)
+        .with_filter(env_filter);
+    let registry = tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(metrics_tracing_span_layer());
 
-            let fmt_layer_to_console = tracing_subscriber::fmt::layer()
-                .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
-                .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
-            registry.with(fmt_layer_to_console).init();
-        } else {
-            registry.init();
-        }
+    if is_foreground {
+        // Replicate logs to the console with the same filter applied
+        let fmt_layer_to_console = tracing_subscriber::fmt::layer()
+            .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
+            .with_filter(create_env_filter());
+        registry.with(fmt_layer_to_console).init();
+    } else {
+        registry.init();
     }
 
     Ok(())
