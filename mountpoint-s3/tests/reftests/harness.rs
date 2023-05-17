@@ -264,19 +264,15 @@ impl Harness {
         // existing inode. The existing node could be either a file or directory; we should fail the
         // same way in both cases.
         let reference_lookup = self.reference.lookup(&full_path);
+        let mknod = self.fs.mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0).await;
         if reference_lookup.is_some() {
-            let mknod = self.fs.mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0).await;
             assert!(
                 matches!(mknod, Err(libc::EEXIST)),
                 "can't overwrite existing file/directory"
             );
             None
         } else {
-            let mknod = self
-                .fs
-                .mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0)
-                .await
-                .unwrap();
+            let mknod = mknod.expect("file creation should succeed");
 
             self.reference.add_file(&full_path, File::Local);
 
@@ -315,14 +311,17 @@ impl Harness {
             // No inflight writes available
             return;
         };
-        let Some(file_handle) = inflight_write.file_handle else {
-            // File hasn't yet been opened for writing
-            return;
-        };
         if inflight_write.written == inflight_write.object.len() {
             // File is already fully written
             return;
         }
+
+        // Start write if it hasn't already started
+        if inflight_write.file_handle.is_none() {
+            self.perform_start_writing(index).await;
+        }
+        let inflight_write = self.inflight_writes.get(index).unwrap();
+        let file_handle = inflight_write.file_handle.unwrap();
 
         // Work out how many bytes to write. We never test empty writes, and also don't want to
         // write beyond the end of the object, but want to be able to test writing the entire object
@@ -405,16 +404,8 @@ impl Harness {
         let inode = self.lookup(&full_path).await.expect("file should exist");
 
         match file {
-            File::Local => {
-                // Local files should be stat-able, but unreaddable
-                let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
-                let open = self.fs.open(inode, libc::O_RDONLY).await;
-                assert!(matches!(open, Err(libc::EPERM)));
-            }
-            File::Remote(object) => {
-                // Remote files should be readable
-                self.compare_file(inode, object).await;
-            }
+            File::Local => self.check_local_file(inode).await,
+            File::Remote(object) => self.compare_file(inode, object).await,
         }
     }
 
