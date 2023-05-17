@@ -363,12 +363,14 @@ impl Superblock {
         parent_ino: InodeNo,
         name: &OsStr,
     ) -> Result<(), InodeError> {
-        let parent = self.inner.get(parent_ino)?;
         let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
 
         if inode.kind() == InodeKind::File {
             return Err(InodeError::NotADirectory(inode.ino()));
         }
+
+        let parent = self.inner.get(parent_ino)?;
+        let mut parent_state = parent.inner.sync.write().unwrap();
 
         let mut inode_state = inode.inner.sync.write().unwrap();
 
@@ -379,14 +381,12 @@ impl Superblock {
             }
             WriteStatus::Deleted => {
                 error!(parent = parent_ino, ?name, "rmdir called on a non existent directory",);
-                return Err(InodeError::InodeDoesNotExist(inode.ino()));
+                return Err(InodeError::InodeDeleted(inode.ino()));
             }
             // Although Local Open is not possible for directories, added it to be on safe side.
             WriteStatus::LocalOpen | WriteStatus::LocalUnopened => {
-                let inode_state = inode.inner.sync.read().unwrap();
                 let inode_kind_data = &inode_state.kind_data;
-                // Since it cannot be a remote directory, it only can have writing children which are not commited remotely.
-                // In such cases the direcotry is not empty locally.
+                // A local directory can only contain local children.
                 if let InodeKindData::Directory { writing_children, .. } = inode_kind_data {
                     if !writing_children.is_empty() {
                         return Err(InodeError::DirectoryNotEmpty(inode.ino()));
@@ -395,7 +395,6 @@ impl Superblock {
             }
         }
 
-        let mut parent_state = parent.inner.sync.write().unwrap();
         match &mut parent_state.kind_data {
             InodeKindData::File {} => {
                 debug_assert!(false, "inodes never change kind");
@@ -405,12 +404,8 @@ impl Superblock {
                 children,
                 writing_children,
             } => {
-                if children.contains_key(inode.full_key()) {
-                    error!(parent = parent_ino, ?name, "rmdir called on a remote directory",);
-                    return Err(InodeError::RemoteDirectory(inode.ino()));
-                }
-
                 writing_children.remove(&inode.ino());
+                children.remove(inode.name());
             }
         }
         // Changing the write status of the inode to deleted so that no further operations could be performed on it.
