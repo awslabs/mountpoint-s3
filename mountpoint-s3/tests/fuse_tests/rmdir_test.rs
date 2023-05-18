@@ -37,7 +37,7 @@ where
     fs::remove_dir(&empty_dirpath).expect("should be able to remove empty directory");
 
     let err = fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail");
-    assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
+    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
     // readdir should now show that the empty directory is deleted
     let mut read_dir_iter = fs::read_dir(&main_path).unwrap();
