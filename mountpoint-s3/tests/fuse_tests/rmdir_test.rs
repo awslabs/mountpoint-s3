@@ -52,7 +52,7 @@ where
     DirBuilder::new().recursive(true).create(&empty_dirpath).unwrap();
     read_dir_iter = fs::read_dir(&main_path).unwrap();
     dir_entry_names = read_dir_to_entry_names(read_dir_iter);
-    assert_eq!(dir_entry_names, vec![non_empty_dirname, empty_dirname]);
+    assert_eq!(dir_entry_names, vec![empty_dirname, non_empty_dirname]);
 
     // explicitly testing remote directories not getting removed
     test_client
@@ -66,7 +66,7 @@ where
     // checking if the test directory has correct entries
     read_dir_iter = fs::read_dir(&main_path).unwrap();
     dir_entry_names = read_dir_to_entry_names(read_dir_iter);
-    assert_eq!(dir_entry_names, vec![non_empty_dirname, empty_dirname, remote_dirname]);
+    assert_eq!(dir_entry_names, vec![empty_dirname, non_empty_dirname, remote_dirname]);
 }
 
 #[test_case(""; "no prefix")]
