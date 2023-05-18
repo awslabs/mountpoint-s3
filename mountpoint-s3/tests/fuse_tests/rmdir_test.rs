@@ -61,7 +61,7 @@ where
     let remote_dirname = "remote_dir";
     let remote_path = main_path.join(remote_dirname);
     let err = fs::remove_dir(remote_path).expect_err("removing remote direcotry should fail");
-    assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
+    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
     // checking if the test directory has correct entries
     read_dir_iter = fs::read_dir(&main_path).unwrap();
