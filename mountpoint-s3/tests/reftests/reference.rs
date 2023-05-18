@@ -9,8 +9,7 @@ use crate::reftests::generators::{FileContent, FileSize};
 
 #[derive(Debug)]
 pub enum File {
-    #[allow(unused)] // TODO when we test partially written files
-    Local(Vec<u8>),
+    Local,
     Remote(MockObject),
 }
 
@@ -100,7 +99,7 @@ impl Reference {
     }
 
     // Add file to the reference, creating internal nodes as necessary
-    pub fn add_file(&mut self, path: impl AsRef<Path>, file: &FileContent) {
+    pub fn add_file(&mut self, path: impl AsRef<Path>, file: File) {
         let mut components = path.as_ref().components().peekable();
         assert_eq!(components.next(), Some(Component::RootDir));
 
@@ -110,12 +109,12 @@ impl Reference {
                 Node::Directory(children) => {
                     let dir = dir.as_os_str().to_str().unwrap().to_string();
                     if children.get(&dir).is_none() {
-                        let data = if components.peek().is_none() {
-                            Node::File(File::Remote(file.to_mock_object()))
+                        if components.peek().is_none() {
+                            children.insert(dir.clone(), Node::File(file));
+                            break;
                         } else {
-                            Node::Directory(BTreeMap::new())
-                        };
-                        children.insert(dir.clone(), data);
+                            children.insert(dir.clone(), Node::Directory(BTreeMap::new()));
+                        }
                     }
                     children.get_mut(&dir).unwrap()
                 }
@@ -136,6 +135,26 @@ impl Reference {
                 Node::Directory(children) => {
                     let dir = component.as_os_str().to_str().unwrap().to_string();
                     children.get(&dir)?
+                }
+                _ => return None,
+            };
+        }
+
+        Some(node)
+    }
+
+    /// Get a mutable reference to a node from a full path, if it exists. If any path component does
+    /// not exist in the reference, returns None.
+    pub fn lookup_mut(&mut self, path: impl AsRef<Path>) -> Option<&mut Node> {
+        let mut components = path.as_ref().components();
+        assert_eq!(components.next(), Some(Component::RootDir));
+
+        let mut node = &mut self.root;
+        for dir in components {
+            node = match node {
+                Node::Directory(children) => {
+                    let dir = dir.as_os_str().to_str().unwrap().to_string();
+                    children.get_mut(&dir)?
                 }
                 _ => return None,
             };
@@ -250,7 +269,13 @@ fn depth_test() {
 
     assert_eq!(r.depth(), 0);
 
-    r.add_file("/a/b/c1", &FileContent(0xaa, FileSize::Small(0)));
-    r.add_file("/a/b/c2", &FileContent(0xbb, FileSize::Small(0)));
+    r.add_file(
+        "/a/b/c1",
+        File::Remote(FileContent(0xaa, FileSize::Small(0)).to_mock_object()),
+    );
+    r.add_file(
+        "/a/b/c2",
+        File::Remote(FileContent(0xbb, FileSize::Small(0)).to_mock_object()),
+    );
     assert_eq!(r.depth(), 3);
 }

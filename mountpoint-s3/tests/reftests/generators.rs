@@ -43,12 +43,6 @@ impl FileContent {
     pub fn to_mock_object(&self) -> MockObject {
         MockObject::constant(self.0, self.1.into(), ETag::for_tests())
     }
-
-    pub fn to_boxed_slice(&self) -> Box<[u8]> {
-        let size: usize = self.1.into();
-        let obj = self.to_mock_object();
-        obj.read(0, size)
-    }
 }
 
 #[derive(Clone, Debug)]

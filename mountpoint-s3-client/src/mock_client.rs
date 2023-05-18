@@ -168,7 +168,12 @@ impl<T: AsRef<[u8]>> From<T> for MockObject {
 
 impl std::fmt::Debug for MockObject {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("MockObject").finish()
+        f.debug_struct("MockObject")
+            .field("size", &self.size)
+            .field("storage_class", &self.storage_class)
+            .field("last_modified", &self.last_modified)
+            .field("etag", &self.etag)
+            .finish()
     }
 }
 
