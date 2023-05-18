@@ -71,10 +71,7 @@ impl ReaddirHandle {
             let kind_data = &inode.inner.sync.read().unwrap().kind_data;
             let local_files = match kind_data {
                 InodeKindData::File { .. } => return Err(InodeError::NotADirectory(dir_ino)),
-                InodeKindData::Directory {
-                    children: _,
-                    writing_children,
-                } => writing_children.iter().map(|ino| {
+                InodeKindData::Directory { writing_children, .. } => writing_children.iter().map(|ino| {
                     let inode = inner.get(*ino)?;
                     let stat = inode.inner.sync.read().unwrap().stat.clone();
                     Ok(ReaddirEntry::LocalInode {

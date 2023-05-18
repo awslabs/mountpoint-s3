@@ -30,7 +30,7 @@ use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -375,21 +375,29 @@ impl Superblock {
         let mut inode_state = inode.inner.sync.write().unwrap();
 
         match inode_state.write_status {
+            WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
+
             WriteStatus::Remote => {
                 error!(parent = parent_ino, ?name, "rmdir called on a remote directory",);
-                return Err(InodeError::RemoteDirectory(inode.ino()));
+                return Err(InodeError::CannotRemoveRemoteDirectory(inode.ino()));
             }
-            WriteStatus::Deleted => {
-                error!(parent = parent_ino, ?name, "rmdir called on a non existent directory",);
-                return Err(InodeError::InodeDeleted(inode.ino()));
-            }
-            // Although Local Open is not possible for directories, added it to be on safe side.
-            WriteStatus::LocalOpen | WriteStatus::LocalUnopened => {
+
+            WriteStatus::LocalUnopened => {
                 let inode_kind_data = &inode_state.kind_data;
                 // A local directory can only contain local children.
-                if let InodeKindData::Directory { writing_children, .. } = inode_kind_data {
-                    if !writing_children.is_empty() {
-                        return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                match inode_kind_data {
+                    InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
+                    InodeKindData::Directory {
+                        writing_children,
+                        deleted,
+                        ..
+                    } => {
+                        if *deleted {
+                            return Err(InodeError::InodeDoesNotExist(inode.ino()));
+                        }
+                        if !writing_children.is_empty() {
+                            return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                        }
                     }
                 }
             }
@@ -403,13 +411,19 @@ impl Superblock {
             InodeKindData::Directory {
                 children,
                 writing_children,
+                ..
             } => {
-                writing_children.remove(&inode.ino());
-                children.remove(inode.name());
+                assert!(writing_children.remove(&inode.ino()));
+                if children.remove(inode.name()).is_none() {
+                    debug!("child was not present, another operation may have occurred in parallel");
+                }
+                let inode_kind_data = &mut inode_state.kind_data;
+                match inode_kind_data {
+                    InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
+                    InodeKindData::Directory { deleted, .. } => *deleted = true,
+                }
             }
         }
-        // Changing the write status of the inode to deleted so that no further operations could be performed on it.
-        inode_state.write_status = WriteStatus::Deleted;
 
         Ok(())
     }
@@ -463,6 +477,7 @@ impl SuperblockInner {
                     InodeKindData::Directory {
                         children,
                         writing_children,
+                        deleted: _,
                     } => {
                         if writing_children.contains(&inode.ino()) {
                             // Return the local inode.
@@ -589,6 +604,7 @@ impl SuperblockInner {
             InodeKindData::Directory {
                 children,
                 writing_children,
+                deleted: _,
             } => {
                 children.insert(name.to_owned(), inode.clone());
                 if is_new_file {
@@ -661,10 +677,6 @@ impl WriteHandle {
             WriteStatus::Remote => {
                 error!(inode=?self.ino, "inode already exists");
                 Err(InodeError::InodeNotWritable(self.ino))
-            }
-            WriteStatus::Deleted => {
-                error!(inode=?self.ino, "inode is deleted");
-                Err(InodeError::InodeDeleted(self.ino))
             }
         }
     }
@@ -812,6 +824,9 @@ enum InodeKindData {
 
         /// A set of inode numbers that have been opened for write but not completed yet.
         writing_children: HashSet<InodeNo>,
+
+        /// Flag for Directory being Deleted
+        deleted: bool,
     },
 }
 
@@ -822,6 +837,7 @@ impl InodeKindData {
             InodeKind::Directory => Self::Directory {
                 children: Default::default(),
                 writing_children: Default::default(),
+                deleted: false,
             },
         }
     }
@@ -854,8 +870,6 @@ pub enum WriteStatus {
     LocalOpen,
     /// Remote inode
     Remote,
-    /// Inode deleted (currently for directories)
-    Deleted,
 }
 
 impl InodeStat {
@@ -905,11 +919,9 @@ pub enum InodeError {
     #[error("inode {0} is not readable while being written")]
     InodeNotReadableWhileWriting(InodeNo),
     #[error("remote directory cannot be removed at inode {0}")]
-    RemoteDirectory(InodeNo),
+    CannotRemoveRemoteDirectory(InodeNo),
     #[error("non-empty directory cannot be removed at inode {0}")]
     DirectoryNotEmpty(InodeNo),
-    #[error("inode {0} has been deleted")]
-    InodeDeleted(InodeNo),
 }
 
 #[cfg(test)]
@@ -920,6 +932,7 @@ mod tests {
         mock_client::{MockClient, MockClientConfig, MockObject},
         ETag,
     };
+    use rand_chacha::rand_core::le;
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
@@ -1258,6 +1271,38 @@ mod tests {
         // Check that local directories are not present in the client
         let prefix = format!("{prefix}{dirname}");
         assert!(!client.contains_prefix(&prefix));
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_rmdir_delete_status(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        // unwrapping rmdir because testing rmdir to succeed
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .unwrap();
+
+        let inode_stat = inode.inner.sync.read().unwrap();
+        let inode_kind = &inode_stat.kind_data;
+        if let InodeKindData::Directory { deleted, .. } = inode_kind {
+            assert!(deleted);
+        }
     }
 
     #[tokio::test]
