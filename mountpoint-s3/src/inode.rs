@@ -331,11 +331,15 @@ impl Superblock {
         // Check again for the child now that the parent is locked, since we might have lost to a
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
         // hold that lock across the remote API calls).
-        let InodeKindData::Directory { children, .. } = &mut parent_state.kind_data else {
+        let InodeKindData::Directory { children, deleted, .. } = &mut parent_state.kind_data else {
             return Err(InodeError::NotADirectory(dir));
         };
         if let Some(inode) = children.get(name) {
             return Err(InodeError::FileAlreadyExists(inode.ino()));
+        }
+        // If Parent directory was deleted concurrently
+        if *deleted {
+            return Err(InodeError::ParentDoesNotExist(parent_inode.ino()));
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
@@ -922,6 +926,8 @@ pub enum InodeError {
     CannotRemoveRemoteDirectory(InodeNo),
     #[error("non-empty directory cannot be removed at inode {0}")]
     DirectoryNotEmpty(InodeNo),
+    #[error("parent inode {0} does not exist")]
+    ParentDoesNotExist(InodeNo),
 }
 
 #[cfg(test)]
@@ -1298,8 +1304,21 @@ mod tests {
             .await
             .unwrap();
 
-        let inode_stat = inode.inner.sync.read().unwrap();
-        let inode_kind = &inode_stat.kind_data;
+        let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
+        let parent_state = parent.inner.sync.read().unwrap();
+        let parent_kind = &parent_state.kind_data;
+        if let InodeKindData::Directory {
+            children,
+            writing_children,
+            ..
+        } = parent_kind
+        {
+            assert!(writing_children.get(&inode.ino()).is_none());
+            assert!(children.get(inode.name()).is_none());
+        }
+
+        let inode_state = inode.inner.sync.read().unwrap();
+        let inode_kind = &inode_state.kind_data;
         if let InodeKindData::Directory { deleted, .. } = inode_kind {
             assert!(deleted);
         }
