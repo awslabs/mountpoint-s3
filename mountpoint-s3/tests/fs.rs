@@ -521,3 +521,28 @@ async fn test_local_dir(prefix: &str) {
     let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
     assert!(matches!(lookup, Err(libc::ENOENT)));
 }
+
+#[tokio::test]
+async fn test_directory_shadowing() {
+    let (client, fs) = make_test_filesystem("test_local_dir", &Default::default(), Default::default());
+
+    // Add an object
+    let name = "foo";
+    client.add_object(name, b"foo".into());
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
+
+    // Add another object, whose prefix shadows the first
+    let nested = format!("{name}/bar");
+    client.add_object(&nested, b"bar".into());
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr.kind, FileType::Directory);
+
+    // Remove the second object
+    client.remove_object(&nested);
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
+}

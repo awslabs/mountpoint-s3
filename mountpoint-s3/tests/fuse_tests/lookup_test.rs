@@ -1,7 +1,10 @@
-use std::fs::{metadata, read_dir, read_to_string};
+use std::{
+    fs::{metadata, read_dir, read_to_string},
+    time::Duration,
+};
 
 use fuser::BackgroundSession;
-use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3::{fs::CacheConfig, S3FilesystemConfig};
 use tempfile::TempDir;
 use test_case::test_case;
 
@@ -98,4 +101,45 @@ fn lookup_directory_weird_characters_s3() {
 #[test]
 fn lookup_directory_weird_characters_mock() {
     lookup_weird_characters_test(crate::fuse_tests::mock_session::new, "lookup_weird_characters_test");
+}
+
+fn lookup_previously_shadowed_file_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let (mount_point, _session, mut test_client) = creator_fn(
+        Default::default(),
+        S3FilesystemConfig {
+            cache_config: CacheConfig {
+                file_ttl: Duration::ZERO,
+                dir_ttl: Duration::ZERO,
+            },
+            ..Default::default()
+        },
+    );
+
+    let name = "foo";
+    let nested = format!("{name}/bar");
+    test_client.put_object(&nested, b"bar").unwrap();
+
+    let path = mount_point.path().join(name);
+    let m = metadata(&path).unwrap();
+    assert!(m.file_type().is_dir());
+
+    test_client.remove_object(&nested).unwrap();
+    test_client.put_object(name, b"foo").unwrap();
+
+    let m = metadata(&path).unwrap();
+    assert!(m.file_type().is_file());
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn lookup_previously_shadowed_file_test_s3() {
+    lookup_previously_shadowed_file_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn lookup_previously_shadowed_file_test_mock() {
+    lookup_previously_shadowed_file_test(crate::fuse_tests::mock_session::new);
 }
