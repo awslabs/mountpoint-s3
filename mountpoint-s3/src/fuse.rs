@@ -203,6 +203,14 @@ where
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
+    fn releasedir(&self, _req: &Request<'_>, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
+        match block_on(self.fs.releasedir(ino, fh, flags).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => reply.error(e),
+        }
+    }
+
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
     fn mknod(
         &self,

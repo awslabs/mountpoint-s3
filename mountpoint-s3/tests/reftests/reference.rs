@@ -1,18 +1,23 @@
 use fuser::FileType;
 use mountpoint_s3_client::mock_client::MockObject;
-use mountpoint_s3_client::ETag;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
-use crate::reftests::gen_tree::Content;
+use crate::reftests::generators::{FileContent, FileSize};
+
+#[derive(Debug)]
+pub enum File {
+    Local,
+    Remote(MockObject),
+}
 
 #[derive(Debug)]
 pub enum Node {
     // TODO Also support hybrid nodes?
     Directory(BTreeMap<String, Node>),
-    File(MockObject),
+    File(File),
 }
 
 impl Node {
@@ -47,12 +52,21 @@ impl Node {
 #[derive(Debug)]
 pub struct Reference {
     root: Node,
+    /// Full path of all directories
+    directories: Vec<PathBuf>,
+    /// Full path of all inflight writes
+    #[allow(unused)] // TODO when we test partially written files
+    inflight_writes: Vec<PathBuf>,
 }
 
 impl Reference {
     pub fn new() -> Self {
         let root = Node::Directory(BTreeMap::new());
-        Self { root }
+        Self {
+            root,
+            directories: vec!["/".into()],
+            inflight_writes: vec![],
+        }
     }
 
     pub fn root(&self) -> &Node {
@@ -85,10 +99,8 @@ impl Reference {
     }
 
     // Add file to the reference, creating internal nodes as necessary
-    pub fn add_file(&mut self, path: &str, pattern: u8, length: usize) {
-        let path = Path::new(path);
-
-        let mut components = path.components().peekable();
+    pub fn add_file(&mut self, path: impl AsRef<Path>, file: File) {
+        let mut components = path.as_ref().components().peekable();
         assert_eq!(components.next(), Some(Component::RootDir));
 
         let mut node = &mut self.root;
@@ -97,18 +109,64 @@ impl Reference {
                 Node::Directory(children) => {
                     let dir = dir.as_os_str().to_str().unwrap().to_string();
                     if children.get(&dir).is_none() {
-                        let data = if components.peek().is_none() {
-                            Node::File(MockObject::ramp(pattern, length, ETag::for_tests()))
+                        if components.peek().is_none() {
+                            children.insert(dir.clone(), Node::File(file));
+                            break;
                         } else {
-                            Node::Directory(BTreeMap::new())
-                        };
-                        children.insert(dir.clone(), data);
+                            children.insert(dir.clone(), Node::Directory(BTreeMap::new()));
+                        }
                     }
                     children.get_mut(&dir).unwrap()
                 }
                 _ => panic!("unexpected internal file node"),
             };
         }
+    }
+
+    /// Get a node from a full path, if it exists. If any path component does not exist in the
+    /// reference, returns None.
+    pub fn lookup(&self, path: impl AsRef<Path>) -> Option<&Node> {
+        let mut components = path.as_ref().components();
+        assert_eq!(components.next(), Some(Component::RootDir));
+
+        let mut node = &self.root;
+        for component in components {
+            node = match node {
+                Node::Directory(children) => {
+                    let dir = component.as_os_str().to_str().unwrap().to_string();
+                    children.get(&dir)?
+                }
+                _ => return None,
+            };
+        }
+
+        Some(node)
+    }
+
+    /// Get a mutable reference to a node from a full path, if it exists. If any path component does
+    /// not exist in the reference, returns None.
+    pub fn lookup_mut(&mut self, path: impl AsRef<Path>) -> Option<&mut Node> {
+        let mut components = path.as_ref().components();
+        assert_eq!(components.next(), Some(Component::RootDir));
+
+        let mut node = &mut self.root;
+        for dir in components {
+            node = match node {
+                Node::Directory(children) => {
+                    let dir = dir.as_os_str().to_str().unwrap().to_string();
+                    children.get_mut(&dir)?
+                }
+                _ => return None,
+            };
+        }
+
+        Some(node)
+    }
+
+    /// A list of absolute paths for every directory in the reference. This is never empty as "/" is
+    /// always a valid directory, even in an empty file system.
+    pub fn directories(&self) -> &[impl AsRef<Path>] {
+        &self.directories
     }
 }
 
@@ -119,11 +177,11 @@ fn valid_inode_name(name: &str) -> bool {
 /// Take an S3 namespace (list of keys) and create the expected reference file system tree. This is
 /// where all our semantics decisions about how to present a flat keyspace as a file system are
 /// made; we'll be testing the connector against the decisions made here.
-pub fn build_reference(flat: Vec<(String, Content)>) -> Reference {
+pub fn build_reference(flat: Vec<(String, FileContent)>) -> Reference {
     #[derive(Debug)]
     enum RefNode {
         Directory(Rc<RefCell<BTreeMap<String, RefNode>>>),
-        File(Content),
+        File(FileContent),
     }
 
     impl RefNode {
@@ -175,24 +233,33 @@ pub fn build_reference(flat: Vec<(String, Content)>) -> Reference {
         }
     }
 
-    fn convert(node: BTreeMap<String, RefNode>) -> BTreeMap<String, Node> {
+    fn convert(
+        node: BTreeMap<String, RefNode>,
+        path: impl AsRef<Path>,
+        directories: &mut Vec<PathBuf>,
+    ) -> BTreeMap<String, Node> {
         let mut out = BTreeMap::new();
         for (key, node) in node {
             let node = match node {
                 RefNode::Directory(contents) => {
-                    let converted = convert(contents.take());
+                    let path = path.as_ref().join(&key);
+                    directories.push(path.clone());
+                    let converted = convert(contents.take(), &path, directories);
                     Node::Directory(converted)
                 }
-                RefNode::File(contents) => Node::File(contents.to_mock_object()),
+                RefNode::File(contents) => Node::File(File::Remote(contents.to_mock_object())),
             };
             out.insert(key, node);
         }
         out
     }
 
-    let root = convert(tree.take());
+    let mut directories = vec!["/".into()];
+    let root = convert(tree.take(), "/", &mut directories);
     Reference {
         root: Node::Directory(root),
+        directories,
+        inflight_writes: vec![],
     }
 }
 
@@ -202,7 +269,13 @@ fn depth_test() {
 
     assert_eq!(r.depth(), 0);
 
-    r.add_file("/a/b/c1", 0, 0);
-    r.add_file("/a/b/c2", 0, 0);
+    r.add_file(
+        "/a/b/c1",
+        File::Remote(FileContent(0xaa, FileSize::Small(0)).to_mock_object()),
+    );
+    r.add_file(
+        "/a/b/c2",
+        File::Remote(FileContent(0xbb, FileSize::Small(0)).to_mock_object()),
+    );
     assert_eq!(r.depth(), 3);
 }

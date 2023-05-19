@@ -38,12 +38,12 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
   * `red/`
   
   then mounting your bucket would give a file system with a `blue` directory containing an `image.jpg` file, and an empty `red` directory. The `blue/` and `red/` objects will not be accessible. Note that the S3 Console creates zero-byte objects like `blue/` and `red/` when creating directories in a bucket, and so these directories will work as expected.
-* Directories will be shadowed by files with the same name. For example, if your bucket has the following object keys:
+* Files will be shadowed by directories with the same name. For example, if your bucket has the following object keys:
 
   * `blue`
   * `blue/image.jpg`
   
-  then mounting your bucket would give a file system with a `blue` file, rather than a `blue` directory, and therefore `image.jpg` will not be accessible. Note that this means deleting the file `blue` will cause a directory `blue/` to become visible, and make `blue/image.jpg` accessible.
+  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
 We test Mountpoint for Amazon S3 against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/0ca2c771237032040bd1ec9405f5ed0ffa5d2eb9/s3-file-connector/tests/reftests/reference.rs#L121) that programmatically encodes the expected mapping between S3 objects and file system structure.
 

@@ -24,7 +24,7 @@ use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::prefetch::part::Part;
-use crate::prefetch::part_queue::PartQueue;
+use crate::prefetch::part_queue::{unbounded_part_queue, PartQueue};
 use crate::sync::{Arc, RwLock};
 
 type TaskError<Client> = ObjectClientError<GetObjectError, <Client as ObjectClient>::ClientError>;
@@ -244,13 +244,13 @@ where
 
         let size = end - start;
         let range = start..end;
-        let part_queue = Arc::new(PartQueue::new());
+
+        let (part_queue, part_queue_producer) = unbounded_part_queue();
 
         trace!(?range, size, "spawning request");
 
         let request_task = {
             let client = Arc::clone(&self.inner.client);
-            let part_queue = Arc::clone(&part_queue);
             let bucket = self.bucket.to_owned();
             let key = self.key.to_owned();
             let etag = self.etag.clone();
@@ -260,7 +260,7 @@ where
                 match client.get_object(&bucket, &key, Some(range.clone()), Some(etag)).await {
                     Err(e) => {
                         error!(error=?e, "RequestTask get object failed");
-                        part_queue.push(Err(e));
+                        part_queue_producer.push(Err(e));
                     }
                     Ok(request) => {
                         pin_mut!(request);
@@ -268,11 +268,11 @@ where
                             match request.next().await {
                                 Some(Ok((offset, body))) => {
                                     let part = Part::new(&key, offset, body.into());
-                                    part_queue.push(Ok(part));
+                                    part_queue_producer.push(Ok(part));
                                 }
                                 Some(Err(e)) => {
                                     error!(error=?e, "RequestTask body part failed");
-                                    part_queue.push(Err(e));
+                                    part_queue_producer.push(Err(e));
                                     break;
                                 }
                                 None => break,
@@ -331,7 +331,7 @@ where
 struct RequestTask<E> {
     remaining: usize,
     total_size: usize,
-    part_queue: Arc<PartQueue<E>>,
+    part_queue: PartQueue<E>,
 }
 
 impl<E: std::error::Error + Send + Sync> RequestTask<E> {
@@ -347,6 +347,9 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
 pub enum PrefetchReadError<E: std::error::Error> {
     #[error("get request failed")]
     GetRequestFailed(#[from] E),
+
+    #[error("get request terminated unexpectedly")]
+    GetRequestTerminatedUnexpectedly,
 }
 
 #[cfg(test)]

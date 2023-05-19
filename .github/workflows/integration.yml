@@ -15,11 +15,11 @@ env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  S3_BUCKET_NAME: s3-file-connector-github-test-bucket
-  S3_BUCKET_TEST_PREFIX: github-actions-tmp/run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
+  S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+  S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_TEST_PREFIX }}run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
   # A bucket our IAM role has no access to, but is in the right region, for permissions tests
-  S3_FORBIDDEN_BUCKET_NAME: s3-file-connector-github-test-bucket-forbidden
-  S3_REGION: us-east-1
+  S3_FORBIDDEN_BUCKET_NAME: ${{ vars.S3_FORBIDDEN_BUCKET_NAME }}
+  S3_REGION: ${{ vars.S3_REGION }}
   RUST_FEATURES: fuse_tests,s3_tests
 
 permissions:
@@ -41,8 +41,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
-        aws-region: us-east-1
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
       uses: actions/checkout@v3
       with:
@@ -83,6 +83,62 @@ jobs:
           target/
         key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
 
+  arm64-test:
+    name: Tests (arm64)
+    runs-on: [self-hosted, linux, arm64]
+
+    environment: ${{ inputs.environment }}
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Restore Cargo cache
+      id: restore-cargo-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-integration-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install dependencies
+      run: |
+        sudo yum update
+        sudo yum install -y cmake3 clang-devel pkgconfig
+    - name: Install fuse
+      run: sudo yum install -y fuse fuse-devel
+    - name: Configure fuse
+      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    - name: Run tests
+      run: cargo test --features $RUST_FEATURES
+    - name: Save Cargo cache
+      uses: actions/cache/save@v3
+      if: inputs.environment != 'PR integration tests'
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
+
   asan:
     name: Address sanitizer
     runs-on: ubuntu-22.04
@@ -95,8 +151,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
-        role-to-assume: arn:aws:iam::360461222476:role/GitHub-Actions-Role
-        aws-region: us-east-1
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
       uses: actions/checkout@v3
       with:

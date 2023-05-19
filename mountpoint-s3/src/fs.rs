@@ -351,7 +351,9 @@ where
 
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
             Ok(body) => reply.data(&body),
-            Err(PrefetchReadError::GetRequestFailed(_)) => reply.error(libc::EIO),
+            Err(PrefetchReadError::GetRequestFailed(_)) | Err(PrefetchReadError::GetRequestTerminatedUnexpectedly) => {
+                reply.error(libc::EIO)
+            }
         }
     }
 
@@ -590,6 +592,11 @@ where
                 Ok(())
             }
         }
+    }
+
+    pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), libc::c_int> {
+        let mut dir_handles = self.dir_handles.write().await;
+        dir_handles.remove(&fh).map(|_| ()).ok_or(libc::EBADF)
     }
 }
 

@@ -80,6 +80,12 @@ Replace `DOC-EXAMPLE-BUCKET` with the name of your bucket.
         --env AWS_DEFAULT_REGION \
         mount-s3 /bin/bash -c "./mount-s3 DOC-EXAMPLE-BUCKET /mnt; ls -l /mnt"
 
+### Mountpoint for Amazon S3 using AUR (Unofficial)
+
+If you're using Arch Linux, you can use the unofficial [AUR](https://aur.archlinux.org/packages/mountpoint-s3-git) package. Using [Yay](https://github.com/Jguer/yay):
+
+    yay -S mountpoint-s3-git
+
 ### Configuration
 
 For the alpha release, additional configuration is required to use Mountpoint for Amazon S3 in some circumstances:

@@ -2,6 +2,7 @@
 
 pub mod common;
 
+use std::ops::Range;
 use std::option::Option::None;
 use std::str::FromStr;
 
@@ -12,39 +13,21 @@ use futures::stream::StreamExt;
 use mountpoint_s3_client::ETag;
 use mountpoint_s3_client::{GetObjectError, ObjectClient, ObjectClientError, S3CrtClient};
 
+use test_case::test_case;
+
+#[test_case(1, None; "1-byte object")]
+#[test_case(10, None; "small object")]
+#[test_case(30000000, None; "large object")]
+#[test_case(1, Some(0..1); "1-byte object with range")]
+#[test_case(10, Some(0..4); "small object with range")]
+#[test_case(30000000, Some(10000000..30000000); "large object with range")]
 #[tokio::test]
-async fn test_get_object() {
+async fn test_get_object(size: usize, range: Option<Range<u64>>) {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
 
-    // Create one object named "hello"
-    let key = format!("{prefix}/hello");
-    let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
-        .key(&key)
-        .body(ByteStream::from(Bytes::from_static(body)))
-        .send()
-        .await
-        .unwrap();
-
-    let client: S3CrtClient = get_test_client();
-
-    let result = client
-        .get_object(&bucket, &key, None, None)
-        .await
-        .expect("get_object should succeed");
-    check_get_result(result, None, &body[..]).await;
-}
-
-#[tokio::test]
-async fn test_get_object_large() {
-    let sdk_client = get_test_sdk_client().await;
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_large");
-
-    let key = format!("{prefix}/large");
-    let body = vec![0x42; 30000000];
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; size];
     sdk_client
         .put_object()
         .bucket(&bucket)
@@ -57,22 +40,14 @@ async fn test_get_object_large() {
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, range.clone(), None)
         .await
         .expect("get_object should succeed");
-    check_get_result(result, None, &body[..]).await;
-
-    let range = (body.len() / 3) as u64..body.len() as u64;
-    let result = client
-        .get_object(&bucket, &key, Some(range.clone()), None)
-        .await
-        .expect("get_object failed");
-    check_get_result(
-        result,
-        Some(range.clone()),
-        &body[range.start as usize..range.end as usize],
-    )
-    .await;
+    let expected = match range {
+        Some(Range { start, end }) => &body[start as usize..end as usize],
+        None => &body,
+    };
+    check_get_result(result, range, expected).await;
 }
 
 #[tokio::test]

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use fuser::{Filesystem, Session, SessionUnmounter};
-use tracing::{error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::sync::mpsc;
 use crate::sync::thread;
@@ -37,7 +37,7 @@ impl FuseSession {
                         // SAFETY: this syscall is available since Linux 2.4.11 but glibc didn't
                         // wrap it until very recently.
                         let tid = unsafe { libc::syscall(libc::SYS_gettid) };
-                        info!("fuse worker {i} is thread ID {tid}");
+                        debug!("fuse worker {i} is thread ID {tid}");
                     }
                     session.run()
                 })
