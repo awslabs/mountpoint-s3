@@ -102,7 +102,7 @@ where
     let filename = "nested_file";
     let filepath = empty_dirpath.join(filename);
     let file_err = fs::write(filepath, "Hello World").expect_err("Cannot create file in a removed directory");
-    assert_eq!(file_err.raw_os_error(), Some(libc::EPERM));
+    assert_eq!(file_err.raw_os_error(), Some(libc::ENOENT));
 
     let dirname = "nested_dir";
     let dirpath = empty_dirpath.join(dirname);
@@ -110,7 +110,7 @@ where
         .recursive(false)
         .create(dirpath)
         .expect_err("Cannot create a directory in a removed directory");
-    assert_eq!(dir_err.raw_os_error(), Some(libc::EPERM));
+    assert_eq!(dir_err.raw_os_error(), Some(libc::ENOENT));
 }
 
 #[test_case(""; "no prefix")]
