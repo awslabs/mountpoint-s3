@@ -30,7 +30,7 @@ use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{debug, error, trace, warn};
+use tracing::{error, trace, warn};
 
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -360,7 +360,7 @@ impl Superblock {
     }
 
     /// Remove local-only empty directory, i.e., the ones created by mkdir.
-    /// It does not affects empty directories represented remotely with directory markers.  
+    /// It does not affect empty directories represented remotely with directory markers.  
     pub async fn rmdir<OC: ObjectClient>(
         &self,
         client: &OC,
@@ -1380,14 +1380,16 @@ mod tests {
         let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
         let parent_state = parent.inner.sync.read().unwrap();
         let parent_kind = &parent_state.kind_data;
-        if let InodeKindData::Directory {
-            children,
-            writing_children,
-            ..
-        } = parent_kind
-        {
-            assert!(writing_children.get(&inode.ino()).is_none());
-            assert!(children.get(inode.name()).is_none());
+        match parent_kind {
+            InodeKindData::File {} => unreachable!("Parent can only be a Directory"),
+            InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } => {
+                assert!(writing_children.get(&inode.ino()).is_none());
+                assert!(children.get(inode.name()).is_none());
+            }
         }
 
         let inode_state = inode.inner.sync.read().unwrap();
