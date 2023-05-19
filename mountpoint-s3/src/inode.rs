@@ -417,7 +417,7 @@ impl Superblock {
                 ..
             } => {
                 assert!(writing_children.remove(&inode.ino()));
-                children.remove(inode.name()).is_none();
+                children.remove(inode.name());
 
                 match &mut inode_state.kind_data {
                     InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
