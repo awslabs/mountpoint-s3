@@ -55,12 +55,12 @@ where
     assert_eq!(dir_entry_names, vec![empty_dirname, non_empty_dirname]);
 
     // explicitly testing remote directories not getting removed
-    test_client
-        .put_object("test_dir/remote_dir/hello.txt", b"hello world")
-        .unwrap();
     let remote_dirname = "remote_dir";
+    test_client
+        .put_object(&format!("{main_dirname}/{remote_dirname}/hello.txt"), b"hello world")
+        .unwrap();
     let remote_path = main_path.join(remote_dirname);
-    let err = fs::remove_dir(remote_path).expect_err("removing remote direcotry should fail");
+    let err = fs::remove_dir(remote_path).expect_err("removing remote directory should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
     // checking if the test directory has correct entries
@@ -80,4 +80,48 @@ fn rmdir_test_mock(prefix: &str) {
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_test_s3(prefix: &str) {
     rmdir_test(crate::fuse_tests::s3_session::new, prefix);
+}
+
+fn create_after_rmdir_test<F>(creator_fn: F, prefix: &str)
+where
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let (mount_point, _session, _test_client) = creator_fn(prefix, Default::default());
+    // Create local directory
+    let main_dirname = "test_dir";
+    let main_path = mount_point.path().join(main_dirname);
+    let empty_dirname = "local_empty_dir";
+    let empty_dirpath = main_path.join(empty_dirname);
+
+    DirBuilder::new().recursive(true).create(&empty_dirpath).unwrap();
+
+    // remove the directory
+    fs::remove_dir(&empty_dirpath).expect("should be able to remove empty directory");
+
+    // trying to write a file and a sub-directory in the removed directory
+    let filename = "nested_file";
+    let filepath = empty_dirpath.join(filename);
+    let file_err = fs::write(filepath, "Hello World").expect_err("Cannot create file in a removed directory");
+    assert_eq!(file_err.raw_os_error(), Some(libc::EPERM));
+
+    let dirname = "nested_dir";
+    let dirpath = empty_dirpath.join(dirname);
+    let dir_err = DirBuilder::new()
+        .recursive(false)
+        .create(dirpath)
+        .expect_err("Cannot create a directory in a removed directory");
+    assert_eq!(dir_err.raw_os_error(), Some(libc::EPERM));
+}
+
+#[test_case(""; "no prefix")]
+#[test_case("rmdir_test"; "prefix")]
+fn create_after_rmdir_test_mock(prefix: &str) {
+    create_after_rmdir_test(crate::fuse_tests::mock_session::new, prefix);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case(""; "no prefix")]
+#[test_case("rmdir_test"; "prefix")]
+fn create_after_rmdir_test_s3(prefix: &str) {
+    create_after_rmdir_test(crate::fuse_tests::s3_session::new, prefix);
 }

@@ -339,7 +339,7 @@ impl Superblock {
         }
         // If Parent directory was deleted concurrently
         if *deleted {
-            return Err(InodeError::ParentDoesNotExist(parent_inode.ino()));
+            return Err(InodeError::InodeDoesNotExist(parent_inode.ino()));
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
@@ -387,9 +387,8 @@ impl Superblock {
             }
 
             WriteStatus::LocalUnopened => {
-                let inode_kind_data = &inode_state.kind_data;
                 // A local directory can only contain local children.
-                match inode_kind_data {
+                match &inode_state.kind_data {
                     InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
                     InodeKindData::Directory {
                         writing_children,
@@ -418,11 +417,9 @@ impl Superblock {
                 ..
             } => {
                 assert!(writing_children.remove(&inode.ino()));
-                if children.remove(inode.name()).is_none() {
-                    debug!("child was not present, another operation may have occurred in parallel");
-                }
-                let inode_kind_data = &mut inode_state.kind_data;
-                match inode_kind_data {
+                children.remove(inode.name()).is_none();
+
+                match &mut inode_state.kind_data {
                     InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
                     InodeKindData::Directory { deleted, .. } => *deleted = true,
                 }
@@ -481,7 +478,7 @@ impl SuperblockInner {
                     InodeKindData::Directory {
                         children,
                         writing_children,
-                        deleted: _,
+                        ..
                     } => {
                         if writing_children.contains(&inode.ino()) {
                             // Return the local inode.
@@ -608,7 +605,7 @@ impl SuperblockInner {
             InodeKindData::Directory {
                 children,
                 writing_children,
-                deleted: _,
+                ..
             } => {
                 children.insert(name.to_owned(), inode.clone());
                 if is_new_file {
@@ -829,7 +826,7 @@ enum InodeKindData {
         /// A set of inode numbers that have been opened for write but not completed yet.
         writing_children: HashSet<InodeNo>,
 
-        /// Flag for Directory being Deleted
+        /// True if this directory has been deleted (`rmdir`) from its parent
         deleted: bool,
     },
 }
@@ -926,8 +923,6 @@ pub enum InodeError {
     CannotRemoveRemoteDirectory(InodeNo),
     #[error("non-empty directory cannot be removed at inode {0}")]
     DirectoryNotEmpty(InodeNo),
-    #[error("parent inode {0} does not exist")]
-    ParentDoesNotExist(InodeNo),
 }
 
 #[cfg(test)]
@@ -1279,6 +1274,45 @@ mod tests {
         assert!(!client.contains_prefix(&prefix));
     }
 
+    // testing the case of concurrent deletion of parent before acquiring the lock on parent in create
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_concurrent_create_rmdir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .unwrap();
+
+        // Marking deleted status as true to denote concurrent rmdir
+        {
+            let mut inode_state = inode.inner.sync.write().unwrap();
+
+            match &mut inode_state.kind_data {
+                InodeKindData::File {} => unreachable!("Created a directory"),
+                InodeKindData::Directory { deleted, .. } => *deleted = true,
+            }
+        }
+        // ending the lifetime of rwlock
+
+        // Create child directory
+        let child_dirname = "child_dir";
+        superblock
+            .create(&client, inode.ino(), child_dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect_err("Should not create sub-directory in a directory with deleted status");
+    }
+
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
@@ -1302,7 +1336,7 @@ mod tests {
         superblock
             .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
             .await
-            .unwrap();
+            .expect("rmdir on empty local directory should succeed");
 
         let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
         let parent_state = parent.inner.sync.read().unwrap();

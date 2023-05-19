@@ -621,7 +621,6 @@ impl From<InodeError> for i32 {
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
             InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
-            InodeError::ParentDoesNotExist(_) => libc::ENOENT,
         }
     }
 }
