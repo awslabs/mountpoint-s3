@@ -92,7 +92,10 @@ Empty directory removal (`rmdir`) is not currently supported, but will be [in th
 
 * `rmdir` will only delete empty directories created by `mkdir`.
 * `rmdir` will fail on directories backed on S3 by a directory marker (i.e. zero-byte object with `<directory-name>/` key).
-* For a directory created by `mkdir`, any future `rmdir` will have no effect once at least one file within the directory has been committed to S3.
+* As soon as a file is committed to the S3 bucket by Mountpoint,
+  the directory will be considered to exist implicitly.
+  If Mountpoint later observes that there are no files existing for that directory in S3, 
+  Mountpoint will consider the directory to have been deleted.
 * On success, the directory will be deleted immediately. Subsequent reads or writes to the directory (e.g. creating a file or subdirectory) will fail.
 
 Synchronization operations (`fsync`) on directories are not supported.
