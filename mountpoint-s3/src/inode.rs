@@ -1340,7 +1340,7 @@ mod tests {
             .lookup(&client, FUSE_ROOT_INODE, dirname.as_ref())
             .await
             .expect_err("should not do lookup on removed directory");
-        
+
         // currently readdir and getattr is working, because inode no still exist in superblock hashmap
         superblock
             .readdir(&client, inode.ino(), 2)
