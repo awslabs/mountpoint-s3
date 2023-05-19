@@ -933,7 +933,6 @@ mod tests {
         mock_client::{MockClient, MockClientConfig, MockObject},
         ETag,
     };
-    use rand_chacha::rand_core::le;
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
@@ -1316,6 +1315,47 @@ mod tests {
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
+    async fn test_readdir_lookup_after_rmdir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        superblock
+            .lookup(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect_err("should not do lookup on removed directory");
+        
+        // currently readdir and getattr is working, because inode no still exist in superblock hashmap
+        superblock
+            .readdir(&client, inode.ino(), 2)
+            .await
+            .expect("Since its not checking parent, it is able to perform readdir on removed directory");
+
+        superblock
+            .getattr(&client, inode.ino())
+            .await
+            .expect("Since its not checking parent, it is able to perform getattr on removed directory");
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
     async fn test_rmdir_delete_status(prefix: &str) {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
@@ -1332,7 +1372,6 @@ mod tests {
             .await
             .expect("Should be able to create directory");
 
-        // unwrapping rmdir because testing rmdir to succeed
         superblock
             .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
             .await
