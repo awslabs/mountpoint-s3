@@ -1,6 +1,7 @@
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
-use std::fs::{self, DirBuilder};
+use std::fs::{self, DirBuilder, File};
+use std::io::Write;
 use tempfile::TempDir;
 use test_case::test_case;
 
@@ -31,13 +32,22 @@ where
     // Write an object into the directory
     let filename = "nested_file";
     let filepath = non_empty_dirpath.join(filename);
-    fs::write(filepath, "").unwrap();
+    let mut file = File::create(filepath).expect("should be able open a file write");
 
     // remove the directories
     fs::remove_dir(&empty_dirpath).expect("should be able to remove empty directory");
 
     let err = fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail");
-    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+    assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
+
+    file.write_all(b"").unwrap();
+    let err =
+        fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");
+    assert_eq!(
+        err.raw_os_error(),
+        Some(libc::EPERM),
+        "rmdir should return EPERM for remote directories"
+    );
 
     // readdir should now show that the empty directory is deleted
     let mut read_dir_iter = fs::read_dir(&main_path).unwrap();
