@@ -47,7 +47,7 @@ where
     assert_eq!(
         err.raw_os_error(),
         Some(libc::EPERM),
-        "It is wrting to remote after closing"
+        "After the file is closed, we expect the directory to become remote"
     );
 
     // readdir should now show that the empty directory is deleted

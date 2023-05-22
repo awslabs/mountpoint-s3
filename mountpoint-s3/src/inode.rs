@@ -382,7 +382,6 @@ impl Superblock {
             WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
 
             WriteStatus::Remote => {
-                error!(parent = parent_ino, ?name, "rmdir called on a remote directory",);
                 return Err(InodeError::CannotRemoveRemoteDirectory(inode.ino()));
             }
 
