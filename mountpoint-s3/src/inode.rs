@@ -433,12 +433,25 @@ impl Superblock {
 impl SuperblockInner {
     /// Retrieve the inode for the given number if it exists
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
-        self.inodes
-            .read()
-            .unwrap()
-            .get(&ino)
-            .cloned()
-            .ok_or(InodeError::InodeDoesNotExist(ino))
+        let inode = self.inodes.read().unwrap().get(&ino).cloned();
+
+        match inode {
+            Some(inode) => {
+                let inode_state = inode.inner.sync.read().unwrap();
+                match &inode_state.kind_data {
+                    // TODO: Include removal check for files
+                    InodeKindData::File {} => Ok(inode.clone()),
+                    InodeKindData::Directory { deleted, .. } => {
+                        if *deleted {
+                            Err(InodeError::InodeDoesNotExist(ino))
+                        } else {
+                            Ok(inode.clone())
+                        }
+                    }
+                }
+            }
+            None => Err(InodeError::InodeDoesNotExist(ino)),
+        }
     }
 
     /// Update the inode with the given name in a parent directory with the remote data.
@@ -1310,6 +1323,12 @@ mod tests {
             .create(&client, inode.ino(), child_dirname.as_ref(), InodeKind::Directory)
             .await
             .expect_err("Should not create sub-directory in a directory with deleted status");
+
+        let child_filename = "child_file";
+        superblock
+            .create(&client, inode.ino(), child_filename.as_ref(), InodeKind::File)
+            .await
+            .expect_err("Should not create a file in a directory with deleted status");
     }
 
     #[test_case(""; "unprefixed")]
@@ -1341,16 +1360,15 @@ mod tests {
             .await
             .expect_err("should not do lookup on removed directory");
 
-        // currently readdir and getattr is working, because inode no still exist in superblock hashmap
         superblock
             .readdir(&client, inode.ino(), 2)
             .await
-            .expect("Since its not checking parent, it is able to perform readdir on removed directory");
+            .expect_err("should not do readdir on removed directory");
 
         superblock
             .getattr(&client, inode.ino())
             .await
-            .expect("Since its not checking parent, it is able to perform getattr on removed directory");
+            .expect_err("should not do getattr on removed directory");
     }
 
     #[test_case(""; "unprefixed")]
@@ -1379,8 +1397,7 @@ mod tests {
 
         let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
         let parent_state = parent.inner.sync.read().unwrap();
-        let parent_kind = &parent_state.kind_data;
-        match parent_kind {
+        match &parent_state.kind_data {
             InodeKindData::File {} => unreachable!("Parent can only be a Directory"),
             InodeKindData::Directory {
                 children,
@@ -1397,6 +1414,45 @@ mod tests {
         if let InodeKindData::Directory { deleted, .. } = inode_kind {
             assert!(deleted);
         }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_parent_readdir_after_rmdir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        let dirname_to_stay = "staying_local_dir";
+        superblock
+            .create(&client, FUSE_ROOT_INODE, dirname_to_stay.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        // removed directory should not appear in readdir of parent
+        let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        assert_eq!(
+            entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+            &[dirname_to_stay]
+        );
     }
 
     #[tokio::test]

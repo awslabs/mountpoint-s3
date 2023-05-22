@@ -31,17 +31,12 @@ where
     // Write an object into the directory
     let filename = "nested_file";
     let filepath = non_empty_dirpath.join(filename);
-    fs::write(filepath.clone(), "").unwrap();
+    fs::write(filepath, "").unwrap();
 
     // remove the directories
     fs::remove_dir(&empty_dirpath).expect("should be able to remove empty directory");
 
     let err = fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail");
-    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
-
-    drop(filepath);
-    let err = fs::remove_dir(&non_empty_dirpath)
-        .expect_err("removing non-empty directory should fail even after closing the file");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
     // readdir should now show that the empty directory is deleted
@@ -94,6 +89,20 @@ where
     let read_dir_iter = fs::read_dir(&main_path).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec![remote_dirname]);
+
+    let empty_remote_dirname = "empty_remote_dir";
+    // adding zero byte directory marker
+    test_client
+        .put_object(&format!("{main_dirname}/{empty_remote_dirname}"), b"")
+        .unwrap();
+    let empty_remote_path = main_path.join(empty_remote_dirname);
+    let err = fs::remove_dir(empty_remote_path).expect_err("removing remote directory should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+
+    // checking if the test directory has correct entries
+    let read_dir_iter = fs::read_dir(&main_path).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec![remote_dirname, empty_remote_dirname]);
 }
 
 #[test_case(""; "no prefix")]
