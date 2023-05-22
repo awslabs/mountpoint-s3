@@ -43,11 +43,7 @@ where
     file.write_all(b"").unwrap();
     let err =
         fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");
-    assert_eq!(
-        err.raw_os_error(),
-        Some(libc::EPERM),
-        "rmdir should return EPERM for remote directories"
-    );
+    assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
 
     // readdir should now show that the empty directory is deleted
     let mut read_dir_iter = fs::read_dir(&main_path).unwrap();
