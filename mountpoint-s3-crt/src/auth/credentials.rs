@@ -1,5 +1,6 @@
 //! AWS credentials providers
 
+use std::fmt::Debug;
 use std::ptr::NonNull;
 
 use mountpoint_s3_crt_sys::{
@@ -32,7 +33,6 @@ pub struct CredentialsProviderProfileOptions<'a> {
 }
 
 /// Options for creating a static credentials provider
-#[derive(Debug)]
 pub struct CredentialsProviderStaticOptions<'a> {
     /// AWS access key ID
     pub access_key_id: &'a str,
@@ -40,6 +40,16 @@ pub struct CredentialsProviderStaticOptions<'a> {
     pub secret_access_key: &'a str,
     /// AWS session token (only required for some credentials sources, e.g. STS)
     pub session_token: Option<&'a str>,
+}
+
+impl Debug for CredentialsProviderStaticOptions<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialsProviderStaticOptions")
+            .field("access_key_id", &"** redacted **")
+            .field("secret_access_key", &"** redacted **")
+            .field("sesssion_token", &self.session_token.map(|_| "** redacted **"))
+            .finish()
+    }
 }
 
 /// A credentials provider is an object that has an asynchronous query function for retrieving AWS

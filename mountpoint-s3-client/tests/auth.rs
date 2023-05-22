@@ -25,7 +25,6 @@ async fn test_static_provider() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_static_provider");
 
-    // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
     sdk_client
@@ -45,7 +44,7 @@ async fn test_static_provider() {
     let credentials = sdk_provider
         .provide_credentials()
         .await
-        .expect("can't get static credentials");
+        .expect("static credentials should be available");
 
     // Build a S3CrtClient that uses a static credentials provider with the creds we just got
     let config = CredentialsProviderStaticOptions {
@@ -53,12 +52,12 @@ async fn test_static_provider() {
         secret_access_key: credentials.secret_access_key(),
         session_token: credentials.session_token(),
     };
-    let provider = CredentialsProvider::new_static(&Allocator::default(), config).expect("couldn't create provider");
+    let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
     let config = S3ClientConfig {
         auth_config: S3ClientAuthConfig::Provider(provider),
         ..Default::default()
     };
-    let client = S3CrtClient::new(&get_test_region(), config).expect("couldn't create client");
+    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
 
     let result = client
         .get_object(&bucket, &key, None, None)
@@ -75,12 +74,12 @@ async fn test_static_provider() {
         secret_access_key: bogus_secret_access_key,
         session_token: credentials.session_token(),
     };
-    let provider = CredentialsProvider::new_static(&Allocator::default(), config).expect("couldn't create provider");
+    let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
     let config = S3ClientConfig {
         auth_config: S3ClientAuthConfig::Provider(provider),
         ..Default::default()
     };
-    let client = S3CrtClient::new(&get_test_region(), config).expect("couldn't create client");
+    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
 
     let mut request = client
         .get_object(&bucket, &key, None, None)
@@ -104,7 +103,6 @@ async fn test_profile_provider_async() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider");
 
-    // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
     sdk_client
@@ -124,7 +122,7 @@ async fn test_profile_provider_async() {
     let credentials = sdk_provider
         .provide_credentials()
         .await
-        .expect("can't get static credentials");
+        .expect("static credentials should be available");
 
     // Write the credentials in CLI config format into a temp file
     let profile_name = "mountpoint-profile";
@@ -155,7 +153,7 @@ aws_secret_access_key = {}",
         auth_config: S3ClientAuthConfig::Profile(profile_name.to_owned()),
         ..Default::default()
     };
-    let client = S3CrtClient::new(&get_test_region(), config).expect("couldn't create client");
+    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
 
     let result = client
         .get_object(&bucket, &key, None, None)
@@ -173,7 +171,7 @@ aws_secret_access_key = {}",
         auth_config: S3ClientAuthConfig::Profile(profile_name.to_owned()),
         ..Default::default()
     };
-    let client = S3CrtClient::new(&get_test_region(), config).expect("couldn't create client");
+    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
 
     let mut request = client
         .get_object(&bucket, &key, None, None)

@@ -66,7 +66,7 @@ pub enum S3ClientAuthConfig {
     #[default]
     Default,
     /// Do not sign requests at all
-    None,
+    NoSigning,
     /// Explicitly load the given profile name from the AWS CLI configuration file
     Profile(String),
     /// Use a custom credentials provider
@@ -126,7 +126,7 @@ impl S3CrtClient {
                         .map_err(NewClientError::ProviderFailure)?,
                 )
             }
-            S3ClientAuthConfig::None => None,
+            S3ClientAuthConfig::NoSigning => None,
             S3ClientAuthConfig::Profile(profile_name) => {
                 let credentials_profile_options = CredentialsProviderProfileOptions {
                     bootstrap: &mut client_bootstrap,

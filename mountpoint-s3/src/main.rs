@@ -375,7 +375,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
     let auth_config = if args.no_sign_request {
-        S3ClientAuthConfig::None
+        S3ClientAuthConfig::NoSigning
     } else if let Some(profile_name) = args.profile {
         // The CRT profile provider will prefer the AWS_PROFILE environment variable over this
         // override if set, which is the opposite of the AWS CLI's documented behavior. Let's match
