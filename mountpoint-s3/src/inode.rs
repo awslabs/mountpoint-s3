@@ -1301,8 +1301,21 @@ mod tests {
 
         // Marking deleted status as true to denote concurrent rmdir
         {
-            let mut inode_state = inode.inner.sync.write().unwrap();
+            let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
+            let mut parent_state = parent.inner.sync.write().unwrap();
+            match &mut parent_state.kind_data {
+                InodeKindData::File {} => unreachable!("Parent is a directory"),
+                InodeKindData::Directory {
+                    children,
+                    writing_children,
+                    ..
+                } => {
+                    children.remove(inode.name());
+                    writing_children.remove(&inode.ino());
+                }
+            }
 
+            let mut inode_state = inode.inner.sync.write().unwrap();
             match &mut inode_state.kind_data {
                 InodeKindData::File {} => unreachable!("Created a directory"),
                 InodeKindData::Directory { deleted, .. } => *deleted = true,
