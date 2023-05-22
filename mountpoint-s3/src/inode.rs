@@ -433,24 +433,18 @@ impl Superblock {
 impl SuperblockInner {
     /// Retrieve the inode for the given number if it exists
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
-        let inode = self.inodes.read().unwrap().get(&ino).cloned();
-
-        match inode {
-            Some(inode) => {
-                let inode_state = inode.inner.sync.read().unwrap();
-                match &inode_state.kind_data {
-                    // TODO: Include removal check for files
-                    InodeKindData::File {} => Ok(inode.clone()),
-                    InodeKindData::Directory { deleted, .. } => {
-                        if *deleted {
-                            Err(InodeError::InodeDoesNotExist(ino))
-                        } else {
-                            Ok(inode.clone())
-                        }
-                    }
-                }
-            }
-            None => Err(InodeError::InodeDoesNotExist(ino)),
+        let inode = self
+            .inodes
+            .read()
+            .unwrap()
+            .get(&ino)
+            .cloned()
+            .ok_or(InodeError::InodeDoesNotExist(ino))?;
+        let inode_state = inode.inner.sync.read().unwrap();
+        match &inode_state.kind_data {
+            // TODO: Include removal check for files
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(ino)),
+            _ => Ok(inode.clone()),
         }
     }
 
@@ -1315,7 +1309,6 @@ mod tests {
                 InodeKindData::Directory { deleted, .. } => *deleted = true,
             }
         }
-        // ending the lifetime of rwlock
 
         // Create child directory
         let child_dirname = "child_dir";
