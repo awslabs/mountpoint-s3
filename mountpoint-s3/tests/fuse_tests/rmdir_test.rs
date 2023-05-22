@@ -32,7 +32,7 @@ where
     // Write an object into the directory
     let filename = "nested_file";
     let filepath = non_empty_dirpath.join(filename);
-    let mut file = File::create(filepath).expect("should be able open a file write");
+    let mut file = File::create(filepath).expect("should be able open a file to write");
 
     // remove the directories
     fs::remove_dir(&empty_dirpath).expect("should be able to remove empty directory");
@@ -40,7 +40,8 @@ where
     let err = fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail");
     assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
 
-    file.write_all(b"").unwrap();
+    file.write_all(b"Hello World").unwrap();
+    drop(file);
     let err =
         fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");
     assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
