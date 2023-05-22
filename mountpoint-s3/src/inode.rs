@@ -1410,8 +1410,7 @@ mod tests {
         }
 
         let inode_state = inode.inner.sync.read().unwrap();
-        let inode_kind = &inode_state.kind_data;
-        if let InodeKindData::Directory { deleted, .. } = inode_kind {
+        if let InodeKindData::Directory { deleted, .. } = &inode_state.kind_data {
             assert!(deleted);
         }
     }
