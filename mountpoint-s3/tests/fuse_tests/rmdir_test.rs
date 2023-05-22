@@ -110,10 +110,21 @@ where
     let err = fs::remove_dir(empty_remote_path).expect_err("removing remote directory should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
+    let remote_filename = "remote_file";
+    test_client
+        .put_object(&format!("{main_dirname}/{remote_filename}"), b"Hello World")
+        .unwrap();
+    let remote_file_path = main_path.join(remote_filename);
+    let err = fs::remove_dir(remote_file_path).expect_err("removing file through rmdir should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::ENOTDIR));
+
     // checking if the test directory has correct entries
     let read_dir_iter = fs::read_dir(&main_path).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
-    assert_eq!(dir_entry_names, vec![empty_remote_dirname, remote_dirname]);
+    assert_eq!(
+        dir_entry_names,
+        vec![empty_remote_dirname, remote_dirname, remote_filename]
+    );
 }
 
 #[test_case(""; "no prefix")]
