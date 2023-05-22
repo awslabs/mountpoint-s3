@@ -47,7 +47,7 @@ impl Debug for CredentialsProviderStaticOptions<'_> {
         f.debug_struct("CredentialsProviderStaticOptions")
             .field("access_key_id", &"** redacted **")
             .field("secret_access_key", &"** redacted **")
-            .field("sesssion_token", &self.session_token.map(|_| "** redacted **"))
+            .field("session_token", &self.session_token.map(|_| "** redacted **"))
             .finish()
     }
 }
