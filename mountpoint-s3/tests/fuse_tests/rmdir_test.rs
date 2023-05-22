@@ -99,7 +99,7 @@ where
     let empty_remote_dirname = "empty_remote_dir";
     // adding zero byte directory marker
     test_client
-        .put_object(&format!("{main_dirname}/{empty_remote_dirname}"), b"")
+        .put_object(&format!("{main_dirname}/{empty_remote_dirname}/"), b"")
         .unwrap();
     let empty_remote_path = main_path.join(empty_remote_dirname);
     let err = fs::remove_dir(empty_remote_path).expect_err("removing remote directory should fail");
