@@ -4,6 +4,13 @@ use mountpoint_s3_crt_sys::aws_checksums_crc32;
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Crc32(u32);
 
+impl Crc32 {
+    /// Create a new CRC32 checksum with the given value.
+    pub fn new(value: u32) -> Crc32 {
+        Crc32(value)
+    }
+}
+
 /// Computes the CRC32 checksum of a byte slice.
 ///
 /// Use [`Hasher`] for more advanced use-cases.
