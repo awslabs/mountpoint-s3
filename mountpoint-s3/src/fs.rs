@@ -106,7 +106,7 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     prefix: Prefix,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
-    file_handles: AsyncRwLock<HashMap<u64, FileHandle<Client, Runtime>>>,
+    file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Runtime>>>>,
 }
 
 impl<Client, Runtime> S3Filesystem<Client, Runtime>
@@ -305,7 +305,7 @@ where
             object_size: lookup.stat.size as u64,
             typ: handle_type,
         };
-        self.file_handles.write().await.insert(fh, handle);
+        self.file_handles.write().await.insert(fh, Arc::new(handle));
 
         Ok(Opened { fh, flags: 0 })
     }
@@ -329,9 +329,12 @@ where
             size
         );
 
-        let file_handles = self.file_handles.read().await;
-        let Some(handle) = file_handles.get(&fh) else {
-            return reply.error(libc::EBADF);
+        let handle = {
+            let file_handles = self.file_handles.read().await;
+            match file_handles.get(&fh) {
+                Some(handle) => handle.clone(),
+                None => return reply.error(libc::EBADF),
+            }
         };
         let file_etag: ETag;
         let mut request = match &handle.typ {
@@ -429,9 +432,12 @@ where
             data.len()
         );
 
-        let file_handles = self.file_handles.read().await;
-        let Some(handle) = file_handles.get(&fh) else {
-            return Err(libc::EBADF);
+        let handle = {
+            let file_handles = self.file_handles.read().await;
+            match file_handles.get(&fh) {
+                Some(handle) => handle.clone(),
+                None => return Err(libc::EBADF),
+            }
         };
         let mut request = match &handle.typ {
             FileHandleType::Write { parts, .. } => parts.lock().await,
@@ -555,6 +561,18 @@ where
         let file_handle = {
             let mut file_handles = self.file_handles.write().await;
             file_handles.remove(&fh).ok_or(libc::EBADF)?
+        };
+
+        // Unwrap the atomic reference to have full ownership.
+        // The kernel should make a release call when there is no more references to the file handle,
+        // if that's not the case we will add it back to the hash table and return an error to the kernel.
+        let file_handle = match Arc::try_unwrap(file_handle) {
+            Ok(handle) => handle,
+            Err(handle) => {
+                error!(fh, "release failed, unable to unwrap file handle reference");
+                self.file_handles.write().await.insert(fh, handle);
+                return Err(libc::EINVAL);
+            }
         };
 
         match file_handle.typ {
