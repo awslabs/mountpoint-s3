@@ -569,6 +569,7 @@ where
         let file_handle = match Arc::try_unwrap(file_handle) {
             Ok(handle) => handle,
             Err(handle) => {
+                error!(fh, "release failed, unable to unwrap file handle reference");
                 self.file_handles.write().await.insert(fh, handle);
                 return Err(libc::EINVAL);
             }
