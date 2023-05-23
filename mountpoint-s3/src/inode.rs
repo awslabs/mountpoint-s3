@@ -1282,6 +1282,90 @@ mod tests {
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
+    async fn test_readdir_lookup_after_rmdir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        superblock
+            .lookup(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect_err("should not do lookup on removed directory");
+
+        superblock
+            .readdir(&client, inode.ino(), 2)
+            .await
+            .expect_err("should not do readdir on removed directory");
+
+        superblock
+            .getattr(&client, inode.ino())
+            .await
+            .expect_err("should not do getattr on removed directory");
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_rmdir_delete_status(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix);
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
+        let parent_state = parent.inner.sync.read().unwrap();
+        match &parent_state.kind_data {
+            InodeKindData::File {} => unreachable!("Parent can only be a Directory"),
+            InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } => {
+                assert!(writing_children.get(&inode.ino()).is_none());
+                assert!(children.get(inode.name()).is_none());
+            }
+        }
+
+        let inode_state = inode.inner.sync.read().unwrap();
+        if let InodeKindData::Directory { deleted, .. } = &inode_state.kind_data {
+            assert!(deleted);
+        }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
     async fn test_parent_readdir_after_rmdir(prefix: &str) {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
