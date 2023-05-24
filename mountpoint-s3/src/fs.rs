@@ -635,7 +635,7 @@ impl From<InodeError> for i32 {
             InodeError::ShadowedByDirectory(_, _) => libc::ENOENT,
             InodeError::FileAlreadyExists(_) => libc::EEXIST,
             // Not obvious what InodeNotWritable, InodeNotReadableWhileWriting should be.
-            // EINVAL or EROFS would also be reasonable -- but we'll treat them like a sealed file for now.
+            // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files for now.
             InodeError::InodeNotWritable(_) => libc::EPERM,
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
