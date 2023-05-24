@@ -34,6 +34,8 @@ use tracing::{error, trace, warn};
 
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
+use crate::sync::RwLockReadGuard;
+use crate::sync::RwLockWriteGuard;
 use crate::sync::{Arc, RwLock};
 
 mod readdir;
@@ -257,9 +259,10 @@ impl Superblock {
         let inode = self.inner.get(ino)?;
 
         // TODO revalidate if expired
-        let stat = inode.inner.sync.read().unwrap().stat.clone();
+        let inode_state = inode.get_inode_state()?;
+        let stat = inode_state.stat.clone();
 
-        Ok(LookedUp { inode, stat })
+        Ok(LookedUp { inode: inode.clone(), stat })
     }
 
     /// Create a new write handle to be used for state transition
@@ -326,7 +329,7 @@ impl Superblock {
             .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
 
         let parent_inode = self.inner.get(dir)?;
-        let mut parent_state = parent_inode.inner.sync.write().unwrap();
+        let mut parent_state = parent_inode.get_mut_inode_state()?;
 
         // Check again for the child now that the parent is locked, since we might have lost to a
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
@@ -374,11 +377,11 @@ impl Superblock {
         }
 
         let parent = self.inner.get(parent_ino)?;
-        let mut parent_state = parent.inner.sync.write().unwrap();
+        let mut parent_state = parent.get_mut_inode_state()?;
 
-        let mut inode_state = inode.inner.sync.write().unwrap();
+        let mut inode_state = inode.get_mut_inode_state()?;
 
-        match inode_state.write_status {
+        match &inode_state.write_status {
             WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
 
             WriteStatus::Remote => {
@@ -389,14 +392,7 @@ impl Superblock {
                 // A local directory can only contain local children.
                 match &inode_state.kind_data {
                     InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
-                    InodeKindData::Directory {
-                        writing_children,
-                        deleted,
-                        ..
-                    } => {
-                        if *deleted {
-                            return Err(InodeError::InodeDoesNotExist(inode.ino()));
-                        }
+                    InodeKindData::Directory { writing_children, .. } => {
                         if !writing_children.is_empty() {
                             return Err(InodeError::DirectoryNotEmpty(inode.ino()));
                         }
@@ -432,19 +428,12 @@ impl Superblock {
 impl SuperblockInner {
     /// Retrieve the inode for the given number if it exists
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
-        let inode = self
-            .inodes
+        self.inodes
             .read()
             .unwrap()
             .get(&ino)
             .cloned()
-            .ok_or(InodeError::InodeDoesNotExist(ino))?;
-        let inode_state = inode.inner.sync.read().unwrap();
-        match &inode_state.kind_data {
-            // TODO: Include removal check for files
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(ino)),
-            _ => Ok(inode.clone()),
-        }
+            .ok_or(InodeError::InodeDoesNotExist(ino))
     }
 
     /// Update the inode with the given name in a parent directory with the remote data.
@@ -464,7 +453,7 @@ impl SuperblockInner {
 
         // Fast path: try with only a read lock on the directory first.
         {
-            let parent_state = parent.inner.sync.read().unwrap();
+            let parent_state = parent.get_inode_state()?;
             match Self::try_update_child(&parent_state, name, &remote)? {
                 UpdateStatus::Neither => return Err(InodeError::FileDoesNotExist),
                 UpdateStatus::Updated(lookedup) => return Ok(lookedup),
@@ -474,7 +463,7 @@ impl SuperblockInner {
 
         // If the fast path failed, take the write lock. We first have to try the update again, as
         // a racing writer might have beat us to the lock after our fast path attempt.
-        let mut parent_state = parent.inner.sync.write().unwrap();
+        let mut parent_state = parent.get_mut_inode_state()?;
         match Self::try_update_child(&parent_state, name, &remote)? {
             UpdateStatus::Neither => Err(InodeError::FileDoesNotExist),
             UpdateStatus::Updated(lookedup) => Ok(lookedup),
@@ -488,8 +477,9 @@ impl SuperblockInner {
                     } => {
                         if writing_children.contains(&inode.ino()) {
                             // Return the local inode.
-                            let stat = inode.inner.sync.read().unwrap().stat.clone();
-                            Ok(LookedUp { inode, stat })
+                            let state = inode.get_inode_state()?;
+                            let stat = state.stat.clone();
+                            Ok(LookedUp { inode: inode.clone(), stat })
                         } else {
                             // Remove from children.
                             // TODO: also handle inode in [Self::inodes].
@@ -528,7 +518,7 @@ impl SuperblockInner {
             (None, Some(inode)) => Ok(UpdateStatus::LocalOnly(inode.clone())),
             (Some(remote), None) => Ok(UpdateStatus::RemoteKey(remote.clone())),
             (Some(remote @ RemoteLookup { kind, stat }), Some(inode)) => {
-                let mut inode_state = inode.inner.sync.write().unwrap();
+                let mut inode_state = inode.get_mut_inode_state()?;
 
                 // In our semantics, directories shadow files of the same name. So if the inode
                 // already exists but the kind has changed, we need to decide what to do.
@@ -671,7 +661,7 @@ impl WriteHandle {
     /// Check the status on the inode and set it to writing state if it's writable
     pub fn start_writing(&self) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
-        let mut state = inode.inner.sync.write().unwrap();
+        let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
@@ -701,9 +691,10 @@ impl WriteHandle {
             loop {
                 assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
                 let ancestor = self.inner.get(ancestor_ino)?;
+                let ancestor_state = ancestor.get_inode_state()?;
                 ancestors.push(ancestor.clone());
                 if ancestor.ino() == ROOT_INODE_NO
-                    || ancestor.inner.sync.read().unwrap().write_status == WriteStatus::Remote
+                    || ancestor_state.write_status == WriteStatus::Remote
                 {
                     break;
                 }
@@ -716,10 +707,10 @@ impl WriteHandle {
         let mut ancestors_states: Vec<_> = ancestors
             .iter()
             .rev()
-            .map(|inode| inode.inner.sync.write().unwrap())
+            .map(|inode| inode.get_mut_inode_state().unwrap())
             .collect();
 
-        let mut state = inode.inner.sync.write().unwrap();
+        let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
@@ -787,7 +778,7 @@ impl Inode {
     }
 
     pub fn start_reading(&self) -> Result<(), InodeError> {
-        let state = self.inner.sync.read().unwrap();
+        let state = self.get_inode_state()?;
         match state.write_status {
             WriteStatus::Remote => Ok(()),
             _ => Err(InodeError::InodeNotReadableWhileWriting(self.ino())),
@@ -797,6 +788,22 @@ impl Inode {
     pub fn finish_reading(&self) -> Result<(), InodeError> {
         // Currently a no-op, but this is where you'd e.g. update atime
         Ok(())
+    }
+
+    fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
+        let inode_state = self.inner.sync.read().unwrap();
+        match &inode_state.kind_data {
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            _ => Ok(inode_state),
+        }
+    }
+
+    fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
+        let inode_state = self.inner.sync.write().unwrap();
+        match &inode_state.kind_data {
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            _ => Ok(inode_state),
+        }
     }
 }
 
@@ -1263,7 +1270,7 @@ mod tests {
             .await
             .expect("lookup should succeed on local dirs");
         assert_eq!(
-            lookedup.inode.inner.sync.read().unwrap().write_status,
+            lookedup.inode.get_inode_state().unwrap().write_status,
             WriteStatus::LocalUnopened
         );
 
@@ -1344,7 +1351,7 @@ mod tests {
             .expect("rmdir on empty local directory should succeed");
 
         let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
-        let parent_state = parent.inner.sync.read().unwrap();
+        let parent_state = parent.get_inode_state().unwrap();
         match &parent_state.kind_data {
             InodeKindData::File {} => unreachable!("Parent can only be a Directory"),
             InodeKindData::Directory {
@@ -1357,10 +1364,9 @@ mod tests {
             }
         }
 
-        let inode_state = inode.inner.sync.read().unwrap();
-        if let InodeKindData::Directory { deleted, .. } = &inode_state.kind_data {
-            assert!(deleted);
-        }
+        inode
+            .get_inode_state()
+            .expect_err("Should not be able to get deleted Inode");
     }
 
     #[test_case(""; "unprefixed")]
@@ -1421,7 +1427,7 @@ mod tests {
                     .unwrap();
 
                 assert_eq!(
-                    dir_lookedup.inode.inner.sync.read().unwrap().write_status,
+                    dir_lookedup.inode.get_inode_state().unwrap().write_status,
                     WriteStatus::LocalUnopened
                 );
 
