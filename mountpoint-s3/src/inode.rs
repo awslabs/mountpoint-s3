@@ -678,8 +678,16 @@ struct InodeInner {
     full_key: String,
     kind: InodeKind,
 
-    // Mutable inode state. This lock should also be used to serialize operations on an inode (like
-    // creating a new child).
+    /// Mutable inode state. This lock should also be held to serialize operations on an inode (like
+    /// creating a new child).
+    ///
+    /// When taking a lock across multiple [Inode]s,
+    /// we must always acquire the locks in the following order to avoid deadlock:
+    ///
+    /// - Any ancestors in descending order, if they need to be locked.
+    /// - Otherwise, ascending order by [InodeNo].
+    ///   This reflects similar behavior in the Kernel's VFS named 'inode pointer order',
+    ///   described in https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
     sync: RwLock<InodeState>,
 }
 
@@ -744,7 +752,11 @@ impl From<InodeKind> for FileType {
 enum InodeKindData {
     File {},
     Directory {
-        /// Mapping from child names to inodes
+        /// Mapping from child names to [Inode]s.
+        ///
+        /// How should this field be used?:
+        /// - **Many operations should maintain** this list.
+        /// - **Only `mknod` and `mkdir` should read** this list, for checking if a file already exists.
         children: HashMap<String, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
