@@ -337,15 +337,11 @@ impl Superblock {
         // Check again for the child now that the parent is locked, since we might have lost to a
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
         // hold that lock across the remote API calls).
-        let InodeKindData::Directory { children, deleted, .. } = &mut parent_state.kind_data else {
+        let InodeKindData::Directory { children, .. } = &mut parent_state.kind_data else {
             return Err(InodeError::NotADirectory(dir));
         };
         if let Some(inode) = children.get(name) {
             return Err(InodeError::FileAlreadyExists(inode.ino()));
-        }
-        // If Parent directory was deleted concurrently
-        if *deleted {
-            return Err(InodeError::InodeDoesNotExist(parent_inode.ino()));
         }
 
         let expiry = Instant::now(); // TODO local inode stats never expire?
