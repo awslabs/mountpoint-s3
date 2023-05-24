@@ -262,7 +262,10 @@ impl Superblock {
         let inode_state = inode.get_inode_state()?;
         let stat = inode_state.stat.clone();
 
-        Ok(LookedUp { inode: inode.clone(), stat })
+        Ok(LookedUp {
+            inode: inode.clone(),
+            stat,
+        })
     }
 
     /// Create a new write handle to be used for state transition
@@ -479,7 +482,10 @@ impl SuperblockInner {
                             // Return the local inode.
                             let state = inode.get_inode_state()?;
                             let stat = state.stat.clone();
-                            Ok(LookedUp { inode: inode.clone(), stat })
+                            Ok(LookedUp {
+                                inode: inode.clone(),
+                                stat,
+                            })
                         } else {
                             // Remove from children.
                             // TODO: also handle inode in [Self::inodes].
@@ -693,9 +699,7 @@ impl WriteHandle {
                 let ancestor = self.inner.get(ancestor_ino)?;
                 let ancestor_state = ancestor.get_inode_state()?;
                 ancestors.push(ancestor.clone());
-                if ancestor.ino() == ROOT_INODE_NO
-                    || ancestor_state.write_status == WriteStatus::Remote
-                {
+                if ancestor.ino() == ROOT_INODE_NO || ancestor_state.write_status == WriteStatus::Remote {
                     break;
                 }
                 ancestor_ino = ancestor.parent();
