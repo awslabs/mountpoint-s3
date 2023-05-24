@@ -358,6 +358,10 @@ impl Superblock {
     /// Unlink the entry described by `parent_ino` and `name`.
     ///
     /// If the entry exists, delete it from S3 and the superblock.
+    /// 
+    /// We know that the Linux Kernel's VFS will lock both the parent and child,
+    /// so we can safely ignore concurrent operations within the same Mountpoint process to the file and its parent.
+    /// See: https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
     pub async fn unlink<OC: ObjectClient>(
         &self,
         client: &OC,
@@ -371,12 +375,13 @@ impl Superblock {
             return Err(InodeError::IsDirectory(inode.ino()));
         }
 
-        let write_status = {
-            let inode_state = inode.inner.sync.read().unwrap();
-            inode_state.write_status
-        };
+        // Take exclusive write locks early.
+        // We know that the VFS will already have locked its equivalent representations.
+        let mut parent_state = parent.inner.sync.write().unwrap();
+        // Take a write lock even if we don't mutate, since we would not want to permit any concurrent operations.
+        let inode_state = inode.inner.sync.write().unwrap();
 
-        match write_status {
+        match inode_state.write_status {
             WriteStatus::LocalUnopened | WriteStatus::LocalOpen => {
                 // In the future, we may permit `unlink` and cancel any in-flight uploads.
                 error!(
@@ -407,20 +412,13 @@ impl Superblock {
             }
         }
 
-        let mut parent_state = parent.inner.sync.write().unwrap();
         match &mut parent_state.kind_data {
             InodeKindData::File { .. } => {
                 debug_assert!(false, "inodes never change kind");
                 return Err(InodeError::NotADirectory(parent.ino()));
             }
-            InodeKindData::Directory {
-                children,
-                writing_children,
-            } => {
-                writing_children.remove(&inode.ino());
-                if children.remove(inode.name()).is_none() {
-                    debug!("child was not present, another operation may have occurred in parallel");
-                }
+            InodeKindData::Directory { children, .. } => {
+                children.remove(inode.name());
             }
         };
 
