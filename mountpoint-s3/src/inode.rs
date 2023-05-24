@@ -389,12 +389,17 @@ impl Superblock {
 
             WriteStatus::LocalUnopened => {
                 // A local directory can only contain local children.
-                match &inode_state.kind_data {
+                match &mut inode_state.kind_data {
                     InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
-                    InodeKindData::Directory { writing_children, .. } => {
+                    InodeKindData::Directory {
+                        writing_children,
+                        deleted,
+                        ..
+                    } => {
                         if !writing_children.is_empty() {
                             return Err(InodeError::DirectoryNotEmpty(inode.ino()));
                         }
+                        *deleted = true;
                     }
                 }
             }
@@ -412,11 +417,6 @@ impl Superblock {
             } => {
                 assert!(writing_children.remove(&inode.ino()));
                 children.remove(inode.name());
-
-                match &mut inode_state.kind_data {
-                    InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
-                    InodeKindData::Directory { deleted, .. } => *deleted = true,
-                }
             }
         }
 
