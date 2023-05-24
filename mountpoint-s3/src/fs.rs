@@ -57,10 +57,35 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct CacheConfig {
+    /// How long the kernel will cache metadata for files
+    pub file_ttl: Duration,
+    /// How long the kernel will cache metadata for directories
+    pub dir_ttl: Duration,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        // We want to do as little caching as possible, but Linux filesystems behave badly when the
+        // TTL is exactly zero. For example, results from `readdir` will expire immediately, and so
+        // the kernel will immediately re-lookup every entry returned from `readdir`. So we apply
+        // small non-zero TTLs. The goal is to be small enough that the impact on consistency is
+        // minimal, but large enough that a single cache miss doesn't cause a cascading effect where
+        // every other cache entry expires by the time that cache miss is serviced. We also apply a
+        // longer TTL for directories, which are both less likely to change on the S3 side and
+        // checked more often (for directory permissions checks).
+        let file_ttl = Duration::from_millis(100);
+        let dir_ttl = Duration::from_millis(1000);
+
+        Self { file_ttl, dir_ttl }
+    }
+}
+
 #[derive(Debug)]
 pub struct S3FilesystemConfig {
-    /// Stat time to live in kernel cache
-    pub stat_ttl: Duration,
+    /// Kernel cache config
+    pub cache_config: CacheConfig,
     /// Readdir page size
     pub readdir_size: usize,
     /// User id
@@ -79,12 +104,9 @@ impl Default for S3FilesystemConfig {
     fn default() -> Self {
         let uid = getuid().into();
         let gid = getgid().into();
+
         Self {
-            // We'd like to use 0 here but FUSE behaves badly when the TTL is exactly 0 -- it
-            // repeatedly `lookup`s the same inode within the same `readdir` request. So we apply a
-            // very small TTL, enough to debounce the FUSE requests while being much much smaller
-            // than S3 ListObjects latency.
-            stat_ttl: Duration::from_millis(1),
+            cache_config: Default::default(),
             readdir_size: 100,
             uid,
             gid,
@@ -115,7 +137,7 @@ where
     Runtime: Spawn + Send + Sync,
 {
     pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
-        let superblock = Superblock::new(bucket, prefix);
+        let superblock = Superblock::new(bucket, prefix, config.cache_config.clone());
 
         let client = Arc::new(client);
 
@@ -241,7 +263,7 @@ where
         let attr = self.make_attr(&lookup);
 
         Ok(Entry {
-            ttl: self.config.stat_ttl,
+            ttl: lookup.validity(),
             attr,
             generation: 0,
         })
@@ -250,11 +272,11 @@ where
     pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, libc::c_int> {
         trace!("fs:getattr with ino {:?}", ino);
 
-        let lookup = self.superblock.getattr(&self.client, ino).await?;
+        let lookup = self.superblock.getattr(&self.client, ino, false).await?;
         let attr = self.make_attr(&lookup);
 
         Ok(Attr {
-            ttl: self.config.stat_ttl,
+            ttl: lookup.validity(),
             attr,
         })
     }
@@ -262,7 +284,7 @@ where
     pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, libc::c_int> {
         trace!("fs:open with ino {:?} flags {:?}", ino, flags);
 
-        let lookup = self.superblock.getattr(&self.client, ino).await?;
+        let lookup = self.superblock.getattr(&self.client, ino, true).await?;
 
         match lookup.inode.kind() {
             InodeKind::Directory => return Err(libc::EISDIR),
@@ -385,7 +407,7 @@ where
         let attr = self.make_attr(&lookup);
 
         Ok(Entry {
-            ttl: self.config.stat_ttl,
+            ttl: lookup.validity(),
             attr,
             generation: 0,
         })
@@ -405,7 +427,7 @@ where
         let attr = self.make_attr(&lookup);
 
         Ok(Entry {
-            ttl: self.config.stat_ttl,
+            ttl: lookup.validity(),
             attr,
             generation: 0,
         })
@@ -504,16 +526,18 @@ where
         }
 
         if handle.offset() < 1 {
-            // TODO these can probably just be bare `get`, we don't care about directory stat
-            let lookup = self.superblock.getattr(&self.client, parent).await?;
+            let lookup = self.superblock.getattr(&self.client, parent, false).await?;
             let attr = self.make_attr(&lookup);
-            if reply.add(parent, handle.offset() + 1, ".", attr, 0u64, self.config.stat_ttl) {
+            if reply.add(parent, handle.offset() + 1, ".", attr, 0u64, lookup.validity()) {
                 return Ok(reply);
             }
             handle.next_offset();
         }
         if handle.offset() < 2 {
-            let lookup = self.superblock.getattr(&self.client, handle.handle.parent()).await?;
+            let lookup = self
+                .superblock
+                .getattr(&self.client, handle.handle.parent(), false)
+                .await?;
             let attr = self.make_attr(&lookup);
             if reply.add(
                 handle.handle.parent(),
@@ -521,7 +545,7 @@ where
                 "..",
                 attr,
                 0u64,
-                self.config.stat_ttl,
+                lookup.validity(),
             ) {
                 return Ok(reply);
             }
@@ -541,7 +565,7 @@ where
                 next.inode.name(),
                 attr,
                 0u64,
-                self.config.stat_ttl,
+                next.validity(),
             ) {
                 handle.handle.readd(next);
                 return Ok(reply);
@@ -600,7 +624,7 @@ where
                     }
                 };
 
-                handle.finish_writing(size)?;
+                handle.finish_writing()?;
 
                 result
             }
