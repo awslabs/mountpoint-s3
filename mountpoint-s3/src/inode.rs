@@ -274,9 +274,8 @@ impl Superblock {
         let inode = self.inner.get(ino)?;
 
         // TODO revalidate if expired
-        let stat = inode.get_inode_state()?.stat.clone();
         if !force_revalidate {
-            let sync = inode.inner.sync.read().unwrap();
+            let sync = inode.get_inode_state()?;
             if sync.stat.is_valid() {
                 let stat = sync.stat.clone();
                 drop(sync);
@@ -398,7 +397,6 @@ impl Superblock {
 
         let parent = self.inner.get(parent_ino)?;
         let mut parent_state = parent.get_mut_inode_state()?;
-
         let mut inode_state = inode.get_mut_inode_state()?;
 
         match &inode_state.write_status {
@@ -718,9 +716,8 @@ impl WriteHandle {
             loop {
                 assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
                 let ancestor = self.inner.get(ancestor_ino)?;
-                let ancestor_state = ancestor.get_inode_state()?;
                 ancestors.push(ancestor.clone());
-                if ancestor.ino() == ROOT_INODE_NO || ancestor_state.write_status == WriteStatus::Remote {
+                if ancestor.ino() == ROOT_INODE_NO || ancestor.get_inode_state()?.write_status == WriteStatus::Remote {
                     break;
                 }
                 ancestor_ino = ancestor.parent();
@@ -729,14 +726,10 @@ impl WriteHandle {
         };
 
         // Acquire locks on ancestors in descending order to avoid deadlocks.
-        let mut ancestors_states: Vec<_> = ancestors
+        let ancestors_states: Result<Vec<_>, InodeError> = ancestors
             .iter()
             .rev()
-            .map(|inode| {
-                inode
-                    .get_mut_inode_state()
-                    .expect("None of the ancestors could be removed before completion due to kernel locking")
-            })
+            .map(|inode| inode.get_mut_inode_state())
             .collect();
 
         let mut state = inode.get_mut_inode_state()?;
@@ -750,7 +743,7 @@ impl WriteHandle {
                 // Walk up the ancestors from parent to first remote ancestor to transition
                 // the inode and all "local" containing directories to "remote".
                 let children_inos = std::iter::once(self.ino).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
-                for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
+                for (ancestor_state, child_ino) in ancestors_states?.iter_mut().rev().zip(children_inos) {
                     match &mut ancestor_state.kind_data {
                         InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
                         InodeKindData::Directory { writing_children, .. } => {
@@ -1349,7 +1342,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Create local directory
         let dirname = "local_dir";
@@ -1374,7 +1367,7 @@ mod tests {
             .expect_err("should not do readdir on removed directory");
 
         superblock
-            .getattr(&client, inode.ino())
+            .getattr(&client, inode.ino(), false)
             .await
             .expect_err("should not do getattr on removed directory");
     }
@@ -1389,7 +1382,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Create local directory
         let dirname = "local_dir";
@@ -1434,7 +1427,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Create local directory
         let dirname = "local_dir";
