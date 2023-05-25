@@ -406,8 +406,9 @@ impl Superblock {
                 writing_children,
                 ..
             } => {
+                let removed = writing_children.remove(&inode.ino());
                 debug_assert!(
-                    writing_children.remove(&inode.ino()),
+                    removed,
                     "should be able to remove the directory from its parents writing children as it was local"
                 );
                 children.remove(inode.name());
@@ -700,7 +701,7 @@ impl WriteHandle {
             .map(|inode| {
                 inode
                     .get_mut_inode_state()
-                    .expect("intermediate directories should not be deleted")
+                    .expect("None of the ancestors could be removed before completion due to kernel locking")
             })
             .collect();
 
@@ -1432,7 +1433,7 @@ mod tests {
                     dir_lookedup
                         .inode
                         .get_inode_state()
-                        .expect("shouldd get inode state with read lock")
+                        .expect("should get inode state with read lock")
                         .write_status,
                     WriteStatus::LocalUnopened
                 );
