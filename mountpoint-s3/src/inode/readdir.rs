@@ -37,7 +37,6 @@
 
 use std::cmp::Ordering;
 use std::collections::VecDeque;
-use std::time::Instant;
 
 use mountpoint_s3_client::{ObjectClient, ObjectInfo};
 use tracing::{error, trace, warn};
@@ -148,15 +147,15 @@ impl ReaddirHandle {
         let (stat, kind) = match &entry {
             ReaddirEntry::LocalInode { lookup } => return Ok(Some(lookup.clone())),
             ReaddirEntry::RemotePrefix { .. } => {
-                let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
+                let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
                 (stat, InodeKind::Directory)
             }
             ReaddirEntry::RemoteObject { object_info, .. } => {
                 let stat = InodeStat::for_file(
                     object_info.size as usize,
                     object_info.last_modified,
-                    Instant::now(),
                     Some(object_info.etag.clone()),
+                    self.inner.cache_config.file_ttl,
                 );
                 (stat, InodeKind::File)
             }
