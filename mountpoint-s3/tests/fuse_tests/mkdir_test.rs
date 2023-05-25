@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, metadata, read_dir, DirBuilder},
+    fs::{self, metadata, DirBuilder},
     time::Duration,
 };
 
