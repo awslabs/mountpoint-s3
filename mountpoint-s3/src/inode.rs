@@ -726,11 +726,11 @@ impl WriteHandle {
         };
 
         // Acquire locks on ancestors in descending order to avoid deadlocks.
-        let ancestors_states: Result<Vec<_>, InodeError> = ancestors
+        let mut ancestors_states = ancestors
             .iter()
             .rev()
             .map(|inode| inode.get_mut_inode_state())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
@@ -743,7 +743,7 @@ impl WriteHandle {
                 // Walk up the ancestors from parent to first remote ancestor to transition
                 // the inode and all "local" containing directories to "remote".
                 let children_inos = std::iter::once(self.ino).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
-                for (ancestor_state, child_ino) in ancestors_states?.iter_mut().rev().zip(children_inos) {
+                for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
                     match &mut ancestor_state.kind_data {
                         InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
                         InodeKindData::Directory { writing_children, .. } => {
