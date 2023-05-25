@@ -358,6 +358,10 @@ impl Superblock {
     /// Unlink the entry described by `parent_ino` and `name`.
     ///
     /// If the entry exists, delete it from S3 and the superblock.
+    ///
+    /// We know that the Linux Kernel's VFS will lock both the parent and child,
+    /// so we can safely ignore concurrent operations within the same Mountpoint process to the file and its parent.
+    /// See: https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
     pub async fn unlink<OC: ObjectClient>(
         &self,
         client: &OC,
@@ -413,14 +417,19 @@ impl Superblock {
                 debug_assert!(false, "inodes never change kind");
                 return Err(InodeError::NotADirectory(parent.ino()));
             }
-            InodeKindData::Directory {
-                children,
-                writing_children,
-            } => {
-                writing_children.remove(&inode.ino());
-                if children.remove(inode.name()).is_none() {
-                    debug!("child was not present, another operation may have occurred in parallel");
-                }
+            InodeKindData::Directory { children, .. } => {
+                // We want to remove the original child.
+                // We assume that the VFS will hold a lock on the parent and child.
+                // However, we don't hold this lock over remote calls as we don't want to move to async locks right now.
+                // Instead, we will panic when our assumption appears broken.
+                let removed_inode = children
+                    .remove(inode.name())
+                    .expect("parent should contain child assuming VFS does not permit concurrent op on parent");
+                assert_eq!(
+                    removed_inode.ino(),
+                    inode.ino(),
+                    "child ino number shouldn't change assuming VFS does not permit concurrent op on parent",
+                );
             }
         };
 
