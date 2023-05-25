@@ -7,8 +7,8 @@ publish = false
 
 [dependencies]
 fuser = { path = "../vendor/fuser", features = ["abi-7-28"] }
-mountpoint-s3-client = { path = "../mountpoint-s3-client" }
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt" }
+mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.2.1" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.2.1" }
 
 anyhow = { version = "1.0.64", features = ["backtrace"] }
 async-channel = "1.8.0"
