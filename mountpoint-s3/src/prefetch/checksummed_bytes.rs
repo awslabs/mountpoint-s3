@@ -122,7 +122,7 @@ impl Default for ChecksummedBytes {
 
 #[derive(Debug, Error)]
 pub enum IntegrityError {
-    #[error("ChecksummedBytes mismatch. left: {0:?}, right: {1:?}")]
+    #[error("Checksum mismatch. left: {0:?}, right: {1:?}")]
     ChecksumMismatch(Crc32c, Crc32c),
 }
 
