@@ -259,13 +259,9 @@ impl Superblock {
         let inode = self.inner.get(ino)?;
 
         // TODO revalidate if expired
-        let inode_state = inode.get_inode_state()?;
-        let stat = inode_state.stat.clone();
+        let stat = inode.get_inode_state()?.stat.clone();
 
-        Ok(LookedUp {
-            inode: inode.clone(),
-            stat,
-        })
+        Ok(LookedUp { inode, stat })
     }
 
     /// Create a new write handle to be used for state transition
@@ -382,27 +378,22 @@ impl Superblock {
 
         match &inode_state.write_status {
             WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
-
             WriteStatus::Remote => {
                 return Err(InodeError::CannotRemoveRemoteDirectory(inode.ino()));
             }
-
-            WriteStatus::LocalUnopened => {
-                // A local directory can only contain local children.
-                match &mut inode_state.kind_data {
-                    InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
-                    InodeKindData::Directory {
-                        writing_children,
-                        deleted,
-                        ..
-                    } => {
-                        if !writing_children.is_empty() {
-                            return Err(InodeError::DirectoryNotEmpty(inode.ino()));
-                        }
-                        *deleted = true;
+            WriteStatus::LocalUnopened => match &mut inode_state.kind_data {
+                InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
+                InodeKindData::Directory {
+                    writing_children,
+                    deleted,
+                    ..
+                } => {
+                    if !writing_children.is_empty() {
+                        return Err(InodeError::DirectoryNotEmpty(inode.ino()));
                     }
+                    *deleted = true;
                 }
-            }
+            },
         }
 
         match &mut parent_state.kind_data {
@@ -415,7 +406,10 @@ impl Superblock {
                 writing_children,
                 ..
             } => {
-                assert!(writing_children.remove(&inode.ino()));
+                debug_assert!(
+                    writing_children.remove(&inode.ino()),
+                    "should be able to remove the directory from its parents writing children as it was local"
+                );
                 children.remove(inode.name());
             }
         }
@@ -476,12 +470,8 @@ impl SuperblockInner {
                     } => {
                         if writing_children.contains(&inode.ino()) {
                             // Return the local inode.
-                            let state = inode.get_inode_state()?;
-                            let stat = state.stat.clone();
-                            Ok(LookedUp {
-                                inode: inode.clone(),
-                                stat,
-                            })
+                            let stat = inode.get_inode_state()?.stat.clone();
+                            Ok(LookedUp { inode, stat })
                         } else {
                             // Remove from children.
                             // TODO: also handle inode in [Self::inodes].
@@ -707,7 +697,11 @@ impl WriteHandle {
         let mut ancestors_states: Vec<_> = ancestors
             .iter()
             .rev()
-            .map(|inode| inode.get_mut_inode_state().unwrap())
+            .map(|inode| {
+                inode
+                    .get_mut_inode_state()
+                    .expect("intermediate directories should not be deleted")
+            })
             .collect();
 
         let mut state = inode.get_mut_inode_state()?;
@@ -790,6 +784,7 @@ impl Inode {
         Ok(())
     }
 
+    /// return Inode State with read lock after checking whether the directory inode is deleted or not.
     fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
@@ -798,6 +793,7 @@ impl Inode {
         }
     }
 
+    /// return Inode State with write lock after checking whether the directory inode is deleted or not.
     fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
@@ -1270,7 +1266,11 @@ mod tests {
             .await
             .expect("lookup should succeed on local dirs");
         assert_eq!(
-            lookedup.inode.get_inode_state().unwrap().write_status,
+            lookedup
+                .inode
+                .get_inode_state()
+                .expect("should get Inode state with read lock")
+                .write_status,
             WriteStatus::LocalUnopened
         );
 
@@ -1351,7 +1351,9 @@ mod tests {
             .expect("rmdir on empty local directory should succeed");
 
         let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
-        let parent_state = parent.get_inode_state().unwrap();
+        let parent_state = parent
+            .get_inode_state()
+            .expect("should get parent state with read lock");
         match &parent_state.kind_data {
             InodeKindData::File {} => unreachable!("Parent can only be a Directory"),
             InodeKindData::Directory {
@@ -1427,7 +1429,11 @@ mod tests {
                     .unwrap();
 
                 assert_eq!(
-                    dir_lookedup.inode.get_inode_state().unwrap().write_status,
+                    dir_lookedup
+                        .inode
+                        .get_inode_state()
+                        .expect("shouldd get inode state with read lock")
+                        .write_status,
                     WriteStatus::LocalUnopened
                 );
 
