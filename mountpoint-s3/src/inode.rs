@@ -273,7 +273,6 @@ impl Superblock {
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
 
-        // TODO revalidate if expired
         if !force_revalidate {
             let sync = inode.get_inode_state()?;
             if sync.stat.is_valid() {
