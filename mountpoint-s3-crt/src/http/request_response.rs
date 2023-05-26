@@ -90,7 +90,9 @@ impl Headers {
     /// returned [Headers] will increment the reference count of the underlying CRT structure, and
     /// so there are no lifetime issues here.
     ///
-    /// SAFETY: `ptr` must point to a valid `aws_http_headers` struct
+    /// ## Safety
+    ///
+    /// `ptr` must point to a valid `aws_http_headers` struct.
     pub(crate) unsafe fn from_crt(ptr: NonNull<aws_http_headers>) -> Self {
         aws_http_headers_acquire(ptr.as_ptr());
         Self { inner: ptr }
