@@ -122,10 +122,9 @@ impl Default for ChecksummedBytes {
 
 #[derive(Debug, Error)]
 pub enum IntegrityError {
-    #[error("Checksum mismatch. left: {0:?}, right: {1:?}")]
+    #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
     ChecksumMismatch(Crc32c, Crc32c),
 }
-
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
