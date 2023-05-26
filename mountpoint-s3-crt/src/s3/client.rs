@@ -84,13 +84,13 @@ impl ClientConfig {
 
     /// Size of parts the files will be downloaded or uploaded in.
     pub fn part_size(&mut self, part_size: usize) -> &mut Self {
-        self.inner.part_size = part_size;
+        self.inner.part_size = part_size as u64;
         self
     }
 
     /// If the part size needs to be adjusted for service limits, this is the maximum size it will be adjusted to.
     pub fn max_part_size(&mut self, max_part_size: usize) -> &mut Self {
-        self.inner.max_part_size = max_part_size;
+        self.inner.max_part_size = max_part_size as u64;
         self
     }
 
