@@ -1,12 +1,19 @@
 [package]
 name = "mountpoint-s3-crt"
-version = "0.2.0"
+# Steps to publish a new release:
+# - First publish a new release of `mountpoint-s3-crt-sys` if needed
+# - Pull request to bump version number and update CHANGELOG.md
+#   - Make sure to also bump the `mountpoint-s3-crt-sys` dependency if needed
+# - Create a new Git tag `mountpoint-s3-crt-0.x.y`
+# - Run `cargo publish`
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
-publish = false
+repository = "https://github.com/awslabs/mountpoint-s3"
+description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys" }
+mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.2.1" }
 futures = "0.3.24"
 libc = "0.2.132"
 log = "0.4.17"

@@ -1,12 +1,19 @@
 [package]
 name = "mountpoint-s3-client"
-version = "0.2.0"
+# Steps to publish a new release:
+# - First publish a new release of `mountpoint-s3-crt` if needed
+# - Pull request to bump version number and update CHANGELOG.md
+#   - Make sure to also bump the `mountpoint-s3-crt` dependency if needed
+# - Create a new Git tag `mountpoint-s3-client-0.x.y`
+# - Run `cargo publish`
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
-publish = false
+repository = "https://github.com/awslabs/mountpoint-s3"
+description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.2.1" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
@@ -14,6 +21,7 @@ futures = { version = "0.3.24", features = ["thread-pool"] }
 lazy_static = "1.4.0"
 libc = "0.2.126"
 libc-stdhandle = "0.1.0"
+md-5 = "0.10.5"
 metrics = "0.20.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0.12"
@@ -23,7 +31,6 @@ thiserror = "1.0.34"
 time = { version = "0.3.17", features = ["formatting", "parsing"] }
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 xmltree = "0.10.3"
-md-5 = "0.10.5"
 
 [dev-dependencies]
 anyhow = { version = "1.0.64", features = ["backtrace"] }

@@ -1,9 +1,14 @@
 [package]
 name = "mountpoint-s3-crt-sys"
-version = "0.2.0"
+# Steps to publish a new release:
+# - Pull request to bump version number and update CHANGELOG.md
+# - Create a new Git tag `mountpoint-s3-crt-sys-0.x.y`
+# - Run `cargo publish`
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
-publish = false
+repository = "https://github.com/awslabs/mountpoint-s3"
+description = "Rust FFI bindings to the AWS Common Runtime for Mountpoint for Amazon S3."
 
 [build-dependencies]
 bindgen = { version = "0.60.1", default-features = false, features = ["runtime"] }
