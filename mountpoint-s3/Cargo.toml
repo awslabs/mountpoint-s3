@@ -56,6 +56,8 @@ fuse_tests = []
 s3_tests = []
 shuttle = []
 put = []
+# A temporary feature flag to enable read-path checksums while we are working to improve its performance
+checksum = []
 
 [build-dependencies]
 built = { version = "0.6.0", features = ["git2"] }

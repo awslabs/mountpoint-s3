@@ -7,6 +7,7 @@
 //! we increase the size of the GetObject requests up to some maximum. If the reader ever makes a
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
+pub mod checksummed_bytes;
 mod part;
 mod part_queue;
 
