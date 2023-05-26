@@ -23,7 +23,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStrExt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
@@ -32,8 +32,11 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
+use crate::fs::CacheConfig;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
+use crate::sync::RwLockReadGuard;
+use crate::sync::RwLockWriteGuard;
 use crate::sync::{Arc, RwLock};
 
 mod readdir;
@@ -42,6 +45,9 @@ pub use readdir::ReaddirHandle;
 pub type InodeNo = u64;
 
 pub const ROOT_INODE_NO: InodeNo = 1;
+
+// 200 years seems long enough
+const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
     let name = name.as_ref();
@@ -68,12 +74,14 @@ struct SuperblockInner {
     inodes: RwLock<HashMap<InodeNo, Inode>>,
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
+    cache_config: CacheConfig,
 }
 
 impl Superblock {
     /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(bucket: &str, prefix: &Prefix) -> Self {
+    pub fn new(bucket: &str, prefix: &Prefix, cache_config: CacheConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
+
         let root = InodeInner {
             ino: ROOT_INODE_NO,
             parent: ROOT_INODE_NO,
@@ -81,7 +89,9 @@ impl Superblock {
             full_key: prefix.to_string(),
             kind: InodeKind::Directory,
             sync: RwLock::new(InodeState {
-                stat: InodeStat::for_directory(mount_time, Instant::now()), // TODO expiry
+                // The root inode never expires because there's no remote to consult for its
+                // metadata, and it always exists.
+                stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
             }),
@@ -96,6 +106,7 @@ impl Superblock {
             inodes: RwLock::new(inodes),
             next_ino: AtomicU64::new(2),
             mount_time,
+            cache_config,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -180,8 +191,7 @@ impl Superblock {
                 result = file_lookup => {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
-                            let last_modified = object.last_modified;
-                            let stat = InodeStat::for_file(object.size as usize, last_modified, Instant::now(), Some(object.etag.clone()));
+                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), self.inner.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -231,7 +241,7 @@ impl Superblock {
                     // semantics, directories always shadow files.
                     if found_directory {
                         trace!(parent = ?parent_ino, ?name, "lookup ListObjects found a directory");
-                        let stat = InodeStat::for_directory(self.inner.mount_time, Instant::now());
+                        let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
                         return Ok(Some(RemoteLookup { kind: InodeKind::Directory, stat }));
                     }
                 }
@@ -240,8 +250,10 @@ impl Superblock {
 
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
         // have a valid file, or both requests failed to find the object so the file must not exist remotely
-        if let Some(stat) = file_state {
+        if let Some(mut stat) = file_state {
             trace!(parent = ?parent_ino, ?name, "found a regular file");
+            // Update the validity of the stat in case the racing ListObjects took a long time
+            stat.update_validity(self.inner.cache_config.file_ttl);
             Ok(Some(RemoteLookup {
                 kind: InodeKind::File,
                 stat,
@@ -253,13 +265,24 @@ impl Superblock {
     }
 
     /// Retrieve the attributes for an inode
-    pub async fn getattr<OC: ObjectClient>(&self, _client: &OC, ino: InodeNo) -> Result<LookedUp, InodeError> {
+    pub async fn getattr<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        ino: InodeNo,
+        force_revalidate: bool,
+    ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
 
-        // TODO revalidate if expired
-        let stat = inode.inner.sync.read().unwrap().stat.clone();
+        if !force_revalidate {
+            let sync = inode.get_inode_state()?;
+            if sync.stat.is_valid() {
+                let stat = sync.stat.clone();
+                drop(sync);
+                return Ok(LookedUp { inode, stat });
+            }
+        }
 
-        Ok(LookedUp { inode, stat })
+        self.lookup(client, inode.parent(), inode.name().as_ref()).await
     }
 
     /// Create a new write handle to be used for state transition
@@ -326,7 +349,7 @@ impl Superblock {
             .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
 
         let parent_inode = self.inner.get(dir)?;
-        let mut parent_state = parent_inode.inner.sync.write().unwrap();
+        let mut parent_state = parent_inode.get_mut_inode_state()?;
 
         // Check again for the child now that the parent is locked, since we might have lost to a
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
@@ -338,11 +361,13 @@ impl Superblock {
             return Err(InodeError::FileAlreadyExists(inode.ino()));
         }
 
-        let expiry = Instant::now(); // TODO local inode stats never expire?
+        // Local inode stats never expire, because they can't be looked up remotely
         let stat = match kind {
-            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), expiry, None), // Objects don't have an ETag until they are uploaded to S3
-            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, expiry),
+            // Objects don't have an ETag until they are uploaded to S3
+            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), None, NEVER_EXPIRE_TTL),
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, NEVER_EXPIRE_TTL),
         };
+
         let state = InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
@@ -353,6 +378,66 @@ impl Superblock {
             .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
 
         Ok(LookedUp { inode, stat })
+    }
+
+    /// Remove local-only empty directory, i.e., the ones created by mkdir.
+    /// It does not affect empty directories represented remotely with directory markers.  
+    pub async fn rmdir<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &OsStr,
+    ) -> Result<(), InodeError> {
+        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+
+        if inode.kind() == InodeKind::File {
+            return Err(InodeError::NotADirectory(inode.ino()));
+        }
+
+        let parent = self.inner.get(parent_ino)?;
+        let mut parent_state = parent.get_mut_inode_state()?;
+        let mut inode_state = inode.get_mut_inode_state()?;
+
+        match &inode_state.write_status {
+            WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
+            WriteStatus::Remote => {
+                return Err(InodeError::CannotRemoveRemoteDirectory(inode.ino()));
+            }
+            WriteStatus::LocalUnopened => match &mut inode_state.kind_data {
+                InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
+                InodeKindData::Directory {
+                    writing_children,
+                    deleted,
+                    ..
+                } => {
+                    if !writing_children.is_empty() {
+                        return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                    }
+                    *deleted = true;
+                }
+            },
+        }
+
+        match &mut parent_state.kind_data {
+            InodeKindData::File {} => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.ino()));
+            }
+            InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } => {
+                let removed = writing_children.remove(&inode.ino());
+                debug_assert!(
+                    removed,
+                    "should be able to remove the directory from its parents writing children as it was local"
+                );
+                children.remove(inode.name());
+            }
+        }
+
+        Ok(())
     }
 
     /// Unlink the entry described by `parent_ino` and `name`.
@@ -376,7 +461,7 @@ impl Superblock {
         }
 
         let write_status = {
-            let inode_state = inode.inner.sync.read().unwrap();
+            let inode_state = inode.get_inode_state()?;
             inode_state.write_status
         };
 
@@ -411,7 +496,7 @@ impl Superblock {
             }
         }
 
-        let mut parent_state = parent.inner.sync.write().unwrap();
+        let mut parent_state = parent.get_mut_inode_state()?;
         match &mut parent_state.kind_data {
             InodeKindData::File { .. } => {
                 debug_assert!(false, "inodes never change kind");
@@ -465,7 +550,7 @@ impl SuperblockInner {
 
         // Fast path: try with only a read lock on the directory first.
         {
-            let parent_state = parent.inner.sync.read().unwrap();
+            let parent_state = parent.get_inode_state()?;
             match Self::try_update_child(&parent_state, name, &remote)? {
                 UpdateStatus::Neither => return Err(InodeError::FileDoesNotExist),
                 UpdateStatus::Updated(lookedup) => return Ok(lookedup),
@@ -475,7 +560,7 @@ impl SuperblockInner {
 
         // If the fast path failed, take the write lock. We first have to try the update again, as
         // a racing writer might have beat us to the lock after our fast path attempt.
-        let mut parent_state = parent.inner.sync.write().unwrap();
+        let mut parent_state = parent.get_mut_inode_state()?;
         match Self::try_update_child(&parent_state, name, &remote)? {
             UpdateStatus::Neither => Err(InodeError::FileDoesNotExist),
             UpdateStatus::Updated(lookedup) => Ok(lookedup),
@@ -485,10 +570,11 @@ impl SuperblockInner {
                     InodeKindData::Directory {
                         children,
                         writing_children,
+                        ..
                     } => {
                         if writing_children.contains(&inode.ino()) {
                             // Return the local inode.
-                            let stat = inode.inner.sync.read().unwrap().stat.clone();
+                            let stat = inode.get_inode_state()?.stat.clone();
                             Ok(LookedUp { inode, stat })
                         } else {
                             // Remove from children.
@@ -528,7 +614,7 @@ impl SuperblockInner {
             (None, Some(inode)) => Ok(UpdateStatus::LocalOnly(inode.clone())),
             (Some(remote), None) => Ok(UpdateStatus::RemoteKey(remote.clone())),
             (Some(remote @ RemoteLookup { kind, stat }), Some(inode)) => {
-                let mut inode_state = inode.inner.sync.write().unwrap();
+                let mut inode_state = inode.get_mut_inode_state()?;
 
                 // In our semantics, directories shadow files of the same name. So if the inode
                 // already exists but the kind has changed, we need to decide what to do.
@@ -548,6 +634,7 @@ impl SuperblockInner {
                     }
                     // Otherwise, we'll just update this inode in place.
                     (InodeKind::File, InodeKind::File) | (InodeKind::Directory, InodeKind::Directory) => {
+                        trace!(parent=?inode.parent(), name=?inode.name(), ino=?inode.ino(), "updating inode in place");
                         inode_state.stat = stat.clone();
                         Ok(UpdateStatus::Updated(LookedUp {
                             inode: inode.clone(),
@@ -611,6 +698,7 @@ impl SuperblockInner {
             InodeKindData::Directory {
                 children,
                 writing_children,
+                ..
             } => {
                 children.insert(name.to_owned(), inode.clone());
                 if is_new_file {
@@ -651,11 +739,19 @@ enum UpdateStatus {
 }
 
 /// Result of a call to [Superblock::lookup] or [Superblock::getattr]. `stat` is a copy of the
-/// inode's `stat` field that has already had its expiry checked and so is guaranteed to be valid.
+/// inode's `stat` field that has already had its expiry checked and so is guaranteed to be valid
+/// until `stat.expiry`.
 #[derive(Debug, Clone)]
 pub struct LookedUp {
     pub inode: Inode,
     pub stat: InodeStat,
+}
+
+impl LookedUp {
+    /// How much longer this lookup will be valid for
+    pub fn validity(&self) -> Duration {
+        self.stat.expiry.saturating_duration_since(Instant::now())
+    }
 }
 
 /// Handle for a file writing that we use to interact with [Superblock]
@@ -670,7 +766,7 @@ impl WriteHandle {
     /// Check the status on the inode and set it to writing state if it's writable
     pub fn start_writing(&self) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
-        let mut state = inode.inner.sync.write().unwrap();
+        let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
@@ -688,7 +784,7 @@ impl WriteHandle {
     }
 
     /// Update status of the inode and of containing "local" directories.
-    pub fn finish_writing(self, object_size: usize) -> Result<(), InodeError> {
+    pub fn finish_writing(self) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
 
         // Collect ancestor inodes that may need updating,
@@ -701,9 +797,7 @@ impl WriteHandle {
                 assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
                 let ancestor = self.inner.get(ancestor_ino)?;
                 ancestors.push(ancestor.clone());
-                if ancestor.ino() == ROOT_INODE_NO
-                    || ancestor.inner.sync.read().unwrap().write_status == WriteStatus::Remote
-                {
+                if ancestor.ino() == ROOT_INODE_NO || ancestor.get_inode_state()?.write_status == WriteStatus::Remote {
                     break;
                 }
                 ancestor_ino = ancestor.parent();
@@ -712,17 +806,19 @@ impl WriteHandle {
         };
 
         // Acquire locks on ancestors in descending order to avoid deadlocks.
-        let mut ancestors_states: Vec<_> = ancestors
+        let mut ancestors_states = ancestors
             .iter()
             .rev()
-            .map(|inode| inode.inner.sync.write().unwrap())
-            .collect();
+            .map(|inode| inode.get_mut_inode_state())
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let mut state = inode.inner.sync.write().unwrap();
+        let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
-                state.stat.size = object_size;
+
+                // Invalidate the inode's stats so we refresh them from S3 when next queried
+                state.stat.update_validity(Duration::from_secs(0));
 
                 // Walk up the ancestors from parent to first remote ancestor to transition
                 // the inode and all "local" containing directories to "remote".
@@ -736,7 +832,7 @@ impl WriteHandle {
                     }
                     ancestor_state.write_status = WriteStatus::Remote;
                 }
-                // TODO force the file to be revalidated the next time it's `stat`ed?
+
                 Ok(())
             }
             _ => Err(InodeError::InodeNotWritable(inode.ino())),
@@ -759,8 +855,16 @@ struct InodeInner {
     full_key: String,
     kind: InodeKind,
 
-    // Mutable inode state. This lock should also be used to serialize operations on an inode (like
-    // creating a new child).
+    /// Mutable inode state. This lock should also be held to serialize operations on an inode (like
+    /// creating a new child).
+    ///
+    /// When taking a lock across multiple [Inode]s,
+    /// we must always acquire the locks in the following order to avoid deadlock:
+    ///
+    /// - Any ancestors in descending order, if they need to be locked.
+    /// - Otherwise, ascending order by [InodeNo].
+    ///   This reflects similar behavior in the Kernel's VFS named 'inode pointer order',
+    ///   described in https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
     sync: RwLock<InodeState>,
 }
 
@@ -786,7 +890,7 @@ impl Inode {
     }
 
     pub fn start_reading(&self) -> Result<(), InodeError> {
-        let state = self.inner.sync.read().unwrap();
+        let state = self.get_inode_state()?;
         match state.write_status {
             WriteStatus::Remote => Ok(()),
             _ => Err(InodeError::InodeNotReadableWhileWriting(self.ino())),
@@ -796,6 +900,24 @@ impl Inode {
     pub fn finish_reading(&self) -> Result<(), InodeError> {
         // Currently a no-op, but this is where you'd e.g. update atime
         Ok(())
+    }
+
+    /// return Inode State with read lock after checking whether the directory inode is deleted or not.
+    fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
+        let inode_state = self.inner.sync.read().unwrap();
+        match &inode_state.kind_data {
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            _ => Ok(inode_state),
+        }
+    }
+
+    /// return Inode State with write lock after checking whether the directory inode is deleted or not.
+    fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
+        let inode_state = self.inner.sync.write().unwrap();
+        match &inode_state.kind_data {
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            _ => Ok(inode_state),
+        }
     }
 }
 
@@ -825,12 +947,19 @@ impl From<InodeKind> for FileType {
 enum InodeKindData {
     File {},
     Directory {
-        /// Mapping from child names to inodes
+        /// Mapping from child names to [Inode]s.
+        ///
+        /// How should this field be used?:
+        /// - **Many operations should maintain** this list.
+        /// - **Only `mknod` and `mkdir` should read** this list, for checking if a file already exists.
         children: HashMap<String, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
         /// This should be a subset of the [children](Self::Directory::children) field.
         writing_children: HashSet<InodeNo>,
+
+        /// True if this directory has been deleted (`rmdir`) from its parent
+        deleted: bool,
     },
 }
 
@@ -841,6 +970,7 @@ impl InodeKindData {
             InodeKind::Directory => Self::Directory {
                 children: Default::default(),
                 writing_children: Default::default(),
+                deleted: false,
             },
         }
     }
@@ -848,7 +978,7 @@ impl InodeKindData {
 
 #[derive(Debug, Clone)]
 pub struct InodeStat {
-    #[allow(unused)] // TODO revalidate
+    /// Time this stat becomes invalid and needs to be refreshed
     expiry: Instant,
 
     /// Size in bytes
@@ -876,8 +1006,15 @@ pub enum WriteStatus {
 }
 
 impl InodeStat {
+    fn is_valid(&self) -> bool {
+        self.expiry >= Instant::now()
+    }
+
     /// Initialize an [InodeStat] for a file, given some metadata.
-    fn for_file(size: usize, datetime: OffsetDateTime, expiry: Instant, etag: Option<String>) -> InodeStat {
+    fn for_file(size: usize, datetime: OffsetDateTime, etag: Option<String>, validity: Duration) -> InodeStat {
+        let expiry = Instant::now()
+            .checked_add(validity)
+            .expect("64-bit time shouldn't overflow");
         InodeStat {
             expiry,
             size,
@@ -889,7 +1026,10 @@ impl InodeStat {
     }
 
     /// Initialize an [InodeStat] for a directory, given some metadata.
-    fn for_directory(datetime: OffsetDateTime, expiry: Instant) -> InodeStat {
+    fn for_directory(datetime: OffsetDateTime, validity: Duration) -> InodeStat {
+        let expiry = Instant::now()
+            .checked_add(validity)
+            .expect("64-bit time shouldn't overflow");
         InodeStat {
             expiry,
             size: 0,
@@ -898,6 +1038,12 @@ impl InodeStat {
             mtime: datetime,
             etag: None,
         }
+    }
+
+    fn update_validity(&mut self, validity: Duration) {
+        self.expiry = Instant::now()
+            .checked_add(validity)
+            .expect("64-bit time shouldn't overflow");
     }
 }
 
@@ -923,6 +1069,10 @@ pub enum InodeError {
     InodeNotWritable(InodeNo),
     #[error("inode {0} is not readable while being written")]
     InodeNotReadableWhileWriting(InodeNo),
+    #[error("remote directory cannot be removed at inode {0}")]
+    CannotRemoveRemoteDirectory(InodeNo),
+    #[error("non-empty directory cannot be removed at inode {0}")]
+    DirectoryNotEmpty(InodeNo),
     #[error("inode {0} cannot be unlinked while being written")]
     UnlinkNotPermittedWhileWriting(InodeNo),
 }
@@ -989,7 +1139,7 @@ mod tests {
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(bucket, &prefix);
+        let superblock = Superblock::new(bucket, &prefix, Default::default());
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -1096,7 +1246,7 @@ mod tests {
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Try it all twice to test inode reuse
         for _ in 0..2 {
@@ -1145,7 +1295,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         let mut expected_list = Vec::new();
 
@@ -1190,7 +1340,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         let mut expected_list = Vec::new();
 
@@ -1245,7 +1395,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix);
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         // Create local directory
         let dirname = "local_dir";
@@ -1259,7 +1409,11 @@ mod tests {
             .await
             .expect("lookup should succeed on local dirs");
         assert_eq!(
-            lookedup.inode.inner.sync.read().unwrap().write_status,
+            lookedup
+                .inode
+                .get_inode_state()
+                .expect("should get Inode state with read lock")
+                .write_status,
             WriteStatus::LocalUnopened
         );
 
@@ -1275,6 +1429,130 @@ mod tests {
         assert!(!client.contains_prefix(&prefix));
     }
 
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_readdir_lookup_after_rmdir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        superblock
+            .lookup(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect_err("should not do lookup on removed directory");
+
+        superblock
+            .readdir(&client, inode.ino(), 2)
+            .await
+            .expect_err("should not do readdir on removed directory");
+
+        superblock
+            .getattr(&client, inode.ino(), false)
+            .await
+            .expect_err("should not do getattr on removed directory");
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_rmdir_delete_status(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+
+        // Create local directory
+        let dirname = "local_dir";
+        let LookedUp { inode, .. } = superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        let parent = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
+        let parent_state = parent
+            .get_inode_state()
+            .expect("should get parent state with read lock");
+        match &parent_state.kind_data {
+            InodeKindData::File {} => unreachable!("Parent can only be a Directory"),
+            InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } => {
+                assert!(writing_children.get(&inode.ino()).is_none());
+                assert!(children.get(inode.name()).is_none());
+            }
+        }
+
+        inode
+            .get_inode_state()
+            .expect_err("Should not be able to get deleted Inode");
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_parent_readdir_after_rmdir(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+
+        // Create local directory
+        let dirname = "local_dir";
+        superblock
+            .create(&client, FUSE_ROOT_INODE, dirname.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        let dirname_to_stay = "staying_local_dir";
+        superblock
+            .create(&client, FUSE_ROOT_INODE, dirname_to_stay.as_ref(), InodeKind::Directory)
+            .await
+            .expect("Should be able to create directory");
+
+        superblock
+            .rmdir(&client, FUSE_ROOT_INODE, dirname.as_ref())
+            .await
+            .expect("rmdir on empty local directory should succeed");
+
+        // removed directory should not appear in readdir of parent
+        let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        assert_eq!(
+            entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
+            &[dirname_to_stay]
+        );
+    }
+
     #[tokio::test]
     async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
         let client_config = MockClientConfig {
@@ -1282,7 +1560,7 @@ mod tests {
             part_size: 1024 * 1024,
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
         let nested_dirs = (0..5).map(|i| format!("level{i}")).collect::<Vec<_>>();
         let leaf_dir_ino = {
@@ -1294,7 +1572,11 @@ mod tests {
                     .unwrap();
 
                 assert_eq!(
-                    dir_lookedup.inode.inner.sync.read().unwrap().write_status,
+                    dir_lookedup
+                        .inode
+                        .get_inode_state()
+                        .expect("should get inode state with read lock")
+                        .write_status,
                     WriteStatus::LocalUnopened
                 );
 
@@ -1322,7 +1604,7 @@ mod tests {
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        writehandle.finish_writing(0).unwrap();
+        writehandle.finish_writing().unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -1339,7 +1621,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
         for _ in 0..2 {
             let dir1_1 = superblock
@@ -1387,7 +1669,7 @@ mod tests {
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
 
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
@@ -1434,7 +1716,7 @@ mod tests {
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_5").unwrap()),
         );
 
-        let superblock = Superblock::new("test_bucket", &Default::default());
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
         let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
         assert_eq!(
@@ -1462,14 +1744,14 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, Instant::now(), None);
+        let file_inodestat = InodeStat::for_file(128, ts, None, Default::default());
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
         assert_eq!(file_inodestat.mtime, ts);
 
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(180);
-        let file_inodestat = InodeStat::for_directory(ts, Instant::now());
+        let file_inodestat = InodeStat::for_directory(ts, Default::default());
         assert_eq!(file_inodestat.size, 0);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
