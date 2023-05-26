@@ -698,6 +698,7 @@ impl ObjectClient for S3CrtClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     /// Test if the prefix is added correctly to the User-Agent header
     #[test]
@@ -749,20 +750,15 @@ mod tests {
         assert_eq!(expected_user_agent, user_agent_header_value);
     }
 
-    #[test]
-    fn parse_content_range() {
-        macro_rules! check {
-            ($value:expr, $range:expr) => {
-                let mut headers = Headers::new(&Allocator::default()).unwrap();
-                let header = Header::new("Content-Range", $value);
-                headers.add_header(&header).unwrap();
-                let parsed = extract_range_header(&headers);
-                assert_eq!(parsed, $range);
-            };
-        }
-
-        check!("bytes 200-1000/67589", Some(200..1001));
-        check!("bytes 200-1000/*", Some(200..1001));
-        check!("bytes */67589", None);
+    #[test_case("bytes 200-1000/67589" => Some(200..1001))]
+    #[test_case("bytes 200-1000/*" => Some(200..1001))]
+    #[test_case("bytes 200-1000" => None)]
+    #[test_case("bytes */67589" => None)]
+    #[test_case("octets 200-1000]" => None)]
+    fn parse_content_range(range: &str) -> Option<Range<u64>> {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new("Content-Range", range);
+        headers.add_header(&header).unwrap();
+        extract_range_header(&headers)
     }
 }
