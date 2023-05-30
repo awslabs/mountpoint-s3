@@ -613,31 +613,35 @@ impl SuperblockInner {
             (None, None) => Ok(UpdateStatus::Neither),
             (None, Some(inode)) => Ok(UpdateStatus::LocalOnly(inode.clone())),
             (Some(remote), None) => Ok(UpdateStatus::RemoteKey(remote.clone())),
-            (Some(remote @ RemoteLookup { kind, stat }), Some(inode)) => {
-                let mut inode_state = inode.get_mut_inode_state()?;
-
-                // In our semantics, directories shadow files of the same name. So if the inode
-                // already exists but the kind has changed, we need to decide what to do.
-                match (inode.kind(), kind) {
-                    // If the inode is currently a directory but we're asking to create a file,
-                    // fail the update, as the directory shadows the file.
-                    // TODO what if the directory is gone on the remote?
-                    (InodeKind::Directory, InodeKind::File) => Err(InodeError::ShadowedByDirectory(
-                        inode.full_key().to_owned(),
-                        inode.ino(),
-                    )),
-                    // If the inode is currently a file but we're asking to update a directory,
-                    // overwrite it, since directories shadow files.
-                    (InodeKind::File, InodeKind::Directory) => {
-                        warn!(parent=?inode.parent(), name=?inode.name(), ino=?inode.ino(), "inode changed from file to directory, will recreate it");
+            (
+                Some(
+                    remote @ RemoteLookup {
+                        kind: remote_kind,
+                        stat,
+                    },
+                ),
+                Some(existing_inode),
+            ) => {
+                let mut inode_state = existing_inode.get_mut_inode_state()?;
+                match (existing_inode.kind(), remote_kind) {
+                    // If the kind has changed, we need a new inode.
+                    (InodeKind::File, InodeKind::Directory) | (InodeKind::Directory, InodeKind::File) => {
+                        warn!(
+                            parent=?existing_inode.parent(),
+                            name=?existing_inode.name(),
+                            ino=?existing_inode.ino(),
+                            "inode changed from {:?} to {:?}, will recreate it",
+                            existing_inode.kind(),
+                            remote_kind,
+                        );
                         Ok(UpdateStatus::RemoteKey(remote.clone()))
                     }
                     // Otherwise, we'll just update this inode in place.
                     (InodeKind::File, InodeKind::File) | (InodeKind::Directory, InodeKind::Directory) => {
-                        trace!(parent=?inode.parent(), name=?inode.name(), ino=?inode.ino(), "updating inode in place");
+                        trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place");
                         inode_state.stat = stat.clone();
                         Ok(UpdateStatus::Updated(LookedUp {
-                            inode: inode.clone(),
+                            inode: existing_inode.clone(),
                             stat: stat.clone(),
                         }))
                     }
@@ -1057,8 +1061,6 @@ pub enum InodeError {
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]
     InvalidFileName(OsString),
-    #[error("file {0:?} is shadowed by a directory with inode {1}")]
-    ShadowedByDirectory(String, InodeNo),
     #[error("inode {0} is not a directory")]
     NotADirectory(InodeNo),
     #[error("inode {0} is a directory")]

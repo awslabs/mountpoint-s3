@@ -110,7 +110,7 @@ impl ReaddirHandle {
         }
 
         // Loop because the next entry from the [ReaddirIter] may be hidden from the file system,
-        // either because it has an invalid name or because it's shadowed by another entry.
+        // if it has an invalid name.
         loop {
             let next = {
                 let mut iter = self.iter.lock().await;
@@ -118,7 +118,11 @@ impl ReaddirHandle {
             };
 
             if let Some(next) = next {
-                if let Some(lookup) = self.instantiate_remote_inode(next)? {
+                // Short-circuit the update if we know it'll fail because the name is invalid
+                if !valid_inode_name(next.name()) {
+                    warn!("{} has an invalid name and will be unavailable", next.description());
+                } else {
+                    let lookup = self.instantiate_remote_inode(next)?;
                     return Ok(Some(lookup));
                 }
             } else {
@@ -139,12 +143,9 @@ impl ReaddirHandle {
     }
 
     /// Create or update an inode for the given ReaddirEntry.
-    ///
-    /// This returns `Ok(None)` if inode creation fails because the ReaddirEntry should not be
-    /// visible in the file system (e.g. due to shadowing or an invalid inode name).
-    fn instantiate_remote_inode(&self, entry: ReaddirEntry) -> Result<Option<LookedUp>, InodeError> {
+    fn instantiate_remote_inode(&self, entry: ReaddirEntry) -> Result<LookedUp, InodeError> {
         let (stat, kind) = match &entry {
-            ReaddirEntry::LocalInode { lookup } => return Ok(Some(lookup.clone())),
+            ReaddirEntry::LocalInode { lookup } => return Ok(lookup.clone()),
             ReaddirEntry::RemotePrefix { .. } => {
                 let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
                 (stat, InodeKind::Directory)
@@ -160,29 +161,8 @@ impl ReaddirHandle {
             }
         };
         let remote_lookup = RemoteLookup { stat, kind };
-
-        // Short-circuit the update if we know it'll fail because the name is invalid
-        if !valid_inode_name(entry.name()) {
-            warn!(
-                "{} has an invalid name and will be unavailable",
-                entry.shadowed_description()
-            );
-            return Ok(None);
-        }
-
-        let result = self
-            .inner
-            .update_from_remote(self.dir_ino, entry.name(), Some(remote_lookup));
-        match result {
-            Err(InodeError::ShadowedByDirectory(_, _)) => {
-                warn!(
-                    "{} is shadowed by another directory entry with the same name and will be unavailable",
-                    entry.shadowed_description(),
-                );
-                Ok(None)
-            }
-            _ => Ok(Some(result?)),
-        }
+        self.inner
+            .update_from_remote(self.dir_ino, entry.name(), Some(remote_lookup))
     }
 
     #[cfg(test)]
@@ -229,11 +209,10 @@ impl ReaddirEntry {
         }
     }
 
-    /// How to describe this entry in an error message about shadowing
-    fn shadowed_description(&self) -> String {
+    /// How to describe this entry in an error message
+    fn description(&self) -> String {
         match self {
             Self::RemotePrefix { name } => {
-                debug_assert!(false, "should be impossible to shadow a remote prefix");
                 format!("directory '{name}'")
             }
             Self::RemoteObject { name, object_info } => {
@@ -330,8 +309,8 @@ impl ReaddirIter {
                 Some(entry) => {
                     if self.last_name.as_deref() == Some(entry.name()) {
                         warn!(
-                            "{} is shadowed by another directory entry with the same name and will be unavailable",
-                            entry.shadowed_description(),
+                            "{} is shadowed by another entry with the same name and will be unavailable",
+                            entry.description(),
                         );
                     } else {
                         self.last_name = Some(entry.name().to_owned());

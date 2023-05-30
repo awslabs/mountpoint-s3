@@ -3,7 +3,7 @@ use std::future::Future;
 use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -21,6 +21,7 @@ use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryS
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
+    RequestType,
 };
 
 use async_trait::async_trait;
@@ -28,7 +29,7 @@ use futures::channel::oneshot;
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pin_project::pin_project;
 use thiserror::Error;
-use tracing::{debug, error, trace, warn, Span};
+use tracing::{error, trace, Span};
 
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::*;
@@ -49,6 +50,20 @@ pub(crate) mod head_bucket;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
 pub(crate) mod put_object;
+
+/// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
+/// requests based on their response status. https://github.com/tokio-rs/tracing/issues/372
+macro_rules! event {
+    ($level:expr, $($args:tt)*) => {
+        match $level {
+            ::tracing::Level::ERROR => ::tracing::event!(::tracing::Level::ERROR, $($args)*),
+            ::tracing::Level::WARN => ::tracing::event!(::tracing::Level::WARN, $($args)*),
+            ::tracing::Level::INFO => ::tracing::event!(::tracing::Level::INFO, $($args)*),
+            ::tracing::Level::DEBUG => ::tracing::event!(::tracing::Level::DEBUG, $($args)*),
+            ::tracing::Level::TRACE => ::tracing::event!(::tracing::Level::TRACE, $($args)*),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct S3ClientConfig {
@@ -232,33 +247,56 @@ impl S3CrtClient {
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
         let (tx, rx) = oneshot::channel::<ObjectClientResult<T, E, S3RequestError>>();
 
+        let span_telemetry = request_span.clone();
         let span_body = request_span.clone();
         let span_finish = request_span;
 
-        let request_id = Arc::new(Mutex::new(None));
-        let request_id_clone = Arc::clone(&request_id);
         let start_time = Instant::now();
-        let mut first_body_part = true;
+        let first_body_part = Arc::new(AtomicBool::new(true));
+        let first_body_part_clone = Arc::clone(&first_body_part);
 
         let mut options = MetaRequestOptions::new();
         options
             .message(message.inner)
             .endpoint(message.uri)
-            .on_headers(move |headers, response_status| {
-                if let Ok(id) = headers.get("x-amz-request-id") {
-                    let id = id.value().to_string_lossy().to_string();
-                    *request_id.lock().unwrap() = Some(id);
+            .on_telemetry(move |metrics| {
+                let _guard = span_telemetry.enter();
+
+                let http_status = metrics.status_code().unwrap_or(-1);
+                let request_failure = !(200..299).contains(&http_status);
+                let request_type = request_type_to_metrics_string(metrics.request_type());
+                let request_id = metrics.request_id().unwrap_or_else(|| "<unknown>".into());
+                let duration = metrics.total_duration();
+                let ttfb = metrics.time_to_first_byte();
+                let range = metrics.response_headers().and_then(|headers| extract_range_header(&headers));
+
+                let log_level = status_code_to_log_level(http_status);
+
+                let message = if request_failure {
+                    "request failed"
+                } else {
+                    "request finished"
+                };
+                event!(log_level, %request_type, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
+
+                let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
+                metrics::histogram!("s3.requests.first_byte_latency_us", ttfb.as_micros() as f64, "op" => op, "type" => request_type);
+                metrics::histogram!("s3.requests.total_latency_us", duration.as_micros() as f64, "op" => op, "type" => request_type);
+                metrics::counter!("s3.requests", 1, "op" => op, "type" => request_type);
+                if request_failure {
+                    metrics::counter!("s3.requests.failures", 1, "op" => op, "type" => request_type, "status" => format!("{http_status}"));
                 }
+            })
+            .on_headers(move |headers, response_status| {
                 (on_headers)(headers, response_status);
             })
             .on_body(move |range_start, data| {
                 let _guard = span_body.enter();
 
-                if first_body_part {
-                    first_body_part = false;
+                if first_body_part.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).ok() == Some(true) {
                     let latency = start_time.elapsed().as_micros() as f64;
                     let op = span_body.metadata().map(|m| m.name()).unwrap_or("unknown");
-                    metrics::histogram!("s3.first_byte_latency_us", latency, "op" => op);
+                    metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
                 }
 
                 trace!(start = range_start, length = data.len(), "body part received");
@@ -268,32 +306,30 @@ impl S3CrtClient {
             .on_finish(move |request_result| {
                 let _guard = span_finish.enter();
 
-                // Header callback won't be invoked concurrently, so we can hold onto this lock
-                let request_id = request_id_clone.lock().unwrap();
                 let op = span_finish.metadata().map(|m| m.name()).unwrap_or("unknown");
+                let duration = start_time.elapsed();
 
                 metrics::counter!("s3.meta_requests", 1, "op" => op);
+                metrics::histogram!("s3.meta_requests.total_latency_us", duration.as_micros() as f64, "op" => op);
+                // Some HTTP requests (like HEAD) don't have a body to stream back, so calculate TTFB now
+                if first_body_part_clone.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).ok() == Some(true)  {
+                    let latency = duration.as_micros() as f64;
+                    metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
+                }
 
-                let request_id = request_id.as_deref().unwrap_or("unknown");
-                let duration_us = start_time.elapsed().as_micros();
+                let log_level = status_code_to_log_level(request_result.response_status);
                 if request_result.is_err() {
-                    let res_status_code = request_result.response_status;
-                    if (200..=399).contains(&res_status_code) || res_status_code == 404 {
-                        // Use debug level for less severe response codes.
-                        debug!(request_id, duration_us, ?request_result, "request failed");
-                    } else {
-                        warn!(request_id, duration_us, ?request_result, "request failed");
-                    }
+                    event!(log_level, ?duration, ?request_result, "meta request failed");
 
-                    // If it's not a real HTTP status, encode the CRT error instead
+                    // If it's not a real HTTP status, encode the CRT error in the metric instead
                     let error_status = if request_result.response_status >= 100 {
                         request_result.response_status
                     } else {
                         -request_result.crt_error.raw_error()
                     };
-                    metrics::counter!("s3.meta_request_failures", 1, "op" => op, "status" => format!("{error_status}"));
+                    metrics::counter!("s3.meta_requests.failures", 1, "op" => op, "status" => format!("{error_status}"));
                 } else {
-                    debug!(request_id, duration_us, "request finished");
+                    event!(log_level, ?duration, "meta request finished");
                 }
 
                 let result = on_finish(request_result);
@@ -546,6 +582,51 @@ pub enum ConstructionError {
     InvalidEndpoint(#[from] EndpointError),
 }
 
+/// Some requests are expected failures, and we want to log those at a different level to unexpected
+/// ones.
+fn status_code_to_log_level(status_code: i32) -> tracing::Level {
+    if (200..=399).contains(&status_code) || status_code == 404 {
+        tracing::Level::DEBUG
+    } else {
+        tracing::Level::WARN
+    }
+}
+
+/// Return a string version of a [RequestType] for use in metrics
+fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
+    match request_type {
+        RequestType::Default => "Default",
+        RequestType::HeadObject => "HeadObject",
+        RequestType::GetObject => "GetObject",
+        RequestType::ListParts => "ListParts",
+        RequestType::CreateMultipartUpload => "CreateMultipartUpload",
+        RequestType::UploadPart => "UploadPart",
+        RequestType::AbortMultipartUpload => "AbortMultipartUpload",
+        RequestType::CompleteMultipartUpload => "CompleteMultipartUpload",
+        RequestType::UploadPartCopy => "UploadPartCopy",
+    }
+}
+
+/// Extract the byte range from the Content-Range header if present and valid
+fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
+    let header = headers.get("Content-Range").ok()?;
+    let value = header.value().to_str()?;
+
+    // Content-Range: <unit> <range-start>-<range-end>/<size>
+
+    if !value.starts_with("bytes ") {
+        return None;
+    }
+    let (_, value) = value.split_at("bytes ".len());
+    let (range, _) = value.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.parse::<u64>().ok()?;
+    let end = end.parse::<u64>().ok()?;
+
+    // Rust ranges are exclusive at the end, but Content-Range is inclusive
+    Some(start..end + 1)
+}
+
 #[async_trait]
 impl ObjectClient for S3CrtClient {
     type GetObjectResult = GetObjectRequest;
@@ -616,11 +697,10 @@ impl ObjectClient for S3CrtClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::S3ClientConfig;
-    use crate::S3CrtClient;
-    use std::assert_eq;
+    use super::*;
+    use test_case::test_case;
 
-    //test if the prefix is added correctly to the User-Agent header
+    /// Test if the prefix is added correctly to the User-Agent header
     #[test]
     fn test_user_agent_with_prefix() {
         let user_agent_prefix = String::from("someprefix");
@@ -647,7 +727,7 @@ mod tests {
         assert_eq!(expected_user_agent, user_agent_header_value);
     }
 
-    // Simple test to ensure the user agent header is correct even when prefix is not added
+    /// Simple test to ensure the user agent header is correct even when prefix is not added
     #[test]
     fn test_user_agent_without_prefix() {
         let expected_user_agent = "mountpoint-s3-client";
@@ -668,5 +748,17 @@ mod tests {
         let user_agent_header_value = user_agent_header.value();
 
         assert_eq!(expected_user_agent, user_agent_header_value);
+    }
+
+    #[test_case("bytes 200-1000/67589" => Some(200..1001))]
+    #[test_case("bytes 200-1000/*" => Some(200..1001))]
+    #[test_case("bytes 200-1000" => None)]
+    #[test_case("bytes */67589" => None)]
+    #[test_case("octets 200-1000]" => None)]
+    fn parse_content_range(range: &str) -> Option<Range<u64>> {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new("Content-Range", range);
+        headers.add_header(&header).unwrap();
+        extract_range_header(&headers)
     }
 }

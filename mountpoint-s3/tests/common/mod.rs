@@ -85,7 +85,7 @@ pub fn assert_attr(attr: FileAttr, ftype: FileType, size: u64, uid: u32, gid: u3
     assert_eq!(attr.perm, perm);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DirectoryEntry {
     pub ino: u64,
     pub offset: i64,

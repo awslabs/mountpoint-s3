@@ -521,3 +521,112 @@ async fn test_local_dir(prefix: &str) {
     let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
     assert!(matches!(lookup, Err(libc::ENOENT)));
 }
+
+#[tokio::test]
+async fn test_directory_shadowing_lookup() {
+    let (client, fs) = make_test_filesystem(
+        "test_directory_shadowing_lookup",
+        &Default::default(),
+        Default::default(),
+    );
+
+    // Add an object
+    let name = "foo";
+    client.add_object(name, b"foo".into());
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
+
+    // Add another object, whose prefix shadows the first
+    let nested = format!("{name}/bar");
+    client.add_object(&nested, b"bar".into());
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr.kind, FileType::Directory);
+
+    // Remove the second object
+    client.remove_object(&nested);
+
+    let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
+    assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
+}
+
+#[tokio::test]
+async fn test_directory_shadowing_readdir() {
+    let (client, fs) = make_test_filesystem(
+        "test_directory_shadowing_readdir",
+        &Default::default(),
+        Default::default(),
+    );
+
+    // Add `foo/bar` as a file
+    client.add_object("foo/bar", b"foo/bar".into());
+
+    let foo_dir = fs.lookup(FUSE_ROOT_INODE, "foo".as_ref()).await.unwrap();
+    assert_eq!(foo_dir.attr.kind, FileType::Directory);
+
+    let bar_dentry = {
+        let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.releasedir(foo_dir.attr.ino, dir_handle, 0).await.unwrap();
+
+        // Skip . and .. to get to the `bar` dentry
+        reply.entries.get(2).unwrap().clone()
+    };
+    // The `bar` dentry should be a file
+    assert_eq!(bar_dentry.attr.kind, FileType::RegularFile);
+    assert_eq!(bar_dentry.name, "bar");
+
+    // Lookup should be consistent with readdir
+    let bar_file = fs.lookup(foo_dir.attr.ino, "bar".as_ref()).await.unwrap();
+    assert_eq!(bar_file.attr.kind, FileType::RegularFile);
+    assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
+
+    // Add another object that shadows the first `bar` file with a directory
+    client.add_object("foo/bar/baz", b"bar".into());
+
+    let bar_dentry_new = {
+        let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs.readdir(bar_file.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.releasedir(bar_file.attr.ino, dir_handle, 0).await.unwrap();
+
+        // Skip . and .. to get to the `bar` dentry
+        reply.entries.get(2).unwrap().clone()
+    };
+    // The `bar` dentry should now be a directory and a different
+    // inode to the original `bar`
+    assert_eq!(bar_dentry_new.attr.kind, FileType::Directory);
+    assert_eq!(bar_dentry.name, "bar");
+    assert_ne!(bar_dentry_new.attr.ino, bar_dentry.attr.ino);
+
+    // Lookup should again be consistent with readdir
+    let bar_dir = fs.lookup(foo_dir.attr.ino, "bar".as_ref()).await.unwrap();
+    assert_eq!(bar_dir.attr.kind, FileType::Directory);
+    assert_eq!(bar_dir.attr.ino, bar_dentry_new.attr.ino);
+
+    // Remove the second object, revealing the original `bar` file again
+    client.remove_object("foo/bar/baz");
+
+    let bar_dentry = {
+        let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.releasedir(foo_dir.attr.ino, dir_handle, 0).await.unwrap();
+
+        // Skip . and .. to get to the `bar` dentry
+        reply.entries.get(2).unwrap().clone()
+    };
+    // The `bar` dentry should be a file again and a different inode to
+    // the `bar` directory above that's now gone. We're ambivalent about
+    // whether it's the same inode as the original file we saw above.
+    assert_eq!(bar_dentry.attr.kind, FileType::RegularFile);
+    assert_eq!(bar_dentry.name, "bar");
+    assert_ne!(bar_dentry.attr.ino, bar_dentry_new.attr.ino);
+
+    // Lookup should be consistent with readdir
+    let bar_file = fs.lookup(foo_dir.attr.ino, "bar".as_ref()).await.unwrap();
+    assert_eq!(bar_file.attr.kind, FileType::RegularFile);
+    assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
+}
