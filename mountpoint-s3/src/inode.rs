@@ -1553,6 +1553,43 @@ mod tests {
         );
     }
 
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_lookup_after_unlink(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).unwrap();
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+
+        let file_name = OsString::from("file.txt");
+        client.add_object(
+            file_name.to_str().unwrap(),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
+        let parent_ino = FUSE_ROOT_INODE;
+
+        superblock
+            .lookup(&client, parent_ino, &file_name)
+            .await
+            .expect("should be able to lookup file");
+
+        superblock
+            .unlink(&client, parent_ino, &file_name)
+            .await
+            .expect("should be able to delete file");
+
+        let err: i32 = superblock
+            .lookup(&client, parent_ino, &file_name)
+            .await
+            .expect_err("should not return an entry from lookup")
+            .into();
+        assert_eq!(libc::ENOENT, err, "lookup should return no entry error");
+    }
+
     #[tokio::test]
     async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
         let client_config = MockClientConfig {
