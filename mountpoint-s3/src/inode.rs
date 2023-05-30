@@ -1569,25 +1569,23 @@ mod tests {
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
-        let file_name = OsString::from("file.txt");
-        client.add_object(
-            file_name.to_str().unwrap(),
-            MockObject::constant(0xaa, 30, ETag::for_tests()),
-        );
+        let file_name = "file.txt";
+        let file_key = format!("{prefix}{file_name}");
+        client.add_object(file_key.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
         let parent_ino = FUSE_ROOT_INODE;
 
         superblock
-            .lookup(&client, parent_ino, &file_name)
+            .lookup(&client, parent_ino, file_name.as_ref())
             .await
             .expect("file should exist");
 
         superblock
-            .unlink(&client, parent_ino, &file_name)
+            .unlink(&client, parent_ino, file_name.as_ref())
             .await
             .expect("file delete should succeed as it exists");
 
         let err: i32 = superblock
-            .lookup(&client, parent_ino, &file_name)
+            .lookup(&client, parent_ino, file_name.as_ref())
             .await
             .expect_err("lookup should no longer find deleted file")
             .into();
