@@ -127,7 +127,7 @@ where
     let raw_os_err = err.raw_os_error().expect("err should be OS-level err");
     assert_eq!(raw_os_err, libc::EPERM, "unlink should fail with OS err EPERM");
 
-    f.write_all(&mut [0u8; 1]).expect("write should succeed");
+    f.write_all(&[0u8; 1]).expect("write should succeed");
 
     let err =
         fs::remove_file(&path).expect_err("file remove/unlink of path partial written to should continue to fail");
