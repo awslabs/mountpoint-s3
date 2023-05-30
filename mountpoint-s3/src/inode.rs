@@ -1566,7 +1566,7 @@ mod tests {
             part_size: 1024 * 1024,
         };
         let client = Arc::new(MockClient::new(client_config));
-        let prefix = Prefix::new(prefix).unwrap();
+        let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new("test_bucket", &prefix, Default::default());
 
         let file_name = OsString::from("file.txt");
@@ -1579,19 +1579,19 @@ mod tests {
         superblock
             .lookup(&client, parent_ino, &file_name)
             .await
-            .expect("should be able to lookup file");
+            .expect("file should exist");
 
         superblock
             .unlink(&client, parent_ino, &file_name)
             .await
-            .expect("should be able to delete file");
+            .expect("file delete should succeed as it exists");
 
         let err: i32 = superblock
             .lookup(&client, parent_ino, &file_name)
             .await
-            .expect_err("should not return an entry from lookup")
+            .expect_err("lookup should no longer find deleted file")
             .into();
-        assert_eq!(libc::ENOENT, err, "lookup should return no entry error");
+        assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
     }
 
     #[tokio::test]
