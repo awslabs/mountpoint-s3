@@ -518,6 +518,8 @@ impl Superblock {
             }
         };
 
+        // TODO: When inode lookup/ref counting is implemented, decrement here to eventually remove from superblock.
+
         Ok(())
     }
 }
