@@ -9,6 +9,34 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust FFI bindings to the AWS Common Runtime for Mountpoint for Amazon S3."
+exclude = [
+    # Exclude large files/directories not required to build the CRT (e.g. tests, docs)
+    "crt/*/tests",
+    "!crt/aws-lc/tests/compiler_features_tests",
+    "!crt/s2n-tls/tests/features",
+    "crt/*/docs",
+    "crt/aws-c-cal/ecdsa-fuzz-corpus/*",
+    "crt/aws-c-common/verification/*",
+    "crt/aws-lc/crypto/*/*_tests.txt",
+    "crt/aws-lc/crypto/cipher_extra/test/*",
+    "crt/aws-lc/crypto/fipsmodule/bn/test/*",
+    "crt/aws-lc/crypto/fipsmodule/ecdsa/*_tests.txt",
+    "crt/aws-lc/crypto/fipsmodule/policydocs/*",
+    "crt/aws-lc/crypto/fipsmodule/sha/testvectors/*",
+    "crt/aws-lc/crypto/hpke/test-vectors.json",
+    "crt/aws-lc/crypto/kyber/kat/*",
+    "crt/aws-lc/crypto/x509/*_test.cc",
+    "crt/aws-lc/crypto/x509/test/*",
+    "crt/aws-lc/fuzz/*",
+    "crt/aws-lc/generated-src/crypto_test_data.cc",
+    "crt/aws-lc/ssl/ssl_test.cc",
+    "crt/aws-lc/ssl/test/*",
+    "crt/aws-lc/third_party/googletest/test/*",
+    "crt/aws-lc/third_party/wycheproof_testvectors/*",
+    "crt/aws-lc/util/fipstools/acvp/acvptool/test/*",
+    "crt/s2n-tls/compliance/*",
+    "crt/s2n-tls/scram/SCRAM_paper.pdf",
+]
 
 [build-dependencies]
 bindgen = { version = "0.60.1", default-features = false, features = ["runtime"] }
