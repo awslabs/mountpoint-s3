@@ -17,6 +17,7 @@ mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.2.1" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
+const_format = "0.2.30"
 futures = { version = "0.3.24", features = ["thread-pool"] }
 lazy_static = "1.4.0"
 libc = "0.2.126"
@@ -48,6 +49,9 @@ tempfile = "3.5.0"
 test-case = "2.2.2"
 tokio = { version = "1.24.2", features = ["rt", "macros"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
+
+[build-dependencies]
+built = { version = "0.6.0", features = ["git2"] }
 
 [lib]
 doctest = false
