@@ -30,7 +30,7 @@ use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::fs::CacheConfig;
 use crate::prefix::Prefix;
@@ -436,6 +436,89 @@ impl Superblock {
                 children.remove(inode.name());
             }
         }
+
+        Ok(())
+    }
+
+    /// Unlink the entry described by `parent_ino` and `name`.
+    ///
+    /// If the entry exists, delete it from S3 and the superblock.
+    ///
+    /// We know that the Linux Kernel's VFS will lock both the parent and child,
+    /// so we can safely ignore concurrent operations within the same Mountpoint process to the file and its parent.
+    /// See: https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
+    pub async fn unlink<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &OsStr,
+    ) -> Result<(), InodeError> {
+        let parent = self.inner.get(parent_ino)?;
+        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+
+        if inode.kind() == InodeKind::Directory {
+            return Err(InodeError::IsDirectory(inode.ino()));
+        }
+
+        let write_status = {
+            let inode_state = inode.get_inode_state()?;
+            inode_state.write_status
+        };
+
+        match write_status {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpen => {
+                // In the future, we may permit `unlink` and cancel any in-flight uploads.
+                error!(
+                    parent = parent_ino,
+                    ?name,
+                    "unlink called on local file, unlink not supported until write is complete",
+                );
+                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.ino()));
+            }
+            WriteStatus::Remote => {
+                let (bucket, s3_key) = (self.inner.bucket.as_str(), inode.full_key());
+                debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
+                let delete_obj_result = client.delete_object(bucket, s3_key).await;
+
+                match delete_obj_result {
+                    Ok(_res) => (),
+                    Err(e) => {
+                        error!(
+                            parent=parent_ino,
+                            ?name,
+                            s3_key,
+                            error=?e,
+                            "unlink failed when trying to perform S3 DeleteObject call, not unlinking from parent inode",
+                        );
+                        Err(InodeError::ClientError(e.into()))?;
+                    }
+                };
+            }
+        }
+
+        let mut parent_state = parent.get_mut_inode_state()?;
+        match &mut parent_state.kind_data {
+            InodeKindData::File { .. } => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.ino()));
+            }
+            InodeKindData::Directory { children, .. } => {
+                // We want to remove the original child.
+                // We assume that the VFS will hold a lock on the parent and child.
+                // However, we don't hold this lock over remote calls as we don't want to move to async locks right now.
+                // Instead, we will panic when our assumption appears broken.
+                let removed_inode = children
+                    .remove(inode.name())
+                    .expect("parent should contain child assuming VFS does not permit concurrent op on parent");
+                assert_eq!(
+                    removed_inode.ino(),
+                    inode.ino(),
+                    "child ino number shouldn't change assuming VFS does not permit concurrent op on parent",
+                );
+            }
+        };
+
+        // TODO: When inode lookup/ref counting is implemented, decrement here to eventually remove from superblock.
 
         Ok(())
     }
@@ -878,6 +961,7 @@ enum InodeKindData {
         children: HashMap<String, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
+        /// This should be a subset of the [children](Self::Directory::children) field.
         writing_children: HashSet<InodeNo>,
 
         /// True if this directory has been deleted (`rmdir`) from its parent
@@ -981,6 +1065,8 @@ pub enum InodeError {
     InvalidFileName(OsString),
     #[error("inode {0} is not a directory")]
     NotADirectory(InodeNo),
+    #[error("inode {0} is a directory")]
+    IsDirectory(InodeNo),
     #[error("file already exists at inode {0}")]
     FileAlreadyExists(InodeNo),
     #[error("inode {0} is not writable")]
@@ -991,6 +1077,8 @@ pub enum InodeError {
     CannotRemoveRemoteDirectory(InodeNo),
     #[error("non-empty directory cannot be removed at inode {0}")]
     DirectoryNotEmpty(InodeNo),
+    #[error("inode {0} cannot be unlinked while being written")]
+    UnlinkNotPermittedWhileWriting(InodeNo),
 }
 
 #[cfg(test)]
@@ -1467,6 +1555,41 @@ mod tests {
             entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &[dirname_to_stay]
         );
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_lookup_after_unlink(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+
+        let file_name = "file.txt";
+        let file_key = format!("{prefix}{file_name}");
+        client.add_object(file_key.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+        let parent_ino = FUSE_ROOT_INODE;
+
+        superblock
+            .lookup(&client, parent_ino, file_name.as_ref())
+            .await
+            .expect("file should exist");
+
+        superblock
+            .unlink(&client, parent_ino, file_name.as_ref())
+            .await
+            .expect("file delete should succeed as it exists");
+
+        let err: i32 = superblock
+            .lookup(&client, parent_ino, file_name.as_ref())
+            .await
+            .expect_err("lookup should no longer find deleted file")
+            .into();
+        assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
     }
 
     #[tokio::test]
