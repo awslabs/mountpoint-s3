@@ -13,7 +13,8 @@ pub const FULL_VERSION: &str = {
     if built::GIT_COMMIT_HASH_SHORT.is_some() {
         const COMMIT_HASH_STR: &str = match built::GIT_COMMIT_HASH_SHORT {
             Some(hash) => hash,
-            None => unreachable!(),
+            // Evaluated at compile time, but never used
+            None => "unreachable",
         };
         const_format::concatcp!(built::PKG_VERSION, "-", COMMIT_HASH_STR)
     } else {
