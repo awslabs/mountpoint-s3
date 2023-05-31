@@ -31,6 +31,7 @@ use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{error, trace, Span};
 
+use crate::build_info;
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::*;
 use crate::s3_crt_client::get_object::GetObjectRequest;
@@ -172,10 +173,10 @@ impl S3CrtClient {
             client_config.part_size(part_size);
         }
 
-        const CLIENT_NAME: &str = "mountpoint-s3-client";
+        let client_agent = format!("mountpoint-s3-client/{}", build_info::FULL_VERSION);
         let user_agent_header = match config.user_agent_prefix {
-            Some(prefix) => format!("{prefix} {CLIENT_NAME}"),
-            None => CLIENT_NAME.to_owned(),
+            Some(prefix) => format!("{prefix} {client_agent}"),
+            None => client_agent,
         };
 
         let s3_client = Client::new(&allocator, client_config).unwrap();
@@ -704,7 +705,7 @@ mod tests {
     #[test]
     fn test_user_agent_with_prefix() {
         let user_agent_prefix = String::from("someprefix");
-        let expected_user_agent = "someprefix mountpoint-s3-client";
+        let expected_user_agent = "someprefix mountpoint-s3-client/";
 
         let config = S3ClientConfig {
             user_agent_prefix: Some(user_agent_prefix),
@@ -724,13 +725,15 @@ mod tests {
             .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
-        assert_eq!(expected_user_agent, user_agent_header_value);
+        assert!(user_agent_header_value
+            .to_string_lossy()
+            .starts_with(expected_user_agent));
     }
 
     /// Simple test to ensure the user agent header is correct even when prefix is not added
     #[test]
     fn test_user_agent_without_prefix() {
-        let expected_user_agent = "mountpoint-s3-client";
+        let expected_user_agent = "mountpoint-s3-client/";
 
         let config: S3ClientConfig = Default::default();
 
@@ -747,7 +750,9 @@ mod tests {
             .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
-        assert_eq!(expected_user_agent, user_agent_header_value);
+        assert!(user_agent_header_value
+            .to_string_lossy()
+            .starts_with(expected_user_agent));
     }
 
     #[test_case("bytes 200-1000/67589" => Some(200..1001))]

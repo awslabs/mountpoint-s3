@@ -1,3 +1,4 @@
+mod build_info;
 mod endpoint;
 pub mod failure_client;
 mod imds_crt_client;
