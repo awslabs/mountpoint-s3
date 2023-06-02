@@ -143,9 +143,6 @@ aws_secret_access_key = {}",
 
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
-    // We need to unset AWS_PROFILE if set, because the CRT's profile provider prefers it over the
-    // overriden profile name.
-    std::env::remove_var("AWS_PROFILE");
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
     // Build a S3CrtClient that uses the config file
