@@ -45,7 +45,7 @@ async fn test_head_bucket_forbidden() {
 #[tokio::test]
 async fn test_head_bucket_not_found() {
     let client = get_test_client();
-    let bucket = "test-nosuchbucket-s3alias";
+    let bucket = "nosuch..bucket"; // Invalid bucket name, so cannot be created by anyone.
 
     let result = client.head_bucket(bucket).await;
 
