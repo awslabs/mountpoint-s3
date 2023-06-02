@@ -41,3 +41,16 @@ async fn test_head_bucket_forbidden() {
         Err(ObjectClientError::ServiceError(HeadBucketError::PermissionDenied(_)))
     ));
 }
+
+#[tokio::test]
+async fn test_head_bucket_not_found() {
+    let client = get_test_client();
+    let bucket = "test-nosuchbucket-s3alias";
+
+    let result = client.head_bucket(bucket).await;
+
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(HeadBucketError::NoSuchBucket()))
+    ));
+}
