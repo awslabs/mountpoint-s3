@@ -281,7 +281,9 @@ impl S3CrtClient {
                 event!(log_level, %request_type, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
-                metrics::histogram!("s3.requests.first_byte_latency_us", ttfb.as_micros() as f64, "op" => op, "type" => request_type);
+                if let Some(ttfb) = ttfb {
+                    metrics::histogram!("s3.requests.first_byte_latency_us", ttfb.as_micros() as f64, "op" => op, "type" => request_type);
+                }
                 metrics::histogram!("s3.requests.total_latency_us", duration.as_micros() as f64, "op" => op, "type" => request_type);
                 metrics::counter!("s3.requests", 1, "op" => op, "type" => request_type);
                 if request_failure {

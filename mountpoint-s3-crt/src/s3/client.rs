@@ -741,16 +741,21 @@ impl RequestMetrics {
         Duration::from_nanos(out)
     }
 
-    /// Return the first-byte latency for this request (time first byte received - time last byte sent)
-    pub fn time_to_first_byte(&self) -> Duration {
+    /// Return the first-byte latency for this request (time first byte received - time last byte
+    /// sent), or None if unavailable (e.g. the request failed before sending).
+    pub fn time_to_first_byte(&self) -> Option<Duration> {
         let mut send_end: u64 = 0;
         let mut receive_start: u64 = 0;
         // SAFETY: `inner` is a valid aws_s3_request_metrics
         unsafe {
-            aws_s3_request_metrics_get_send_end_timestamp_ns(self.inner.as_ptr(), &mut send_end);
-            aws_s3_request_metrics_get_receive_start_timestamp_ns(self.inner.as_ptr(), &mut receive_start);
+            aws_s3_request_metrics_get_send_end_timestamp_ns(self.inner.as_ptr(), &mut send_end)
+                .ok_or_last_error()
+                .ok()?;
+            aws_s3_request_metrics_get_receive_start_timestamp_ns(self.inner.as_ptr(), &mut receive_start)
+                .ok_or_last_error()
+                .ok()?;
         };
-        Duration::from_nanos(receive_start - send_end)
+        Some(Duration::from_nanos(receive_start.saturating_sub(send_end)))
     }
 }
 
