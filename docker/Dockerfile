@@ -7,3 +7,12 @@ RUN git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git 
     cd mountpoint-s3 && \
     cargo build --release
 WORKDIR /mountpoint-s3/target/release
+
+
+FROM amazonlinux:2023
+COPY --from=0 /mountpoint-s3/target/release/mount-s3 /mount-s3
+
+RUN yum -y update && \
+    yum -y install fuse fuse-devel
+
+CMD ["/mount-s3"]
