@@ -45,7 +45,8 @@ async fn test_head_bucket_forbidden() {
 #[tokio::test]
 async fn test_head_bucket_not_found() {
     let client = get_test_client();
-    let bucket = "nosuch..bucket"; // Invalid bucket name, so cannot be created by anyone.
+    // Buckets are case sensitive. This bucket will use path-style access and 404.
+    let bucket = "DOC-EXAMPLE-BUCKET";
 
     let result = client.head_bucket(bucket).await;
 
