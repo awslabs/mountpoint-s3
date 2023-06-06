@@ -25,6 +25,8 @@ pub trait TestClient {
     fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
 
     fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+
+    fn contains_partial_object(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
 pub type TestClientBox = Box<dyn TestClient>;
@@ -103,6 +105,11 @@ mod mock_session {
         fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.contains_prefix(&full_key))
+        }
+
+        fn contains_partial_object(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            Ok(self.client.contains_partial(&full_key))
         }
     }
 }
@@ -224,6 +231,19 @@ mod s3_session {
                     + output.common_prefixes().map(|c| c.len()).unwrap_or_default();
                 len > 0
             })
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        }
+
+        fn contains_partial_object(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            tokio_block_on(
+                self.sdk_client
+                    .list_multipart_uploads()
+                    .bucket(&self.bucket)
+                    .prefix(full_key)
+                    .send(),
+            )
+            .map(|output| output.uploads().map_or(0, |u| u.len()) > 0)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
     }

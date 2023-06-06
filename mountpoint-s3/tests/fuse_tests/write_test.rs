@@ -155,3 +155,66 @@ fn write_errors_test_s3() {
 fn write_errors_test_mock(prefix: &str) {
     write_errors_test(crate::fuse_tests::mock_session::new, prefix);
 }
+
+fn sequential_write_streaming_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "dir/new.txt";
+    const OBJECT_SIZE: usize = 32 * 1024 * 1024;
+    const WRITE_SIZE: usize = 1024 * 1024 + 1;
+
+    let (mount_point, _session, mut test_client) = creator_fn("sequential_write_streaming_test", Default::default());
+
+    // Make sure there's an existing directory
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, false).unwrap();
+
+    // The file is visible with size 0 as soon as we open it for write
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), 0);
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    for part in body.chunks(WRITE_SIZE) {
+        f.write_all(part).unwrap();
+    }
+
+    // We shouldn't be able to read from a file mid-write
+    let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
+    assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+
+    assert!(test_client.contains_partial_object(KEY).unwrap());
+
+    drop(f);
+
+    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
+    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
+    // the file will fail.
+    // TODO we can remove this when we implement fsync, or change it when we make files visible
+    // during writes
+    std::thread::sleep(Duration::from_secs(5));
+
+    // Now it's closed, we can stat or read it
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), body.len() as u64);
+
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &body[..]);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn sequential_write_streaming_test_s3() {
+    sequential_write_streaming_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn sequential_write_streaming_test_mock() {
+    sequential_write_streaming_test(crate::fuse_tests::mock_session::new);
+}
