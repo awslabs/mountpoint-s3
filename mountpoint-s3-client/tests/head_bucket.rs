@@ -51,6 +51,6 @@ async fn test_head_bucket_not_found() {
 
     assert!(matches!(
         result,
-        Err(ObjectClientError::ServiceError(HeadBucketError::NoSuchBucket()))
+        Err(ObjectClientError::ServiceError(HeadBucketError::NoSuchBucket))
     ));
 }

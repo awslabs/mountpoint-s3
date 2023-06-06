@@ -11,7 +11,7 @@ pub enum HeadBucketError {
     IncorrectRegion(String),
 
     #[error("The bucket did not exist")]
-    NoSuchBucket(),
+    NoSuchBucket,
 
     #[error("Permission denied")]
     PermissionDenied(MetaRequestResult),
@@ -40,7 +40,7 @@ impl S3CrtClient {
                         ))),
                     // S3 returns 400 for invalid or expired STS tokens
                     400 | 403 => ObjectClientError::ServiceError(HeadBucketError::PermissionDenied(request_result)),
-                    404 => ObjectClientError::ServiceError(HeadBucketError::NoSuchBucket()),
+                    404 => ObjectClientError::ServiceError(HeadBucketError::NoSuchBucket),
                     _ => ObjectClientError::ClientError(S3RequestError::ResponseError(request_result)),
                 }
             })?
