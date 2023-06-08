@@ -26,7 +26,7 @@ pub trait TestClient {
 
     fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn contains_partial_object(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
 pub type TestClientBox = Box<dyn TestClient>;
@@ -107,9 +107,9 @@ mod mock_session {
             Ok(self.client.contains_prefix(&full_key))
         }
 
-        fn contains_partial_object(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.contains_partial(&full_key))
+            Ok(self.client.is_upload_in_progress(&full_key))
         }
     }
 }
@@ -234,7 +234,7 @@ mod s3_session {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
-        fn contains_partial_object(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             tokio_block_on(
                 self.sdk_client

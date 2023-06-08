@@ -189,7 +189,7 @@ where
     let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
-    assert!(test_client.contains_partial_object(KEY).unwrap());
+    assert!(test_client.is_upload_in_progress(KEY).unwrap());
 
     drop(f);
 

@@ -1,9 +1,12 @@
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
-use std::fmt::Debug;
 use std::str::FromStr;
-use std::{fmt, ops::Range, string::ParseError};
+use std::{
+    fmt::{self, Debug},
+    ops::Range,
+    string::ParseError,
+};
 use thiserror::Error;
 use time::OffsetDateTime;
 

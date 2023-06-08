@@ -54,7 +54,7 @@ pub struct MockClientConfig {
 pub struct MockClient {
     config: MockClientConfig,
     objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
-    partials: Arc<RwLock<BTreeSet<String>>>,
+    in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
 
 fn add_object(objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>, key: &str, value: MockObject) {
@@ -67,7 +67,7 @@ impl MockClient {
         Self {
             config,
             objects: Default::default(),
-            partials: Default::default(),
+            in_progress_uploads: Default::default(),
         }
     }
 
@@ -92,9 +92,9 @@ impl MockClient {
         self.objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
     }
 
-    /// Returns `true` if this mock client's bucket has a partial objects for the specified common key
-    pub fn contains_partial(&self, key: &str) -> bool {
-        self.partials.read().unwrap().contains(key)
+    /// Returns `true` if there is an upload in progress for the specified key
+    pub fn is_upload_in_progress(&self, key: &str) -> bool {
+        self.in_progress_uploads.read().unwrap().contains(key)
     }
 }
 
@@ -449,7 +449,7 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
-        let put_request = MockPutObjectRequest::new(key, &self.objects, &self.partials);
+        let put_request = MockPutObjectRequest::new(key, &self.objects, &self.in_progress_uploads);
         Ok(put_request)
     }
 
@@ -498,21 +498,21 @@ pub struct MockPutObjectRequest {
     key: String,
     buffer: Vec<u8>,
     objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
-    partials: Arc<RwLock<BTreeSet<String>>>,
+    in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
 
 impl MockPutObjectRequest {
     fn new(
         key: &str,
         objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
-        partials: &Arc<RwLock<BTreeSet<String>>>,
+        in_progress_uploads: &Arc<RwLock<BTreeSet<String>>>,
     ) -> Self {
-        partials.write().unwrap().insert(key.to_owned());
+        in_progress_uploads.write().unwrap().insert(key.to_owned());
         Self {
             key: key.to_owned(),
             buffer: vec![],
             objects: objects.clone(),
-            partials: partials.clone(),
+            in_progress_uploads: in_progress_uploads.clone(),
         }
     }
 }
@@ -528,7 +528,7 @@ impl PutObjectRequest for MockPutObjectRequest {
 
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         add_object(&self.objects, &self.key, self.buffer.into());
-        self.partials.write().unwrap().remove(&self.key);
+        self.in_progress_uploads.write().unwrap().remove(&self.key);
         Ok(PutObjectResult {})
     }
 }
