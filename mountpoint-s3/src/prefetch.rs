@@ -206,6 +206,9 @@ where
 
             let part_len = part_bytes.len() as u64;
             if response.extend(part_bytes).is_err() {
+                // cancel inflight tasks
+                self.current_task = None;
+                self.future_tasks.write().unwrap().drain(..);
                 return Err(PrefetchReadError::Integrity);
             }
             to_read -= part_len;
@@ -278,6 +281,8 @@ where
                             match request.next().await {
                                 Some(Ok((offset, body))) => {
                                     let bytes: Bytes = body.into();
+                                    // S3 doesn't provide checksum for us if the request range is not aligned to object part boundaries,
+                                    // so we're computing our own checksum here.
                                     let checksum = crc32c::checksum(&bytes);
                                     let checksum_bytes = ChecksummedBytes::new(bytes, checksum);
                                     let part = Part::new(&key, offset, checksum_bytes);
