@@ -94,8 +94,8 @@ pub trait ObjectClient {
         key: &str,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError>;
 
-    /// Put an object into the object store.
-    /// The contents are provided by the client as an async stream of buffers.
+    /// Put an object into the object store. Returns a [PutObjectRequest] for callers
+    /// to provide the content of the object.
     async fn put_object<'a>(
         &'a self,
         bucket: &str,
@@ -246,14 +246,16 @@ pub enum GetObjectAttributesError {
 #[non_exhaustive]
 pub struct PutObjectParams {}
 
+/// A streaming put request which allows callers to asynchronously write
+/// the body of the request.
 #[async_trait]
 pub trait PutObjectRequest: Debug {
     type ClientError: std::error::Error + Send + Sync + 'static;
 
-    /// write
+    /// Write the given slice to the put request body.
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError>;
 
-    /// complete
+    /// Complete the put request and return a [PutObjectResult].
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 }
 
