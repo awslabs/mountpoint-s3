@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use mountpoint_s3_client::{
-    ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
+    PutObjectResult,
 };
 
-use tracing::error;
+use thiserror::Error;
+
+type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
 /// An [Uploader] creates and manages streaming PutObject requests.
 #[derive(Debug)]
@@ -37,13 +40,22 @@ where
     }
 }
 
+#[derive(Debug, Error)]
+pub enum UploadWriteError<E: std::error::Error> {
+    #[error("put request failed")]
+    PutRequestFailed(#[from] E),
+
+    #[error("out of order write; expected offset {1} but got {0}")]
+    OutOfOrderWrite(u64, u64),
+}
+
 /// A PutObject request to upload objects to S3.
 #[derive(Debug)]
 pub struct UploadRequest<Client: ObjectClient> {
     _bucket: String,
     _key: String,
     next_request_offset: u64,
-    request: Option<Client::PutObjectRequest>,
+    request: Client::PutObjectRequest,
 }
 
 impl<Client> UploadRequest<Client>
@@ -64,7 +76,7 @@ where
             _bucket: bucket.to_owned(),
             _key: key.to_owned(),
             next_request_offset: 0,
-            request: Some(request),
+            request,
         })
     }
 
@@ -72,32 +84,18 @@ where
         self.next_request_offset
     }
 
-    pub async fn push(&mut self, offset: i64, data: &[u8]) -> Result<(), i32> {
+    pub async fn write(&mut self, offset: i64, data: &[u8]) -> Result<(), UploadWriteError<PutRequestError<Client>>> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
-            error!("out of order write; expected offset {next_offset} but got {offset}");
-            return Err(libc::EINVAL);
+            return Err(UploadWriteError::OutOfOrderWrite(offset as u64, next_offset));
         }
 
-        let Some(request) = &mut self.request else {
-            return Err(libc::EIO);
-        };
-
-        let result = request.write(data).await;
-        match result {
-            Ok(()) => {
-                self.next_request_offset += data.len() as u64;
-                Ok(())
-            }
-            Err(_) => Err(libc::EIO),
-        }
+        self.request.write(data).await?;
+        self.next_request_offset += data.len() as u64;
+        Ok(())
     }
 
-    pub async fn complete(&mut self) -> Result<PutObjectResult, i32> {
-        let Some(request) = self.request.take() else {
-            return Err(libc::EIO);
-        };
-
-        request.complete().await.map_err(|_| libc::EIO)
+    pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
+        self.request.complete().await
     }
 }

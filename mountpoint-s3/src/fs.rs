@@ -16,7 +16,7 @@ use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, Prefetch
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::{UploadRequest, Uploader};
+use crate::upload::{UploadRequest, UploadWriteError, Uploader};
 
 pub use crate::inode::InodeNo;
 
@@ -475,10 +475,16 @@ where
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
 
-        request.push(offset, data).await?;
-
-        let len = data.len();
-        Ok(len as u32)
+        match request.write(offset, data).await {
+            Ok(()) => {
+                let len = data.len();
+                Ok(len as u32)
+            }
+            Err(e) => {
+                error!("write failed: {:?}", e);
+                Err(e.into())
+            }
+        }
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
@@ -601,7 +607,7 @@ where
                 let key = file_handle.full_key;
 
                 // TODO how do we make sure we didn't already handle this via `flush`?
-                let mut request = request.lock().await;
+                let request = request.into_inner();
                 let size = request.size() as usize;
                 let put = request.complete().await;
                 let result = match put {
@@ -613,12 +619,11 @@ where
                         error!(key, size, "put failed, object was not uploaded: {e:?}");
                         // This won't actually be seen by the user because `release` is async, but
                         // it's the right thing to do.
-                        Err(e)
+                        Err(libc::EIO)
                     }
                 };
 
                 handle.finish_writing()?;
-
                 result
             }
             FileHandleType::Read { request: _, etag: _ } => {
@@ -662,6 +667,15 @@ impl From<InodeError> for i32 {
             InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
+        }
+    }
+}
+
+impl<E: std::error::Error> From<UploadWriteError<E>> for i32 {
+    fn from(err: UploadWriteError<E>) -> Self {
+        match err {
+            UploadWriteError::PutRequestFailed(_) => libc::EIO,
+            UploadWriteError::OutOfOrderWrite(_, _) => libc::EINVAL,
         }
     }
 }
