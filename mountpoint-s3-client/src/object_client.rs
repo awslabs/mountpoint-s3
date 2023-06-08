@@ -99,8 +99,8 @@ pub trait ObjectClient {
 
     /// Put an object into the object store. Returns a [PutObjectRequest] for callers
     /// to provide the content of the object.
-    async fn put_object<'a>(
-        &'a self,
+    async fn put_object(
+        &self,
         bucket: &str,
         key: &str,
         params: &PutObjectParams,

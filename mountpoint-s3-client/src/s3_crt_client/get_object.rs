@@ -67,7 +67,6 @@ impl S3CrtClient {
 
         let request = self.make_meta_request(
             message,
-            None,
             MetaRequestType::GetObject,
             span,
             |_, _| (),

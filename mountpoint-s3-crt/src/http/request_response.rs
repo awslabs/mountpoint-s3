@@ -11,7 +11,7 @@ use thiserror::Error;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
-use crate::io::stream::InputStream;
+use crate::io::async_stream::AsyncInputStream;
 use crate::{aws_byte_cursor_as_slice, CrtError, StringExt};
 
 /// An HTTP header.
@@ -243,15 +243,15 @@ impl<'a> Iterator for HeadersIterator<'a> {
 
 /// A single HTTP message, initialized to be empty (i.e., no headers, no body).
 #[derive(Debug)]
-pub struct Message<'a> {
+pub struct Message {
     /// The pointer to the inner `aws_http_message`.
     pub(crate) inner: NonNull<aws_http_message>,
 
     /// Input stream for the body of the http message, if present.
-    body_input_stream: Option<InputStream<'a>>,
+    body_input_stream: Option<AsyncInputStream>,
 }
 
-impl<'a> Message<'a> {
+impl Message {
     /// Creates a new HTTP/1.1 request message.
     pub fn new_request(allocator: &Allocator) -> Result<Self, Error> {
         // TODO: figure out a better place to call this
@@ -286,26 +286,15 @@ impl<'a> Message<'a> {
         }
     }
 
+    /// The body input stream for this message,if present.
+    pub fn body_stream(&self) -> &Option<AsyncInputStream> {
+        &self.body_input_stream
+    }
+
     /// Sets the body input stream for this message, and returns any previously set input stream.
     /// If input_stream is None, unsets the body.
-    pub fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
-        let old_input_stream = std::mem::replace(&mut self.body_input_stream, input_stream);
-
-        let new_input_stream_ptr = self
-            .body_input_stream
-            .as_ref()
-            .map(|s| s.inner.as_ptr())
-            .unwrap_or(std::ptr::null_mut());
-
-        // SAFETY: `aws_http_message_set_request_method` does _not_ take ownership of the underlying
-        // input stream. We take ownership of the input stream to make sure it doesn't get dropped
-        // while the CRT has a pointer to it. We also use lifetime parameters to enforce that this
-        // message does not outlive any data borrowed by the input stream.
-        unsafe {
-            aws_http_message_set_body_stream(self.inner.as_ptr(), new_input_stream_ptr);
-        }
-
-        old_input_stream
+    pub fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
+        std::mem::replace(&mut self.body_input_stream, input_stream)
     }
 
     /// get the headers from the message and increases the reference count for the Headers in CRT.
@@ -319,7 +308,7 @@ impl<'a> Message<'a> {
     }
 }
 
-impl<'a> Drop for Message<'a> {
+impl Drop for Message {
     fn drop(&mut self) {
         // SAFETY: `self.inner` is a valid `aws_http_message`, and on Drop it's safe to decrement
         // the reference count since we won't use it again through `self.`

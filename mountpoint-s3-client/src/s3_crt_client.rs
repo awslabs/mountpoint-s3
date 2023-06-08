@@ -19,7 +19,6 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
-use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
     RequestType,
@@ -238,11 +237,9 @@ impl S3CrtClient {
     /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
     /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
     /// succeeded.
-    #[allow(clippy::too_many_arguments)] // TODO: review
     fn make_meta_request<T: Send + 'static, E: Send + 'static>(
         &self,
         message: S3Message,
-        send_async_stream: Option<AsyncInputStream>,
         meta_request_type: MetaRequestType,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
@@ -344,10 +341,6 @@ impl S3CrtClient {
             })
             .request_type(meta_request_type);
 
-        if let Some(send_async_stream) = send_async_stream {
-            options.send_async_stream(send_async_stream);
-        }
-
         // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
         // the resulting meta request, as it's a reference-counted object.
         self.s3_client.make_meta_request(options)?;
@@ -369,29 +362,12 @@ impl S3CrtClient {
         request_span: Span,
         on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
-        self.make_http_request(message, None, request_type, request_span, on_error)
-    }
-
-    /// Make an HTTP request using this S3 client that returns the body on success or invokes the
-    /// given callback on failure.
-    ///
-    /// The `on_error` callback can assume that `result.is_err()` is true for the result it
-    /// receives.
-    fn make_http_request<E: Send + 'static>(
-        &self,
-        message: S3Message,
-        send_async_stream: Option<AsyncInputStream>,
-        request_type: MetaRequestType,
-        request_span: Span,
-        on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
-    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
         let body_clone = Arc::clone(&body);
 
         self.make_meta_request(
             message,
-            send_async_stream,
             request_type,
             request_span,
             |_, _| (),
@@ -461,13 +437,13 @@ impl S3CrtClient {
 /// virtual-hosted-style addresses. The `path_prefix` is appended to the front of all paths, and
 /// need not be terminated with a `/`.
 #[derive(Debug)]
-struct S3Message<'a> {
-    inner: Message<'a>,
+struct S3Message {
+    inner: Message,
     uri: Uri,
     path_prefix: String,
 }
 
-impl<'a> S3Message<'a> {
+impl S3Message {
     /// Add a header to this message.
     fn add_header(
         &mut self,
@@ -533,7 +509,7 @@ impl<'a> S3Message<'a> {
 
     /// Sets the body input stream for this message, and returns any previously set input stream.
     /// If input_stream is None, unsets the body.
-    fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
+    fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
         self.inner.set_body_stream(input_stream)
     }
 }
