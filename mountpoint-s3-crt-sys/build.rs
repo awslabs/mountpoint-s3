@@ -221,6 +221,11 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
             builder.define("DISABLE_GO", "ON");
         }
 
+        // Force compiler optimizations for aws-checksums even in debug builds to improve throughput
+        if lib.package_name == "aws-checksums" {
+            builder.profile("RelWithDebInfo");
+        }
+
         // Configure ASan in a way that will be compatible with Rust's clang-based version
         if rustflags::from_env().any(|f| f == Flag::Z("sanitizer=address".to_string())) {
             let mut clang = cc::Build::new();
