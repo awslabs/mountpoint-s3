@@ -19,9 +19,8 @@ use crate::ETag;
 use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
 
 impl S3CrtClient {
-    /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] (for
-    /// async users) or [Iterator} (for sync users) of body parts of the object, which will be
-    /// delivered in order.
+    /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
+    /// body parts of the object, which will be delivered in order.
     pub(super) fn get_object(
         &self,
         bucket: &str,
@@ -43,20 +42,35 @@ impl S3CrtClient {
             .add_header(&Header::new("accept", "*/*"))
             .map_err(S3RequestError::construction_failure)?;
 
-        if let Some(range) = range {
-            // Range HTTP header is bounded below *inclusive*
-            let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
-            message
-                .add_header(&Header::new("Range", range_value))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-
         if let Some(etag) = if_match {
             // Return the object only if its entity tag (ETag) is matched
             message
                 .add_header(&Header::new("If-Match", etag.as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
+
+        // Only use the CRT auto-ranged-get machinery for requests larger than the part size, or
+        // unknown lengths. This avoids the machinery's HeadObject requests for small/random
+        // requests. For auto-ranged-gets, the CRT takes care of adjusting the offset returned to
+        // the body callback to include the range start, but for manual requests we need to do it
+        // ourselves with `range_start`.
+        let (request_type, range_start) = if let Some(range) = range {
+            // Range HTTP header is bounded below *inclusive*
+            let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
+            message
+                .add_header(&Header::new("Range", range_value))
+                .map_err(S3RequestError::construction_failure)?;
+
+            let length = range.end.saturating_sub(range.start);
+            let part_size = self.part_size.unwrap_or(0) as u64;
+            if length >= part_size {
+                (MetaRequestType::GetObject, 0)
+            } else {
+                (MetaRequestType::Default, range.start)
+            }
+        } else {
+            (MetaRequestType::GetObject, 0)
+        };
 
         let key = format!("/{key}");
         message
@@ -67,11 +81,11 @@ impl S3CrtClient {
 
         let request = self.make_meta_request(
             message,
-            MetaRequestType::GetObject,
+            request_type,
             span,
             |_, _| (),
             move |offset, data| {
-                let _ = sender.unbounded_send(Ok((offset, data.into())));
+                let _ = sender.unbounded_send(Ok((range_start + offset, data.into())));
             },
             move |result| {
                 if result.is_err() {
