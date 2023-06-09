@@ -100,6 +100,7 @@ pub struct S3CrtClient {
     /// Here it will add the user agent prefix and s3 client information.
     user_agent_header: String,
     request_payer: Option<String>,
+    part_size: Option<usize>,
 }
 
 impl S3CrtClient {
@@ -195,6 +196,7 @@ impl S3CrtClient {
             next_request_counter: AtomicU64::new(0),
             user_agent_header,
             request_payer: config.request_payer,
+            part_size: config.part_size,
         })
     }
 
