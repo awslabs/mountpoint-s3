@@ -1925,6 +1925,7 @@ dependencies = [
  "smallstr",
  "static_assertions",
  "tempfile",
+ "test-case",
  "thiserror",
  "tracing-subscriber",
 ]

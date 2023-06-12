@@ -11,7 +11,7 @@ use mountpoint_s3_crt_sys::{
 
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
-use crate::{aws_byte_cursor_as_slice, CrtError, StringExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
 
 /// The URI component of a request
 pub struct Uri {

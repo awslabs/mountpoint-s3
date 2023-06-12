@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use mountpoint_s3_client::{
     ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
@@ -49,11 +49,12 @@ pub enum UploadWriteError<E: std::error::Error> {
     OutOfOrderWrite(u64, u64),
 }
 
-/// A PutObject request to upload objects to S3.
-#[derive(Debug)]
+/// Manages the upload of an object to S3.
+///
+/// Wraps a PutObject request and enforces sequential writes.
 pub struct UploadRequest<Client: ObjectClient> {
-    _bucket: String,
-    _key: String,
+    bucket: String,
+    key: String,
     next_request_offset: u64,
     request: Client::PutObjectRequest,
 }
@@ -73,8 +74,8 @@ where
             .await?;
 
         Ok(Self {
-            _bucket: bucket.to_owned(),
-            _key: key.to_owned(),
+            bucket: bucket.to_owned(),
+            key: key.to_owned(),
             next_request_offset: 0,
             request,
         })
@@ -97,5 +98,18 @@ where
 
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
         self.request.complete().await
+    }
+}
+
+impl<Client> Debug for UploadRequest<Client>
+where
+    Client: ObjectClient,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadRequest")
+            .field("bucket", &self.bucket)
+            .field("key", &self.key)
+            .field("next_request_offset", &self.next_request_offset)
+            .finish()
     }
 }

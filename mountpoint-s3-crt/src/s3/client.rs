@@ -9,7 +9,7 @@ use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, StringExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -239,7 +239,7 @@ impl MetaRequestOptions {
         options.inner.message = options.message.as_mut().unwrap().inner.as_ptr();
 
         if let Some(send_async_stream) = options.message.as_mut().unwrap().body_stream() {
-            options.inner.send_async_stream = send_async_stream.inner.as_ptr();
+            options.inner.send_async_stream = send_async_stream.as_inner_ptr();
         }
 
         self

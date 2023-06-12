@@ -3,7 +3,10 @@
 pub mod common;
 
 use common::*;
+use futures::{pin_mut, StreamExt};
+use mountpoint_s3_client::GetObjectError;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::ObjectClientResult;
 use mountpoint_s3_client::PutObjectRequest;
 use rand::Rng;
 
@@ -95,3 +98,37 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix:
 }
 
 object_client_test!(test_put_object_large);
+
+// Test for dropped PUT object. Checks that the GET fails.
+async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+    let mut rng = rand::thread_rng();
+
+    let key = format!("{prefix}hello");
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let mut request = client
+        .put_object(bucket, &key, &Default::default())
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+    drop(request); // Drop without calling complete().
+
+    async fn check_get_object<Client: ObjectClient>(
+        client: &Client,
+        bucket: &str,
+        key: &str,
+    ) -> ObjectClientResult<(), GetObjectError, Client::ClientError> {
+        let result = client.get_object(bucket, key, None, None).await?;
+        pin_mut!(result);
+        result.next().await.unwrap()?;
+        Ok(())
+    }
+
+    let result = check_get_object(client, bucket, &key).await;
+    assert!(result.is_err(), "get_object should fail for dropped PUT");
+}
+
+object_client_test!(test_put_object_dropped);

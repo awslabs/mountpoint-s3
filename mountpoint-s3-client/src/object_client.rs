@@ -252,7 +252,7 @@ pub struct PutObjectParams {}
 /// A streaming put request which allows callers to asynchronously write
 /// the body of the request.
 #[async_trait]
-pub trait PutObjectRequest: Debug {
+pub trait PutObjectRequest {
     type ClientError: std::error::Error + Send + Sync + 'static;
 
     /// Write the given slice to the put request body.

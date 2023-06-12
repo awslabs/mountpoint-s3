@@ -12,7 +12,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
 use crate::io::async_stream::AsyncInputStream;
-use crate::{aws_byte_cursor_as_slice, CrtError, StringExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
 
 /// An HTTP header.
 #[derive(Debug)]
