@@ -132,3 +132,34 @@ async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, prefi
 }
 
 object_client_test!(test_put_object_dropped);
+
+// Test for abort PUT object.
+#[tokio::test]
+async fn test_put_object_abort() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let mut request = client
+        .put_object(&bucket, &key, &Default::default())
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+
+    let sdk_client = get_test_sdk_client().await;
+    let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
+    assert_eq!(uploads_in_progress, 1);
+
+    drop(request); // Drop without calling complete().
+
+    // Allow for the AbortMultipartUpload to complete.
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
+    assert_eq!(uploads_in_progress, 0);
+}

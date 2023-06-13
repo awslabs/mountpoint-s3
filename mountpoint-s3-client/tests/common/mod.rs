@@ -66,6 +66,23 @@ pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: 
     }
 }
 
+pub async fn get_mpu_count_for_key(
+    client: &s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<usize, aws_sdk_s3::types::SdkError<aws_sdk_s3::error::ListMultipartUploadsError>> {
+    let upload_count = client
+        .list_multipart_uploads()
+        .bucket(bucket)
+        .prefix(key)
+        .send()
+        .await?
+        .uploads()
+        .map_or(0, |u| u.len());
+
+    Ok(upload_count)
+}
+
 #[tokio::test]
 async fn test_sdk_create_object() {
     let sdk_client = get_test_sdk_client().await;
