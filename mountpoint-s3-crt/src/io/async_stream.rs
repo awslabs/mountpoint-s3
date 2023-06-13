@@ -333,10 +333,14 @@ impl Clone for BoolPromise {
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use futures::{
         channel::oneshot::{self, Sender},
         executor::block_on,
+        select, FutureExt,
     };
+    use futures_timer::Delay;
     use libc::c_void;
     use rand::Rng;
 
@@ -524,7 +528,7 @@ mod test {
     }
 
     async fn await_on_event_loop(future: *mut aws_future_bool, el_group: &EventLoopGroup) -> Result<bool, i32> {
-        let (tx, rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
 
         struct UserData {
             tx: Sender<Result<bool, i32>>,
@@ -558,7 +562,11 @@ mod test {
             )
         }
 
-        rx.await.unwrap()
+        let mut timeout = Delay::new(Duration::from_secs(1)).fuse();
+        select! {
+            _ = timeout => panic!("aws_future_bool did not complete in > 1s"),
+            result = rx => result.unwrap(),
+        }
     }
 
     fn generate_test_buffer(size: usize) -> Vec<u8> {

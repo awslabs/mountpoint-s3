@@ -26,6 +26,7 @@ thiserror = "1.0.35"
 [dev-dependencies]
 criterion = "0.4.0"
 ctor = "0.1.23"
+futures-timer = "3.0.2"
 rand = { version = "0.8.5", features = ["small_rng"] }
 tempfile = "3.4.0"
 test-case = "2.2.2"
