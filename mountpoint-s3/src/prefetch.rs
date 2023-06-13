@@ -25,7 +25,7 @@ use mountpoint_s3_crt::checksums::crc32c;
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
-use crate::prefetch::checksummed_bytes::ChecksummedBytes;
+use crate::prefetch::checksummed_bytes::{ChecksummedBytes, IntegrityError};
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueue};
 use crate::sync::{Arc, RwLock};
@@ -48,8 +48,17 @@ pub struct PrefetcherConfig {
 
 impl Default for PrefetcherConfig {
     fn default() -> Self {
+        #[allow(clippy::identity_op)]
         Self {
-            first_request_size: 256 * 1024,
+            // This is a weird looking number! We really want our first request size to be 1MiB,
+            // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
+            // top of a 1MiB read, which we'd have to wait for a second request to service. Because
+            // FUSE doesn't know the difference between regular reads and readahead reads, it will
+            // send us a READ request for that 128k, so we'll have to block waiting for it even if
+            // the application doesn't want it. This is all in the noise for sequential IO, but
+            // waiting for the readahead hurts random IO. So we add 128k to the first request size
+            // to avoid the latency hit of the second request.
+            first_request_size: 1 * 1024 * 1024 + 128 * 1024,
             max_request_size: 2 * 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
@@ -172,16 +181,13 @@ where
 
         self.prepare_requests();
 
-        // If [prepare_requests] didn't spawn a request, then we must have reached the end of the
-        // object.
-        if self.current_task.is_none() {
-            trace!(offset, length, "read beyond object size");
-            return Ok(ChecksummedBytes::default());
-        }
-
         let mut response = ChecksummedBytes::default();
         while to_read > 0 {
-            let current_task = self.current_task.as_mut().unwrap();
+            let Some(current_task) = self.current_task.as_mut() else {
+                // If [prepare_requests] didn't spawn a request, we've reached the end of the object.
+                trace!(offset, length, "read beyond object size");
+                break;
+            };
             debug_assert!(current_task.remaining > 0);
 
             let part = match current_task.read(to_read as usize).await {
@@ -196,6 +202,7 @@ where
             let part_bytes = part.into_bytes(&self.key, self.next_sequential_read_offset).unwrap();
 
             self.next_sequential_read_offset += part_bytes.len() as u64;
+            self.prepare_requests();
 
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
@@ -205,19 +212,17 @@ where
             }
 
             let part_len = part_bytes.len() as u64;
-            if response.extend(part_bytes).is_err() {
-                // cancel inflight tasks
-                self.current_task = None;
-                self.future_tasks.write().unwrap().drain(..);
-                return Err(PrefetchReadError::Integrity);
-            }
-            to_read -= part_len;
-            if current_task.remaining == 0 {
-                self.prepare_requests();
-                if self.current_task.is_none() {
-                    break;
+            let result = response.extend(part_bytes);
+            match result {
+                Ok(()) => {}
+                Err(IntegrityError::ChecksumMismatch(_, _)) => {
+                    // cancel inflight tasks
+                    self.current_task = None;
+                    self.future_tasks.write().unwrap().drain(..);
+                    return Err(PrefetchReadError::Integrity);
                 }
             }
+            to_read -= part_len;
         }
 
         Ok(response)
@@ -234,7 +239,7 @@ where
             }
             self.current_task = self.spawn_next_request();
         } else if current_task
-            .map(|task| task.remaining < task.total_size / 2)
+            .map(|task| task.remaining <= task.total_size / 2)
             .unwrap_or(false)
             && self.future_tasks.read().unwrap().is_empty()
         {

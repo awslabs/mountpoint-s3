@@ -219,7 +219,6 @@ where
     Runtime: Spawn + Send + Sync,
 {
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
-        let _ = config.set_max_readahead(0);
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
         Ok(())
     }
