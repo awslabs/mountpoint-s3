@@ -2,6 +2,8 @@ use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use std::fs::{self, DirBuilder, File};
 use std::io::Write;
+use std::thread::sleep;
+use std::time::Duration;
 use tempfile::TempDir;
 use test_case::test_case;
 
@@ -42,6 +44,9 @@ where
 
     file.write_all(b"Hello World").unwrap();
     drop(file);
+    // when there are multiple tests called release method can be called later than unlink or rmdir.
+    // So, adding the sleep to ensure release being called earlier.
+    sleep(Duration::from_secs(1));
     let err =
         fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");
     assert_eq!(
