@@ -15,7 +15,8 @@
 //!
 //! The following behavior is assumed from the reader (CRT):
 //! * the buffer passed on read remains valid at least until the future is fulfilled,
-//! * read calls on an `aws_async_input_stream` are never concurrent,
+//! * read calls on an `aws_async_input_stream` are never concurrent: the reader will only call
+//!   the next read after the future is fulfilled,
 //! * read is called again until it signals EoF (or error).
 
 use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
@@ -24,7 +25,7 @@ use crate::{
     common::{allocator::Allocator, error::Error},
     ToAwsByteCursor,
 };
-use async_channel::{RecvError, Sender};
+use async_channel::{RecvError, Sender, TrySendError};
 use mountpoint_s3_crt_sys::*;
 use thiserror::Error;
 
@@ -124,7 +125,8 @@ impl Drop for AsyncStreamWriter {
     fn drop(&mut self) {
         self.receiver.close();
 
-        // Drain [ReadRequest], if any.
+        // Drain [ReadRequest], if any. Will notify the reader by
+        // dropping the [ReadRequest].
         while self.receiver.try_recv().is_ok() {}
     }
 }
@@ -263,8 +265,14 @@ unsafe extern "C" fn read_impl(stream: *mut aws_async_input_stream, dest: *mut a
 
     let promise = BoolPromise::new(stream.inner.alloc);
     let request = ReadRequest::new(dest, promise.clone());
-    if let Err(_e) = stream.sender.try_send(request) {
-        // _e implicitly drops the [ReadRequest].
+    match stream.sender.try_send(request) {
+        Ok(()) => (),
+        Err(TrySendError::Full(_)) => unreachable!("should not call read while another read is outstanding"),
+        Err(TrySendError::Closed(request)) => {
+            // The writer side of the stream has gone away. Dropping the ReadRequest fulfills the promise
+            // with an error so that the reader side finds out about this.
+            drop(request);
+        }
     }
 
     promise.leak()
@@ -354,25 +362,31 @@ mod test {
         let write_future = el_group.spawn_future(async move { writer.write(&contents).await });
 
         let mut dest = vec![0u8; read_buffer_size];
-        let read_result = checked_read(&stream, &mut dest, &el_group, |stream, byte_buf| {
+        let read_result = checked_read(&mut dest, &el_group, |byte_buf| {
             // SAFETY: stream and byte_buf are valid and the CRT function do not write outside that buffer's capacity.
-            unsafe { aws_async_input_stream_read(stream, byte_buf) }
+            unsafe { aws_async_input_stream_read(stream.as_inner_ptr(), byte_buf) }
         });
 
         drop(stream);
         let write_result = write_future.wait().unwrap();
 
-        assert_eq!(read_result, Ok(false));
         if expect_write_error {
             assert!(write_result.is_err());
         } else {
             assert!(write_result.is_ok());
         }
 
-        let min_size = std::cmp::min(write_size, read_buffer_size);
+        let expected_bytes_read = std::cmp::min(write_size, read_buffer_size);
         assert_eq!(
-            &source[..min_size],
-            &dest[..min_size],
+            read_result,
+            Ok(ReadOutcome {
+                eof: false,
+                bytes_read: expected_bytes_read
+            })
+        );
+        assert_eq!(
+            &source[..expected_bytes_read],
+            &dest[..expected_bytes_read],
             "dest buffer should match source buffer"
         );
     }
@@ -404,25 +418,31 @@ mod test {
         });
 
         let mut dest = vec![0u8; read_buffer_size];
-        let read_result = checked_read(&stream, &mut dest, &el_group, |stream, byte_buf| {
+        let read_result = checked_read(&mut dest, &el_group, |byte_buf| {
             // SAFETY: stream and byte_buf are valid and the CRT function do not write outside that buffer's capacity.
-            unsafe { aws_async_input_stream_read_to_fill(stream, byte_buf) }
+            unsafe { aws_async_input_stream_read_to_fill(stream.as_inner_ptr(), byte_buf) }
         });
 
         drop(stream);
         let write_result = write_future.wait().unwrap();
 
-        assert_eq!(read_result, Ok(expect_eof));
         if expect_write_error {
             assert!(write_result.is_err());
         } else {
             assert!(write_result.is_ok());
         }
 
-        let min_size = std::cmp::min(write_size, read_buffer_size);
+        let expected_bytes_read = std::cmp::min(write_size, read_buffer_size);
         assert_eq!(
-            &source[..min_size],
-            &dest[..min_size],
+            read_result,
+            Ok(ReadOutcome {
+                eof: expect_eof,
+                bytes_read: expected_bytes_read
+            })
+        );
+        assert_eq!(
+            &source[..expected_bytes_read],
+            &dest[..expected_bytes_read],
             "dest buffer should match source buffer"
         );
     }
@@ -435,11 +455,11 @@ mod test {
         let (stream, writer) = new_stream(&allocator);
 
         let mut dest = vec![0u8; 32];
-        let read_result = checked_read(&stream, &mut dest, &el_group, |stream, byte_buf| {
+        let read_result = checked_read(&mut dest, &el_group, |byte_buf| {
             drop(writer);
 
             // SAFETY: stream and byte_buf are valid and the CRT function do not write outside that buffer's capacity.
-            unsafe { aws_async_input_stream_read(stream, byte_buf) }
+            unsafe { aws_async_input_stream_read(stream.as_inner_ptr(), byte_buf) }
         });
 
         drop(stream);
@@ -456,9 +476,9 @@ mod test {
         let (stream, writer) = new_stream(&allocator);
 
         let mut dest = vec![0u8; READ_BUFFER_SIZE];
-        let read_result = checked_read(&stream, &mut dest, &el_group, |stream, byte_buf| {
+        let read_result = checked_read(&mut dest, &el_group, |byte_buf| {
             // SAFETY: stream and byte_buf are valid and the CRT function do not write outside that buffer's capacity.
-            let future = unsafe { aws_async_input_stream_read(stream, byte_buf) };
+            let future = unsafe { aws_async_input_stream_read(stream.as_inner_ptr(), byte_buf) };
 
             drop(writer);
 
@@ -469,14 +489,15 @@ mod test {
         assert!(read_result.is_err());
     }
 
-    fn checked_read<F>(
-        stream: &AsyncInputStream,
-        buffer: &mut [u8],
-        el_group: &EventLoopGroup,
-        read: F,
-    ) -> Result<bool, i32>
+    #[derive(Debug, PartialEq, Eq)]
+    struct ReadOutcome {
+        eof: bool,
+        bytes_read: usize,
+    }
+
+    fn checked_read<F>(buffer: &mut [u8], el_group: &EventLoopGroup, read: F) -> Result<ReadOutcome, i32>
     where
-        F: FnOnce(*mut aws_async_input_stream, *mut aws_byte_buf) -> *mut aws_future_bool,
+        F: FnOnce(*mut aws_byte_buf) -> *mut aws_future_bool,
     {
         let mut byte_buf = aws_byte_buf {
             len: 0,
@@ -485,8 +506,8 @@ mod test {
             allocator: std::ptr::null_mut(),
         };
 
-        // Pass valid aws_async_input_stream and aws_byte_buf to the closure.
-        let future = read(stream.as_inner_ptr(), &mut byte_buf);
+        // Pass valid aws_byte_buf to the closure.
+        let future = read(&mut byte_buf);
         let result = block_on(await_on_event_loop(future, el_group));
 
         assert_eq!(byte_buf.capacity, buffer.len(), "capacity should not change");
@@ -496,7 +517,10 @@ mod test {
             "should not have written more than available"
         );
 
-        result
+        result.map(|eof| ReadOutcome {
+            eof,
+            bytes_read: byte_buf.len,
+        })
     }
 
     async fn await_on_event_loop(future: *mut aws_future_bool, el_group: &EventLoopGroup) -> Result<bool, i32> {
