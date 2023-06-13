@@ -18,7 +18,7 @@
 //! * read calls on an `aws_async_input_stream` are never concurrent,
 //! * read is called again until it signals EoF (or error).
 
-use std::{pin::Pin, ptr::NonNull};
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 use crate::{
     common::{allocator::Allocator, error::Error},
@@ -45,17 +45,16 @@ pub struct AsyncInputStream {
 
 impl AsyncInputStream {
     fn new(allocator: &Allocator, sender: Sender<ReadRequest>) -> Self {
-        // Pin the [AsyncInputStreamImpl]: aws_async_input_stream_init_base will
-        // make it self-referential.
-        let ptr = Box::pin(AsyncInputStreamImpl {
+        let ptr = Box::new(AsyncInputStreamImpl {
             inner: Default::default(),
             sender,
+            _pinned: Default::default(),
         });
 
-        // Turn the pinned Box pointer into a raw pointer (effectively leaking it).
-        let ptr = Box::into_raw(Pin::into_inner(ptr));
+        // Turn the Box pointer into a raw pointer (effectively leaking it).
+        let ptr = Box::into_raw(ptr);
 
-        // SAFETY: We know ptr isn't null because we just made it from the pinned Box.
+        // SAFETY: We know ptr isn't null because we just made it from the Box.
         unsafe {
             aws_async_input_stream_init_base(
                 &mut (*ptr).inner,
@@ -203,6 +202,9 @@ struct AsyncInputStreamImpl {
 
     /// The sending side of a channel.
     sender: Sender<ReadRequest>,
+
+    /// The [aws_async_input_stream] is self-refencing, so mark as pinned.
+    _pinned: PhantomPinned,
 }
 
 /// The vtable for [AsyncInputStreamImpl]s so we can use them as an `aws_async_input_stream`.
@@ -234,7 +236,7 @@ unsafe fn async_input_stream_to_impl<'a>(stream: *mut aws_async_input_stream) ->
         "&async_input_stream.inner should be the same stream we started with"
     );
 
-    // SAFETY: Pointers created in [AsyncInputStream::new] are always pinned.
+    // SAFETY: We are only accessing `impl_ptr` through the Pin (except when dropping it).
     unsafe { Pin::new_unchecked(&mut *impl_ptr) }
 }
 
@@ -243,10 +245,15 @@ unsafe fn async_input_stream_to_impl<'a>(stream: *mut aws_async_input_stream) ->
 unsafe extern "C" fn destroy_impl(stream: *mut aws_async_input_stream) {
     let impl_stream = async_input_stream_to_impl(stream);
 
+    // SAFETY: We are immediately dropping the stream, so no risk of moving data out of it.
+    let raw = impl_stream.get_unchecked_mut();
+
     // SAFETY: This is always a Box pointer, since we know this is from the impl vtable.
+    let boxed = Box::from_raw(raw);
+
     // This will `drop` the sender and cause subsequent [AsyncStreamWriter::write] or
     // [AsyncStreamWriter::complete] calls to return an error.
-    drop(Box::from_raw(impl_stream.get_mut()));
+    drop(boxed);
 }
 
 /// SAFETY: Only to be used as a CRT callback in aws_async_input_stream_vtable, which
