@@ -91,3 +91,14 @@ async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingSt
     })
     .await;
 }
+
+// Transfer acceleration can only be supported with virtual-hosted-style addressing
+#[test_case(AddressingStyle::Virtual)]
+#[tokio::test]
+async fn test_addressing_style_uri_transfer_acceleration(addressing_style: AddressingStyle) {
+    run_test(|_region| {
+        let uri = format!("https://s3-accelerate.amazonaws.com");
+        Endpoint::from_uri(&uri, addressing_style).unwrap()
+    })
+    .await;
+}
