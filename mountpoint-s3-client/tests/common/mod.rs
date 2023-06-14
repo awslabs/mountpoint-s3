@@ -17,6 +17,11 @@ fn init_tracing_subscriber() {
     let _ = tracing_subscriber::fmt::try_init();
 }
 
+pub enum AccessPointType {
+    SingleRegion,
+    ObjectLambda,
+}
+
 pub fn get_test_client() -> S3CrtClient {
     // Try to match what mountpoint-s3's defaults are
     let client_config = S3ClientConfig {
@@ -40,6 +45,29 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let prefix = format!("{prefix}{test_name}/{nonce}/");
 
     (bucket, prefix)
+}
+
+pub fn get_test_access_point_alias_and_prefix(test_name: &str, access_point_type: AccessPointType) -> (String, String) {
+    let access_point = match access_point_type {
+        AccessPointType::SingleRegion => {
+            std::env::var("S3_ACCESS_POINT_ALIAS").expect("Set S3_ACCESS_POINT_ALIAS to run integration tests")
+        }
+        AccessPointType::ObjectLambda => {
+            std::env::var("S3_OLAP_ALIAS").expect("Set S3_OLAP_ALIAS to run integration tests")
+        } // TODO: Add multi-region accesspoint option
+    };
+
+    // Generate a random nonce to make sure this prefix is truly unique
+    let nonce = OsRng.next_u64();
+
+    // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
+    let prefix =
+        std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_ACCESS_POINT_TEST_PREFIX to run integration tests");
+    assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
+
+    let prefix = format!("{prefix}{test_name}/{nonce}/");
+
+    (access_point, prefix)
 }
 
 pub fn get_test_region() -> String {
