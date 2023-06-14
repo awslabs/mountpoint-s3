@@ -191,7 +191,7 @@ impl Drop for ReadRequest {
         if let Some(promise) = self.promise.take() {
             // If the [ReadRequest] was not consumed/completed,
             // notify the reader of the error.
-            promise.fulfill(Err((-1).into()));
+            promise.fulfill(Err((aws_io_errors::AWS_IO_STREAM_READ_FAILED as i32).into()));
         }
     }
 }
