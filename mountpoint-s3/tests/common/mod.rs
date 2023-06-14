@@ -39,7 +39,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let nonce = OsRng.next_u64();
 
     // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
-    let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
+    let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
 
     let prefix = format!("{prefix}{test_name}/{nonce}/");
