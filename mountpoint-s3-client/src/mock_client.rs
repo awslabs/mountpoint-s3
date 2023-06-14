@@ -517,6 +517,12 @@ impl MockPutObjectRequest {
     }
 }
 
+impl Drop for MockPutObjectRequest {
+    fn drop(&mut self) {
+        self.in_progress_uploads.write().unwrap().remove(&self.key);
+    }
+}
+
 #[async_trait]
 impl PutObjectRequest for MockPutObjectRequest {
     type ClientError = MockClientError;
@@ -526,9 +532,9 @@ impl PutObjectRequest for MockPutObjectRequest {
         Ok(())
     }
 
-    async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        add_object(&self.objects, &self.key, self.buffer.into());
-        self.in_progress_uploads.write().unwrap().remove(&self.key);
+    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        let buffer = std::mem::take(&mut self.buffer);
+        add_object(&self.objects, &self.key, buffer.into());
         Ok(PutObjectResult {})
     }
 }

@@ -45,8 +45,8 @@ pub enum UploadWriteError<E: std::error::Error> {
     #[error("put request failed")]
     PutRequestFailed(#[from] E),
 
-    #[error("out of order write; expected offset {1} but got {0}")]
-    OutOfOrderWrite(u64, u64),
+    #[error("out of order write; expected offset {expected_offset:?} but got {write_offset:?}")]
+    OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
 }
 
 /// Manages the upload of an object to S3.
@@ -88,7 +88,10 @@ where
     pub async fn write(&mut self, offset: i64, data: &[u8]) -> Result<(), UploadWriteError<PutRequestError<Client>>> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
-            return Err(UploadWriteError::OutOfOrderWrite(offset as u64, next_offset));
+            return Err(UploadWriteError::OutOfOrderWrite {
+                write_offset: offset as u64,
+                expected_offset: next_offset,
+            });
         }
 
         self.request.write(data).await?;

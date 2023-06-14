@@ -309,14 +309,16 @@ where
             }
 
             let handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
-            let request = self
-                .uploader
-                .put(&self.bucket, lookup.inode.full_key())
-                .await
-                .map_err(|_| libc::EIO)?;
-            FileHandleType::Write {
-                request: request.into(),
-                handle,
+            let key = lookup.inode.full_key();
+            match self.uploader.put(&self.bucket, key).await {
+                Err(e) => {
+                    error!(key, "put failed to start: {e:?}");
+                    return Err(libc::EIO);
+                }
+                Ok(request) => FileHandleType::Write {
+                    request: request.into(),
+                    handle,
+                },
             }
         } else {
             lookup.inode.start_reading()?;
@@ -476,10 +478,7 @@ where
         };
 
         match request.write(offset, data).await {
-            Ok(()) => {
-                let len = data.len();
-                Ok(len as u32)
-            }
+            Ok(()) => Ok(data.len() as u32),
             Err(e) => {
                 error!("write failed: {:?}", e);
                 Err(e.into())
@@ -605,8 +604,6 @@ where
         match file_handle.typ {
             FileHandleType::Write { request, handle } => {
                 let key = file_handle.full_key;
-
-                // TODO how do we make sure we didn't already handle this via `flush`?
                 let request = request.into_inner();
                 let size = request.size() as usize;
                 let put = request.complete().await;
@@ -675,7 +672,7 @@ impl<E: std::error::Error> From<UploadWriteError<E>> for i32 {
     fn from(err: UploadWriteError<E>) -> Self {
         match err {
             UploadWriteError::PutRequestFailed(_) => libc::EIO,
-            UploadWriteError::OutOfOrderWrite(_, _) => libc::EINVAL,
+            UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
         }
     }
 }

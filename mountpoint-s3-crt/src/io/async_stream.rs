@@ -16,7 +16,7 @@
 //! The following behavior is assumed from the reader (CRT):
 //! * the buffer passed on read remains valid at least until the future is fulfilled,
 //! * read calls on an `aws_async_input_stream` are never concurrent: the reader will only call
-//!   the next read after the future is fulfilled,
+//!   the next read after the future from the previous read is fulfilled,
 //! * read is called again until it signals EoF (or error).
 
 use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
@@ -205,7 +205,7 @@ struct AsyncInputStreamImpl {
     /// The sending side of a channel.
     sender: Sender<ReadRequest>,
 
-    /// The [aws_async_input_stream] is self-refencing, so mark as pinned.
+    /// The [aws_async_input_stream] is self-referencing, so mark as pinned.
     _pinned: PhantomPinned,
 }
 
@@ -380,7 +380,7 @@ mod test {
             assert!(write_result.is_ok());
         }
 
-        let expected_bytes_read = std::cmp::min(write_size, read_buffer_size);
+        let expected_bytes_read = write_size.min(read_buffer_size);
         assert_eq!(
             read_result,
             Ok(ReadOutcome {
@@ -436,7 +436,7 @@ mod test {
             assert!(write_result.is_ok());
         }
 
-        let expected_bytes_read = std::cmp::min(write_size, read_buffer_size);
+        let expected_bytes_read = write_size.min(read_buffer_size);
         assert_eq!(
             read_result,
             Ok(ReadOutcome {
