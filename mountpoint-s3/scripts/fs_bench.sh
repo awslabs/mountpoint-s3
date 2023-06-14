@@ -26,7 +26,6 @@ cd ${project_dir}
 
 results_dir=results
 jobs_dir=mountpoint-s3/scripts/fio/read
-target_gbps=100
 thread_count=4
 
 rm -rf ${results_dir}
@@ -43,7 +42,6 @@ for job_file in "${jobs_dir}"/*.fio; do
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
     --foreground \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
-    --throughput-target-gbps=${target_gbps} \
     --thread-count=${thread_count} > bench.out 2>&1 &
   # get file system PID
   fs_pid=$!

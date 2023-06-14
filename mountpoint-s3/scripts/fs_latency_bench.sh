@@ -25,7 +25,6 @@ project_dir="${base_dir}/../.."
 cd ${project_dir}
 
 results_dir=results
-target_gbps=100
 thread_count=4
 
 rm -rf ${results_dir}
@@ -46,7 +45,6 @@ do
     # mount file system
     cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
         --prefix=${S3_BUCKET_TEST_PREFIX} \
-        --throughput-target-gbps=${target_gbps} \
         --thread-count=${thread_count}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
@@ -108,7 +106,6 @@ for job_file in "${jobs_dir}"/*.fio; do
   # mount file system
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
-    --throughput-target-gbps=${target_gbps} \
     --thread-count=${thread_count}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then
