@@ -14,11 +14,11 @@ use mountpoint_s3_crt::auth::credentials::{
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
+use mountpoint_s3_crt::io::async_stream::{AsyncInputStream, AsyncStreamWriter};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
-use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{
     init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
     RequestType,
@@ -439,13 +439,13 @@ impl S3CrtClient {
 /// virtual-hosted-style addresses. The `path_prefix` is appended to the front of all paths, and
 /// need not be terminated with a `/`.
 #[derive(Debug)]
-struct S3Message<'a> {
-    inner: Message<'a>,
+struct S3Message {
+    inner: Message,
     uri: Uri,
     path_prefix: String,
 }
 
-impl<'a> S3Message<'a> {
+impl S3Message {
     /// Add a header to this message.
     fn add_header(
         &mut self,
@@ -511,7 +511,7 @@ impl<'a> S3Message<'a> {
 
     /// Sets the body input stream for this message, and returns any previously set input stream.
     /// If input_stream is None, unsets the body.
-    fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
+    fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
         self.inner.set_body_stream(input_stream)
     }
 }
@@ -632,9 +632,46 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
     Some(start..end + 1)
 }
 
+#[derive(Debug)]
+pub struct S3PutObjectRequest {
+    body: S3HttpRequest<Vec<u8>, PutObjectError>,
+    writer: AsyncStreamWriter,
+}
+
+impl S3PutObjectRequest {
+    fn new(body: S3HttpRequest<Vec<u8>, PutObjectError>, writer: AsyncStreamWriter) -> Self {
+        Self { body, writer }
+    }
+}
+
+#[async_trait]
+impl PutObjectRequest for S3PutObjectRequest {
+    type ClientError = S3RequestError;
+
+    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        self.writer
+            .write(slice)
+            .await
+            .map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
+    }
+
+    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        let body = {
+            self.writer
+                .complete()
+                .await
+                .map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
+            self.body
+        };
+        body.await?;
+        Ok(PutObjectResult {})
+    }
+}
+
 #[async_trait]
 impl ObjectClient for S3CrtClient {
     type GetObjectResult = GetObjectRequest;
+    type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
     async fn delete_object(
@@ -682,9 +719,8 @@ impl ObjectClient for S3CrtClient {
         bucket: &str,
         key: &str,
         params: &PutObjectParams,
-        contents: impl futures::Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        self.put_object(bucket, key, params, contents).await
+    ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
+        self.put_object(bucket, key, params).await
     }
 
     async fn get_object_attributes(

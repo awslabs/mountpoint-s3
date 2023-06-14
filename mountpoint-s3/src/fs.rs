@@ -9,7 +9,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::{ETag, ObjectClient, PutObjectParams};
+use mountpoint_s3_client::{ETag, ObjectClient};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::checksummed_bytes::IntegrityError;
@@ -17,6 +17,7 @@ use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, Prefetch
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
+use crate::upload::{UploadRequest, UploadWriteError, Uploader};
 
 pub use crate::inode::InodeNo;
 
@@ -55,7 +56,7 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
         etag: ETag,
     },
     Write {
-        parts: AsyncMutex<Vec<Box<[u8]>>>,
+        request: AsyncMutex<UploadRequest<Client>>,
         handle: WriteHandle,
     },
 }
@@ -126,6 +127,7 @@ pub struct S3Filesystem<Client: ObjectClient, Runtime> {
     client: Arc<Client>,
     superblock: Superblock,
     prefetcher: Prefetcher<Client, Runtime>,
+    uploader: Uploader<Client>,
     bucket: String,
     #[allow(unused)]
     prefix: Prefix,
@@ -145,12 +147,14 @@ where
         let client = Arc::new(client);
 
         let prefetcher = Prefetcher::new(client.clone(), runtime, config.prefetcher_config);
+        let uploader = Uploader::new(client.clone());
 
         Self {
             config,
             client,
             superblock,
             prefetcher,
+            uploader,
             bucket: bucket.to_string(),
             prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
@@ -304,10 +308,17 @@ where
                 return Err(libc::EINVAL);
             }
 
-            let inode_handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
-            FileHandleType::Write {
-                parts: Default::default(),
-                handle: inode_handle,
+            let handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
+            let key = lookup.inode.full_key();
+            match self.uploader.put(&self.bucket, key).await {
+                Err(e) => {
+                    error!(key, "put failed to start: {e:?}");
+                    return Err(libc::EIO);
+                }
+                Ok(request) => FileHandleType::Write {
+                    request: request.into(),
+                    handle,
+                },
             }
         } else {
             lookup.inode.start_reading()?;
@@ -449,8 +460,6 @@ where
         _flags: i32,
         _lock_owner: Option<u64>,
     ) -> Result<u32, libc::c_int> {
-        const MAX_OBJECT_SIZE: usize = 5 * 1024 * 1024 * 1024;
-
         trace!(
             "fs:write with ino {:?} fh {:?} offset {:?} size {:?}",
             ino,
@@ -467,26 +476,17 @@ where
             }
         };
         let mut request = match &handle.typ {
-            FileHandleType::Write { parts, .. } => parts.lock().await,
+            FileHandleType::Write { request, .. } => request.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
 
-        let next_offset = request.iter().map(|p| p.len()).sum::<usize>();
-        if offset != next_offset as i64 {
-            error!("out of order write; expected offset {next_offset} but got {offset}");
-            return Err(libc::EINVAL);
+        match request.write(offset, data).await {
+            Ok(()) => Ok(data.len() as u32),
+            Err(e) => {
+                error!("write failed: {:?}", e);
+                Err(e.into())
+            }
         }
-
-        // If we'd go over the size limit, fail the entire write rather than short-writing
-        if next_offset + data.len() > MAX_OBJECT_SIZE {
-            error!("object too large");
-            return Err(libc::EFBIG);
-        }
-
-        let len = data.len();
-        // TODO wrap this in the `Part` machinery and validate it on PUT (and checksum)
-        request.push(data.into());
-        Ok(len as u32)
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
@@ -605,19 +605,13 @@ where
         };
 
         match file_handle.typ {
-            FileHandleType::Write { parts, handle } => {
-                // TODO how do we make sure we didn't already handle this via `flush`?
-                let parts = parts.into_inner();
-                let size = parts.iter().map(|part| part.len()).sum::<usize>();
-                let stream = futures::stream::iter(parts);
+            FileHandleType::Write { request, handle } => {
                 let key = file_handle.full_key;
-
-                let put = self
-                    .client
-                    .put_object(&self.bucket, &key, &PutObjectParams::default(), stream)
-                    .await;
+                let request = request.into_inner();
+                let size = request.size() as usize;
+                let put = request.complete().await;
                 let result = match put {
-                    Ok(_result) => {
+                    Ok(_) => {
                         debug!(key, size, "put succeeded");
                         Ok(())
                     }
@@ -630,7 +624,6 @@ where
                 };
 
                 handle.finish_writing()?;
-
                 result
             }
             FileHandleType::Read { request: _, etag: _ } => {
@@ -674,6 +667,15 @@ impl From<InodeError> for i32 {
             InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
+        }
+    }
+}
+
+impl<E: std::error::Error> From<UploadWriteError<E>> for i32 {
+    fn from(err: UploadWriteError<E>) -> Self {
+        match err {
+            UploadWriteError::PutRequestFailed(_) => libc::EIO,
+            UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
         }
     }
 }

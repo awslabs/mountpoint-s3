@@ -12,7 +12,7 @@ use pin_project::pin_project;
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError, ObjectClientResult,
-    PutObjectError, PutObjectParams, PutObjectResult,
+    PutObjectError, PutObjectParams,
 };
 use crate::{ETag, ListObjectsResult, ObjectAttribute, ObjectClient};
 
@@ -56,6 +56,7 @@ where
     GetWrapperState: Send + Sync + 'static,
 {
     type GetObjectResult = FailureGetResult<Client, GetWrapperState>;
+    type PutObjectRequest = Client::PutObjectRequest;
     type ClientError = Client::ClientError;
 
     async fn delete_object(
@@ -125,10 +126,9 @@ where
         bucket: &str,
         key: &str,
         params: &PutObjectParams,
-        contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         // TODO Add put fault injection hooks
-        self.client.put_object(bucket, key, params, contents).await
+        self.client.put_object(bucket, key, params).await
     }
 
     async fn get_object_attributes(
