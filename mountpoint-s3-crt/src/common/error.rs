@@ -2,7 +2,7 @@
 
 use std::ffi::CStr;
 
-use mountpoint_s3_crt_sys::{aws_error_debug_str, aws_last_error, aws_raise_error_private, AWS_OP_ERR, AWS_OP_SUCCESS};
+use mountpoint_s3_crt_sys::{aws_error_debug_str, aws_last_error, AWS_OP_SUCCESS};
 
 /// An error reported by the AWS Common Runtime
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -15,15 +15,6 @@ impl Error {
     /// the same thread since the error was last set, otherwise the result will be the wrong error.
     pub(crate) unsafe fn last_error() -> Self {
         Self(aws_last_error())
-    }
-
-    /// Raise an error, returns AWS_OP_ERR
-    pub(crate) fn raise_error(&self) -> i32 {
-        // SAFETY: It should always be safe to raise errors.
-        unsafe {
-            aws_raise_error_private(self.0);
-            AWS_OP_ERR
-        }
     }
 
     /// Return whether this error is an error or a successful result

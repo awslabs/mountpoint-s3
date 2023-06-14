@@ -12,7 +12,6 @@ pub mod event_loop;
 pub mod futures;
 pub mod host_resolver;
 pub mod retry_strategy;
-pub mod stream;
 
 static IO_LIBRARY_INIT: Once = Once::new();
 
