@@ -1,6 +1,7 @@
+use crate::fuse_tests::sleep;
+use crate::sleep_till_retry_succeed;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
-use std::thread::sleep;
 use std::time::Duration;
 
 use fuser::BackgroundSession;
@@ -147,7 +148,8 @@ where
     drop(f); // close file
              // when there are multiple tests called release method can be called later than unlink or rmdir.
              // So, adding the sleep to ensure release being called earlier.
-    sleep(Duration::from_secs(1));
+    let result = test_client.contains_key("dir/writing.txt");
+    sleep_till_retry_succeed!(result);
     fs::remove_file(&path).expect("file can be deleted after being persisted remotely");
 
     let read_dir_iter = fs::read_dir(&main_dir).unwrap();
