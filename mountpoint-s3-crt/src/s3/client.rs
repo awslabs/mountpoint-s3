@@ -9,7 +9,7 @@ use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, StringExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -123,12 +123,12 @@ type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
 /// Options for meta requests to S3. This is not a public interface, since clients should always
 /// be using the [MetaRequestOptions] wrapper, which pins this struct behind a pointer.
-struct MetaRequestOptionsInner<'a> {
+struct MetaRequestOptionsInner {
     /// Inner struct to pass to CRT functions.
     inner: aws_s3_meta_request_options,
 
     /// Owned copy of the message, if provided.
-    message: Option<Message<'a>>,
+    message: Option<Message>,
 
     /// Owned copy of the endpoint URI, if provided
     endpoint: Option<Uri>,
@@ -152,7 +152,7 @@ struct MetaRequestOptionsInner<'a> {
     _pinned: PhantomPinned,
 }
 
-impl<'a> MetaRequestOptionsInner<'a> {
+impl<'a> MetaRequestOptionsInner {
     /// Convert from user_data in a callback to a reference to this struct.
     ///
     /// ## Safety
@@ -175,7 +175,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     }
 }
 
-impl<'a> Debug for MetaRequestOptionsInner<'a> {
+impl Debug for MetaRequestOptionsInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetaRequestOptionsInner")
             .field("inner", &self.inner)
@@ -188,9 +188,9 @@ impl<'a> Debug for MetaRequestOptionsInner<'a> {
 /// Options for a meta request to S3.
 // Implementation details: this wraps the innner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
-pub struct MetaRequestOptions<'a>(Pin<Box<MetaRequestOptionsInner<'a>>>);
+pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
 
-impl<'a> MetaRequestOptions<'a> {
+impl MetaRequestOptions {
     /// Create a new default options struct. It follows the builder pattern so clients can use
     /// methods to set various options.
     pub fn new() -> Self {
@@ -232,11 +232,16 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Set the message of the request.
-    pub fn message(&mut self, message: Message<'a>) -> &mut Self {
+    pub fn message(&mut self, message: Message) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
         options.inner.message = options.message.as_mut().unwrap().inner.as_ptr();
+
+        if let Some(send_async_stream) = options.message.as_mut().unwrap().body_stream() {
+            options.inner.send_async_stream = send_async_stream.as_inner_ptr();
+        }
+
         self
     }
 
@@ -305,7 +310,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 }
 
-impl<'a> Default for MetaRequestOptions<'a> {
+impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
     }

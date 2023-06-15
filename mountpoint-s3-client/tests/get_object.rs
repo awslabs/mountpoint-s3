@@ -20,7 +20,8 @@ use test_case::test_case;
 #[test_case(30000000, None; "large object")]
 #[test_case(1, Some(0..1); "1-byte object with range")]
 #[test_case(10, Some(0..4); "small object with range")]
-#[test_case(30000000, Some(10000000..30000000); "large object with range")]
+#[test_case(30000000, Some(10000000..10000100); "large object with small range")]
+#[test_case(30000000, Some(10000000..30000000); "large object with large range")]
 #[tokio::test]
 async fn test_get_object(size: usize, range: Option<Range<u64>>) {
     let sdk_client = get_test_sdk_client().await;

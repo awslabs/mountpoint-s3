@@ -99,9 +99,13 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
 
 #[cfg(test)]
 mod tests {
+    use crate::prefetch::checksummed_bytes::ChecksummedBytes;
+
     use super::*;
 
+    use bytes::Bytes;
     use futures::executor::block_on;
+    use mountpoint_s3_crt::checksums::crc32c;
     use proptest::proptest;
     use proptest_derive::Arbitrary;
     use thiserror::Error;
@@ -129,7 +133,8 @@ mod tests {
                         continue;
                     }
                     let part = part_queue.read(n).await.unwrap();
-                    let bytes = part.into_bytes(part_key, current_offset).unwrap();
+                    let checksummed_bytes = part.into_bytes(part_key, current_offset).unwrap();
+                    let bytes = checksummed_bytes.into_bytes().unwrap();
                     assert_eq!(bytes[0], current_offset as u8);
                     current_offset += bytes.len() as u64;
                     current_length -= bytes.len();
@@ -138,7 +143,8 @@ mod tests {
                     let first_part_length = part_queue.current_part.lock().await.as_ref().map(|p| p.len());
                     if let Some(n) = first_part_length {
                         let part = part_queue.read(n).await.unwrap();
-                        let bytes = part.into_bytes(part_key, current_offset).unwrap();
+                        let checksummed_bytes = part.into_bytes(part_key, current_offset).unwrap();
+                        let bytes = checksummed_bytes.into_bytes().unwrap();
                         assert_eq!(bytes[0], current_offset as u8);
                         assert_eq!(bytes.len(), n);
                         current_offset += n as u64;
@@ -151,8 +157,11 @@ mod tests {
                         continue;
                     }
                     let offset = current_offset + current_length as u64;
-                    let bytes: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
-                    let part = Part::new(part_key, offset, bytes.into());
+                    let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
+                    let bytes: Bytes = body.into();
+                    let checksum = crc32c::checksum(&bytes);
+                    let checksummed_bytes = ChecksummedBytes::new(bytes, checksum);
+                    let part = Part::new(part_key, offset, checksummed_bytes);
                     part_queue_producer.push(Ok(part));
                     current_length += n;
                 }

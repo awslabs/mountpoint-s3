@@ -3,7 +3,7 @@
 use aws_sdk_s3 as s3;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -18,7 +18,13 @@ fn init_tracing_subscriber() {
 }
 
 pub fn get_test_client() -> S3CrtClient {
-    S3CrtClient::new(&get_test_region(), Default::default()).expect("could not create test client")
+    // Try to match what mountpoint-s3's defaults are
+    let client_config = S3ClientConfig {
+        throughput_target_gbps: Some(10.0),
+        part_size: Some(8 * 1024 * 1024),
+        ..Default::default()
+    };
+    S3CrtClient::new(&get_test_region(), client_config).expect("could not create test client")
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
@@ -28,7 +34,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let nonce = OsRng.next_u64();
 
     // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
-    let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").expect("Set S3_BUCKET_TEST_PREFIX to run integration tests");
+    let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
 
     let prefix = format!("{prefix}{test_name}/{nonce}/");
@@ -64,6 +70,23 @@ pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: 
             .await
             .unwrap();
     }
+}
+
+pub async fn get_mpu_count_for_key(
+    client: &s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<usize, aws_sdk_s3::types::SdkError<aws_sdk_s3::error::ListMultipartUploadsError>> {
+    let upload_count = client
+        .list_multipart_uploads()
+        .bucket(bucket)
+        .prefix(key)
+        .send()
+        .await?
+        .uploads()
+        .map_or(0, |u| u.len());
+
+    Ok(upload_count)
 }
 
 #[tokio::test]

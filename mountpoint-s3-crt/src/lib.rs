@@ -22,7 +22,7 @@ pub(crate) mod private {
     pub trait Sealed {}
 }
 
-pub(crate) trait StringExt {
+pub(crate) trait ToAwsByteCursor {
     /// SAFETY: the user *must not* mutate the bytes pointed at by this cursor
     /// Also, the user must be careful that the aws_byte_cursor does not outlive self. When passing
     /// the aws_byte_cursor to the CRT, make sure that self will live as long as the CRT might
@@ -30,12 +30,19 @@ pub(crate) trait StringExt {
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor;
 }
 
-impl<S: AsRef<OsStr>> StringExt for S {
-    /// SAFETY: See comment on [StringExt::as_aws_byte_cursor].
+impl<S: AsRef<OsStr>> ToAwsByteCursor for S {
+    /// SAFETY: See comment on [ToAwsByteCursor::as_aws_byte_cursor].
+    unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor {
+        self.as_ref().as_bytes().as_aws_byte_cursor()
+    }
+}
+
+impl ToAwsByteCursor for [u8] {
+    /// SAFETY: See comment on [ToAwsByteCursor::as_aws_byte_cursor].
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor {
         aws_byte_cursor {
-            ptr: self.as_ref().as_bytes().as_ptr() as *mut _,
-            len: self.as_ref().as_bytes().len(),
+            ptr: self.as_ptr() as *mut _,
+            len: self.len(),
         }
     }
 }

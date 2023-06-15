@@ -39,8 +39,10 @@ const CRT_HEADERS: &[&str] = &[
     "http/http.h",
     "http/connection.h",
     "http/request_response.h",
+    "io/async_stream.h",
     "io/channel_bootstrap.h",
     "io/event_loop.h",
+    "io/future.h",
     "io/host_resolver.h",
     "io/stream.h",
     "io/uri.h",
@@ -219,6 +221,11 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
         if lib.package_name == "aws-lc" {
             builder.define("DISABLE_PERL", "ON");
             builder.define("DISABLE_GO", "ON");
+        }
+
+        // Force compiler optimizations for aws-checksums even in debug builds to improve throughput
+        if lib.package_name == "aws-checksums" {
+            builder.profile("RelWithDebInfo");
         }
 
         // Configure ASan in a way that will be compatible with Rust's clang-based version

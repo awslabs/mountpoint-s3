@@ -17,7 +17,7 @@ use crate::object_client::{
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
     ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
 };
-use crate::{Checksum, ETag, ObjectAttribute};
+use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest};
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
@@ -53,7 +53,12 @@ pub struct MockClientConfig {
 #[derive(Debug)]
 pub struct MockClient {
     config: MockClientConfig,
-    objects: RwLock<BTreeMap<String, Arc<MockObject>>>,
+    objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
+    in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
+}
+
+fn add_object(objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>, key: &str, value: MockObject) {
+    objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
 }
 
 impl MockClient {
@@ -62,12 +67,13 @@ impl MockClient {
         Self {
             config,
             objects: Default::default(),
+            in_progress_uploads: Default::default(),
         }
     }
 
     /// Add an object to this mock client's bucket
     pub fn add_object(&self, key: &str, value: MockObject) {
-        self.objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
+        add_object(&self.objects, key, value);
     }
 
     /// Remove object for the mock client's bucket
@@ -84,6 +90,11 @@ impl MockClient {
     pub fn contains_prefix(&self, prefix: &str) -> bool {
         let prefix = format!("{prefix}/");
         self.objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
+    }
+
+    /// Returns `true` if there is an upload in progress for the specified key
+    pub fn is_upload_in_progress(&self, key: &str) -> bool {
+        self.in_progress_uploads.read().unwrap().contains(key)
     }
 }
 
@@ -234,6 +245,7 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
 #[async_trait]
 impl ObjectClient for MockClient {
     type GetObjectResult = GetObjectResult;
+    type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
     async fn delete_object(
@@ -430,27 +442,15 @@ impl ObjectClient for MockClient {
         bucket: &str,
         key: &str,
         _params: &PutObjectParams,
-        contents: impl Stream<Item = impl AsRef<[u8]> + Send> + Send,
-    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         trace!(bucket, key, "PutObject");
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
-        let mut buffer = vec![];
-
-        // Accumulate the stream contents into a buffer.
-        contents
-            .for_each(|b| {
-                buffer.extend_from_slice(b.as_ref());
-                std::future::ready(())
-            })
-            .await;
-
-        self.add_object(key, buffer.into());
-
-        Ok(PutObjectResult {})
+        let put_request = MockPutObjectRequest::new(key, &self.objects, &self.in_progress_uploads);
+        Ok(put_request)
     }
 
     async fn get_object_attributes(
@@ -490,6 +490,52 @@ impl ObjectClient for MockClient {
         } else {
             Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchKey))
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct MockPutObjectRequest {
+    key: String,
+    buffer: Vec<u8>,
+    objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
+    in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
+}
+
+impl MockPutObjectRequest {
+    fn new(
+        key: &str,
+        objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
+        in_progress_uploads: &Arc<RwLock<BTreeSet<String>>>,
+    ) -> Self {
+        in_progress_uploads.write().unwrap().insert(key.to_owned());
+        Self {
+            key: key.to_owned(),
+            buffer: vec![],
+            objects: objects.clone(),
+            in_progress_uploads: in_progress_uploads.clone(),
+        }
+    }
+}
+
+impl Drop for MockPutObjectRequest {
+    fn drop(&mut self) {
+        self.in_progress_uploads.write().unwrap().remove(&self.key);
+    }
+}
+
+#[async_trait]
+impl PutObjectRequest for MockPutObjectRequest {
+    type ClientError = MockClientError;
+
+    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        self.buffer.extend_from_slice(slice);
+        Ok(())
+    }
+
+    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        let buffer = std::mem::take(&mut self.buffer);
+        add_object(&self.objects, &self.key, buffer.into());
+        Ok(PutObjectResult {})
     }
 }
 
@@ -694,23 +740,21 @@ mod tests {
             part_size: 1024,
         });
 
-        // Construct a stream of randomly sized parts to feed into put_object.
-        let mut next_offset = 0;
-        let contents_stream = futures::stream::iter(std::iter::from_fn(|| {
-            if next_offset < obj.len() {
-                let part_size = rng.gen_range(0..=obj.len() - next_offset);
-                let result = obj.read(next_offset as u64, part_size);
-                next_offset += part_size;
-                Some(result)
-            } else {
-                None
-            }
-        }));
-
-        client
-            .put_object("test_bucket", "key1", &Default::default(), contents_stream)
+        let mut put_request = client
+            .put_object("test_bucket", "key1", &Default::default())
             .await
             .expect("put_object failed");
+
+        // Stream randomly sized parts into put_object_request.
+        let mut next_offset = 0;
+        while next_offset < obj.len() {
+            let part_size = rng.gen_range(0..=obj.len() - next_offset);
+            let result = obj.read(next_offset as u64, part_size);
+            next_offset += part_size;
+            put_request.write(&result).await.unwrap();
+        }
+
+        put_request.complete().await.expect("put_object failed");
 
         let mut get_request = client
             .get_object("test_bucket", "key1", None, None)

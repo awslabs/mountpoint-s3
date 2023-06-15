@@ -14,7 +14,7 @@ use crate::auth::auth_library_init;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::{CrtError as _, StringExt as _};
+use crate::{CrtError as _, ToAwsByteCursor as _};
 
 /// Options for creating a default credentials provider
 #[derive(Debug)]
