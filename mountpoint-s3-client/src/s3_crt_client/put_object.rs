@@ -1,10 +1,11 @@
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams};
-use crate::{ObjectClientError, S3CrtClient, S3RequestError};
-use mountpoint_s3_crt::io::async_stream;
+use crate::{ObjectClientError, PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
+use async_trait::async_trait;
+use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
 use mountpoint_s3_crt::s3::client::MetaRequestType;
 use tracing::debug;
 
-use super::S3PutObjectRequest;
+use super::S3HttpRequest;
 
 impl S3CrtClient {
     pub(super) async fn put_object(
@@ -33,5 +34,41 @@ impl S3CrtClient {
         })?;
 
         Ok(S3PutObjectRequest::new(body, writer))
+    }
+}
+
+#[derive(Debug)]
+pub struct S3PutObjectRequest {
+    body: S3HttpRequest<Vec<u8>, PutObjectError>,
+    writer: AsyncStreamWriter,
+}
+
+impl S3PutObjectRequest {
+    fn new(body: S3HttpRequest<Vec<u8>, PutObjectError>, writer: AsyncStreamWriter) -> Self {
+        Self { body, writer }
+    }
+}
+
+#[async_trait]
+impl PutObjectRequest for S3PutObjectRequest {
+    type ClientError = S3RequestError;
+
+    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        self.writer
+            .write(slice)
+            .await
+            .map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
+    }
+
+    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        let body = {
+            self.writer
+                .complete()
+                .await
+                .map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
+            self.body
+        };
+        body.await?;
+        Ok(PutObjectResult {})
     }
 }

@@ -14,7 +14,7 @@ use mountpoint_s3_crt::auth::credentials::{
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
-use mountpoint_s3_crt::io::async_stream::{AsyncInputStream, AsyncStreamWriter};
+use mountpoint_s3_crt::io::async_stream::AsyncInputStream;
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
@@ -35,6 +35,8 @@ use crate::build_info;
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::*;
 use crate::s3_crt_client::get_object::GetObjectRequest;
+
+use self::put_object::S3PutObjectRequest;
 
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
@@ -630,42 +632,6 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
 
     // Rust ranges are exclusive at the end, but Content-Range is inclusive
     Some(start..end + 1)
-}
-
-#[derive(Debug)]
-pub struct S3PutObjectRequest {
-    body: S3HttpRequest<Vec<u8>, PutObjectError>,
-    writer: AsyncStreamWriter,
-}
-
-impl S3PutObjectRequest {
-    fn new(body: S3HttpRequest<Vec<u8>, PutObjectError>, writer: AsyncStreamWriter) -> Self {
-        Self { body, writer }
-    }
-}
-
-#[async_trait]
-impl PutObjectRequest for S3PutObjectRequest {
-    type ClientError = S3RequestError;
-
-    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
-        self.writer
-            .write(slice)
-            .await
-            .map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
-    }
-
-    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let body = {
-            self.writer
-                .complete()
-                .await
-                .map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
-            self.body
-        };
-        body.await?;
-        Ok(PutObjectResult {})
-    }
 }
 
 #[async_trait]
