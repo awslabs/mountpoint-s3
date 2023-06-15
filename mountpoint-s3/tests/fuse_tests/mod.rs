@@ -113,6 +113,7 @@ mod mock_session {
         fn contains_key(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.contains_key(&full_key))
+        }
 
         fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
@@ -255,6 +256,7 @@ mod s3_session {
                     err => Err(Box::new(err) as Box<dyn std::error::Error>),
                 },
             }
+        }
 
         fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
