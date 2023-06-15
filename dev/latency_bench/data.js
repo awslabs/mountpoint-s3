@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1686780122061,
+  "lastUpdate": 1686850791152,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ff4b765b3857e2dfdfa4481866dbe45bc6e34e7d",
-          "message": "Add crate version to mountpoint-s3-client user agent (#266)\n\nWe already have this in mountpoint-s3, but for direct users of the\r\nclient crate there's currently no version information. This change just\r\nduplicates our existing mountpoint-s3 logic into the client crate. I\r\nalso removed the \"UNKNOWN\" suffix for builds without git history (i.e.,\r\nevery crates.io build), since it seems spammy -- we can distinguish\r\nthem by the absence of the `-`.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-05-31T10:23:55+01:00",
-          "tree_id": "fbefbfdc18607169a8f7b7ee3e6297784af27241",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/ff4b765b3857e2dfdfa4481866dbe45bc6e34e7d"
-        },
-        "date": 1685525807201,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.063,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.174,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.111,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.998,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 93.6195459,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 52.2525136,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 47.5240905,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e37c7a4a99a304c0fec29d0e16ee7abafd4ab518",
+          "message": "Update CI file/prefix variables with sensible defaults (#293)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-06-15T12:29:06-05:00",
+          "tree_id": "9a0bdfd734bac13284fbaec6ef7c30242e96e8d3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e37c7a4a99a304c0fec29d0e16ee7abafd4ab518"
+        },
+        "date": 1686850790701,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.07,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.184,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.118,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.132,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 78.8257246,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 56.212101600000004,
             "unit": "milliseconds"
           }
         ]
