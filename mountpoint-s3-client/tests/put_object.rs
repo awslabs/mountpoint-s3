@@ -37,6 +37,27 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str)
 
 object_client_test!(test_put_object);
 
+// Simple test for PUT object. Puts a single, empty object as a single part and checks that the
+// contents are correct with a GET.
+async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+    let key = format!("{prefix}hello");
+
+    let request = client
+        .put_object(bucket, &key, &Default::default())
+        .await
+        .expect("put_object should succeed");
+
+    request.complete().await.unwrap();
+
+    let result = client
+        .get_object(bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &[]).await;
+}
+
+object_client_test!(test_put_object_empty);
+
 // Test for multi-part PUT interface. Splits up a small object into a number of pieces, and streams
 // the pieces to the object client. Checks contents are correct using a GET.
 async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, prefix: &str) {
