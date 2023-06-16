@@ -146,8 +146,8 @@ where
     );
 
     drop(f); // close file
-             // when there are multiple tests called release method can be called later than unlink or rmdir.
-             // So, adding the sleep to ensure release being called earlier.
+             // `release` operation triggered by `drop(File)` is asynchronous.
+             // Add sleep to ensure condition is checked after `release` completes.
     let result = test_client.contains_key("dir/writing.txt");
     sleep_till_retry_succeed!(result);
     fs::remove_file(&path).expect("file can be deleted after being persisted remotely");

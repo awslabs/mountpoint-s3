@@ -45,8 +45,8 @@ where
 
     file.write_all(b"Hello World").unwrap();
     drop(file);
-    // when there are multiple tests called release method can be called later than unlink or rmdir.
-    // So, adding the sleep to ensure release being called earlier.
+    // `release` operation triggered by `drop(File)` is asynchronous.
+    // Add sleep to ensure condition is checked after `release` completes.
     sleep_till_retry_succeed!(test_client.contains_key(&format!("{}/{}", non_empty_dirname, filename)));
     let err =
         fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");

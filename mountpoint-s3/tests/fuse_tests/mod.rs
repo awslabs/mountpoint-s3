@@ -291,18 +291,18 @@ pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
 #[macro_export]
 macro_rules! sleep_till_retry_succeed {
     ($method_result:expr) => {
-        for i in 1..1000 {
+        for i in 1..5 {
             match $method_result {
                 Ok(bool_value) => {
                     if bool_value {
                         break;
                     } else {
-                        sleep(Duration::from_millis(10));
+                        sleep(Duration::from_millis(100 * i));
                     }
                 }
                 Err(_) => panic!("The provided method could not provide result"),
             }
-            assert!(i < 1000, "The provided method could not provide success result");
+            assert!(i < 5, "The provided method could not provide success result");
         }
     };
 }
