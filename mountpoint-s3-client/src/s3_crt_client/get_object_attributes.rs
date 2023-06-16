@@ -110,6 +110,7 @@ impl S3CrtClient {
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, S3RequestError> {
         let body = {
             let mut message = self
+                .inner
                 .new_request_template("GET", bucket)
                 .map_err(S3RequestError::construction_failure)?;
 
@@ -139,7 +140,7 @@ impl S3CrtClient {
                 .add_header(&Header::new("x-amz-object-attributes", object_attributes.join(",")))
                 .map_err(S3RequestError::construction_failure)?;
 
-            let span = request_span!(self, "get_object_attributes");
+            let span = request_span!(self.inner, "get_object_attributes");
             span.in_scope(|| {
                 debug!(
                     ?bucket,
@@ -151,12 +152,13 @@ impl S3CrtClient {
                 )
             });
 
-            self.make_simple_http_request(message, MetaRequestType::Default, span, |result| {
-                let parsed = parse_get_object_attributes_error(&result);
-                parsed
-                    .map(ObjectClientError::ServiceError)
-                    .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
-            })?
+            self.inner
+                .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
+                    let parsed = parse_get_object_attributes_error(&result);
+                    parsed
+                        .map(ObjectClientError::ServiceError)
+                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                })?
         };
 
         let body = body.await?;

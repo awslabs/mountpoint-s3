@@ -37,7 +37,7 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str)
 
 object_client_test!(test_put_object);
 
-// Simple test for PUT object. Puts a single, empty object as a single part and checks that the
+// Simple test for PUT object. Puts a single, empty object and checks that the (empty)
 // contents are correct with a GET.
 async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, prefix: &str) {
     let key = format!("{prefix}hello");

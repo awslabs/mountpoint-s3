@@ -245,7 +245,7 @@ pub enum GetObjectAttributesError {
 
 /// Parameters to a [ObjectClient::put_object] request
 /// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct PutObjectParams {}
 

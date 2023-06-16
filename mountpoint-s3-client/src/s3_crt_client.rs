@@ -93,6 +93,23 @@ pub enum S3ClientAuthConfig {
 
 #[derive(Debug)]
 pub struct S3CrtClient {
+    inner: Arc<S3CrtClientInner>,
+}
+
+impl S3CrtClient {
+    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
+        Ok(Self {
+            inner: Arc::new(S3CrtClientInner::new(region, config)?),
+        })
+    }
+
+    pub fn event_loop_group(&self) -> EventLoopGroup {
+        self.inner.event_loop_group.clone()
+    }
+}
+
+#[derive(Debug)]
+pub struct S3CrtClientInner {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
     endpoint: Endpoint,
@@ -105,7 +122,7 @@ pub struct S3CrtClient {
     part_size: Option<usize>,
 }
 
-impl S3CrtClient {
+impl S3CrtClientInner {
     pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
@@ -200,10 +217,6 @@ impl S3CrtClient {
             request_payer: config.request_payer,
             part_size: config.part_size,
         })
-    }
-
-    pub fn event_loop_group(&self) -> EventLoopGroup {
-        self.event_loop_group.clone()
     }
 
     /// Create a new HTTP request template for the given HTTP method and S3 bucket name.
@@ -721,6 +734,7 @@ mod tests {
         let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
 
         let mut message = client
+            .inner
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 
@@ -746,6 +760,7 @@ mod tests {
         let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
 
         let mut message = client
+            .inner
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 

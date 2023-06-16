@@ -140,6 +140,7 @@ impl S3CrtClient {
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let body = {
             let mut message = self
+                .inner
                 .new_request_template("GET", bucket)
                 .map_err(S3RequestError::construction_failure)?;
 
@@ -158,7 +159,7 @@ impl S3CrtClient {
                 .set_request_path_and_query("/", query)
                 .map_err(S3RequestError::construction_failure)?;
 
-            let span = request_span!(self, "list_objects");
+            let span = request_span!(self.inner, "list_objects");
             span.in_scope(|| {
                 debug!(
                     ?bucket,
@@ -170,12 +171,13 @@ impl S3CrtClient {
                 )
             });
 
-            self.make_simple_http_request(message, MetaRequestType::Default, span, |result| {
-                let parsed = parse_list_objects_error(&result);
-                parsed
-                    .map(ObjectClientError::ServiceError)
-                    .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
-            })?
+            self.inner
+                .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
+                    let parsed = parse_list_objects_error(&result);
+                    parsed
+                        .map(ObjectClientError::ServiceError)
+                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                })?
         };
 
         let body = body.await?;
