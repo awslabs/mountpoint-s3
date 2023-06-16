@@ -61,7 +61,7 @@ sudo apt-get install libfuse-dev pkg-config
 sudo yum install fuse-devel pkgconfig
 ```
 
-### macOS
+### macOS (untested)
 
 Installer packages can be downloaded from the [FUSE for macOS homepage][FUSE for macOS]. This is the *kernel* part that needs to be installed always.
 
@@ -114,7 +114,7 @@ Most features of libfuse up to 3.10.3 are implemented. Feel free to contribute. 
 
 ## Compatibility
 
-Developed and tested on Linux. Tested under [Linux][FUSE for Linux], [macOS][FUSE for macOS] (up to ABI 7.19) and [FreeBSD][FUSE for FreeBSD] using stable [Rust] (see CI for details).
+Developed and tested on Linux. Tested under [Linux][FUSE for Linux] and [FreeBSD][FUSE for FreeBSD] using stable [Rust] (see CI for details).
 
 ## Contribution
 
