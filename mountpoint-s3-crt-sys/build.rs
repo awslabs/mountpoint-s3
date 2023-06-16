@@ -295,9 +295,14 @@ fn main() {
     let include_dir = if let Some(path) = get_env("MOUNTPOINT_CRT_LIB_DIR") {
         println!("cargo:rustc-link-search=native={path}");
 
+        let link_type = match get_env("MOUNTPOINT_CRT_LIB_LINK_STATIC") {
+            Some(_) => "static",
+            None => "dylib"
+        };
+
         let libraries = get_required_libraries(&get_target_os());
         for lib in libraries {
-            println!("cargo:rustc-link-lib=dylib={}", lib.library_name);
+            println!("cargo:rustc-link-lib={}={}", link_type, lib.library_name);
         }
 
         PathBuf::from(
