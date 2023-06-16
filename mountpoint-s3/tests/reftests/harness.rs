@@ -15,8 +15,8 @@ use proptest_derive::Arbitrary;
 use tracing::{debug, trace};
 
 use crate::common::{make_test_filesystem, DirectoryReply, ReadReply};
-use crate::reftests::generators::{flatten_tree, gen_tree, valid_name_strategy, FileContent, FileSize, Name, TreeNode};
-use crate::reftests::reference::{build_reference, File, Node, Reference};
+use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, TreeNode, ValidName};
+use crate::reftests::reference::{File, Node, Reference};
 
 /// Operations that the mutating proptests can perform on the file system.
 // TODO: mkdir, readdir, unlink
@@ -24,18 +24,10 @@ use crate::reftests::reference::{build_reference, File, Node, Reference};
 #[derive(Debug, Arbitrary)]
 pub enum Op {
     /// Do an entire write in one step
-    WriteFile(
-        #[proptest(strategy = "valid_name_strategy()")] String,
-        DirectoryIndex,
-        FileContent,
-    ),
+    WriteFile(ValidName, DirectoryIndex, FileContent),
 
     // Individual steps of a file write -- create, open, write, close
-    CreateFile(
-        #[proptest(strategy = "valid_name_strategy()")] String,
-        DirectoryIndex,
-        FileContent,
-    ),
+    CreateFile(ValidName, DirectoryIndex, FileContent),
     StartWriting(InflightWriteIndex),
     // usize is the percentage of the file to write (taken modulo 101)
     WritePart(InflightWriteIndex, usize),
@@ -158,7 +150,7 @@ impl Harness {
             debug!(?op, "executing operation");
             match &op {
                 Op::WriteFile(name, directory_index, contents) => {
-                    let Some(index) = self.perform_create_file(name, *directory_index, contents).await else {
+                    let Some(index) = self.perform_create_file(&name.0, *directory_index, contents).await else {
                         continue;
                     };
                     self.perform_start_writing(index).await;
@@ -166,7 +158,7 @@ impl Harness {
                 }
 
                 Op::CreateFile(name, directory_index, contents) => {
-                    self.perform_create_file(name, *directory_index, contents).await;
+                    self.perform_create_file(&name.0, *directory_index, contents).await;
                 }
                 Op::StartWriting(index) => {
                     self.perform_start_writing(*index).await;
@@ -216,7 +208,7 @@ impl Harness {
         let lookup = self.fs.lookup(parent, path.last().unwrap().as_ref()).await.unwrap();
         assert!(seen_inos.insert(lookup.attr.ino));
         match node {
-            Node::Directory(_) => {
+            Node::Directory { .. } => {
                 assert_eq!(lookup.attr.kind, FileType::Directory);
             }
             Node::File(content) => {
@@ -274,7 +266,7 @@ impl Harness {
         } else {
             let mknod = mknod.expect("file creation should succeed");
 
-            self.reference.add_file(&full_path, File::Local);
+            self.reference.add_local_file(&full_path);
 
             let index = self.inflight_writes.insert(InflightWrite {
                 path: full_path,
@@ -380,20 +372,20 @@ impl Harness {
             .unwrap();
 
         let inflight_write = self.inflight_writes.remove(index);
-
-        let Node::File(file) = self.reference.lookup_mut(&inflight_write.path).unwrap() else {
-            panic!("inflight writes must be to files");
-        };
-        *file = File::Remote(inflight_write.object);
+        self.reference.remove_local_file(&inflight_write.path);
+        let key = inflight_write.path.to_string_lossy();
+        assert_eq!(key.chars().next(), Some('/'));
+        self.reference
+            .add_remote_key(key[1..].to_owned(), inflight_write.object);
     }
 
     /// Read a file from a directory
     async fn perform_read(&self, directory_index: DirectoryIndex, file_index: ChildIndex) {
         let dir_path = directory_index.get(&self.reference);
-        let Some(Node::Directory(dir_node)) = self.reference.lookup(dir_path.as_ref()) else {
+        let Some(Node::Directory { children, .. }) = self.reference.lookup(dir_path.as_ref()) else {
             panic!("directory must already exist");
         };
-        let Some((name, Node::File(file))) = file_index.get(dir_node) else {
+        let Some((name, Node::File(file))) = file_index.get(children) else {
             // It's either a directory or the [dir_node] is empty; nothing to test in either case
             // TODO test readdir on directories to test mkdir
             return;
@@ -558,10 +550,10 @@ mod read_only {
 
         let namespace = flatten_tree(tree);
         for (key, object) in namespace.iter() {
-            client.add_object(&format!("{test_prefix}{key}"), object.to_mock_object());
+            client.add_object(&format!("{test_prefix}{key}"), object.clone());
         }
 
-        let reference = build_reference(namespace);
+        let reference = Reference::new(namespace);
 
         let harness = Harness::new(fs, reference, readdir_limit);
 
@@ -594,9 +586,9 @@ mod read_only {
     fn random_tree_regression_basic() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("-".to_string()),
+                "-".into(),
                 TreeNode::Directory(BTreeMap::from([(
-                    Name("-".to_string()),
+                    "-".into(),
                     TreeNode::File(FileContent(0, FileSize::Small(0))),
                 )])),
             )])),
@@ -609,14 +601,11 @@ mod read_only {
     fn random_tree_regression_directory_order() {
         run_test(
             TreeNode::Directory(BTreeMap::from([
+                ("-a-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
                 (
-                    Name("-a-".to_string()),
-                    TreeNode::File(FileContent(0, FileSize::Small(0))),
-                ),
-                (
-                    Name("-a".to_string()),
+                    "-a".into(),
                     TreeNode::Directory(BTreeMap::from([(
-                        Name("-".to_string()),
+                        "-".into(),
                         TreeNode::File(FileContent(0, FileSize::Small(0))),
                     )])),
                 ),
@@ -630,9 +619,9 @@ mod read_only {
     fn random_tree_regression_invalid_name1() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("-".to_string()),
+                "-".into(),
                 TreeNode::Directory(BTreeMap::from([(
-                    Name(".".to_string()),
+                    ".".into(),
                     TreeNode::File(FileContent(0, FileSize::Small(0))),
                 )])),
             )])),
@@ -645,9 +634,9 @@ mod read_only {
     fn random_tree_regression_invalid_name2() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("-".to_string()),
+                "-".into(),
                 TreeNode::Directory(BTreeMap::from([(
-                    Name("a/".to_string()),
+                    "a/".into(),
                     TreeNode::File(FileContent(0, FileSize::Small(0))),
                 )])),
             )])),
@@ -660,16 +649,10 @@ mod read_only {
     fn random_tree_regression_directory_shadow() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("a".to_string()),
+                "a".into(),
                 TreeNode::Directory(BTreeMap::from([
-                    (
-                        Name("a/".to_string()),
-                        TreeNode::File(FileContent(0, FileSize::Small(0))),
-                    ),
-                    (
-                        Name("a".to_string()),
-                        TreeNode::File(FileContent(0, FileSize::Small(0))),
-                    ),
+                    ("a/".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                    ("a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
                 ])),
             )])),
             CheckType::FullTree,
@@ -681,16 +664,10 @@ mod read_only {
     fn random_tree_regression_directory_shadow_lookup() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("a".to_string()),
+                "a".into(),
                 TreeNode::Directory(BTreeMap::from([
-                    (
-                        Name("a/".to_string()),
-                        TreeNode::File(FileContent(0, FileSize::Small(0))),
-                    ),
-                    (
-                        Name("a".to_string()),
-                        TreeNode::File(FileContent(0, FileSize::Small(0))),
-                    ),
+                    ("a/".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                    ("a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
                 ])),
             )])),
             CheckType::SinglePath { path_index: 1 },
@@ -715,10 +692,10 @@ mod mutations {
 
         let namespace = flatten_tree(initial_tree);
         for (key, object) in namespace.iter() {
-            client.add_object(&format!("{test_prefix}{key}"), object.to_mock_object());
+            client.add_object(&format!("{test_prefix}{key}"), object.clone());
         }
 
-        let reference = build_reference(namespace);
+        let reference = Reference::new(namespace);
 
         let mut harness = Harness::new(fs, reference, readdir_limit);
 
@@ -741,23 +718,15 @@ mod mutations {
     fn regression_basic() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("-".to_string()),
+                "-".into(),
                 TreeNode::Directory(BTreeMap::from([(
-                    Name("-".to_string()),
+                    "-".into(),
                     TreeNode::File(FileContent(0, FileSize::Small(0))),
                 )])),
             )])),
             vec![
-                Op::WriteFile(
-                    "a".to_string(),
-                    DirectoryIndex(0),
-                    FileContent(0x0a, FileSize::Small(50)),
-                ),
-                Op::WriteFile(
-                    "b".to_string(),
-                    DirectoryIndex(1),
-                    FileContent(0x0b, FileSize::Small(10)),
-                ),
+                Op::WriteFile("a".into(), DirectoryIndex(0), FileContent(0x0a, FileSize::Small(50))),
+                Op::WriteFile("b".into(), DirectoryIndex(1), FileContent(0x0b, FileSize::Small(10))),
             ],
             0,
         );
@@ -768,8 +737,8 @@ mod mutations {
         run_test(
             TreeNode::File(FileContent(0, FileSize::Small(0))),
             vec![
-                Op::WriteFile("-a".to_string(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
-                Op::WriteFile("-a".to_string(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
+                Op::WriteFile("-a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
+                Op::WriteFile("-a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
             ],
             0,
         )
@@ -780,7 +749,7 @@ mod mutations {
         run_test(
             TreeNode::File(FileContent(0, FileSize::Small(0))),
             vec![
-                Op::CreateFile("a".to_string(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
+                Op::CreateFile("a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
                 Op::FinishWrite(InflightWriteIndex(0)),
             ],
             0,
@@ -791,11 +760,11 @@ mod mutations {
     fn regression_out_of_order() {
         run_test(
             TreeNode::Directory(BTreeMap::from([(
-                Name("a".to_string()),
+                "a".into(),
                 TreeNode::File(FileContent(0, FileSize::Small(0))),
             )])),
             vec![
-                Op::CreateFile("-".to_string(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
+                Op::CreateFile("-".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
                 Op::StartWriting(InflightWriteIndex(0)),
                 Op::WritePart(InflightWriteIndex(0), 0),
                 Op::WritePart(InflightWriteIndex(0), 0),
