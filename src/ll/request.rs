@@ -193,13 +193,12 @@ impl fmt::Display for RequestError {
         match self {
             RequestError::ShortReadHeader(len) => write!(
                 f,
-                "Short read of FUSE request header ({} < {})",
-                len,
+                "Short read of FUSE request header ({len} < {})",
                 mem::size_of::<fuse_in_header>()
             ),
-            RequestError::UnknownOperation(opcode) => write!(f, "Unknown FUSE opcode ({})", opcode),
+            RequestError::UnknownOperation(opcode) => write!(f, "Unknown FUSE opcode ({opcode})"),
             RequestError::ShortRead(len, total) => {
-                write!(f, "Short read of FUSE request ({} < {})", len, total)
+                write!(f, "Short read of FUSE request ({len} < {total})")
             }
             RequestError::InsufficientData => write!(f, "Insufficient argument data"),
         }

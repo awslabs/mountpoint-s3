@@ -128,8 +128,8 @@ fn detect_fusermount_bin() -> String {
     for name in [
         FUSERMOUNT3_BIN.to_string(),
         FUSERMOUNT_BIN.to_string(),
-        format!("/bin/{}", FUSERMOUNT3_BIN),
-        format!("/bin/{}", FUSERMOUNT_BIN),
+        format!("/bin/{FUSERMOUNT3_BIN}"),
+        format!("/bin/{FUSERMOUNT_BIN}"),
     ]
     .iter()
     {
@@ -144,7 +144,7 @@ fn detect_fusermount_bin() -> String {
 fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
     let mut io_vec_buf = [0u8];
     let mut io_vec = libc::iovec {
-        iov_base: (&mut io_vec_buf).as_mut_ptr() as *mut libc::c_void,
+        iov_base: io_vec_buf.as_mut_ptr() as *mut libc::c_void,
         iov_len: io_vec_buf.len(),
     };
     let cmsg_buffer_len = unsafe { libc::CMSG_SPACE(mem::size_of::<c_int>() as libc::c_uint) };
@@ -157,7 +157,7 @@ fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
             msg_namelen: 0,
             msg_iov: &mut io_vec,
             msg_iovlen: 1,
-            msg_control: (&mut cmsg_buffer).as_mut_ptr() as *mut libc::c_void,
+            msg_control: cmsg_buffer.as_mut_ptr() as *mut libc::c_void,
             msg_controllen: cmsg_buffer.len(),
             msg_flags: 0,
         };
@@ -349,7 +349,7 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
 
     for option in options
         .iter()
-        .filter(|x| option_group(*x) == MountOptionGroup::KernelOption)
+        .filter(|x| option_group(x) == MountOptionGroup::KernelOption)
     {
         mount_options.push(',');
         mount_options.push_str(&option_to_string(option));
@@ -380,7 +380,7 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
     }
     for flag in options
         .iter()
-        .filter(|x| option_group(*x) == MountOptionGroup::KernelFlag)
+        .filter(|x| option_group(x) == MountOptionGroup::KernelFlag)
     {
         flags |= option_to_flag(flag);
     }
@@ -434,7 +434,7 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
         } else {
             return Err(Error::new(
                 err.kind(),
-                format!("Error calling mount() at {:?}: {}", mountpoint, err),
+                format!("Error calling mount() at {mountpoint:?}: {err}"),
             ));
         }
     }
