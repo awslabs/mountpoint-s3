@@ -282,7 +282,9 @@ fn compile_logging_shim(crt_include_dir: impl AsRef<Path>) {
 /// libraries expected to be in `MOUNTPOINT_CRT_LIB_DIR`. In this case, the
 /// `MOUNTPOINT_CRT_INCLUDE_DIR` variable must point to the directory the CRT headers were installed
 /// to. The build still needs access to the Git submodules for any private CRT headers we use, but
-/// the code from the submodules won't be compiled.
+/// the code from the submodules won't be compiled. When `MOUNTPOINT_CRT_LIB_DIR` is set,
+/// by default the CRT libraries will be dynmically linked. Static linking occurs when the
+/// `MOUNTPOINT_CRT_LIB_LINK_STATIC` is set.
 ///
 /// Note that `MOUNTPOINT_CRT_LIB_DIR` requires a compatible version of the CRT libraries. The CRT
 /// has no versioning mechanism for shared libraries right now, so customers configuring this
@@ -295,9 +297,14 @@ fn main() {
     let include_dir = if let Some(path) = get_env("MOUNTPOINT_CRT_LIB_DIR") {
         println!("cargo:rustc-link-search=native={path}");
 
+        let link_type = match get_env("MOUNTPOINT_CRT_LIB_LINK_STATIC") {
+            Some(_) => "static",
+            None => "dylib",
+        };
+
         let libraries = get_required_libraries(&get_target_os());
         for lib in libraries {
-            println!("cargo:rustc-link-lib=dylib={}", lib.library_name);
+            println!("cargo:rustc-link-lib={}={}", link_type, lib.library_name);
         }
 
         PathBuf::from(
