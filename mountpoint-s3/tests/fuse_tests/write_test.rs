@@ -156,13 +156,11 @@ fn write_errors_test_mock(prefix: &str) {
     write_errors_test(crate::fuse_tests::mock_session::new, prefix);
 }
 
-fn sequential_write_streaming_test<F>(creator_fn: F)
+fn sequential_write_streaming_test<F>(creator_fn: F, object_size: usize, write_chunk_size: usize)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const KEY: &str = "dir/new.txt";
-    const OBJECT_SIZE: usize = 32 * 1024 * 1024;
-    const WRITE_SIZE: usize = 1024 * 1024 + 1;
 
     let (mount_point, _session, mut test_client) = creator_fn("sequential_write_streaming_test", Default::default());
 
@@ -177,11 +175,11 @@ where
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), 0);
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
-    let mut body = vec![0u8; OBJECT_SIZE];
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
+    let mut body = vec![0u8; object_size];
     rng.fill(&mut body[..]);
 
-    for part in body.chunks(WRITE_SIZE) {
+    for part in body.chunks(write_chunk_size) {
         f.write_all(part).unwrap();
     }
 
@@ -189,7 +187,10 @@ where
     let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
-    assert!(test_client.is_upload_in_progress(KEY).unwrap());
+    if object_size > 0 {
+        // The upload starts after the first write at the latest
+        assert!(test_client.is_upload_in_progress(KEY).unwrap());
+    }
 
     drop(f);
 
@@ -209,12 +210,18 @@ where
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn sequential_write_streaming_test_s3() {
-    sequential_write_streaming_test(crate::fuse_tests::s3_session::new);
+#[test_case(0, 1)]
+#[test_case(1, 1)]
+#[test_case(32, 32)]
+#[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
+fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size: usize) {
+    sequential_write_streaming_test(crate::fuse_tests::s3_session::new, object_size, write_chunk_size);
 }
 
-#[test]
-fn sequential_write_streaming_test_mock() {
-    sequential_write_streaming_test(crate::fuse_tests::mock_session::new);
+#[test_case(0, 1)]
+#[test_case(1, 1)]
+#[test_case(32, 32)]
+#[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
+fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: usize) {
+    sequential_write_streaming_test(crate::fuse_tests::mock_session::new, object_size, write_chunk_size);
 }

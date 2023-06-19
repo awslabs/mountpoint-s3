@@ -27,13 +27,14 @@ impl S3CrtClient {
         key: &str,
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
-    ) -> Result<GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
-        let span = request_span!(self, "get_object");
+    ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
+        let span = request_span!(self.inner, "get_object");
         span.in_scope(
             || debug!(?bucket, ?key, ?range, ?if_match, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
         );
 
         let mut message = self
+            .inner
             .new_request_template("GET", bucket)
             .map_err(S3RequestError::construction_failure)?;
 
@@ -62,7 +63,7 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             let length = range.end.saturating_sub(range.start);
-            let part_size = self.part_size.unwrap_or(0) as u64;
+            let part_size = self.inner.part_size.unwrap_or(0) as u64;
             if length >= part_size {
                 (MetaRequestType::GetObject, 0)
             } else {
@@ -79,7 +80,7 @@ impl S3CrtClient {
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
 
-        let request = self.make_meta_request(
+        let request = self.inner.make_meta_request(
             message,
             request_type,
             span,
@@ -99,7 +100,7 @@ impl S3CrtClient {
             },
         )?;
 
-        Ok(GetObjectRequest {
+        Ok(S3GetObjectRequest {
             request,
             finish_receiver: receiver,
             finished: false,
@@ -109,7 +110,7 @@ impl S3CrtClient {
 
 #[derive(Debug)]
 #[pin_project]
-pub struct GetObjectRequest {
+pub struct S3GetObjectRequest {
     #[pin]
     request: S3HttpRequest<(), GetObjectError>,
     #[pin]
@@ -117,7 +118,7 @@ pub struct GetObjectRequest {
     finished: bool,
 }
 
-impl Stream for GetObjectRequest {
+impl Stream for S3GetObjectRequest {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, S3RequestError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {

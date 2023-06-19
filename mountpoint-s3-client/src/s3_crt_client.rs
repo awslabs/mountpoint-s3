@@ -14,7 +14,7 @@ use mountpoint_s3_crt::auth::credentials::{
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
-use mountpoint_s3_crt::io::async_stream::{AsyncInputStream, AsyncStreamWriter};
+use mountpoint_s3_crt::io::async_stream::AsyncInputStream;
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
@@ -34,7 +34,8 @@ use tracing::{error, trace, Span};
 use crate::build_info;
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::*;
-use crate::s3_crt_client::get_object::GetObjectRequest;
+use crate::s3_crt_client::get_object::S3GetObjectRequest;
+use crate::s3_crt_client::put_object::S3PutObjectRequest;
 
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
@@ -89,8 +90,25 @@ pub enum S3ClientAuthConfig {
     Provider(CredentialsProvider),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct S3CrtClient {
+    inner: Arc<S3CrtClientInner>,
+}
+
+impl S3CrtClient {
+    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
+        Ok(Self {
+            inner: Arc::new(S3CrtClientInner::new(region, config)?),
+        })
+    }
+
+    pub fn event_loop_group(&self) -> EventLoopGroup {
+        self.inner.event_loop_group.clone()
+    }
+}
+
+#[derive(Debug)]
+struct S3CrtClientInner {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
     endpoint: Endpoint,
@@ -103,8 +121,8 @@ pub struct S3CrtClient {
     part_size: Option<usize>,
 }
 
-impl S3CrtClient {
-    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
+impl S3CrtClientInner {
+    fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
         let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
@@ -198,10 +216,6 @@ impl S3CrtClient {
             request_payer: config.request_payer,
             part_size: config.part_size,
         })
-    }
-
-    pub fn event_loop_group(&self) -> EventLoopGroup {
-        self.event_loop_group.clone()
     }
 
     /// Create a new HTTP request template for the given HTTP method and S3 bucket name.
@@ -632,45 +646,9 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
     Some(start..end + 1)
 }
 
-#[derive(Debug)]
-pub struct S3PutObjectRequest {
-    body: S3HttpRequest<Vec<u8>, PutObjectError>,
-    writer: AsyncStreamWriter,
-}
-
-impl S3PutObjectRequest {
-    fn new(body: S3HttpRequest<Vec<u8>, PutObjectError>, writer: AsyncStreamWriter) -> Self {
-        Self { body, writer }
-    }
-}
-
-#[async_trait]
-impl PutObjectRequest for S3PutObjectRequest {
-    type ClientError = S3RequestError;
-
-    async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
-        self.writer
-            .write(slice)
-            .await
-            .map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
-    }
-
-    async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let body = {
-            self.writer
-                .complete()
-                .await
-                .map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
-            self.body
-        };
-        body.await?;
-        Ok(PutObjectResult {})
-    }
-}
-
 #[async_trait]
 impl ObjectClient for S3CrtClient {
-    type GetObjectResult = GetObjectRequest;
+    type GetObjectResult = S3GetObjectRequest;
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
@@ -755,6 +733,7 @@ mod tests {
         let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
 
         let mut message = client
+            .inner
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 
@@ -780,6 +759,7 @@ mod tests {
         let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
 
         let mut message = client
+            .inner
             .new_request_template("GET", "plutotestankit")
             .expect("new request template expected");
 

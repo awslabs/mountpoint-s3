@@ -65,6 +65,7 @@ impl S3CrtClient {
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
         let request = {
             let mut message = self
+                .inner
                 .new_request_template("HEAD", bucket)
                 .map_err(S3RequestError::construction_failure)?;
 
@@ -80,10 +81,10 @@ impl S3CrtClient {
             let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
             let header1 = header.clone();
 
-            let span = request_span!(self, "head_object");
+            let span = request_span!(self.inner, "head_object");
             span.in_scope(|| debug!(?bucket, ?key, "new request"));
 
-            self.make_meta_request(
+            self.inner.make_meta_request(
                 message,
                 MetaRequestType::Default,
                 span,

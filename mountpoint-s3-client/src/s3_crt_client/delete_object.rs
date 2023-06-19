@@ -14,24 +14,26 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, S3RequestError> {
-        let span = request_span!(self, "delete_object");
+        let span = request_span!(self.inner, "delete_object");
         span.in_scope(|| debug!(?bucket, ?key, "new request"));
 
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let request = {
             let mut message = self
+                .inner
                 .new_request_template("DELETE", bucket)
                 .map_err(S3RequestError::construction_failure)?;
             message
                 .set_request_path(format!("/{key}"))
                 .map_err(S3RequestError::construction_failure)?;
 
-            self.make_simple_http_request(message, MetaRequestType::Default, span, |result| {
-                let parsed = parse_delete_object_error(&result);
-                parsed
-                    .map(ObjectClientError::ServiceError)
-                    .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
-            })?
+            self.inner
+                .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
+                    let parsed = parse_delete_object_error(&result);
+                    parsed
+                        .map(ObjectClientError::ServiceError)
+                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
+                })?
         };
 
         let _body = request.await?;

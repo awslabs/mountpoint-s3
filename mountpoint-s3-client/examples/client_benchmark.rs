@@ -68,12 +68,12 @@ fn main() {
         part_size,
         ..Default::default()
     };
-    let client = Arc::new(S3CrtClient::new(region, config).expect("couldn't create client"));
+    let client = S3CrtClient::new(region, config).expect("couldn't create client");
 
     for i in 0..iterations.unwrap_or(1) {
         let received_size = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
-        let client = Arc::clone(&client);
+        let client = client.clone();
         let received_size_clone = Arc::clone(&received_size);
         futures::executor::block_on(async move {
             let mut request = client
