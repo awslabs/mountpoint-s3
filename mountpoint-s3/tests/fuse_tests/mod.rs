@@ -13,6 +13,7 @@ mod write_test;
 use std::ffi::OsStr;
 use std::fs::ReadDir;
 use std::thread::sleep;
+use std::time::Duration;
 
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
@@ -272,7 +273,6 @@ mod s3_session {
         }
     }
 }
-
 /// Take a `read_dir` iterator and return the entry names
 pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
     read_dir_iter
@@ -288,21 +288,21 @@ pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
-#[macro_export]
-macro_rules! sleep_till_retry_succeed {
-    ($method_result:expr) => {
-        for i in 1..5 {
-            match $method_result {
-                Ok(bool_value) => {
-                    if bool_value {
-                        break;
-                    } else {
-                        sleep(Duration::from_millis(100 * i));
-                    }
+pub fn wait_for_success<F, E>(mut f: F, attempts: u64, err_msg: &str)
+where
+    F: FnMut() -> Result<bool, E>,
+{
+    for i in 0..attempts {
+        match f() {
+            Ok(result) => {
+                if result {
+                    break;
+                } else {
+                    sleep(Duration::from_millis(100 * i));
                 }
-                Err(_) => panic!("The provided method could not provide result"),
             }
-            assert!(i < 5, "The provided method could not provide success result");
+            Err(_) => panic!("{err_msg} due to method failure"),
         }
-    };
+        assert!(i < 5, "{err_msg} after {attempts} attempts");
+    }
 }

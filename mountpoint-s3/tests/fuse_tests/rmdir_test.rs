@@ -1,14 +1,12 @@
-use crate::fuse_tests::sleep;
+use crate::fuse_tests::{wait_for_success, read_dir_to_entry_names};
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use std::fs::{self, DirBuilder, File};
 use std::io::Write;
-use std::time::Duration;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
-use crate::sleep_till_retry_succeed;
+use crate::fuse_tests::TestClientBox;
 
 fn rmdir_local_dir_test<F>(creator_fn: F, prefix: &str)
 where
@@ -47,7 +45,11 @@ where
     drop(file);
     // `release` operation triggered by `drop(File)` is asynchronous.
     // Add sleep to ensure condition is checked after `release` completes.
-    sleep_till_retry_succeed!(test_client.contains_key(&format!("{}/{}", non_empty_dirname, filename)));
+    wait_for_success(
+        || test_client.contains_key(&format!("{non_empty_dirname}/{filename}")),
+        5,
+        "could not upload the object on S3 bucket",
+    );
     let err =
         fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");
     assert_eq!(

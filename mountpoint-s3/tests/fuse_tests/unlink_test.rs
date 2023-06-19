@@ -1,15 +1,12 @@
-use crate::fuse_tests::sleep;
-use crate::sleep_till_retry_succeed;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
-use std::time::Duration;
 
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, wait_for_success};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)
@@ -148,8 +145,11 @@ where
     drop(f); // close file
              // `release` operation triggered by `drop(File)` is asynchronous.
              // Add sleep to ensure condition is checked after `release` completes.
-    let result = test_client.contains_key("dir/writing.txt");
-    sleep_till_retry_succeed!(result);
+    wait_for_success(
+        || test_client.contains_key("dir/writing.txt"),
+        5,
+        "could not upload the object on S3 bucket",
+    );
     fs::remove_file(&path).expect("file can be deleted after being persisted remotely");
 
     let read_dir_iter = fs::read_dir(&main_dir).unwrap();
