@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1687205446977,
+  "lastUpdate": 1687214703354,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "768cdfafa06e1cd8b05066f46ac1e757d0feeabd",
-          "message": "Remove obsolete unset of AWS_PROFILE envvar in AWS profile test (#272)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-06-02T13:32:33+01:00",
-          "tree_id": "28da93cf2ce0079f34f6bbb9dd82e16a4a846361",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/768cdfafa06e1cd8b05066f46ac1e757d0feeabd"
-        },
-        "date": 1685709871974,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.073,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.168,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.188,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.314,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 102.3805568,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 63.4217969,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 47.037556,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "824fd664f8ac7af7fee20a9072999789a1da9629",
+          "message": "Suppress LeakSanitizer in glibc DNS resolver (#301)\n\nThe allocation in `__res_context_send` is owned by glibc, which is\r\nsupposed to clean it up at shutdown, but that seems to break\r\noccasionally. It's outside our control and a bounded allocation (once\r\nper process), so let's just ignore it.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-06-19T23:34:10+01:00",
+          "tree_id": "cd432dd3daf1219b37d23e21ac02212e2cb67e00",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/824fd664f8ac7af7fee20a9072999789a1da9629"
+        },
+        "date": 1687214702756,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.086,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.17,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.109,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.565,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 82.6963265,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 52.940382899999996,
             "unit": "milliseconds"
           }
         ]
