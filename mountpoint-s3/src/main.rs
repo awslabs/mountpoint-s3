@@ -377,11 +377,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let auth_config = if args.no_sign_request {
         S3ClientAuthConfig::NoSigning
     } else if let Some(profile_name) = args.profile {
-        // The CRT profile provider will prefer the AWS_PROFILE environment variable over this
-        // override if set, which is the opposite of the AWS CLI's documented behavior. Let's match
-        // the CLI by explicitly unsetting AWS_PROFILE for this process if a profile was specified.
-        std::env::remove_var("AWS_PROFILE");
-
         S3ClientAuthConfig::Profile(profile_name)
     } else {
         S3ClientAuthConfig::Default
