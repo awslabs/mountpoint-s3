@@ -6,7 +6,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, wait_for_success};
+use crate::fuse_tests::{read_dir_to_entry_names, wait_for_success, TestClientBox};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)

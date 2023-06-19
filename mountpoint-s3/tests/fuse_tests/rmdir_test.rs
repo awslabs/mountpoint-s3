@@ -1,4 +1,4 @@
-use crate::fuse_tests::{wait_for_success, read_dir_to_entry_names};
+use crate::fuse_tests::{read_dir_to_entry_names, wait_for_success};
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use std::fs::{self, DirBuilder, File};
