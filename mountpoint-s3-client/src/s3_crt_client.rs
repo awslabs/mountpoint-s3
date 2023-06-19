@@ -34,7 +34,7 @@ use tracing::{error, trace, Span};
 use crate::build_info;
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::*;
-use crate::s3_crt_client::get_object::GetObjectRequest;
+use crate::s3_crt_client::get_object::S3GetObjectRequest;
 use crate::s3_crt_client::put_object::S3PutObjectRequest;
 
 macro_rules! request_span {
@@ -648,7 +648,7 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
 
 #[async_trait]
 impl ObjectClient for S3CrtClient {
-    type GetObjectResult = GetObjectRequest;
+    type GetObjectResult = S3GetObjectRequest;
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 

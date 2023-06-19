@@ -27,7 +27,7 @@ impl S3CrtClient {
         key: &str,
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
-    ) -> Result<GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
+    ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
         let span = request_span!(self.inner, "get_object");
         span.in_scope(
             || debug!(?bucket, ?key, ?range, ?if_match, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
@@ -100,7 +100,7 @@ impl S3CrtClient {
             },
         )?;
 
-        Ok(GetObjectRequest {
+        Ok(S3GetObjectRequest {
             request,
             finish_receiver: receiver,
             finished: false,
@@ -110,7 +110,7 @@ impl S3CrtClient {
 
 #[derive(Debug)]
 #[pin_project]
-pub struct GetObjectRequest {
+pub struct S3GetObjectRequest {
     #[pin]
     request: S3HttpRequest<(), GetObjectError>,
     #[pin]
@@ -118,7 +118,7 @@ pub struct GetObjectRequest {
     finished: bool,
 }
 
-impl Stream for GetObjectRequest {
+impl Stream for S3GetObjectRequest {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, S3RequestError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
