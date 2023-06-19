@@ -12,6 +12,8 @@ mod write_test;
 
 use std::ffi::OsStr;
 use std::fs::ReadDir;
+use std::thread::sleep;
+use std::time::Duration;
 
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
@@ -24,9 +26,11 @@ pub trait TestClient {
 
     fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+
+    fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
 pub type TestClientBox = Box<dyn TestClient>;
@@ -102,12 +106,17 @@ mod mock_session {
             Ok(())
         }
 
-        fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.contains_prefix(&full_key))
         }
 
-        fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            Ok(self.client.contains_key(&full_key))
+        }
+
+        fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.is_upload_in_progress(&full_key))
         }
@@ -122,8 +131,9 @@ mod s3_session {
 
     use std::future::Future;
 
+    use aws_sdk_s3::error::HeadObjectErrorKind;
     use aws_sdk_s3::Region;
-    use aws_sdk_s3::{types::ByteStream, Client};
+    use aws_sdk_s3::{error::HeadObjectError, types::ByteStream, Client};
     use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
@@ -216,14 +226,14 @@ mod s3_session {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
-        fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
+        fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key_suffixed = format!("{}{}/", self.prefix, key);
             tokio_block_on(
                 self.sdk_client
                     .list_objects_v2()
                     .bucket(&self.bucket)
                     .delimiter('/')
-                    .prefix(full_key)
+                    .prefix(full_key_suffixed)
                     .send(),
             )
             .map(|output| {
@@ -234,7 +244,22 @@ mod s3_session {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
-        fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let result = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send());
+            match result {
+                Ok(_) => Ok(true),
+                Err(e) => match e.into_service_error() {
+                    HeadObjectError {
+                        kind: HeadObjectErrorKind::NotFound(_),
+                        ..
+                    } => Ok(false),
+                    err => Err(Box::new(err) as Box<dyn std::error::Error>),
+                },
+            }
+        }
+
+        fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             tokio_block_on(
                 self.sdk_client
@@ -248,7 +273,6 @@ mod s3_session {
         }
     }
 }
-
 /// Take a `read_dir` iterator and return the entry names
 pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
     read_dir_iter
@@ -262,4 +286,23 @@ pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
             name.to_owned()
         })
         .collect::<Vec<_>>()
+}
+
+pub fn wait_for_success<F, E>(mut f: F, attempts: u64, err_msg: &str)
+where
+    F: FnMut() -> Result<bool, E>,
+{
+    for i in 0..attempts {
+        match f() {
+            Ok(result) => {
+                if result {
+                    break;
+                } else {
+                    sleep(Duration::from_millis(100 * i));
+                }
+            }
+            Err(_) => panic!("{err_msg} due to method failure"),
+        }
+        assert!(i < 5, "{err_msg} after {attempts} attempts");
+    }
 }
