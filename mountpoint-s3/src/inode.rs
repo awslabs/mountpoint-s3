@@ -294,13 +294,7 @@ impl Superblock {
     ) -> Result<WriteHandle, InodeError> {
         trace!(?ino, parent=?parent_ino, "write");
 
-        let handle = WriteHandle {
-            inner: self.inner.clone(),
-            ino,
-            parent_ino,
-        };
-        handle.start_writing()?;
-        Ok(handle)
+        WriteHandle::new(self.inner.clone(), ino, parent_ino)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -770,27 +764,27 @@ pub struct WriteHandle {
 
 impl WriteHandle {
     /// Check the status on the inode and set it to writing state if it's writable
-    pub fn start_writing(&self) -> Result<(), InodeError> {
-        let inode = self.inner.get(self.ino)?;
+    fn new(inner: Arc<SuperblockInner>, ino: InodeNo, parent_ino: InodeNo) -> Result<Self, InodeError> {
+        let inode = inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
-                Ok(())
+                Ok(Self { inner, ino, parent_ino })
             }
             WriteStatus::LocalOpen => {
-                warn!(inode=?self.ino, "inode is already being written");
-                Err(InodeError::InodeNotWritable(self.ino))
+                warn!(inode=?ino, "inode is already being written");
+                Err(InodeError::InodeNotWritable(ino))
             }
             WriteStatus::Remote => {
-                warn!(inode=?self.ino, "inode already exists");
-                Err(InodeError::InodeNotWritable(self.ino))
+                warn!(inode=?ino, "inode already exists");
+                Err(InodeError::InodeNotWritable(ino))
             }
         }
     }
 
     /// Update status of the inode and of containing "local" directories.
-    pub fn finish_writing(self) -> Result<(), InodeError> {
+    fn finish_writing(&self) -> Result<(), InodeError> {
         let inode = self.inner.get(self.ino)?;
 
         // Collect ancestor inodes that may need updating,
@@ -842,6 +836,14 @@ impl WriteHandle {
                 Ok(())
             }
             _ => Err(InodeError::InodeNotWritable(inode.ino())),
+        }
+    }
+}
+
+impl Drop for WriteHandle {
+    fn drop(&mut self) {
+        if let Err(e) = self.finish_writing() {
+            error!(error=?e, ino=self.ino, "error closing file handle");
         }
     }
 }
@@ -1304,6 +1306,7 @@ mod tests {
         let mut expected_list = Vec::new();
 
         // Create local keys
+        let mut local_handles = Vec::new();
         for i in 0..5 {
             let filename = format!("file{i}.txt");
             let new_inode = superblock
@@ -1315,11 +1318,12 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            superblock
+            let handle = superblock
                 .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
                 .await
                 .unwrap();
             expected_list.push(filename);
+            local_handles.push(handle);
         }
 
         // Try it all twice to test inode reuse
@@ -1360,6 +1364,7 @@ mod tests {
         }
 
         // Create local keys
+        let mut local_handles = Vec::new();
         for i in 0..5 {
             let filename = format!("newfile{i}.txt");
             let new_inode = superblock
@@ -1371,11 +1376,12 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            superblock
+            let handle = superblock
                 .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
                 .await
                 .unwrap();
             expected_list.push(filename);
+            local_handles.push(handle);
         }
 
         // Try it all twice to test inode reuse
@@ -1593,7 +1599,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
+    async fn test_write_handle_drop_convert_parent_local_dirs_to_remote() {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
@@ -1641,9 +1647,9 @@ mod tests {
             .await
             .unwrap();
 
-        // Invoke [finish_writing], without actually adding the
+        // Drop the handle, without actually adding the
         // object to the client
-        writehandle.finish_writing().unwrap();
+        drop(writehandle);
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();

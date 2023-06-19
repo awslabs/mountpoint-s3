@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
-use tracing::{debug, error, trace};
+use tracing::{error, trace};
 
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, ObjectClient};
@@ -17,7 +17,7 @@ use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, Prefetch
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::{UploadRequest, UploadWriteError, Uploader};
+use crate::upload::{UploadError, UploadRequest, Uploader};
 
 pub use crate::inode::InodeNo;
 
@@ -55,10 +55,7 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
         request: AsyncMutex<Option<PrefetchGetObject<Client, Runtime>>>,
         etag: ETag,
     },
-    Write {
-        request: AsyncMutex<UploadRequest<Client>>,
-        handle: WriteHandle,
-    },
+    Write(AsyncMutex<UploadRequest<Client, WriteHandle>>),
 }
 
 #[derive(Debug, Clone)]
@@ -316,15 +313,12 @@ where
                 }
             };
             let key = lookup.inode.full_key();
-            match self.uploader.put(&self.bucket, key).await {
+            match self.uploader.put(&self.bucket, key, handle).await {
                 Err(e) => {
                     error!(key, "put failed to start: {e:?}");
                     return Err(libc::EIO);
                 }
-                Ok(request) => FileHandleType::Write {
-                    request: request.into(),
-                    handle,
-                },
+                Ok(request) => FileHandleType::Write(request.into()),
             }
         } else {
             lookup.inode.start_reading()?;
@@ -482,17 +476,11 @@ where
             }
         };
         let mut request = match &handle.typ {
-            FileHandleType::Write { request, .. } => request.lock().await,
+            FileHandleType::Write(request) => request.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
-
-        match request.write(offset, data).await {
-            Ok(()) => Ok(data.len() as u32),
-            Err(e) => {
-                error!("write failed: {:?}", e);
-                Err(e.into())
-            }
-        }
+        let len = request.write(offset, data).await?;
+        Ok(len as u32)
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
@@ -585,6 +573,22 @@ where
         }
     }
 
+    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), libc::c_int> {
+        let file_handle = {
+            let file_handles = self.file_handles.read().await;
+            match file_handles.get(&fh) {
+                Some(handle) => handle.clone(),
+                None => return Err(libc::EBADF),
+            }
+        };
+        let mut request = match &file_handle.typ {
+            FileHandleType::Write(request) => request.lock().await,
+            FileHandleType::Read { .. } => return Ok(()),
+        };
+        _ = request.complete().await?;
+        Ok(())
+    }
+
     pub async fn release(
         &self,
         _ino: InodeNo,
@@ -611,26 +615,12 @@ where
         };
 
         match file_handle.typ {
-            FileHandleType::Write { request, handle } => {
-                let key = file_handle.full_key;
-                let request = request.into_inner();
-                let size = request.size() as usize;
-                let put = request.complete().await;
-                let result = match put {
-                    Ok(_) => {
-                        debug!(key, size, "put succeeded");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(key, size, "put failed, object was not uploaded: {e:?}");
-                        // This won't actually be seen by the user because `release` is async, but
-                        // it's the right thing to do.
-                        Err(libc::EIO)
-                    }
-                };
-
-                handle.finish_writing()?;
-                result
+            FileHandleType::Write(request) => {
+                let mut request = request.into_inner();
+                if request.is_in_progress() {
+                    _ = request.complete().await?;
+                }
+                Ok(())
             }
             FileHandleType::Read { request: _, etag: _ } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
@@ -682,11 +672,13 @@ impl From<InodeError> for i32 {
     }
 }
 
-impl<E: std::error::Error> From<UploadWriteError<E>> for i32 {
-    fn from(err: UploadWriteError<E>) -> Self {
+impl<E: std::error::Error> From<UploadError<E>> for i32 {
+    fn from(err: UploadError<E>) -> Self {
         match err {
-            UploadWriteError::PutRequestFailed(_) => libc::EIO,
-            UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
+            UploadError::PutRequestFailed(_) => libc::EIO,
+            UploadError::OutOfOrderWrite { .. } => libc::EINVAL,
+            UploadError::PutRequestAlreadyCompleted => libc::EIO,
+            UploadError::PutRequestPreviouslyFailed => libc::EIO,
         }
     }
 }
