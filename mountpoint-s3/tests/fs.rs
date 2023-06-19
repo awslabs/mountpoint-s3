@@ -3,17 +3,21 @@
 use fuser::FileType;
 use mountpoint_s3::fs::FUSE_ROOT_INODE;
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3_client::failure_client::countdown_failure_client;
+use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::{mock_client::MockObject, ETag};
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::str::FromStr;
+use std::sync::Arc;
 use test_case::test_case;
 
 mod common;
-use common::{assert_attr, make_test_filesystem, ReadReply};
+use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, ReadReply};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -404,6 +408,179 @@ async fn test_duplicate_write_fails() {
         .await
         .expect_err("should not be able to write twice");
     assert_eq!(err, libc::EPERM);
+}
+
+#[tokio::test]
+async fn test_upload_aborted_on_write_failure() {
+    const BUCKET_NAME: &str = "test_upload_aborted_on_write_failure";
+    const FILE_NAME: &str = "foo.bin";
+
+    let client_config = MockClientConfig {
+        bucket: BUCKET_NAME.to_string(),
+        part_size: 1024 * 1024,
+    };
+
+    let client = Arc::new(MockClient::new(client_config));
+    let mut put_failures = HashMap::new();
+    put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
+
+    let failure_client = countdown_failure_client(
+        client.clone(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        put_failures,
+    );
+    let fs = make_test_filesystem_with_client(failure_client, BUCKET_NAME, &Default::default(), Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    let written = fs
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect("first write should succeed");
+
+    assert!(client.is_upload_in_progress(FILE_NAME));
+
+    let write_error = fs
+        .write(file_ino, fh, written as i64, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect_err("second write should fail");
+    assert_eq!(write_error, libc::EIO);
+
+    let err = fs
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect_err("subsequent writes should fail");
+    assert_eq!(err, libc::EIO);
+
+    assert!(!client.is_upload_in_progress(FILE_NAME));
+    assert!(!client.contains_key(FILE_NAME));
+
+    let err = fs
+        .fsync(file_ino, fh, true)
+        .await
+        .expect_err("subsequent fsync should fail");
+    assert_eq!(err, libc::EIO);
+
+    fs.release(file_ino, fh, 0, None, true)
+        .await
+        .expect("release succeeds (no op)");
+}
+
+#[tokio::test]
+async fn test_upload_aborted_on_fsync_failure() {
+    const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
+    const FILE_NAME: &str = "foo.bin";
+
+    let client_config = MockClientConfig {
+        bucket: BUCKET_NAME.to_string(),
+        part_size: 1024 * 1024,
+    };
+
+    let client = Arc::new(MockClient::new(client_config));
+    let mut put_failures = HashMap::new();
+    put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
+
+    let failure_client = countdown_failure_client(
+        client.clone(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        put_failures,
+    );
+    let fs = make_test_filesystem_with_client(failure_client, BUCKET_NAME, &Default::default(), Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    _ = fs
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect("first write should succeed");
+
+    assert!(client.is_upload_in_progress(FILE_NAME));
+
+    let err = fs
+        .fsync(file_ino, fh, true)
+        .await
+        .expect_err("subsequent fsync should fail");
+    assert_eq!(err, libc::EIO);
+
+    assert!(!client.is_upload_in_progress(FILE_NAME));
+    assert!(!client.contains_key(FILE_NAME));
+
+    fs.release(file_ino, fh, 0, None, true)
+        .await
+        .expect("release succeeds (no op)");
+}
+
+#[tokio::test]
+async fn test_upload_aborted_on_release_failure() {
+    const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
+    const FILE_NAME: &str = "foo.bin";
+
+    let client_config = MockClientConfig {
+        bucket: BUCKET_NAME.to_string(),
+        part_size: 1024 * 1024,
+    };
+
+    let client = Arc::new(MockClient::new(client_config));
+    let mut put_failures = HashMap::new();
+    put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
+
+    let failure_client = countdown_failure_client(
+        client.clone(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        put_failures,
+    );
+    let fs = make_test_filesystem_with_client(failure_client, BUCKET_NAME, &Default::default(), Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .await
+        .unwrap()
+        .fh;
+
+    _ = fs
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect("first write should succeed");
+
+    assert!(client.is_upload_in_progress(FILE_NAME));
+
+    let err = fs
+        .release(file_ino, fh, 0, None, true)
+        .await
+        .expect_err("subsequent release should fail");
+    assert_eq!(err, libc::EIO);
+
+    assert!(!client.is_upload_in_progress(FILE_NAME));
+    assert!(!client.contains_key(FILE_NAME));
 }
 
 #[tokio::test]

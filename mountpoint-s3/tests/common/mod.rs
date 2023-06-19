@@ -6,6 +6,7 @@ use mountpoint_s3::fs::{DirectoryReplier, ReadReplier};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -25,11 +26,21 @@ pub fn make_test_filesystem(
     };
 
     let client = Arc::new(MockClient::new(client_config));
-    let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-
-    let fs = S3Filesystem::new(Arc::clone(&client), runtime, bucket, prefix, config);
-
+    let fs = make_test_filesystem_with_client(Arc::clone(&client), bucket, prefix, config);
     (client, fs)
+}
+
+pub fn make_test_filesystem_with_client<Client>(
+    client: Client,
+    bucket: &str,
+    prefix: &Prefix,
+    config: S3FilesystemConfig,
+) -> S3Filesystem<Client, ThreadPool>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+{
+    let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+    S3Filesystem::new(client, runtime, bucket, prefix, config)
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, ObjectClient};
@@ -56,9 +56,85 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
         etag: ETag,
     },
     Write {
-        request: AsyncMutex<UploadRequest<Client>>,
+        request: AsyncMutex<UploadState<Client>>,
         handle: WriteHandle,
     },
+}
+
+#[derive(Debug)]
+enum UploadState<Client: ObjectClient> {
+    InProgress(UploadRequest<Client>),
+    Completed,
+    Failed,
+}
+
+impl<Client: ObjectClient> UploadState<Client> {
+    async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, libc::c_int> {
+        let upload = self.get_upload_in_progress(key)?;
+        match upload.write(offset, data).await {
+            Ok(len) => Ok(len as u32),
+            Err(e) => {
+                error!("write failed: {e}");
+                match e {
+                    UploadWriteError::PutRequestFailed(_) => {
+                        // Abort the request.
+                        *self = Self::Failed;
+                    }
+                    UploadWriteError::OutOfOrderWrite { .. } => {}
+                };
+                Err(e.into())
+            }
+        }
+    }
+
+    async fn complete(&mut self, key: &str) -> Result<(), libc::c_int> {
+        // Check that the upload is still in progress.
+        _ = self.get_upload_in_progress(key)?;
+        let upload = match std::mem::replace(self, Self::Completed) {
+            Self::InProgress(upload) => upload,
+            Self::Failed | Self::Completed => unreachable!("checked by get_upload_in_progress"),
+        };
+        let result = Self::complete_upload(upload, key).await;
+        if result.is_err() {
+            *self = Self::Failed;
+        }
+        result
+    }
+
+    async fn complete_if_in_progress(self, key: &str) -> Result<(), libc::c_int> {
+        match self {
+            Self::InProgress(upload) => Self::complete_upload(upload, key).await,
+            Self::Failed | Self::Completed => Ok(()),
+        }
+    }
+
+    async fn complete_upload(upload: UploadRequest<Client>, key: &str) -> Result<(), libc::c_int> {
+        let size = upload.size();
+        match upload.complete().await {
+            Ok(_) => {
+                debug!(key, size, "put succeeded");
+                Ok(())
+            }
+            Err(e) => {
+                error!(key, size, "put failed: {e:?}");
+                Err(libc::EIO)
+            }
+        }
+    }
+
+    fn get_upload_in_progress(&mut self, key: &str) -> Result<&mut UploadRequest<Client>, libc::c_int> {
+        match self {
+            Self::InProgress(upload) => Ok(upload),
+            Self::Completed => {
+                warn!(key, "upload already completed");
+                Err(libc::EIO)
+            }
+            Self::Failed => {
+                warn!(key, "upload already aborted");
+                Err(libc::EIO)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -322,7 +398,7 @@ where
                     return Err(libc::EIO);
                 }
                 Ok(request) => FileHandleType::Write {
-                    request: request.into(),
+                    request: UploadState::InProgress(request).into(),
                     handle,
                 },
             }
@@ -485,14 +561,7 @@ where
             FileHandleType::Write { request, .. } => request.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
-
-        match request.write(offset, data).await {
-            Ok(()) => Ok(data.len() as u32),
-            Err(e) => {
-                error!("write failed: {:?}", e);
-                Err(e.into())
-            }
-        }
+        request.write(offset, data, &handle.full_key).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
@@ -585,6 +654,21 @@ where
         }
     }
 
+    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), libc::c_int> {
+        let file_handle = {
+            let file_handles = self.file_handles.read().await;
+            match file_handles.get(&fh) {
+                Some(handle) => handle.clone(),
+                None => return Err(libc::EBADF),
+            }
+        };
+        let mut request = match &file_handle.typ {
+            FileHandleType::Write { request, .. } => request.lock().await,
+            FileHandleType::Read { .. } => return Ok(()),
+        };
+        request.complete(&file_handle.full_key).await
+    }
+
     pub async fn release(
         &self,
         _ino: InodeNo,
@@ -612,24 +696,13 @@ where
 
         match file_handle.typ {
             FileHandleType::Write { request, handle } => {
-                let key = file_handle.full_key;
-                let request = request.into_inner();
-                let size = request.size() as usize;
-                let put = request.complete().await;
-                let result = match put {
-                    Ok(_) => {
-                        debug!(key, size, "put succeeded");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(key, size, "put failed, object was not uploaded: {e:?}");
-                        // This won't actually be seen by the user because `release` is async, but
-                        // it's the right thing to do.
-                        Err(libc::EIO)
-                    }
-                };
-
+                let result = request
+                    .into_inner()
+                    .complete_if_in_progress(&file_handle.full_key)
+                    .await;
                 handle.finish_writing()?;
+                // Errors won't actually be seen by the user because `release` is async,
+                // but it's the right thing to do.
                 result
             }
             FileHandleType::Read { request: _, etag: _ } => {

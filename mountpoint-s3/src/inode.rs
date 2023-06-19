@@ -294,13 +294,7 @@ impl Superblock {
     ) -> Result<WriteHandle, InodeError> {
         trace!(?ino, parent=?parent_ino, "write");
 
-        let handle = WriteHandle {
-            inner: self.inner.clone(),
-            ino,
-            parent_ino,
-        };
-        handle.start_writing()?;
-        Ok(handle)
+        WriteHandle::new(self.inner.clone(), ino, parent_ino)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -770,21 +764,21 @@ pub struct WriteHandle {
 
 impl WriteHandle {
     /// Check the status on the inode and set it to writing state if it's writable
-    pub fn start_writing(&self) -> Result<(), InodeError> {
-        let inode = self.inner.get(self.ino)?;
+    fn new(inner: Arc<SuperblockInner>, ino: InodeNo, parent_ino: InodeNo) -> Result<Self, InodeError> {
+        let inode = inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
-                Ok(())
+                Ok(Self { inner, ino, parent_ino })
             }
             WriteStatus::LocalOpen => {
-                warn!(inode=?self.ino, "inode is already being written");
-                Err(InodeError::InodeNotWritable(self.ino))
+                warn!(inode=?ino, "inode is already being written");
+                Err(InodeError::InodeNotWritable(ino))
             }
             WriteStatus::Remote => {
-                warn!(inode=?self.ino, "inode already exists");
-                Err(InodeError::InodeNotWritable(self.ino))
+                warn!(inode=?ino, "inode already exists");
+                Err(InodeError::InodeNotWritable(ino))
             }
         }
     }
