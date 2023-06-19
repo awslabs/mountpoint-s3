@@ -12,7 +12,7 @@ fn rmdir_local_dir_test<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, test_client) = creator_fn(prefix, Default::default());
 
     // Create local directory
     let main_dirname = "test_dir";
