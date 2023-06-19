@@ -26,11 +26,11 @@ pub trait TestClient {
 
     fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn contains_key(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
 pub type TestClientBox = Box<dyn TestClient>;
@@ -106,17 +106,17 @@ mod mock_session {
             Ok(())
         }
 
-        fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.contains_prefix(&full_key))
         }
 
-        fn contains_key(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.contains_key(&full_key))
         }
 
-        fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.is_upload_in_progress(&full_key))
         }
@@ -226,7 +226,7 @@ mod s3_session {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
-        fn contains_dir(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key_suffixed = format!("{}{}/", self.prefix, key);
             tokio_block_on(
                 self.sdk_client
@@ -244,7 +244,7 @@ mod s3_session {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
-        fn contains_key(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let result = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send());
             match result {
@@ -259,7 +259,7 @@ mod s3_session {
             }
         }
 
-        fn is_upload_in_progress(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             tokio_block_on(
                 self.sdk_client
