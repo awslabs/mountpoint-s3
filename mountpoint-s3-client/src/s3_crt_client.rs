@@ -35,8 +35,7 @@ use crate::build_info;
 use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
 use crate::object_client::*;
 use crate::s3_crt_client::get_object::GetObjectRequest;
-
-use self::put_object::S3PutObjectRequest;
+use crate::s3_crt_client::put_object::S3PutObjectRequest;
 
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
@@ -91,7 +90,7 @@ pub enum S3ClientAuthConfig {
     Provider(CredentialsProvider),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct S3CrtClient {
     inner: Arc<S3CrtClientInner>,
 }
@@ -109,7 +108,7 @@ impl S3CrtClient {
 }
 
 #[derive(Debug)]
-pub struct S3CrtClientInner {
+struct S3CrtClientInner {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
     endpoint: Endpoint,
@@ -123,7 +122,7 @@ pub struct S3CrtClientInner {
 }
 
 impl S3CrtClientInner {
-    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
+    fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
         let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
