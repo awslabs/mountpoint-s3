@@ -39,6 +39,12 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
     - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
@@ -55,14 +61,6 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Update package list
-      run: sudo apt-get update
-    - name: Install dependencies
-      run: sudo apt-get -y install cmake libclang-dev libunwind-dev pkg-config jq fio
-    - name: Install fuse
-      run: sudo apt-get -y install fuse libfuse-dev
-    - name: Configure fuse
-      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -110,6 +108,12 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
     - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
@@ -126,14 +130,6 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Update package list
-      run: sudo apt-get update
-    - name: Install dependencies
-      run: sudo apt-get -y install cmake libclang-dev libunwind-dev pkg-config jq fio
-    - name: Install fuse
-      run: sudo apt-get -y install fuse libfuse-dev
-    - name: Configure fuse
-      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
