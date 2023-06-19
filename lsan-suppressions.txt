@@ -6,3 +6,6 @@ leak:aws_tls_init_static_state
 
 # libfuse is outside our control
 leak:fuse_opt_add_arg
+
+# glibc's DNS resolver is outside our control
+leak:__res_context_send
