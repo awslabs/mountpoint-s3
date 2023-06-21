@@ -24,11 +24,11 @@ The alpha release of Mountpoint for Amazon S3 is only available by building from
 
 First, install the necessary dependencies. For RPM-based distributions (Amazon Linux 2 and 2023, Fedora, CentOS, etc):
 
-    sudo yum install fuse fuse-devel cmake3 clang-devel git
+    sudo yum install fuse fuse-devel cmake3 clang git pkg-config
 
 or for apt-based distributions (Debian, Ubuntu, etc):
 
-    sudo apt install fuse libfuse-dev cmake libclang-dev git
+    sudo apt install fuse libfuse-dev cmake clang git pkg-config
 
 Secondly, install the Rust compiler via [rustup](https://rustup.rs/):
 
