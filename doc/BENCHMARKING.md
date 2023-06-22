@@ -22,12 +22,11 @@ We keep the records of benchmarking results in `gh-pages` branch and the perform
 While our benchmark script is written for CI testing only, it is possible to run manually.
 You can use the following steps.
 
-1. Install dependencies by running below commands for Ubuntu.
+1. Install dependencies and configure FUSE by running the following script in the repository:
 
-        sudo apt-get update
-        sudo apt-get -y install cmake libclang-dev libunwind-dev pkg-config jq fio
-        sudo apt-get -y install fuse libfuse-dev
-        echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+        bash .github/actions/install-dependencies/install.sh \
+                --fuse-version 2 \
+                --with-fio --with-libunwind
 
 2. Set environment variables related to the benchmark. There are four required environment variables you need to set in order to run the benchmark.
 

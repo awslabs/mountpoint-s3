@@ -1,0 +1,35 @@
+name: 'Install dependencies'
+description: 'Installs dependencies based on the operating system.'
+inputs:
+  fuseVersion:
+    required: true
+    type: number
+  llvm:
+    description: "Install LLVM headers"
+    required: false
+    type: boolean
+    default: false
+  libunwind:
+    description: "Install libunwind"
+    required: false
+    type: boolean
+    default: false
+  fio:
+    description: "Install FIO"
+    required: false
+    type: boolean
+    default: false
+runs:
+  using: "composite"
+  steps:
+  - name: Install packages
+    shell: bash
+    run: |
+      bash ${GITHUB_ACTION_PATH}/install.sh \
+        --fuse-version ${{ inputs.fuseVersion }} \
+        --with-llvm ${{ inputs.llvm }} \
+        --with-libunwind ${{ inputs.libunwind }} \
+        --with-fio ${{ inputs.fio }}
+  - name: Configure FUSE to allow other users to access FS
+    shell: bash
+    run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf

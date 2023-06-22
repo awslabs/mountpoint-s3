@@ -14,18 +14,22 @@ env:
 
 jobs:
   test:
-    name: Tests
+    name: Tests (FUSE ${{ matrix.fuseVersion }})
     runs-on: ubuntu-22.04
 
     strategy:
       matrix:
-        fuse: [fuse, fuse3]
+        fuseVersion: [2, 3]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: ${{ matrix.fuseVersion }}
     - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
@@ -40,11 +44,9 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-${{ github.job }}-${{ matrix.fuse }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install fuse
-      run: sudo apt-get install ${{ matrix.fuse }} lib${{ matrix.fuse }}-dev
-    - name: Configure fuse
-      run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+        key: ${{ runner.os }}-${{ github.job }}-fuse${{ matrix.fuseVersion }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Build tests
+      run: cargo test --features $RUST_FEATURES --no-run
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
 
@@ -78,6 +80,8 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Build tests
+      run: cargo test --no-run
     - name: Run tests
       run: cargo test -- --skip=mnt::test::mount_unmount
 
@@ -90,6 +94,10 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
     - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
@@ -105,8 +113,6 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install fuse
-      run: sudo apt-get install fuse libfuse-dev
     - name: Check all targets
       run: cargo check --locked --all-targets --all-features
 
@@ -119,6 +125,10 @@ jobs:
       uses: actions/checkout@v3
       with:
         submodules: true
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
     - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
@@ -134,8 +144,6 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install fuse
-      run: sudo apt-get install fuse libfuse-dev
     - name: Run benchmarks
       run: cargo bench
 
@@ -153,6 +161,10 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -163,8 +175,6 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install fuse
-      run: sudo apt-get install fuse libfuse-dev
     - name: Run Shuttle tests
       run: cargo test -p mountpoint-s3 --features shuttle -- shuttle
 
@@ -193,6 +203,10 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: true
+      - name: Install operating system dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          fuseVersion: 2
       - name: Set up stable Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -209,8 +223,6 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install fuse
-        run: sudo apt-get install fuse libfuse2 libfuse-dev
       - name: Run Clippy
         run: make clippy
 
