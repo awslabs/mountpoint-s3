@@ -6,7 +6,6 @@ use mountpoint_s3_client::{
 };
 
 use thiserror::Error;
-use tracing::{debug, error};
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -63,7 +62,6 @@ pub enum UploadError<E: std::error::Error> {
 /// invalidates it on errors, and enforces sequential writes.
 #[derive(Debug)]
 pub struct UploadRequest<Client: ObjectClient, Handle> {
-    key: String,
     next_request_offset: u64,
     state: UploadRequestState<Client, Handle>,
 }
@@ -93,7 +91,6 @@ where
             .await?;
 
         Ok(Self {
-            key: key.to_owned(),
             next_request_offset: 0,
             state: UploadRequestState::InProgress { request, handle },
         })
@@ -118,14 +115,8 @@ where
 
         let request = match &mut self.state {
             UploadRequestState::InProgress { request, .. } => request,
-            UploadRequestState::Completed => {
-                error!(key = self.key, "object already uploaded");
-                return Err(UploadError::PutRequestAlreadyCompleted);
-            }
-            UploadRequestState::Failed => {
-                error!(key = self.key, "error on previous write");
-                return Err(UploadError::PutRequestPreviouslyFailed);
-            }
+            UploadRequestState::Completed => return Err(UploadError::PutRequestAlreadyCompleted),
+            UploadRequestState::Failed => return Err(UploadError::PutRequestPreviouslyFailed),
         };
 
         match request.write(data).await {
@@ -134,7 +125,6 @@ where
                 Ok(data.len())
             }
             Err(e) => {
-                error!("write failed: {:?}", e);
                 self.state = UploadRequestState::Failed;
                 Err(e.into())
             }
@@ -144,29 +134,19 @@ where
     pub async fn complete(&mut self) -> Result<PutObjectResult, UploadError<PutRequestError<Client>>> {
         let (request, handle) = match std::mem::replace(&mut self.state, UploadRequestState::Completed) {
             UploadRequestState::InProgress { request, handle } => (request, handle),
-            UploadRequestState::Completed => {
-                error!(key = self.key, "object already uploaded");
-                return Err(UploadError::PutRequestAlreadyCompleted);
-            }
+            UploadRequestState::Completed => return Err(UploadError::PutRequestAlreadyCompleted),
             UploadRequestState::Failed => {
                 self.state = UploadRequestState::Failed;
-                error!(key = self.key, "error on previous write");
                 return Err(UploadError::PutRequestPreviouslyFailed);
             }
         };
 
-        let key = &self.key;
-        let size = self.size() as usize;
         let put = request.complete().await;
         drop(handle);
         match put {
-            Ok(result) => {
-                debug!(key, size, "put succeeded");
-                Ok(result)
-            }
+            Ok(result) => Ok(result),
             Err(e) => {
                 self.state = UploadRequestState::Failed;
-                error!(key, size, "put failed, object was not uploaded: {e:?}");
                 Err(e.into())
             }
         }

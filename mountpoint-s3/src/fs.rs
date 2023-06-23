@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, ObjectClient};
@@ -479,8 +479,13 @@ where
             FileHandleType::Write(request) => request.lock().await,
             FileHandleType::Read { .. } => return Err(libc::EBADF),
         };
-        let len = request.write(offset, data).await?;
-        Ok(len as u32)
+        match request.write(offset, data).await {
+            Ok(len) => Ok(len as u32),
+            Err(e) => {
+                error!("write failed: {:?}", e);
+                Err(e.into())
+            }
+        }
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
@@ -585,8 +590,18 @@ where
             FileHandleType::Write(request) => request.lock().await,
             FileHandleType::Read { .. } => return Ok(()),
         };
-        _ = request.complete().await?;
-        Ok(())
+        let key = &file_handle.full_key;
+        let size = request.size();
+        match request.complete().await {
+            Ok(_) => {
+                debug!(key, size, "put succeeded");
+                Ok(())
+            }
+            Err(e) => {
+                error!(key, size, "fsync failed: {e:?}");
+                Err(e.into())
+            }
+        }
     }
 
     pub async fn release(
@@ -618,7 +633,15 @@ where
             FileHandleType::Write(request) => {
                 let mut request = request.into_inner();
                 if request.is_in_progress() {
-                    _ = request.complete().await?;
+                    let key = &file_handle.full_key;
+                    let size = request.size();
+                    match request.complete().await {
+                        Ok(_) => debug!(key, size, "put succeeded"),
+                        Err(e) => {
+                            error!(key, size, "put failed, object was not uploaded: {e:?}");
+                            return Err(e.into());
+                        }
+                    }
                 }
                 Ok(())
             }
