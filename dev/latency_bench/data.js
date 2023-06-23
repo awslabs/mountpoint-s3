@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1687511580865,
+  "lastUpdate": 1687512063238,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c2f5f2aabac129669e6cdcd53cb8b9f6ea78c8fb",
-          "message": "Force compiler optimizations for aws-checksums (#284)\n\nThe ARM implementations in aws-checksums are written in C, and so\r\ncompiler optimizations are essential to give them reasonable\r\nperformance. We've recently started validating a lot of checksums in our\r\ntests (#263), and that's made the ARM CI much slower (> an hour). This\r\nshould get that back under control. x86 isn't affected because the\r\naws-checksums implementations are mostly hand-written assembly.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-06-09T09:32:17+01:00",
-          "tree_id": "fc379deea98a0f05805634fc152298829f9c9e7c",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/c2f5f2aabac129669e6cdcd53cb8b9f6ea78c8fb"
-        },
-        "date": 1686300204043,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.066,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.164,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.091,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 12.105,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 79.55815340000001,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 57.050256600000004,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1039,6 +985,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "readdir_100000",
             "value": 10.935,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "810a320337fa31aaa9571b1ae1b0a6b98f219ca0",
+          "message": "Bump aws-c-s3 and aws-c-auth dependencies (#309)\n\nThis picks up https://github.com/awslabs/aws-c-s3/pull/320 to unblock\r\nbinding the endpoint resolver, and\r\nhttps://github.com/awslabs/aws-c-auth/pull/203 to fix a bug in the IMDS\r\nclient.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-06-23T10:11:30+01:00",
+          "tree_id": "303cd37b88d106d95c521881fe6d0939aa1e5dcd",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/810a320337fa31aaa9571b1ae1b0a6b98f219ca0"
+        },
+        "date": 1687512062736,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.068,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.17,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.16,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.079,
             "unit": "seconds"
           }
         ]
