@@ -27,9 +27,9 @@ runs:
     run: |
       bash ${GITHUB_ACTION_PATH}/install.sh \
         --fuse-version ${{ inputs.fuseVersion }} \
-        --with-llvm ${{ inputs.llvm }} \
-        --with-libunwind ${{ inputs.libunwind }} \
-        --with-fio ${{ inputs.fio }}
+        ${{ fromJSON(inputs.llvm) && '--with-llvm' || '' }} \
+        ${{ fromJSON(inputs.libunwind) && '--with-libunwind' || '' }} \
+        ${{ fromJSON(inputs.fio) && '--with-fio' || '' }}
   - name: Configure FUSE to allow other users to access FS
     shell: bash
     run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf

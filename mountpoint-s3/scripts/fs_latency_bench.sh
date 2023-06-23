@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if ! command -v fio &> /dev/null; then
+  echo "fio must be installed to run this benchmark"
+  exit 1
+fi
+
 if [[ -z "${S3_BUCKET_NAME}" ]]; then
   echo "Set S3_BUCKET_NAME to run this benchmark"
   exit 1
