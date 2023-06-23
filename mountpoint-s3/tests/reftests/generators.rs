@@ -4,6 +4,9 @@ use proptest::prelude::*;
 use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
 use std::collections::BTreeMap;
+use std::ops::Deref;
+
+use crate::reftests::reference::valid_inode_name;
 
 pub fn valid_name_strategy() -> impl Strategy<Value = String> {
     string_regex("[a-]{1,3}").unwrap()
@@ -21,6 +24,14 @@ pub fn name_strategy() -> impl Strategy<Value = String> {
 #[derive(Clone, Debug, Arbitrary, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name(#[proptest(strategy = "name_strategy()")] pub String);
 
+impl Deref for Name {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl From<&str> for Name {
     fn from(value: &str) -> Self {
         Self(value.to_owned())
@@ -30,8 +41,17 @@ impl From<&str> for Name {
 #[derive(Clone, Debug, Arbitrary, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValidName(#[proptest(strategy = "valid_name_strategy()")] pub String);
 
+impl Deref for ValidName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl From<&str> for ValidName {
     fn from(value: &str) -> Self {
+        assert!(valid_inode_name(value), "invalid name for ValidName");
         Self(value.to_owned())
     }
 }

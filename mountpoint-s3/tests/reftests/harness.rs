@@ -150,7 +150,7 @@ impl Harness {
             debug!(?op, "executing operation");
             match &op {
                 Op::WriteFile(name, directory_index, contents) => {
-                    let Some(index) = self.perform_create_file(&name.0, *directory_index, contents).await else {
+                    let Some(index) = self.perform_create_file(name, *directory_index, contents).await else {
                         continue;
                     };
                     self.perform_start_writing(index).await;
@@ -158,7 +158,7 @@ impl Harness {
                 }
 
                 Op::CreateFile(name, directory_index, contents) => {
-                    self.perform_create_file(&name.0, *directory_index, contents).await;
+                    self.perform_create_file(name, *directory_index, contents).await;
                 }
                 Op::StartWriting(index) => {
                     self.perform_start_writing(*index).await;
@@ -448,7 +448,7 @@ impl Harness {
 
                     match children.get(name) {
                         Some(node) => {
-                            let ref_kind = node.file_type();
+                            let ref_kind = node.node_type().into();
                             assert_eq!(
                                 fs_kind, ref_kind,
                                 "for file {name:?} expecting {ref_kind:?} found {fs_kind:?}"

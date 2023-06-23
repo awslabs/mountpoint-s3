@@ -1,4 +1,3 @@
-use fuser::FileType;
 use mountpoint_s3_client::mock_client::MockObject;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -21,12 +20,27 @@ pub enum Node {
     File(File),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeType {
+    Directory,
+    File,
+}
+
+impl From<NodeType> for fuser::FileType {
+    fn from(value: NodeType) -> Self {
+        match value {
+            NodeType::Directory => fuser::FileType::Directory,
+            NodeType::File => fuser::FileType::RegularFile,
+        }
+    }
+}
+
 impl Node {
     /// Returns the type of this node (file or directory)
-    pub fn file_type(&self) -> FileType {
+    pub fn node_type(&self) -> NodeType {
         match self {
-            Node::Directory { .. } => FileType::Directory,
-            Node::File(_) => FileType::RegularFile,
+            Node::Directory { .. } => NodeType::Directory,
+            Node::File(_) => NodeType::File,
         }
     }
 
@@ -67,7 +81,7 @@ impl MaterializedReference {
     /// Add a new node to the tree. Any missing intermediate directories will be created as local
     /// directories. If the path already exists it will be overwritten, unless both the existing
     /// and new nodes are directories.
-    fn add_local_node(&mut self, path: impl AsRef<Path>, new_node: Node) {
+    fn add_local_node(&mut self, path: impl AsRef<Path>, typ: NodeType) {
         let mut components = path.as_ref().components().peekable();
         assert_eq!(components.next(), Some(Component::RootDir));
 
@@ -81,25 +95,19 @@ impl MaterializedReference {
                 // If both a local and a remote directory exist, don't overwrite the remote one's
                 // contents, as they will be visible even though the directory is local. But
                 // remember the directory is still local.
-                if let Node::Directory {
-                    children: new_children,
-                    is_local: new_is_local,
-                } = &new_node
-                {
-                    if let Some(Node::Directory {
-                        is_local: curr_is_local,
-                        ..
-                    }) = children.get_mut(dir)
-                    {
-                        assert!(new_children.is_empty(), "local directories are always empty");
-                        assert!(
-                            new_is_local,
-                            "add_local_node should only be called on local directories"
-                        );
-                        *curr_is_local = true;
+                if typ == NodeType::Directory {
+                    if let Some(Node::Directory { is_local, .. }) = children.get_mut(dir) {
+                        *is_local = true;
                         break;
                     }
                 }
+                let new_node = match typ {
+                    NodeType::Directory => Node::Directory {
+                        children: BTreeMap::new(),
+                        is_local: true,
+                    },
+                    NodeType::File => Node::File(File::Local),
+                };
                 children.insert(dir.to_owned(), new_node);
                 break;
             } else {
@@ -132,17 +140,11 @@ impl Reference {
         );
         let mut materialized = build_reference(&self.remote_keys);
         for local_dir in self.local_directories.iter() {
-            materialized.add_local_node(
-                local_dir,
-                Node::Directory {
-                    children: BTreeMap::new(),
-                    is_local: true,
-                },
-            );
+            materialized.add_local_node(local_dir, NodeType::Directory);
             materialized.directories.push(local_dir.clone());
         }
         for local_file in self.local_files.iter() {
-            materialized.add_local_node(local_file, Node::File(File::Local));
+            materialized.add_local_node(local_file, NodeType::File);
         }
         materialized
     }
@@ -251,7 +253,7 @@ impl Reference {
     }
 }
 
-fn valid_inode_name(name: &str) -> bool {
+pub fn valid_inode_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains('\0')
 }
 
