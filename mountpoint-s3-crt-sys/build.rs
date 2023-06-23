@@ -59,8 +59,13 @@ const PRIVATE_CRT_HEADERS: &[&str] = &[
 ];
 
 /// Get the OS name we are compiling to
-fn get_target_os() -> String {
+fn target_os() -> String {
     env::var("CARGO_CFG_TARGET_OS").expect("target OS not defined")
+}
+
+/// Get the architecture we are compiling to
+fn target_arch() -> String {
+    env::var("CARGO_CFG_TARGET_ARCH").expect("target arch not defined")
 }
 
 /// Read an environment variable and remember that it was accessed so that the build will rerun if
@@ -135,7 +140,6 @@ fn generate_bindings(include_dir: &Path, output_path: &Path) -> Result<(), Bindg
         // CRT's static assertions confuse bindgen
         .blocklist_item("static_assertion_.*")
         // For logging
-        .allowlist_type(".*va_list.*")
         .constified_enum_module("aws_log_level")
         // Use `libc` for primitive C types
         .ctypes_prefix("::libc")
@@ -145,6 +149,21 @@ fn generate_bindings(include_dir: &Path, output_path: &Path) -> Result<(), Bindg
         // mark them as exported.
         .clang_arg("-DAWS_STATIC_IMPL=")
         .clang_args(&["-I", include_dir.to_str().unwrap()]);
+
+    // On aarch64, bindgen doesn't pick up the actual definition of [va_list] and instead just
+    // generates `pub type va_list = [u64; 4];`, which has the right size, but raw arrays are not
+    // FFI-safe in Rust. So we provide an equivalent FFI-safe definition, per the AArch64 ABI
+    // (https://github.com/ARM-software/abi-aa/blob/617079d8a0d45bec83d351974849483cf0cc66d5/aapcs64/aapcs64.rst#definition-of-va-list).
+    // On other architectures, we'll just trust whatever bindgen does. We only use `va_list` for
+    // logging, so all we care about is that it roundtrips correctly back to C for use in
+    // `logging_shim.c` -- we don't actually try to touch the variadic arguments from Rust.
+    if target_arch() == "aarch64" {
+        builder = builder
+            .blocklist_type("va_list")
+            .raw_line("#[repr(C)] pub struct va_list(*mut c_void, *mut c_void, *mut c_void, c_int, c_int);");
+    } else {
+        builder = builder.allowlist_type(".*va_list.*");
+    }
 
     for header in CRT_HEADERS {
         let header_path = include_dir.join("aws").join(header);
@@ -181,7 +200,7 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
 
     let build_dir = output_dir.join("build");
     let target_dir = output_dir.join("target");
-    let target_os = get_target_os();
+    let target_os = target_os();
 
     if build_dir.exists() {
         fs::remove_dir_all(&build_dir).expect("failed to clean build directory");
@@ -302,7 +321,7 @@ fn main() {
             None => "dylib",
         };
 
-        let libraries = get_required_libraries(&get_target_os());
+        let libraries = get_required_libraries(&target_os());
         for lib in libraries {
             println!("cargo:rustc-link-lib={}={}", link_type, lib.library_name);
         }
