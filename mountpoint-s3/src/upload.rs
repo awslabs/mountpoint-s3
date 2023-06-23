@@ -186,10 +186,13 @@ impl<Client: ObjectClient, Handle> Debug for UploadRequestState<Client, Handle> 
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{collections::HashMap, sync::Mutex};
 
     use super::*;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::{
+        failure_client::countdown_failure_client,
+        mock_client::{MockClient, MockClientConfig, MockClientError},
+    };
 
     struct Handle(Arc<Mutex<bool>>);
     impl Drop for Handle {
@@ -261,5 +264,60 @@ mod tests {
         assert!(!request.is_in_progress());
 
         assert_eq!(offset, request.size() as i64);
+    }
+
+    #[tokio::test]
+    async fn write_error_test() {
+        let bucket = "bucket";
+        let name = "hello";
+        let key = name;
+
+        let client = Arc::new(MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            part_size: 32,
+        }));
+
+        let mut put_failures = HashMap::new();
+        put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
+
+        let failure_client = Arc::new(countdown_failure_client(
+            client.clone(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            put_failures,
+        ));
+
+        let uploader = Uploader::new(failure_client.clone());
+
+        let dropped = Arc::new(Mutex::new(false));
+        let handle = Handle(dropped.clone());
+        let mut request = uploader.put(bucket, key, handle).await.unwrap();
+
+        let data = "foo";
+        let mut offset = 0;
+        offset += request.write(offset, data.as_bytes()).await.unwrap() as i64;
+
+        request
+            .write(offset, data.as_bytes())
+            .await
+            .expect_err("second write should fail");
+
+        assert!(!client.contains_key(key));
+        assert!(!request.is_in_progress());
+
+        request
+            .write(offset, data.as_bytes())
+            .await
+            .expect_err("subsequent writes should fail");
+
+        request
+            .complete()
+            .await
+            .expect_err("complete after failure should fail");
+
+        assert!(!client.contains_key(key));
+        assert!(!request.is_in_progress());
+        assert!(*dropped.lock().unwrap());
     }
 }
