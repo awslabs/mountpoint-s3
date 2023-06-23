@@ -468,7 +468,7 @@ impl Superblock {
         match write_status {
             WriteStatus::LocalUnopened | WriteStatus::LocalOpen => {
                 // In the future, we may permit `unlink` and cancel any in-flight uploads.
-                error!(
+                warn!(
                     parent = parent_ino,
                     ?name,
                     "unlink called on local file, unlink not supported until write is complete",
@@ -779,11 +779,11 @@ impl WriteHandle {
                 Ok(())
             }
             WriteStatus::LocalOpen => {
-                error!(inode=?self.ino, "inode is already being written");
+                warn!(inode=?self.ino, "inode is already being written");
                 Err(InodeError::InodeNotWritable(self.ino))
             }
             WriteStatus::Remote => {
-                error!(inode=?self.ino, "inode already exists");
+                warn!(inode=?self.ino, "inode already exists");
                 Err(InodeError::InodeNotWritable(self.ino))
             }
         }

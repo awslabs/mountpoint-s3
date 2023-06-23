@@ -308,7 +308,13 @@ where
                 return Err(libc::EINVAL);
             }
 
-            let handle = self.superblock.write(&self.client, ino, lookup.inode.parent()).await?;
+            let handle = match self.superblock.write(&self.client, ino, lookup.inode.parent()).await {
+                Ok(handle) => handle,
+                Err(e) => {
+                    error!("open failed: {e:?}");
+                    return Err(e.into());
+                }
+            };
             let key = lookup.inode.full_key();
             match self.uploader.put(&self.bucket, key).await {
                 Err(e) => {
@@ -645,8 +651,13 @@ where
     }
 
     pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
-        self.superblock.unlink(&self.client, parent_ino, name).await?;
-        Ok(())
+        match self.superblock.unlink(&self.client, parent_ino, name).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                error!(parent=?parent_ino, ?name, "unlink failed: {e:?}");
+                Err(e.into())
+            }
+        }
     }
 }
 
