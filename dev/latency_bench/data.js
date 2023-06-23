@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1687430940838,
+  "lastUpdate": 1687500305857,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "03d71562337e978d618f487e41f1f5c4744fc99e",
-          "message": "Add HeadBucket NoSuchBucket error to S3CrtClient (#273)\n\n* Add HeadBucket 404 error to S3CrtClient\r\n\r\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\r\n\r\n* Update non-existent bucket to \"nosuch..bucket\"\r\n\r\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-06-06T16:25:55-05:00",
-          "tree_id": "07fa805dd55fa27c42cbf84bd5db14f63d0f53bc",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/03d71562337e978d618f487e41f1f5c4744fc99e"
-        },
-        "date": 1686087394890,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.08,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.161,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.105,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.958,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 96.34290440000001,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 60.474124700000004,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1005,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "readdir_100000",
             "value": 10.961,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7511b2fe5cebfd53135208d929882a6e1a14be23",
+          "message": "Fix va_list FFI safety on aarch64 (#312)\n\nWhen building on aarch64 we get a warning about FFI safety for va_list.\r\nIt turns out bindgen can't figure out the definition for va_list on that\r\narchitecture and so just emits a `[u64; 4]`, which has the right size,\r\nbut raw arrays aren't FFI-safe. So instead, let's emit a `struct\r\nva_list` that matches the aarch64 definitition. The actual fields don't\r\nmatter since we never actually try to look inside a `va_list`; we only\r\ncare that the bytes roundtrip correctly back to C.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-06-22T22:55:24-07:00",
+          "tree_id": "c5c9853e013cee112f70ba361e3e8b2a0215e804",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7511b2fe5cebfd53135208d929882a6e1a14be23"
+        },
+        "date": 1687500305395,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.075,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.169,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.11,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.191,
             "unit": "seconds"
           }
         ]
