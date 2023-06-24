@@ -8,13 +8,14 @@ if [[ $ENHANCED_GETOPT -ne 4 ]]; then
     exit 1
 fi
 
-LONGOPTS="fuse-version:,with-fio,with-libunwind,with-llvm"
-getopt --long=$LONGOPTS --name "$0" -- "$@"
+LONGOPTS="fuse-version:,with-fio,with-libunwind,with-llvm,dry-run"
+getopt --quiet-output --long=$LONGOPTS --name "$0" -- "$@"
 if [[ $? -ne 0 ]]; then
     echo "couldn't read arguments" >&2
     exit 2
 fi
 
+dry_run=false
 install_llvm=false
 install_fio=false
 install_libunwind=false
@@ -22,6 +23,10 @@ unset -v fuse_version
 
 while true; do
     case "$1" in
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
         --fuse-version)
             fuse_version="$2"
             shift 2
@@ -44,6 +49,10 @@ while true; do
             ;;
         -*|--*)
             echo "unknown option $1" >&2
+            exit 3
+            ;;
+        ?*)
+            echo "no positional argument allowed (\"$1\")" >&2
             exit 3
             ;;
         *)
@@ -144,18 +153,24 @@ if [[ $install_libunwind == true ]]; then
     esac
 fi
 
-case $os_release_id in
-    amzn)
-        sudo yum install -y $package_list
-        ;;
-    ubuntu)
-        sudo apt-get -q update
-        sudo apt-get install -y $package_list
-        ;;
-    *)
-        echo "no distro specific config for $OS_RELEASE_ID" &>2
-        exit 6
-        ;;
-esac
+echo "Package list to install: \"${package_list}\""
+
+if [[ $dry_run == false ]]; then
+    case $os_release_id in
+        amzn)
+            sudo yum install -y $package_list
+            ;;
+        ubuntu)
+            sudo apt-get -q update
+            sudo apt-get install -y $package_list
+            ;;
+        *)
+            echo "no distro specific config for $OS_RELEASE_ID" &>2
+            exit 6
+            ;;
+    esac
+else
+    echo "dry-run, no changes made"
+fi
 
 exit 0
