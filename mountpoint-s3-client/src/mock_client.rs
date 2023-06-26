@@ -98,8 +98,9 @@ impl MockClient {
     }
 }
 
+#[derive(Clone)]
 pub struct MockObject {
-    generator: Box<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
+    generator: Arc<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
     size: usize,
     // TODO Set storage class from [MockClient::put_object]
     storage_class: String,
@@ -117,7 +118,7 @@ impl MockObject {
         let bytes: Box<[u8]> = bytes.into();
         Self {
             size: bytes.len(),
-            generator: Box::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
+            generator: Arc::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
             etag,
@@ -126,7 +127,7 @@ impl MockObject {
 
     pub fn constant(v: u8, size: usize, etag: ETag) -> Self {
         Self {
-            generator: Box::new(move |_offset, size| vec![v; size].into_boxed_slice()),
+            generator: Arc::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
             storage_class: "STANDARD".to_owned(),
             last_modified: OffsetDateTime::now_utc(),
@@ -136,7 +137,7 @@ impl MockObject {
 
     pub fn ramp(seed: u8, size: usize, etag: ETag) -> Self {
         Self {
-            generator: Box::new(move |offset, mut size| {
+            generator: Arc::new(move |offset, mut size| {
                 // Byte at offset k is (seed + k) % RAMP_MODULUS
                 let mut vec = Vec::with_capacity(size);
                 let offs = (offset as usize + seed as usize) % RAMP_MODULUS;

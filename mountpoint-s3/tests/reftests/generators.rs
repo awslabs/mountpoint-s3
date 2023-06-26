@@ -4,6 +4,9 @@ use proptest::prelude::*;
 use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
 use std::collections::BTreeMap;
+use std::ops::Deref;
+
+use crate::reftests::reference::valid_inode_name;
 
 pub fn valid_name_strategy() -> impl Strategy<Value = String> {
     string_regex("[a-]{1,3}").unwrap()
@@ -20,6 +23,38 @@ pub fn name_strategy() -> impl Strategy<Value = String> {
 
 #[derive(Clone, Debug, Arbitrary, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name(#[proptest(strategy = "name_strategy()")] pub String);
+
+impl Deref for Name {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&str> for Name {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+#[derive(Clone, Debug, Arbitrary, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ValidName(#[proptest(strategy = "valid_name_strategy()")] pub String);
+
+impl Deref for ValidName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&str> for ValidName {
+    fn from(value: &str) -> Self {
+        assert!(valid_inode_name(value), "invalid name for ValidName");
+        Self(value.to_owned())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Arbitrary)]
 pub enum FileSize {
@@ -67,11 +102,11 @@ pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> 
 }
 
 /// Take a generated tree and create the corresponding S3 namespace (list of keys)
-pub fn flatten_tree(node: TreeNode) -> Vec<(String, FileContent)> {
-    fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, FileContent)>) {
+pub fn flatten_tree(node: TreeNode) -> Vec<(String, MockObject)> {
+    fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, MockObject)>) {
         match node {
             TreeNode::File(content) => {
-                acc.push((path, content));
+                acc.push((path, content.to_mock_object()));
             }
             TreeNode::Directory(contents) => {
                 for (name, child) in contents {
