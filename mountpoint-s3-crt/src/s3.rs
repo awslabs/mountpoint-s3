@@ -7,6 +7,7 @@ use mountpoint_s3_crt_sys::aws_s3_library_init;
 use crate::common::allocator::Allocator;
 
 pub mod client;
+mod endpoint_resolver;
 
 static S3_LIBRARY_INIT: Once = Once::new();
 
