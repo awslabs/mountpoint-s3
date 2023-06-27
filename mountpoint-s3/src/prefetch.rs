@@ -132,7 +132,7 @@ where
             inner: inner.clone(),
             current_task: None,
             future_tasks: Default::default(),
-            preferred_part_size: 0,
+            preferred_part_size: 128 * 1024,
             next_request_size: inner.config.first_request_size,
             next_sequential_read_offset: 0,
             next_request_offset: 0,
@@ -162,10 +162,11 @@ where
         // Our assumption is that the read size will be the same for most sequential
         // read and it can be aligned to the size of prefetched chunks.
         //
-        // We should also put some bounds on this value in case the read size
-        // is too small.
-        let min_part_size = 128 * 1024;
-        self.preferred_part_size = length.max(min_part_size);
+        // We initialize this value to 128k as it is the Linux's readahead size
+        // and it can also be used as a lower bound in case the read size is too small.
+        // The upper bound is 1MiB since it should be a common IO size.
+        let max_preferred_part_size = 1024 * 1024;
+        self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
