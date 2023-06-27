@@ -181,7 +181,6 @@ impl Reference {
         self.materialized = self.rematerialize();
     }
 
-    #[allow(unused)] // TODO: use to test `mkdir`
     pub fn add_local_directory(&mut self, path: impl AsRef<Path>) {
         let path = path.as_ref().to_owned();
         assert!(!self.local_directories.contains(&path), "duplicate local directory");
@@ -199,7 +198,6 @@ impl Reference {
         self.materialized = self.rematerialize();
     }
 
-    #[allow(unused)] // TODO: use to test `rmdir`
     pub fn remove_local_directory(&mut self, path: impl AsRef<Path>) {
         let idx = self
             .local_directories
@@ -208,6 +206,17 @@ impl Reference {
             .expect("local file must exist");
         self.local_directories.remove(idx);
         self.materialized = self.rematerialize();
+    }
+
+    /// When a file is made remote, all its parent directories implicitly become remote too. This
+    /// method removes those parents from the local directories list if they exist.
+    pub fn remove_local_parents(&mut self, path: impl AsRef<Path>) {
+        let parent = path
+            .as_ref()
+            .parent()
+            .expect("cannot remove local parents without a root");
+        // Path::starts_with only considers whole path components
+        self.local_directories.retain(|dir| !parent.starts_with(dir));
     }
 
     pub fn add_remote_key(&mut self, key: String, object: MockObject) {
