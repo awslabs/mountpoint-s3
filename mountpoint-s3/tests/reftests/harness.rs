@@ -6,7 +6,7 @@ use std::sync::Arc;
 use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
-use mountpoint_s3::fs::{InodeNo, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{InodeNo, ReadReplier, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
@@ -14,7 +14,7 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, trace};
 
-use crate::common::{make_test_filesystem, DirectoryReply, ReadReply};
+use crate::common::{make_test_filesystem, DirectoryReply};
 use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, TreeNode, ValidName};
 use crate::reftests::reference::{File, Node, Reference};
 
@@ -557,28 +557,32 @@ impl Harness {
     }
 
     async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
+        struct ReadVerifier(Box<[u8]>);
+
+        impl ReadReplier for ReadVerifier {
+            type Replied = ();
+
+            fn data(self, data: &[u8]) -> Self::Replied {
+                assert_eq!(&self.0[..], data, "read bytes don't match");
+            }
+
+            fn error(self, error: libc::c_int) -> Self::Replied {
+                panic!("read failed: {error}");
+            }
+        }
+
         let fh = self.fs.open(fs_file, 0x8000).await.unwrap().fh;
         let mut offset = 0;
         const MAX_READ_SIZE: usize = 4_096;
         let file_size = ref_file.len();
         while offset < file_size {
-            let mut read = Err(0);
             let num_bytes = MAX_READ_SIZE.min(file_size - offset);
-            self.fs
-                .read(
-                    fs_file,
-                    fh,
-                    offset as i64,
-                    num_bytes as u32,
-                    0,
-                    None,
-                    ReadReply(&mut read),
-                )
-                .await;
-            let fs_bytes = read.unwrap();
-            assert_eq!(fs_bytes.len(), num_bytes);
             let ref_bytes = ref_file.read(offset as u64, num_bytes);
-            assert_eq!(ref_bytes, fs_bytes);
+            assert_eq!(ref_bytes.len(), num_bytes);
+            let read_verifier = ReadVerifier(ref_bytes);
+            self.fs
+                .read(fs_file, fh, offset as i64, num_bytes as u32, 0, None, read_verifier)
+                .await;
             offset += num_bytes;
         }
     }

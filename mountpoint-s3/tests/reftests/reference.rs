@@ -215,7 +215,8 @@ impl Reference {
             .as_ref()
             .parent()
             .expect("cannot remove local parents without a root");
-        // Path::starts_with only considers whole path components
+        // [Path::starts_with] only considers whole path components, so this won't remove a local
+        // directory `a` if a sibling `ab` became remote, even though "ab" starts with "a".
         self.local_directories.retain(|dir| !parent.starts_with(dir));
     }
 
