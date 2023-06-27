@@ -5,7 +5,9 @@ use mountpoint_s3_client::{
     PutObjectResult,
 };
 
+use mountpoint_s3_crt::checksums::crc32c;
 use thiserror::Error;
+use tracing::debug;
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -53,6 +55,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     bucket: String,
     key: String,
     next_request_offset: u64,
+    hasher: crc32c::Hasher,
     request: Client::PutObjectRequest,
 }
 
@@ -69,6 +72,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             next_request_offset: 0,
+            hasher: crc32c::Hasher::new(),
             request,
         })
     }
@@ -89,13 +93,14 @@ impl<Client: ObjectClient> UploadRequest<Client> {
                 expected_offset: next_offset,
             });
         }
-
+        self.hasher.update(data);
         self.request.write(data).await?;
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
     }
 
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
+        debug!("Complete {self:?}");
         self.request.complete().await
     }
 }
@@ -106,6 +111,7 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
             .field("bucket", &self.bucket)
             .field("key", &self.key)
             .field("next_request_offset", &self.next_request_offset)
+            .field("hasher", &self.hasher)
             .finish()
     }
 }
