@@ -771,7 +771,7 @@ impl From<InodeError> for i32 {
             InodeError::InodeDoesNotExist(_) => libc::ENOENT,
             InodeError::InvalidFileName(_) => libc::EINVAL,
             InodeError::NotADirectory(_) => libc::ENOTDIR,
-            InodeError::IsDirectory(_) => libc::EPERM,
+            InodeError::IsDirectory(_) => libc::EISDIR,
             InodeError::FileAlreadyExists(_) => libc::EEXIST,
             // Not obvious what InodeNotWritable, InodeNotReadableWhileWriting should be.
             // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files for now.

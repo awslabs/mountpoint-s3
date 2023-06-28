@@ -78,17 +78,27 @@ struct MaterializedReference {
 }
 
 impl MaterializedReference {
-    /// Add a new node to the tree. Any missing intermediate directories will be created as local
-    /// directories. If the path already exists it will be overwritten, unless both the existing
-    /// and new nodes are directories.
-    fn add_local_node(&mut self, path: impl AsRef<Path>, typ: NodeType) {
+    /// Try to add a new node to the tree. Returns whether the node was added.
+    ///
+    /// If the path already exists it will be overwritten, unless both the existing and new nodes
+    /// are directories. If any intermediate directory is not present, the node won't be added and
+    /// this function returns false.
+    ///
+    /// TODO: today our semantics makes local files/directories invisible if any of their ancestors
+    /// is removed remotely (e.g. deleting the key that was creating an implicit directory). It's
+    /// not obvious that this is the right choice, but it's a reasonable one for a rare edge case,
+    /// and the opposite is tricky to implement correctly. The commented out code in this function
+    /// implemented the opposite case; it's kept here in case we change back.
+    fn add_local_node(&mut self, path: impl AsRef<Path>, typ: NodeType) -> bool {
         let mut components = path.as_ref().components().peekable();
         assert_eq!(components.next(), Some(Component::RootDir));
 
         let mut parent_node = &mut self.root;
         while let Some(dir) = components.next() {
             let Node::Directory { children, .. } = parent_node else {
-                panic!("unexpected internal file node");
+                return false;
+                // TODO: see above -- implicit directories are allowed to disappear
+                // panic!("unexpected internal file node while adding {:?}", path.as_ref());
             };
             let dir = dir.as_os_str().to_str().unwrap();
             if components.peek().is_none() {
@@ -111,12 +121,19 @@ impl MaterializedReference {
                 children.insert(dir.to_owned(), new_node);
                 break;
             } else {
-                parent_node = children.entry(dir.to_owned()).or_insert_with(|| Node::Directory {
-                    children: BTreeMap::new(),
-                    is_local: true,
-                })
+                // TODO: see above -- implicit directories are allowed to disappear
+                // parent_node = children.entry(dir.to_owned()).or_insert_with(|| Node::Directory {
+                //     children: BTreeMap::new(),
+                //     is_local: true,
+                // })
+                let Some(child_node) = children.get_mut(dir) else {
+                    return false;
+                };
+                parent_node = child_node;
             }
         }
+
+        true
     }
 }
 
@@ -140,8 +157,10 @@ impl Reference {
         );
         let mut materialized = build_reference(&self.remote_keys);
         for local_dir in self.local_directories.iter() {
-            materialized.add_local_node(local_dir, NodeType::Directory);
-            materialized.directories.push(local_dir.clone());
+            let added = materialized.add_local_node(local_dir, NodeType::Directory);
+            if added {
+                materialized.directories.push(local_dir.clone());
+            }
         }
         for local_file in self.local_files.iter() {
             materialized.add_local_node(local_file, NodeType::File);
@@ -220,12 +239,11 @@ impl Reference {
         self.local_directories.retain(|dir| !parent.starts_with(dir));
     }
 
-    pub fn add_remote_key(&mut self, key: String, object: MockObject) {
-        self.remote_keys.push((key, object));
+    pub fn add_remote_key(&mut self, key: &str, object: MockObject) {
+        self.remote_keys.push((key.to_owned(), object));
         self.materialized = self.rematerialize();
     }
 
-    #[allow(unused)] // TODO: use to test remote keys disappearing
     pub fn remove_remote_key(&mut self, key: &str) {
         let idx = self
             .remote_keys
@@ -234,6 +252,18 @@ impl Reference {
             .expect("remote key must exist");
         self.remote_keys.remove(idx);
         self.materialized = self.rematerialize();
+    }
+
+    pub fn add_remote_file(&mut self, path: impl AsRef<Path>, object: MockObject) {
+        let key = path.as_ref().to_string_lossy();
+        assert_eq!(key.chars().next(), Some('/'));
+        self.add_remote_key(&key[1..], object);
+    }
+
+    pub fn remove_remote_file(&mut self, path: impl AsRef<Path>) {
+        let key = path.as_ref().to_string_lossy();
+        assert_eq!(key.chars().next(), Some('/'));
+        self.remove_remote_key(&key[1..]);
     }
 
     /// Get a node from a full path, if it exists. If any path component does not exist in the

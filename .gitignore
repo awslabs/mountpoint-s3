@@ -1,2 +1,4 @@
 /target
 .cargo/
+# We prefer to manually commit regression tests
+*.proptest-regressions
