@@ -1,4 +1,12 @@
+## Description of change
 
+<!-- Please describe your contribution here. What and why? -->
+
+Relevant issues: <!-- Please add issue numbers. -->
+
+## Does this change impact existing behavior?
+
+<!-- Please confirm there's no breaking change, or call our any behavior changes you think are necessary. -->
 
 ---
 
