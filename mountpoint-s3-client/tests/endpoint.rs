@@ -6,7 +6,7 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::{AddressingStyle, Endpoint, ObjectClient, S3ClientConfig, S3CrtClient};
-use mountpoint_s3_crt::{s3::endpoint_resolver::RuleEngine, common::allocator::Allocator};
+use mountpoint_s3_crt::{common::allocator::Allocator, s3::endpoint_resolver::RuleEngine};
 use test_case::test_case;
 
 async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {

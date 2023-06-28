@@ -494,7 +494,7 @@ fn create_client_for_bucket(
         // Don't try to automatically correct the region if it was manually specified incorrectly
         Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
-            
+
             let endpoint = Endpoint::from_region(&region, addressing_style, &rule_engine, &mut allocator)?;
             let new_client = S3CrtClient::new(
                 &region,
