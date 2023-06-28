@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1687819468282,
+  "lastUpdate": 1687950249883,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "00379e8209a57dc7e7b02a2dd165b1cbb1fd5285",
-          "message": "Adjust prefetcher to spawn requests earlier (#283)\n\nThis change makes three adjustments to our prefetcher:\r\n1. Currently we only try spawning requests once per read, at the start.\r\n   This means we miss the opportunity to spawn requests after the read,\r\n   so if the read caused us to cross the prefetch boundary, we don't\r\n   trigger the request until the next read starts. This gives up a\r\n   little bit of latency. Tweaking this also makes the code a little\r\n   simpler/less branchy.\r\n2. The prefetch threshold is a strict inequality, which is a bad fit for\r\n   our power-of-two-oriented configs -- FUSE will read in 128k pieces,\r\n   so if the data remaining is exactly half the size (which it often\r\n   will be because of powers of two), we again have to wait an extra\r\n   request.\r\n3. Our default prefetcher config is mostly made up, and in benchmarking\r\n   we've seen it's a little too pessimistic about random reads. I picked\r\n   a new, still mostly-made-up first request size that allows us to\r\n   service up to 1MiB reads in one request. I also adjusted it a little\r\n   to account for Linux readahead (see the comment about that).\r\n\r\nAlso one thing I noticed along the way: `max_readhead` can't be set to\r\nzero (fuser returns an error that we're ignoring), so I dropped that.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-06-13T09:46:45+01:00",
-          "tree_id": "28e923503c1bef011d22a222d631bcd47b4b7a75",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/00379e8209a57dc7e7b02a2dd165b1cbb1fd5285"
-        },
-        "date": 1686646640314,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.066,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.17,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.062,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.568,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 95.079774,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 51.1722664,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1029,6 +975,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 54.7473968,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3792ec2f3d27780316cd83a28d6ae96996c1616",
+          "message": "Update PR template to prompt thinking around breaking changes (#318)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-06-28T11:53:48+01:00",
+          "tree_id": "06dfa946d6f03076cd55c45c9ee2116b4211e12e",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d3792ec2f3d27780316cd83a28d6ae96996c1616"
+        },
+        "date": 1687950249411,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.068,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.176,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.167,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.129,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 87.5670323,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 51.4135693,
             "unit": "milliseconds"
           }
         ]
