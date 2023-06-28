@@ -26,6 +26,7 @@ use mountpoint_s3_crt::s3::client::{
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use mountpoint_s3_crt::s3::endpoint_resolver::RuleEngine;
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pin_project::pin_project;
 use thiserror::Error;
@@ -123,7 +124,7 @@ struct S3CrtClientInner {
 
 impl S3CrtClientInner {
     fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
-        let allocator = Allocator::default();
+        let mut allocator = Allocator::default();
 
         let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
@@ -199,11 +200,17 @@ impl S3CrtClientInner {
         };
 
         let s3_client = Client::new(&allocator, client_config).unwrap();
+        let new_endpoint_rule_engine = RuleEngine::new(&allocator).unwrap();
 
         let endpoint = if let Some(endpoint) = config.endpoint {
             endpoint
         } else {
-            Endpoint::from_region(region, AddressingStyle::Automatic)?
+            Endpoint::from_region(
+                region,
+                AddressingStyle::Automatic,
+                &new_endpoint_rule_engine,
+                &mut allocator,
+            )?
         };
 
         Ok(Self {

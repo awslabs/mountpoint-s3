@@ -1,10 +1,10 @@
-use std::ffi::OsStr;
-use std::os::unix::prelude::OsStrExt;
-
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
+use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
 use regex::Regex;
+use std::ffi::OsStr;
+use std::os::unix::prelude::OsStrExt;
 use thiserror::Error;
 
 lazy_static! {
@@ -24,13 +24,27 @@ pub struct Endpoint {
 impl Endpoint {
     /// Create a new endpoint for the given S3 region. This method automatically resolves the right
     /// endpoint URI to target.
-    pub fn from_region(region: &str, addressing_style: AddressingStyle) -> Result<Self, EndpointError> {
-        if AWS_PARTITION_REGEX.is_match(region) {
-            // TODO: support partitions other than "aws"
-            Self::from_uri_inner(&format!("https://s3.{region}.amazonaws.com"), addressing_style)
-        } else {
-            Err(EndpointError::UnsupportedRegion(region.to_owned()))
-        }
+    pub fn from_region(
+        region: &str,
+        addressing_style: AddressingStyle,
+        endpoint_rule_engine: &RuleEngine,
+        allocator: &mut Allocator,
+    ) -> Result<Self, EndpointError> {
+        let mut endpoint_request_context = RequestContext::new(allocator).unwrap();
+        endpoint_request_context
+            .add_string(allocator, OsStr::new("Region"), OsStr::new(region))
+            .unwrap();
+        let endpoint_resolved = endpoint_rule_engine
+            .resolve(endpoint_request_context)
+            .map_err(|_| EndpointError::UnsupportedRegion(region.to_owned()))?;
+
+        let endpoint_uri = endpoint_resolved
+            .get_url(allocator)
+            .map_err(|e| EndpointError::InvalidUri(InvalidUriError::CouldNotParse(e)))?;
+        Ok(Self {
+            uri: endpoint_uri,
+            addressing_style,
+        })
     }
 
     /// Create a new endpoint with a manually specified URI.

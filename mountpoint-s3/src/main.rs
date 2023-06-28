@@ -16,7 +16,9 @@ use mountpoint_s3_client::{
     AddressingStyle, Endpoint, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
 use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
+use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use mountpoint_s3_crt::s3::endpoint_resolver::RuleEngine;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 use regex::Regex;
@@ -460,7 +462,8 @@ fn create_client_for_bucket(
     addressing_style: AddressingStyle,
 ) -> Result<S3CrtClient, anyhow::Error> {
     const DEFAULT_REGION: &str = "us-east-1";
-
+    let mut allocator = Allocator::default();
+    let rule_engine = RuleEngine::new(&allocator).unwrap();
     let region_to_try = supposed_region.unwrap_or_else(|| {
         if client_config.endpoint.is_some() {
             tracing::warn!(
@@ -474,7 +477,7 @@ fn create_client_for_bucket(
     let endpoint = if let Some(endpoint) = client_config.endpoint.clone() {
         endpoint
     } else {
-        Endpoint::from_region(region_to_try, addressing_style)?
+        Endpoint::from_region(region_to_try, addressing_style, &rule_engine, &mut allocator)?
     };
 
     let client = S3CrtClient::new(
@@ -491,7 +494,8 @@ fn create_client_for_bucket(
         // Don't try to automatically correct the region if it was manually specified incorrectly
         Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
-            let endpoint = Endpoint::from_region(&region, addressing_style)?;
+            
+            let endpoint = Endpoint::from_region(&region, addressing_style, &rule_engine, &mut allocator)?;
             let new_client = S3CrtClient::new(
                 &region,
                 S3ClientConfig {

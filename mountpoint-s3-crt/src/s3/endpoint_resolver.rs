@@ -1,9 +1,10 @@
+//! Endpoint Resolver to send endpoint from the given parameters to S3
+
 use mountpoint_s3_crt_sys::*;
 use std::{
     ffi::OsStr,
-    mem::MaybeUninit,
     os::unix::prelude::OsStrExt,
-    ptr::{null_mut, NonNull},
+    ptr::{self, NonNull},
 };
 
 use crate::{
@@ -14,18 +15,20 @@ use crate::{
 
 use super::s3_library_init;
 
+/// Rule engine to resolve endpoint with given context and ruleset
+#[derive(Debug)]
 pub struct RuleEngine {
     inner: NonNull<aws_endpoints_rule_engine>,
 }
 
 impl RuleEngine {
     /// Creates a new endpoint Rule Engine.
-    pub fn new(allocator: &Allocator) -> Self {
+    pub fn new(allocator: &Allocator) -> Result<Self, Error> {
         s3_library_init(allocator);
-        //SAFETY: `allocator.inner` is a valid aws_allocator and is not null.
-        //SAFETY: aws_s3_endpoint_resolver_new will acquire a reference to keep it alive after this function call, so it's safe to return an owned versoion to it.
-        let inner = unsafe { NonNull::new_unchecked(aws_s3_endpoint_resolver_new(allocator.inner.as_ptr())) };
-        Self { inner }
+        // SAFETY: `allocator.inner` is a valid aws_allocator and and we check the return is non-null.
+        // SAFETY: aws_s3_endpoint_resolver_new will acquire a reference to keep it alive after this function call, so it's safe to return an owned version to it.
+        let inner = unsafe { aws_s3_endpoint_resolver_new(allocator.inner.as_ptr()).ok_or_last_error()? };
+        Ok(Self { inner })
     }
 
     /// Resolve the endpoint with given Request Context and ruleset.
@@ -33,12 +36,15 @@ impl RuleEngine {
         // SAFETY: `aws_endpoints_rule_engine_resolve` ensures that it returns a non null `aws_endpoints_resolved_endpoint`
         // or it will return an error. So, the out_endpoint is valid and non null.
         unsafe {
-            let mut out_endpoint: *mut aws_endpoints_resolved_endpoint = null_mut();
+            let mut out_endpoint: *mut aws_endpoints_resolved_endpoint = ptr::null_mut();
             aws_endpoints_rule_engine_resolve(self.inner.as_ptr(), context.inner.as_ptr(), &mut out_endpoint)
                 .ok_or_last_error()?;
-            Ok(ResolvedEndpoint {
-                inner: NonNull::new_unchecked(out_endpoint),
-            })
+            match aws_endpoints_resolved_endpoint_get_type(out_endpoint) {
+                aws_endpoints_resolved_endpoint_type::AWS_ENDPOINTS_RESOLVED_ERROR => Err(Error::last_error()),
+                _ => Ok(ResolvedEndpoint {
+                    inner: NonNull::new_unchecked(out_endpoint),
+                }),
+            }
         }
     }
 }
@@ -53,18 +59,20 @@ impl Drop for RuleEngine {
     }
 }
 
+/// Add the context to build the endpoint
+#[derive(Debug)]
 pub struct RequestContext {
     inner: NonNull<aws_endpoints_request_context>,
 }
 
 impl RequestContext {
     /// Creates a new endpoint Request Context.
-    pub fn new(allocator: &Allocator) -> Self {
+    pub fn new(allocator: &Allocator) -> Result<Self, Error> {
         s3_library_init(allocator);
-        //SAFETY: `allocator.inner` is a valid aws_allocator and is not null.
-        //SAFETY: aws_endpoints_request_context_new will acquire a reference to keep it alive after this function call, so it's safe to return an owned versoion to it.
-        let inner = unsafe { NonNull::new_unchecked(aws_endpoints_request_context_new(allocator.inner.as_ptr())) };
-        Self { inner }
+        // SAFETY: `allocator.inner` is a valid aws_allocator and and we check the return is non-null.
+        // SAFETY: aws_endpoints_request_context_new will acquire a reference to keep it alive after this function call, so it's safe to return an owned version to it.
+        let inner = unsafe { aws_endpoints_request_context_new(allocator.inner.as_ptr()).ok_or_last_error()? };
+        Ok(Self { inner })
     }
 
     /// Add the parameter to request context whose value is in form of string
@@ -108,6 +116,8 @@ impl Drop for RequestContext {
     }
 }
 
+/// Resolved endpoint for the given context using rule engine and rule set
+#[derive(Debug)]
 pub struct ResolvedEndpoint {
     inner: NonNull<aws_endpoints_resolved_endpoint>,
 }
@@ -115,12 +125,12 @@ pub struct ResolvedEndpoint {
 impl ResolvedEndpoint {
     /// Get URI from the Resolved Endpoint
     pub fn get_url(&self, allocator: &mut Allocator) -> Result<Uri, Error> {
-        let mut url: MaybeUninit<aws_byte_cursor> = MaybeUninit::uninit();
+        let mut url: aws_byte_cursor = Default::default();
         // SAFETY: self.inner is valid pointer and url is passed as valid mutable pointer.
-        //`aws_endpoint_resolved_enpoint_get_url` ensures to return an initialised aws_byte_cursor for url or else it will return an error.
+        //`aws_endpoint_resolved_enpoint_get_url` ensures to return an initialized aws_byte_cursor for url or else it will return an error.
         unsafe {
-            aws_endpoints_resolved_endpoint_get_url(self.inner.as_ptr(), url.as_mut_ptr()).ok_or_last_error()?;
-            let uri = aws_byte_cursor_as_slice(&url.assume_init());
+            aws_endpoints_resolved_endpoint_get_url(self.inner.as_ptr(), &mut url).ok_or_last_error()?;
+            let uri = aws_byte_cursor_as_slice(&url);
             let uri = OsStr::from_bytes(uri);
             Uri::new_from_str(allocator, uri)
         }
@@ -148,17 +158,18 @@ mod test {
     #[test]
     fn test_regions_outside_aws_partition() {
         let mut new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator);
-        let mut endpoint_request_context = RequestContext::new(&new_allocator);
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).expect("Rule Engine not constructed");
+        let mut endpoint_request_context =
+            RequestContext::new(&new_allocator).expect("Request Context not constructed");
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .expect("Should set bucket name");
+            .unwrap();
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("cn-north-1"))
-            .expect("Should set region name");
+            .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
-            .expect("Endpoint should be resolved");
+            .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved
             .get_url(&mut new_allocator)
             .expect("Unable to get the Uri from resolved endpoint");
@@ -171,20 +182,21 @@ mod test {
     #[test]
     fn test_fips_setting() {
         let mut new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator);
-        let mut endpoint_request_context = RequestContext::new(&new_allocator);
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).expect("Rule Engine not constructed");
+        let mut endpoint_request_context =
+            RequestContext::new(&new_allocator).expect("Request Context not constructed");
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .expect("Should set bucket name");
+            .unwrap();
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("us-east-1"))
-            .expect("Should set region name");
+            .unwrap();
         endpoint_request_context
             .add_boolean(&new_allocator, OsStr::new("UseFIPS"), true)
-            .expect("Should set to use FIPS");
+            .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
-            .expect("Endpoint should be resolved");
+            .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved
             .get_url(&mut new_allocator)
             .expect("Unable to get the Uri from resolved endpoint");
@@ -197,23 +209,24 @@ mod test {
     #[test]
     fn test_transfer_acceleration_dual_stack_setting() {
         let mut new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator);
-        let mut endpoint_request_context = RequestContext::new(&new_allocator);
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).expect("Rule Engine not constructed");
+        let mut endpoint_request_context =
+            RequestContext::new(&new_allocator).expect("Request Context not constructed");
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .expect("Should set bucket name");
+            .unwrap();
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("us-east-1"))
-            .expect("Should set region name");
+            .unwrap();
         endpoint_request_context
             .add_boolean(&new_allocator, OsStr::new("UseDualStack"), true)
-            .expect("Should set to use dual stack");
+            .unwrap();
         endpoint_request_context
             .add_boolean(&new_allocator, OsStr::new("Accelerate"), true)
-            .expect("Should set to use transfer acceleration");
+            .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
-            .expect("Endpoint should be resolved");
+            .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved
             .get_url(&mut new_allocator)
             .expect("Unable to get the Uri from resolved endpoint");
@@ -226,20 +239,21 @@ mod test {
     #[test]
     fn test_force_path_style_setting() {
         let mut new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator);
-        let mut endpoint_request_context = RequestContext::new(&new_allocator);
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).expect("Rule Engine not constructed");
+        let mut endpoint_request_context =
+            RequestContext::new(&new_allocator).expect("Request Context not constructed");
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .expect("Should set bucket name");
+            .unwrap();
         endpoint_request_context
             .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("eu-west-1"))
-            .expect("Should set region name");
+            .unwrap();
         endpoint_request_context
             .add_boolean(&new_allocator, OsStr::new("ForcePathStyle"), true)
-            .expect("Should set to use Path style over virtual host");
+            .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
-            .expect("Endpoint should be resolved");
+            .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved
             .get_url(&mut new_allocator)
             .expect("Unable to get the Uri from resolved endpoint");
