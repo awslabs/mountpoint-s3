@@ -6,7 +6,7 @@ use std::sync::Arc;
 use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
-use mountpoint_s3::fs::{InodeNo, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{InodeNo, ReadReplier, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
@@ -14,7 +14,7 @@ use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, trace};
 
-use crate::common::{make_test_filesystem, DirectoryReply, ReadReply};
+use crate::common::{make_test_filesystem, DirectoryReply};
 use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, TreeNode, ValidName};
 use crate::reftests::reference::{File, Node, Reference};
 
@@ -32,6 +32,11 @@ pub enum Op {
     // usize is the percentage of the file to write (taken modulo 101)
     WritePart(InflightWriteIndex, usize),
     FinishWrite(InflightWriteIndex),
+
+    /// Create a local directory
+    CreateDirectory(DirectoryIndex, ValidName),
+    /// Remove a local directory
+    RemoveDirectory(DirectoryIndex),
 
     /// Read a file. `compare_contents` already reads every file after every operation, but having
     /// this as an explicit operation tests a different code path (doing recursive path resolution
@@ -168,6 +173,12 @@ impl Harness {
                 }
                 Op::FinishWrite(index) => {
                     self.perform_finish_write(*index).await;
+                }
+                Op::CreateDirectory(directory_index, name) => {
+                    self.perform_create_directory(*directory_index, &name.0).await;
+                }
+                Op::RemoveDirectory(directory_index) => {
+                    self.perform_remove_directory(*directory_index).await;
                 }
                 Op::Read(directory_index, file_index) => {
                     self.perform_read(*directory_index, *file_index).await;
@@ -373,10 +384,67 @@ impl Harness {
 
         let inflight_write = self.inflight_writes.remove(index);
         self.reference.remove_local_file(&inflight_write.path);
+        self.reference.remove_local_parents(&inflight_write.path);
         let key = inflight_write.path.to_string_lossy();
         assert_eq!(key.chars().next(), Some('/'));
         self.reference
             .add_remote_key(key[1..].to_owned(), inflight_write.object);
+    }
+
+    /// Create a new local directory
+    async fn perform_create_directory(&mut self, directory_index: DirectoryIndex, name: &str) {
+        let (dir_inode, full_path) = {
+            let dir = directory_index.get(&self.reference);
+            let dir_inode = self.lookup(dir.as_ref()).await.expect("directory must already exist");
+            let full_path = dir.as_ref().join(name);
+            (dir_inode, full_path)
+        };
+        trace!(path=?full_path, "create directory");
+
+        // Random paths can shadow existing ones, so we check that we aren't allowed to overwrite an
+        // existing inode. The existing node could be either a file or directory; we should fail the
+        // same way in both cases.
+        let reference_lookup = self.reference.lookup(&full_path);
+        let mkdir = self.fs.mkdir(dir_inode, name.as_ref(), libc::S_IFDIR, 0).await;
+        if reference_lookup.is_some() {
+            assert!(
+                matches!(mkdir, Err(libc::EEXIST)),
+                "can't overwrite existing file/directory"
+            );
+        } else {
+            let _mkdir = mkdir.expect("directory creation should succeed");
+            self.reference.add_local_directory(&full_path);
+        }
+    }
+
+    /// Remove a local directory
+    async fn perform_remove_directory(&mut self, directory_index: DirectoryIndex) {
+        let (parent_inode, full_path) = {
+            let full_path = directory_index.get(&self.reference);
+            if full_path.as_ref() == Path::new("/") {
+                // Not possible to send an rmdir for the root directory (it has no parent)
+                return;
+            }
+            let parent_path = full_path.as_ref().parent().expect("directory must have a parent");
+            let parent_inode = self.lookup(parent_path).await.expect("parent must exist");
+            (parent_inode, full_path.as_ref().to_owned())
+        };
+        trace!(path=?full_path, "remove directory");
+
+        let reference_lookup = self.reference.lookup(&full_path).expect("directory must already exist");
+        let Node::Directory { children, is_local } = reference_lookup else {
+            panic!("node must be a directory");
+        };
+
+        // Only empty local directories can be removed
+        let dir_name = full_path.file_name().expect("directory must have a name");
+        let rmdir = self.fs.rmdir(parent_inode, dir_name).await;
+        if *is_local && children.is_empty() {
+            assert_eq!(rmdir, Ok(()), "should be able to remove empty local directory");
+            self.reference.remove_local_directory(&full_path);
+        } else {
+            rmdir.expect_err("rmdir should fail");
+        }
     }
 
     /// Read a file from a directory
@@ -489,28 +557,32 @@ impl Harness {
     }
 
     async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
+        struct ReadVerifier(Box<[u8]>);
+
+        impl ReadReplier for ReadVerifier {
+            type Replied = ();
+
+            fn data(self, data: &[u8]) -> Self::Replied {
+                assert_eq!(&self.0[..], data, "read bytes don't match");
+            }
+
+            fn error(self, error: libc::c_int) -> Self::Replied {
+                panic!("read failed: {error}");
+            }
+        }
+
         let fh = self.fs.open(fs_file, 0x8000).await.unwrap().fh;
         let mut offset = 0;
         const MAX_READ_SIZE: usize = 4_096;
         let file_size = ref_file.len();
         while offset < file_size {
-            let mut read = Err(0);
             let num_bytes = MAX_READ_SIZE.min(file_size - offset);
-            self.fs
-                .read(
-                    fs_file,
-                    fh,
-                    offset as i64,
-                    num_bytes as u32,
-                    0,
-                    None,
-                    ReadReply(&mut read),
-                )
-                .await;
-            let fs_bytes = read.unwrap();
-            assert_eq!(fs_bytes.len(), num_bytes);
             let ref_bytes = ref_file.read(offset as u64, num_bytes);
-            assert_eq!(ref_bytes, fs_bytes);
+            assert_eq!(ref_bytes.len(), num_bytes);
+            let read_verifier = ReadVerifier(ref_bytes);
+            self.fs
+                .read(fs_file, fh, offset as i64, num_bytes as u32, 0, None, read_verifier)
+                .await;
             offset += num_bytes;
         }
     }
