@@ -114,6 +114,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
       with:
+        ref: ${{ inputs.ref }}
         submodules: true
     - name: Install nightly Rust
       uses: actions-rs/toolchain@v1
