@@ -195,11 +195,7 @@ async fn test_put_object_abort() {
 async fn test_put_checksums() {
     const PART_SIZE: usize = 5 * 1024 * 1024;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
-    let client_config = S3ClientConfig {
-        throughput_target_gbps: Some(10.0),
-        part_size: Some(PART_SIZE),
-        ..Default::default()
-    };
+    let client_config = S3ClientConfig::new().part_size(PART_SIZE);
     let client = S3CrtClient::new(&get_test_region(), client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
 

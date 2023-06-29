@@ -67,11 +67,13 @@ fn main() {
         .map(|s| s.parse::<usize>().expect("iterations must be a number"));
     let region = matches.get_one::<String>("region").unwrap();
 
-    let config = S3ClientConfig {
-        throughput_target_gbps,
-        part_size,
-        ..Default::default()
-    };
+    let mut config = S3ClientConfig::new();
+    if let Some(throughput_target_gbps) = throughput_target_gbps {
+        config = config.throughput_target_gbps(throughput_target_gbps);
+    }
+    if let Some(part_size) = part_size {
+        config = config.part_size(part_size);
+    }
     let client = Arc::new(S3CrtClient::new(region, config).expect("couldn't create client"));
 
     for i in 0..iterations.unwrap_or(1) {

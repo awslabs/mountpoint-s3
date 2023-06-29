@@ -67,14 +67,75 @@ macro_rules! event {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct S3ClientConfig {
-    pub auth_config: S3ClientAuthConfig,
-    pub throughput_target_gbps: Option<f64>,
-    pub part_size: Option<usize>,
-    pub endpoint: Option<Endpoint>,
-    pub user_agent_prefix: Option<String>,
-    pub request_payer: Option<String>,
+    auth_config: S3ClientAuthConfig,
+    throughput_target_gbps: f64,
+    part_size: usize,
+    endpoint: Option<Endpoint>,
+    user_agent_prefix: Option<String>,
+    request_payer: Option<String>,
+}
+
+impl Default for S3ClientConfig {
+    fn default() -> Self {
+        Self {
+            auth_config: Default::default(),
+            throughput_target_gbps: 10.0,
+            part_size: 8 * 1024 * 1024,
+            endpoint: None,
+            user_agent_prefix: None,
+            request_payer: None,
+        }
+    }
+}
+
+impl S3ClientConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the configuration for authenticating to S3
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn auth_config(mut self, auth_config: S3ClientAuthConfig) -> Self {
+        self.auth_config = auth_config;
+        self
+    }
+
+    /// Set the part size for multi-part operations to S3 (both PUT and GET)
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn part_size(mut self, part_size: usize) -> Self {
+        self.part_size = part_size;
+        self
+    }
+
+    /// Set the target throughput in Gbps for the S3 client
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn throughput_target_gbps(mut self, throughput_target_gbps: f64) -> Self {
+        self.throughput_target_gbps = throughput_target_gbps;
+        self
+    }
+
+    /// Set the S3 endpoint to connect to
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn endpoint(mut self, endpoint: Endpoint) -> Self {
+        self.endpoint = Some(endpoint);
+        self
+    }
+
+    /// Set a prefix to prepend to the User-agent HTTP header for S3 requests
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn user_agent_prefix(mut self, user_agent_prefix: &str) -> Self {
+        self.user_agent_prefix = Some(user_agent_prefix.to_owned());
+        self
+    }
+
+    /// Set a value for the request payer HTTP header for S3 requests
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn request_payer(mut self, request_payer: &str) -> Self {
+        self.request_payer = Some(request_payer.to_owned());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -118,7 +179,7 @@ struct S3CrtClientInner {
     /// Here it will add the user agent prefix and s3 client information.
     user_agent_header: String,
     request_payer: Option<String>,
-    part_size: Option<usize>,
+    part_size: usize,
 }
 
 impl S3CrtClientInner {
@@ -184,13 +245,8 @@ impl S3CrtClientInner {
             .client_bootstrap(client_bootstrap)
             .retry_strategy(retry_strategy);
 
-        if let Some(throughput_target_gbps) = config.throughput_target_gbps {
-            client_config.throughput_target_gbps(throughput_target_gbps);
-        }
-
-        if let Some(part_size) = config.part_size {
-            client_config.part_size(part_size);
-        }
+        client_config.throughput_target_gbps(config.throughput_target_gbps);
+        client_config.part_size(config.part_size);
 
         let client_agent = format!("mountpoint-s3-client/{}", build_info::FULL_VERSION);
         let user_agent_header = match config.user_agent_prefix {
@@ -661,6 +717,10 @@ impl ObjectClient for S3CrtClient {
     type GetObjectResult = S3GetObjectRequest;
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
+
+    fn part_size(&self) -> Option<usize> {
+        Some(self.inner.part_size)
+    }
 
     async fn delete_object(
         &self,

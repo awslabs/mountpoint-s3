@@ -61,6 +61,10 @@ pub trait ObjectClient {
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + Send + Sync + 'static;
 
+    /// Query the part size this client uses for PUT and GET operations to the object store. This
+    /// can be `None` if the client does not do multi-part operations.
+    fn part_size(&self) -> Option<usize>;
+
     /// Delete a single object from the object store.
     ///
     /// DeleteObject will succeed even if the object within the bucket does not exist.

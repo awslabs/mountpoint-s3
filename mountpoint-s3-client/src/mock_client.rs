@@ -249,6 +249,10 @@ impl ObjectClient for MockClient {
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
+    fn part_size(&self) -> Option<usize> {
+        Some(self.config.part_size)
+    }
+
     async fn delete_object(
         &self,
         bucket: &str,

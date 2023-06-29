@@ -26,10 +26,7 @@ async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {
 
     let region = get_test_region();
     let endpoint = f(&region);
-    let config = S3ClientConfig {
-        endpoint: Some(endpoint),
-        ..Default::default()
-    };
+    let config = S3ClientConfig::new().endpoint(endpoint);
     let client = S3CrtClient::new(&region, config).expect("could not create test client");
 
     let result = client
