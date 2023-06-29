@@ -278,3 +278,53 @@ fn fsync_test_s3() {
 fn fsync_test_mock() {
     fsync_test(crate::fuse_tests::mock_session::new);
 }
+
+fn write_too_big_test<F>(creator_fn: F, write_size: usize)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+    const PART_SIZE: usize = 64;
+    const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
+
+    let config = TestSessionConfig {
+        part_size: PART_SIZE,
+        ..Default::default()
+    };
+    let (mount_point, _session, _test_client) = creator_fn("write_too_big_test", config);
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, false).unwrap();
+
+    let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
+    let data = vec![0xaa; write_size];
+    for _ in 0..successful_writes {
+        f.write_all(&data).expect("object should fit");
+    }
+
+    let err = f.write_all(&data).expect_err("object should be too big");
+    assert_eq!(err.raw_os_error(), Some(libc::EFBIG));
+
+    let err = f
+        .sync_all()
+        .expect_err("upload should not succeed after growing too big");
+    assert_eq!(err.raw_os_error(), Some(libc::ENOSPC));
+
+    drop(f);
+
+    // Wait a bit for `release` to be sure
+    std::thread::sleep(Duration::from_secs(5));
+
+    let err = metadata(&path).expect_err("upload shouldn't have succeeded");
+    assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
+}
+
+// We intentionally don't run this test against S3 because the part size minimum is 5MiB there, and
+// so we'd have to upload 5MiB * 10000 = 50GiB to test the failure case.
+#[test_case(8000; "divisible by max size")]
+#[test_case(7000; "not divisible by max size")]
+#[test_case(640001; "single write too big")]
+fn write_too_big_test_mock(write_size: usize) {
+    write_too_big_test(crate::fuse_tests::mock_session::new, write_size);
+}

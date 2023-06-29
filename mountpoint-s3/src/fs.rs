@@ -65,7 +65,8 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
 enum UploadState<Client: ObjectClient> {
     InProgress(UploadRequest<Client>),
     Completed,
-    Failed,
+    // Remember the failure reason to respond to retries
+    Failed(libc::c_int),
 }
 
 impl<Client: ObjectClient> UploadState<Client> {
@@ -76,13 +77,14 @@ impl<Client: ObjectClient> UploadState<Client> {
             Err(e) => {
                 error!("write failed: {e}");
                 match e {
-                    UploadWriteError::PutRequestFailed(_) => {
+                    UploadWriteError::PutRequestFailed(_) | UploadWriteError::ObjectTooBig { .. } => {
                         // Abort the request.
-                        *self = Self::Failed;
+                        let ret: libc::c_int = e.into();
+                        *self = Self::Failed(ret);
+                        Err(ret)
                     }
-                    UploadWriteError::OutOfOrderWrite { .. } => {}
-                };
-                Err(e.into())
+                    UploadWriteError::OutOfOrderWrite { .. } => Err(e.into()),
+                }
             }
         }
     }
@@ -92,11 +94,11 @@ impl<Client: ObjectClient> UploadState<Client> {
         _ = self.get_upload_in_progress(key)?;
         let upload = match std::mem::replace(self, Self::Completed) {
             Self::InProgress(upload) => upload,
-            Self::Failed | Self::Completed => unreachable!("checked by get_upload_in_progress"),
+            Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
         };
         let result = Self::complete_upload(upload, key).await;
-        if result.is_err() {
-            *self = Self::Failed;
+        if let Err(e) = result {
+            *self = Self::Failed(e);
         }
         result
     }
@@ -104,7 +106,7 @@ impl<Client: ObjectClient> UploadState<Client> {
     async fn complete_if_in_progress(self, key: &str) -> Result<(), libc::c_int> {
         match self {
             Self::InProgress(upload) => Self::complete_upload(upload, key).await,
-            Self::Failed | Self::Completed => Ok(()),
+            Self::Failed(_) | Self::Completed => Ok(()),
         }
     }
 
@@ -129,9 +131,9 @@ impl<Client: ObjectClient> UploadState<Client> {
                 warn!(key, "upload already completed");
                 Err(libc::EIO)
             }
-            Self::Failed => {
+            Self::Failed(e) => {
                 warn!(key, "upload already aborted");
-                Err(libc::EIO)
+                Err(*e)
             }
         }
     }
@@ -666,7 +668,12 @@ where
             FileHandleType::Write { request, .. } => request.lock().await,
             FileHandleType::Read { .. } => return Ok(()),
         };
-        request.complete(&file_handle.full_key).await
+        match request.complete(&file_handle.full_key).await {
+            // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
+            // space-related failure.
+            Err(libc::EFBIG) => Err(libc::ENOSPC),
+            ret => ret,
+        }
     }
 
     pub async fn release(
@@ -760,6 +767,7 @@ impl<E: std::error::Error> From<UploadWriteError<E>> for i32 {
         match err {
             UploadWriteError::PutRequestFailed(_) => libc::EIO,
             UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
+            UploadWriteError::ObjectTooBig { .. } => libc::EFBIG,
         }
     }
 }

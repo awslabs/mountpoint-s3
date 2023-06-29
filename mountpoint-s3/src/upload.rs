@@ -9,6 +9,8 @@ use thiserror::Error;
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
+const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
+
 /// An [Uploader] creates and manages streaming PutObject requests.
 #[derive(Debug)]
 pub struct Uploader<Client> {
@@ -37,13 +39,16 @@ impl<Client: ObjectClient> Uploader<Client> {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum UploadWriteError<E: std::error::Error> {
     #[error("put request failed")]
     PutRequestFailed(#[from] E),
 
     #[error("out of order write; expected offset {expected_offset:?} but got {write_offset:?}")]
     OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
+
+    #[error("object exceeded maximum upload size of {maximum_size} bytes")]
+    ObjectTooBig { maximum_size: usize },
 }
 
 /// Manages the upload of an object to S3.
@@ -54,6 +59,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     request: Client::PutObjectRequest,
+    maximum_upload_size: Option<usize>,
 }
 
 impl<Client: ObjectClient> UploadRequest<Client> {
@@ -64,12 +70,14 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
         let params = PutObjectParams::new().trailing_checksums(true);
         let request = inner.client.put_object(bucket, key, &params).await?;
+        let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
 
         Ok(Self {
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             next_request_offset: 0,
             request,
+            maximum_upload_size,
         })
     }
 
@@ -88,6 +96,11 @@ impl<Client: ObjectClient> UploadRequest<Client> {
                 write_offset: offset as u64,
                 expected_offset: next_offset,
             });
+        }
+        if let Some(maximum_size) = self.maximum_upload_size {
+            if next_offset + data.len() as u64 > maximum_size as u64 {
+                return Err(UploadWriteError::ObjectTooBig { maximum_size });
+            }
         }
 
         self.request.write(data).await?;
@@ -119,6 +132,7 @@ mod tests {
         failure_client::countdown_failure_client,
         mock_client::{MockClient, MockClientConfig, MockClientError},
     };
+    use test_case::test_case;
 
     #[tokio::test]
     async fn complete_test() {
@@ -226,5 +240,45 @@ mod tests {
         }
         assert!(!client.is_upload_in_progress(key));
         assert!(!client.contains_key(key));
+    }
+
+    #[test_case(8000; "divisible by max size")]
+    #[test_case(7000; "not divisible by max size")]
+    #[test_case(320001; "single write too big")]
+    #[tokio::test]
+    async fn maximum_size_test(write_size: usize) {
+        const PART_SIZE: usize = 32;
+
+        let bucket = "bucket";
+        let name = "hello";
+        let key = name;
+
+        let client = Arc::new(MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            part_size: PART_SIZE,
+        }));
+        let uploader = Uploader::new(client.clone());
+        let mut request = uploader.put(bucket, key).await.unwrap();
+
+        let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
+        let data = vec![0xaa; write_size];
+        for i in 0..successful_writes {
+            let offset = i * write_size;
+            request
+                .write(offset as i64, &data[..])
+                .await
+                .expect("object should fit");
+        }
+
+        let offset = successful_writes * write_size;
+        request
+            .write(offset as i64, &data[..])
+            .await
+            .expect_err("object should be too big");
+
+        drop(request);
+
+        assert!(!client.contains_key(key));
+        assert!(!client.is_upload_in_progress(key));
     }
 }
