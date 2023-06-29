@@ -247,7 +247,23 @@ pub enum GetObjectAttributesError {
 /// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
-pub struct PutObjectParams {}
+pub struct PutObjectParams {
+    /// Enable Crc32c trailing checksums.
+    pub trailing_checksums: bool,
+}
+
+impl PutObjectParams {
+    /// Create a default [PutObjectParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set Crc32c trailing checksums.
+    pub fn trailing_checksums(mut self, value: bool) -> Self {
+        self.trailing_checksums = value;
+        self
+    }
+}
 
 /// A streaming put request which allows callers to asynchronously write
 /// the body of the request.

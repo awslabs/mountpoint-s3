@@ -20,8 +20,8 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
-    init_default_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
-    RequestType,
+    init_default_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequestOptions, MetaRequestResult,
+    MetaRequestType, RequestType,
 };
 
 use async_trait::async_trait;
@@ -246,6 +246,7 @@ impl S3CrtClientInner {
             inner: message,
             uri,
             path_prefix,
+            checksum_config: None,
         })
     }
 
@@ -273,6 +274,9 @@ impl S3CrtClientInner {
         let first_body_part_clone = Arc::clone(&first_body_part);
 
         let mut options = MetaRequestOptions::new();
+        if let Some(checksum_config) = message.checksum_config {
+            options.checksum_config(checksum_config);
+        }
         options
             .message(message.inner)
             .endpoint(message.uri)
@@ -457,6 +461,7 @@ struct S3Message {
     inner: Message,
     uri: Uri,
     path_prefix: String,
+    checksum_config: Option<ChecksumConfig>,
 }
 
 impl S3Message {
@@ -527,6 +532,11 @@ impl S3Message {
     /// If input_stream is None, unsets the body.
     fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
         self.inner.set_body_stream(input_stream)
+    }
+
+    /// Sets the checksum configuration for this message.
+    fn set_checksum_config(&mut self, checksum_config: Option<ChecksumConfig>) {
+        self.checksum_config = checksum_config;
     }
 }
 

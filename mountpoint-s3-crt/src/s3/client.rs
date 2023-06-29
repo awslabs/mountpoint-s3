@@ -136,6 +136,9 @@ struct MetaRequestOptionsInner {
     /// Owned signing config, if provided.
     signing_config: Option<SigningConfig>,
 
+    /// Owned checksum config, if provided.
+    checksum_config: Option<ChecksumConfig>,
+
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
 
@@ -210,6 +213,7 @@ impl MetaRequestOptions {
             message: None,
             endpoint: None,
             signing_config: None,
+            checksum_config: None,
             on_telemetry: None,
             on_headers: None,
             on_body: None,
@@ -252,6 +256,16 @@ impl MetaRequestOptions {
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.endpoint = Some(endpoint);
         options.inner.endpoint = options.endpoint.as_mut().unwrap().to_inner_ptr() as *mut aws_uri;
+        self
+    }
+
+    /// Set the checksum config used for this message.
+    pub fn checksum_config(&mut self, checksum_config: ChecksumConfig) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.checksum_config = Some(checksum_config);
+        options.inner.checksum_config =
+            options.checksum_config.as_mut().unwrap().to_inner_ptr() as *mut aws_s3_checksum_config;
         self
     }
 
@@ -828,4 +842,29 @@ pub fn init_default_signing_config(region: &str, credentials_provider: Credentia
     signing_config.inner.flags.set_use_double_uri_encode(false as u32);
 
     SigningConfig(Arc::new(Box::into_pin(signing_config)))
+}
+
+/// The checksum configuration.
+#[derive(Debug, Clone, Default)]
+pub struct ChecksumConfig {
+    /// The struct we can pass into the CRT's functions.
+    inner: aws_s3_checksum_config,
+}
+
+impl ChecksumConfig {
+    /// Create a [ChecksumConfig] enabling Crc32c trailing checksums in PUT requests.
+    pub fn trailing_crc32c() -> Self {
+        Self {
+            inner: aws_s3_checksum_config {
+                location: aws_s3_checksum_location::AWS_SCL_TRAILER,
+                checksum_algorithm: aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Get out the inner pointer to the checksum config
+    pub(crate) fn to_inner_ptr(&self) -> *const aws_s3_checksum_config {
+        &self.inner
+    }
 }

@@ -2,12 +2,18 @@
 
 pub mod common;
 
+use base64ct::Base64;
+use base64ct::Encoding;
 use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::GetObjectError;
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::ObjectClientResult;
+use mountpoint_s3_client::PutObjectParams;
 use mountpoint_s3_client::PutObjectRequest;
+use mountpoint_s3_client::S3ClientConfig;
+use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_crt::checksums::crc32c;
 use rand::Rng;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
@@ -183,4 +189,49 @@ async fn test_put_object_abort() {
 
     let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
     assert_eq!(uploads_in_progress, 0);
+}
+
+#[tokio::test]
+async fn test_put_checksums() {
+    const PART_SIZE: usize = 5 * 1024 * 1024;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
+    let client_config = S3ClientConfig {
+        throughput_target_gbps: Some(10.0),
+        part_size: Some(PART_SIZE),
+        ..Default::default()
+    };
+    let client = S3CrtClient::new(&get_test_region(), client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; PART_SIZE * 2];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectParams::new().trailing_checksums(true);
+    let mut request = client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+    request.complete().await.unwrap();
+
+    let sdk_client = get_test_sdk_client().await;
+    let attributes = sdk_client
+        .get_object_attributes()
+        .bucket(bucket)
+        .key(key)
+        .object_attributes(aws_sdk_s3::model::ObjectAttributes::ObjectParts)
+        .send()
+        .await
+        .unwrap();
+    let parts = attributes.object_parts().unwrap().parts().unwrap();
+    let checksums: Vec<_> = parts.iter().map(|p| p.checksum_crc32_c().unwrap()).collect();
+    let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
+
+    assert_eq!(checksums.len(), expected_checksums.len());
+    for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
+        let encoded = Base64::encode_string(&expected_checksum.value().to_be_bytes());
+        assert_eq!(checksum, encoded);
+    }
 }
