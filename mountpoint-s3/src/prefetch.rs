@@ -301,14 +301,19 @@ where
                                 Some(Ok((offset, body))) => {
                                     // pre-split the body into multiple parts as suggested by preferred part size
                                     // in order to avoid validating checksum on large parts at read.
-                                    let chunks = body.chunks(preferred_part_size);
+                                    assert!(preferred_part_size > 0);
+                                    let mut body: Bytes = body.into();
                                     let mut curr_offset = offset;
-                                    for chunk in chunks {
-                                        let bytes: Bytes = Bytes::copy_from_slice(chunk);
+                                    loop {
+                                        let chunk_size = preferred_part_size.min(body.len());
+                                        if chunk_size == 0 {
+                                            break;
+                                        }
+                                        let chunk = body.split_to(chunk_size);
                                         // S3 doesn't provide checksum for us if the request range is not aligned to object part boundaries,
                                         // so we're computing our own checksum here.
-                                        let checksum = crc32c::checksum(&bytes);
-                                        let checksum_bytes = ChecksummedBytes::new(bytes, checksum);
+                                        let checksum = crc32c::checksum(&chunk);
+                                        let checksum_bytes = ChecksummedBytes::new(chunk, checksum);
                                         let part = Part::new(&key, curr_offset, checksum_bytes);
                                         curr_offset += part.len() as u64;
                                         part_queue_producer.push(Ok(part));
