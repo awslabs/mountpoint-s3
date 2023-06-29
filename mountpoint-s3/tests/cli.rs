@@ -1,6 +1,6 @@
 use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*; // Used for writing assertions
-use std::process::Command; // Run programs
+use std::{fs, os::unix::prelude::PermissionsExt, process::Command}; // Run programs
 
 /// Regular expression for something that looks mostly like a SemVer version.
 /// Don't use this outside of this test - SemVer is both more restrictive and flexible.
@@ -167,6 +167,68 @@ fn invalid_profile() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("test-bucket").arg(dir.path()).arg("--profile").arg("INVALID");
     let error_message = "invalid AWS credentials";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[test]
+fn validate_default_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let dir = assert_fs::TempDir::new()?;
+    let default_log_dir = home::home_dir().unwrap().join(".mountpoint-s3");
+
+    cmd.arg("test-bucket").arg(dir.path());
+    cmd.assert().failure();
+
+    // verify log directory metadata
+    let metadata = fs::metadata(&default_log_dir).unwrap();
+    assert!(metadata.is_dir());
+    // mask with 0o7777 to get only permission bits
+    let dir_perm = metadata.permissions().mode() & 0o7777;
+    assert_eq!(dir_perm, 0o750);
+
+    // verify log files metadata
+    let log_files = fs::read_dir(&default_log_dir).unwrap();
+    for log_file in log_files {
+        let log_file = log_file.unwrap();
+        let metadata = fs::metadata(log_file.path()).unwrap();
+        assert!(metadata.is_file());
+        // mask with 0o7777 to get only permission bits
+        let file_perm = metadata.permissions().mode() & 0o7777;
+        assert_eq!(file_perm, 0o640);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let dir = assert_fs::TempDir::new()?;
+    let log_dir = assert_fs::TempDir::new()?;
+    let log_dir = log_dir.path().join("logs");
+
+    cmd.arg("test-bucket").arg(dir.path());
+    cmd.arg(format!("--log-directory={}", log_dir.to_str().unwrap()));
+    cmd.assert().failure();
+
+    // verify log directory metadata
+    let metadata = fs::metadata(&log_dir).unwrap();
+    assert!(metadata.is_dir());
+    // mask with 0o7777 to get only permission bits
+    let dir_perm = metadata.permissions().mode() & 0o7777;
+    assert_eq!(dir_perm, 0o750);
+
+    // verify log files metadata
+    let log_files = fs::read_dir(&log_dir).unwrap();
+    for log_file in log_files {
+        let log_file = log_file.unwrap();
+        let metadata = fs::metadata(log_file.path()).unwrap();
+        assert!(metadata.is_file());
+        // mask with 0o7777 to get only permission bits
+        let file_perm = metadata.permissions().mode() & 0o7777;
+        assert_eq!(file_perm, 0o640);
+    }
 
     Ok(())
 }

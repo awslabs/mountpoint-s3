@@ -1,8 +1,10 @@
+use std::fs::File;
+use std::fs::{DirBuilder, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::prelude::FromRawFd;
+use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::prelude::{FromRawFd, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use std::{fs, fs::File};
 
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser};
@@ -53,15 +55,28 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
         .format(LOG_FILE_NAME_FORMAT)
         .context("couldn't format log file name")?;
 
+    // log directories and files should not be accessible by other users
+    let mut file_options = OpenOptions::new();
+    file_options.mode(0o640).write(true).create(true);
+
+    let mut dir_builder = DirBuilder::new();
+    dir_builder.recursive(true).mode(0o750);
+
     let file = if let Some(path) = log_directory {
-        fs::create_dir_all(path).context("failed to create log folder")?;
-        File::create(path.join(filename)).context("failed to create log file")?
+        dir_builder.create(path).context("failed to create log folder")?;
+        file_options
+            .open(path.join(filename))
+            .context("failed to create log file")?
     } else {
         let default_log_directory = home::home_dir()
             .ok_or(anyhow!("no home directory found"))?
             .join(LOG_DIRECTORY);
-        fs::create_dir_all(&default_log_directory).context("failed to create log folder")?;
-        File::create(default_log_directory.join(filename)).context("failed to create log file")?
+        dir_builder
+            .create(&default_log_directory)
+            .context("failed to create log folder")?;
+        file_options
+            .open(default_log_directory.join(filename))
+            .context("failed to create log file")?
     };
 
     let fmt_layer = tracing_subscriber::fmt::layer()
