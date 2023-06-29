@@ -385,7 +385,7 @@ mod tests {
 
     use super::*;
     use futures::executor::{block_on, ThreadPool};
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, GetFailureMap};
+    use mountpoint_s3_client::failure_client::{countdown_failure_client, RequestFailureMap};
     use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
@@ -482,7 +482,7 @@ mod tests {
         size: u64,
         read_size: usize,
         test_config: TestConfig,
-        get_failures: GetFailureMap<MockClient>,
+        get_failures: RequestFailureMap<MockClient, GetObjectError>,
     ) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -494,7 +494,7 @@ mod tests {
 
         client.add_object("hello", object);
 
-        let client = countdown_failure_client(client, get_failures, HashMap::new(), HashMap::new());
+        let client = countdown_failure_client(client, get_failures, HashMap::new(), HashMap::new(), HashMap::new());
 
         let test_config = PrefetcherConfig {
             first_request_size: test_config.first_request_size,

@@ -225,3 +225,57 @@ fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size: usiz
 fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: usize) {
     sequential_write_streaming_test(crate::fuse_tests::mock_session::new, object_size, write_chunk_size);
 }
+
+fn fsync_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const OBJECT_SIZE: usize = 32;
+    const KEY: &str = "new.txt";
+
+    let (mount_point, _session, test_client) = creator_fn("fsync_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, false).unwrap();
+
+    // The file is visible with size 0 as soon as we open it for write
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), 0);
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    f.write_all(&body).unwrap();
+
+    assert!(test_client.is_upload_in_progress(KEY).unwrap());
+
+    f.sync_all().unwrap();
+
+    assert!(!test_client.is_upload_in_progress(KEY).unwrap());
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), 0);
+
+    f.write_all(&body).expect_err("write after sync should fail");
+
+    drop(f);
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), body.len() as u64);
+
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &body[..]);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn fsync_test_s3() {
+    fsync_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn fsync_test_mock() {
+    fsync_test(crate::fuse_tests::mock_session::new);
+}

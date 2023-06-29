@@ -188,6 +188,14 @@ where
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync))]
+    fn fsync(&self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+        match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => reply.error(e),
+        }
+    }
+
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
     fn release(
         &self,
