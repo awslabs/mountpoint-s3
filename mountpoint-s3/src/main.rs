@@ -436,8 +436,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     let fs_name = String::from("mountpoint-s3");
     let mut options = vec![
-        #[cfg(not(feature = "put"))]
-        MountOption::RO,
         MountOption::DefaultPermissions,
         MountOption::FSName(fs_name),
         MountOption::NoAtime,
