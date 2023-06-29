@@ -2,17 +2,16 @@ use std::fs::{read_dir, File};
 use std::io::{Read as _, Seek, SeekFrom};
 
 use fuser::BackgroundSession;
-use mountpoint_s3::S3FilesystemConfig;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
 use tempfile::TempDir;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn basic_read_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 

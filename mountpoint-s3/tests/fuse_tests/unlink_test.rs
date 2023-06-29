@@ -2,16 +2,15 @@ use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use fuser::BackgroundSession;
-use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, wait_for_success, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, wait_for_success, TestClientBox, TestSessionConfig};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
@@ -57,7 +56,7 @@ fn simple_unlink_test_mock(prefix: &str) {
 /// Testing behavior when a file is unlinked in the middle of reading
 fn unlink_readhandle_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
@@ -106,7 +105,7 @@ fn unlink_readhandle_test_mock(prefix: &str) {
 /// Testing behavior when a file is unlinked during and after writing
 fn unlink_writehandle_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 

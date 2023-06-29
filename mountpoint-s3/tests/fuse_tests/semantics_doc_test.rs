@@ -1,11 +1,10 @@
 use std::path::Path;
 
 use fuser::BackgroundSession;
-use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{TestClientBox, TestSessionConfig};
 
 /// Recursively list the contents of a directory and return the paths of all entries, with the
 /// initial `path` stripped. If `files` is true, the list contains only files; if false, it contains
@@ -53,7 +52,7 @@ fn list_dir_recursive(path: impl AsRef<Path>, files: bool) -> Result<Vec<String>
 ///     * `list.txt` (file)
 fn basic_directory_structure<F>(creator_fn: F)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn("basic_directory_structure", Default::default());
 
@@ -95,7 +94,7 @@ fn basic_directory_structure_s3() {
 /// creating directories in a bucket, and so these directories will work as expected.
 fn keys_ending_in_delimiter<F>(creator_fn: F)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn("keys_ending_in_delimiter", Default::default());
 
@@ -132,7 +131,7 @@ fn keys_ending_in_delimiter_s3() {
 /// remove the `blue` directory, and cause the `blue` file to become visible.
 fn files_shadowed_by_directories<F>(creator_fn: F)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn("files_shadowed_by_directories", Default::default());
 

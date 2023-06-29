@@ -5,13 +5,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use fuser::BackgroundSession;
-use mountpoint_s3::S3FilesystemConfig;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -25,7 +24,7 @@ fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File>
 
 fn sequential_write_test<F>(creator_fn: F, prefix: &str, append: bool)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
@@ -104,7 +103,7 @@ fn sequential_write_test_mock(prefix: &str, append: bool) {
 
 fn write_errors_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
@@ -158,7 +157,7 @@ fn write_errors_test_mock(prefix: &str) {
 
 fn sequential_write_streaming_test<F>(creator_fn: F, object_size: usize, write_chunk_size: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const KEY: &str = "dir/new.txt";
 
@@ -228,7 +227,7 @@ fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: us
 
 fn fsync_test<F>(creator_fn: F)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";

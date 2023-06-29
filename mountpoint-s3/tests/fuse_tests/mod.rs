@@ -35,6 +35,20 @@ pub trait TestClient {
 
 pub type TestClientBox = Box<dyn TestClient>;
 
+pub struct TestSessionConfig {
+    pub part_size: usize,
+    pub filesystem_config: S3FilesystemConfig,
+}
+
+impl Default for TestSessionConfig {
+    fn default() -> Self {
+        Self {
+            part_size: 8 * 1024 * 1024,
+            filesystem_config: Default::default(),
+        }
+    }
+}
+
 mod mock_session {
     use super::*;
 
@@ -44,7 +58,7 @@ mod mock_session {
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
-    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox) {
+    pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let bucket = "test_bucket";
@@ -56,7 +70,7 @@ mod mock_session {
 
         let client_config = MockClientConfig {
             bucket: bucket.to_string(),
-            part_size: 1024 * 1024,
+            part_size: test_config.part_size,
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -72,7 +86,13 @@ mod mock_session {
 
         let prefix = Prefix::new(&prefix).expect("valid prefix");
         let session = Session::new(
-            S3FuseFilesystem::new(Arc::clone(&client), runtime, bucket, &prefix, filesystem_config),
+            S3FuseFilesystem::new(
+                Arc::clone(&client),
+                runtime,
+                bucket,
+                &prefix,
+                test_config.filesystem_config,
+            ),
             mount_dir.path(),
             &options,
         )
@@ -137,13 +157,13 @@ mod s3_session {
     use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
-    pub fn new(test_name: &str, filesystem_config: S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox) {
+    pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
         let region = get_test_region();
 
-        let client_config: S3ClientConfig = Default::default();
+        let client_config = S3ClientConfig::default().part_size(test_config.part_size);
         let client = S3CrtClient::new(&region, client_config).unwrap();
         let runtime = client.event_loop_group();
 
@@ -157,7 +177,7 @@ mod s3_session {
 
         let prefix = Prefix::new(&prefix).expect("valid prefix");
         let session = Session::new(
-            S3FuseFilesystem::new(client, runtime, &bucket, &prefix, filesystem_config),
+            S3FuseFilesystem::new(client, runtime, &bucket, &prefix, test_config.filesystem_config),
             mount_dir.path(),
             &options,
         )

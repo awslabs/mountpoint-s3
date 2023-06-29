@@ -4,15 +4,14 @@ use std::{
 };
 
 use fuser::BackgroundSession;
-use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn mkdir_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 

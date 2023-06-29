@@ -6,11 +6,11 @@ use std::io::Read;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::TestClientBox;
+use crate::fuse_tests::{TestClientBox, TestSessionConfig};
 
 fn read_test<F>(creator_fn: F, object_size: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(Default::default(), Default::default());
 
@@ -51,7 +51,7 @@ fn read_test_mock(object_size: usize) {
 /// If object is mutated, E-Tag for the new prefetch request will change and hence the request will fail giving IO error.
 fn prefetch_test_etag<F>(creator_fn: F, prefix: &str, request_size: usize, read_size: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     const OBJECT_SIZE: usize = 1024 * 1024;
 
@@ -60,12 +60,18 @@ where
         ..Default::default()
     };
 
-    let test_config = S3FilesystemConfig {
+    let filesystem_config = S3FilesystemConfig {
         prefetcher_config,
         ..Default::default()
     };
 
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let (mount_point, _session, mut test_client) = creator_fn(
+        prefix,
+        TestSessionConfig {
+            filesystem_config,
+            ..Default::default()
+        },
+    );
     let original_data_buf = vec![0u8; OBJECT_SIZE];
 
     test_client.put_object("dir/hello.txt", &original_data_buf).unwrap();

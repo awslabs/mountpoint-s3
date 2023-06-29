@@ -8,12 +8,12 @@ use mountpoint_s3::{fs::CacheConfig, S3FilesystemConfig};
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 /// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test<F>(creator_fn: F, prefix: &str, subdir: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
@@ -51,7 +51,7 @@ fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
 
 fn lookup_weird_characters_test<F>(creator_fn: F, prefix: &str)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
 
@@ -105,15 +105,19 @@ fn lookup_directory_weird_characters_mock() {
 
 fn lookup_previously_shadowed_file_test<F>(creator_fn: F)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
+    let filesystem_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            file_ttl: Duration::ZERO,
+            dir_ttl: Duration::ZERO,
+        },
+        ..Default::default()
+    };
     let (mount_point, _session, mut test_client) = creator_fn(
         Default::default(),
-        S3FilesystemConfig {
-            cache_config: CacheConfig {
-                file_ttl: Duration::ZERO,
-                dir_ttl: Duration::ZERO,
-            },
+        TestSessionConfig {
+            filesystem_config,
             ..Default::default()
         },
     );
