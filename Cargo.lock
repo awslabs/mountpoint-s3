@@ -1898,6 +1898,7 @@ dependencies = [
  "bytes",
  "clap 4.3.9",
  "const_format",
+ "crc32c",
  "ctor",
  "ctrlc",
  "fuser",

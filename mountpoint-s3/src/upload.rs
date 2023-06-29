@@ -5,9 +5,11 @@ use mountpoint_s3_client::{
     PutObjectResult,
 };
 
-use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_crt::checksums::crc32c::Crc32c;
 use thiserror::Error;
 use tracing::debug;
+
+use crate::checksums::ChecksummedSlice;
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -55,7 +57,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     bucket: String,
     key: String,
     next_request_offset: u64,
-    hasher: crc32c::Hasher,
+    checksum: Crc32c,
     request: Client::PutObjectRequest,
 }
 
@@ -72,7 +74,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             next_request_offset: 0,
-            hasher: crc32c::Hasher::new(),
+            checksum: Crc32c::new(0),
             request,
         })
     }
@@ -84,7 +86,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     pub async fn write(
         &mut self,
         offset: i64,
-        data: &[u8],
+        data: ChecksummedSlice<'_>,
     ) -> Result<usize, UploadWriteError<PutRequestError<Client>>> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
@@ -93,8 +95,8 @@ impl<Client: ObjectClient> UploadRequest<Client> {
                 expected_offset: next_offset,
             });
         }
-        self.hasher.update(data);
-        self.request.write(data).await?;
+        self.checksum = data.combined_with_prefix(&self.checksum);
+        self.request.write(data.slice()).await?;
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
     }
@@ -111,7 +113,7 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
             .field("bucket", &self.bucket)
             .field("key", &self.key)
             .field("next_request_offset", &self.next_request_offset)
-            .field("hasher", &self.hasher)
+            .field("checksum", &self.checksum)
             .finish()
     }
 }
@@ -162,17 +164,17 @@ mod tests {
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
-        let data = "foo";
+        let data = ChecksummedSlice::new(b"foo");
         let mut offset = 0;
-        offset += request.write(offset, data.as_bytes()).await.unwrap() as i64;
+        offset += request.write(offset, data).await.unwrap() as i64;
 
         request
-            .write(0, data.as_bytes())
+            .write(0, data)
             .await
             .expect_err("out of order write should fail");
 
         offset += request
-            .write(offset, data.as_bytes())
+            .write(offset, data)
             .await
             .expect("subsequent in order write should succeed") as i64;
 
@@ -212,9 +214,9 @@ mod tests {
         {
             let mut request = uploader.put(bucket, key).await.unwrap();
 
-            let data = "foo";
+            let data = b"foo";
             request
-                .write(0, data.as_bytes())
+                .write(0, ChecksummedSlice::new(data))
                 .await
                 .expect_err("first write should fail");
         }
@@ -225,8 +227,8 @@ mod tests {
         {
             let mut request = uploader.put(bucket, key).await.unwrap();
 
-            let data = "foo";
-            _ = request.write(0, data.as_bytes()).await.unwrap();
+            let data = b"foo";
+            _ = request.write(0, ChecksummedSlice::new(data)).await.unwrap();
 
             request.complete().await.expect_err("complete should fail");
         }

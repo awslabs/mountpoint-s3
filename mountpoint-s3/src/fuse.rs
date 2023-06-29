@@ -6,6 +6,7 @@ use std::ffi::OsStr;
 use std::time::Duration;
 use tracing::{instrument, Instrument};
 
+use crate::checksums::ChecksummedSlice;
 use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
 use crate::prefix::Prefix;
 use fuser::{
@@ -267,7 +268,15 @@ where
     ) {
         match block_on(
             self.fs
-                .write(ino, fh, offset, data, write_flags, flags, lock_owner)
+                .write(
+                    ino,
+                    fh,
+                    offset,
+                    ChecksummedSlice::new(data),
+                    write_flags,
+                    flags,
+                    lock_owner,
+                )
                 .in_current_span(),
         ) {
             Ok(bytes_written) => reply.written(bytes_written),

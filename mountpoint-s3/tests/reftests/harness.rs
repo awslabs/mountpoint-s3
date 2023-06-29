@@ -6,6 +6,7 @@ use std::sync::Arc;
 use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
+use mountpoint_s3::checksums::ChecksummedSlice;
 use mountpoint_s3::fs::{InodeNo, ReadReplier, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
@@ -342,7 +343,7 @@ impl Harness {
                 inflight_write.inode,
                 file_handle,
                 inflight_write.written as i64,
-                &bytes_to_write,
+                ChecksummedSlice::new(&bytes_to_write),
                 0,
                 0,
                 None,
