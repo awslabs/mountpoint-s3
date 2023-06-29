@@ -8,8 +8,6 @@ use std::os::unix::prelude::OsStrExt;
 use thiserror::Error;
 
 lazy_static! {
-    /// Regions in the "aws" partition (from the SDK's `partitions.json`)
-    static ref AWS_PARTITION_REGEX: Regex = Regex::new(r"^(us|eu|ap|sa|ca|me|af)\-\w+\-\d+$").unwrap();
     /// Bucket names that are acceptable as virtual host names for DNS
     static ref VALID_DNS_REGEX: Regex = Regex::new(r"[a-z0-9][a-z0-9\-]*[a-z0-9]").unwrap();
 }
