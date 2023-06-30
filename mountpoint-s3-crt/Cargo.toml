@@ -24,7 +24,7 @@ static_assertions = "1.1.0"
 thiserror = "1.0.35"
 
 [dev-dependencies]
-criterion = "0.4.0"
+criterion = "0.5.1"
 ctor = "0.1.23"
 futures-timer = "3.0.2"
 rand = { version = "0.8.5", features = ["small_rng"] }
