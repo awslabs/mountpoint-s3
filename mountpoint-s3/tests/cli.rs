@@ -12,7 +12,7 @@ fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     cmd.arg("test-bucket").arg("test/dir");
-    let error_message = "Mount point test/dir does not exist or it is not a directory";
+    let error_message = "mount point test/dir does not exist";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -20,14 +20,12 @@ fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn mount_point_isnt_dir() -> Result<(), Box<dyn std::error::Error>> {
-    let file = assert_fs::NamedTempFile::new("test/file.txt")?;
+    let file = assert_fs::NamedTempFile::new("file.txt")?;
+    fs::write(file.path(), b"hello")?;
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     cmd.arg("test-bucket").arg(file.path());
-    let error_message = format!(
-        "Mount point {} does not exist or it is not a directory",
-        file.path().display()
-    );
+    let error_message = format!("mount point {} is not a directory", file.path().display());
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())

@@ -32,6 +32,9 @@ const_format = "0.2.30"
 home = "0.5.4"
 serde_json = "1.0.95"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+procfs = { version = "0.15.1", default-features = false }
+
 [dev-dependencies]
 assert_cmd = "2.0.6"
 assert_fs = "1.0.9"
