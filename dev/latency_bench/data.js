@@ -1,52 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1688139893480,
+  "lastUpdate": 1688143139627,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7511b2fe5cebfd53135208d929882a6e1a14be23",
-          "message": "Fix va_list FFI safety on aarch64 (#312)\n\nWhen building on aarch64 we get a warning about FFI safety for va_list.\r\nIt turns out bindgen can't figure out the definition for va_list on that\r\narchitecture and so just emits a `[u64; 4]`, which has the right size,\r\nbut raw arrays aren't FFI-safe. So instead, let's emit a `struct\r\nva_list` that matches the aarch64 definitition. The actual fields don't\r\nmatter since we never actually try to look inside a `va_list`; we only\r\ncare that the bytes roundtrip correctly back to C.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-06-22T22:55:24-07:00",
-          "tree_id": "c5c9853e013cee112f70ba361e3e8b2a0215e804",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7511b2fe5cebfd53135208d929882a6e1a14be23"
-        },
-        "date": 1687500305395,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.075,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.169,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.11,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.191,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1049,6 +1005,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 50.1459948,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d992c790941ebf3490caf4501c694b89f6b533db",
+          "message": "Disable dependabot for cargo (#347)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-06-30T11:28:38-05:00",
+          "tree_id": "027ec96056595d9f9d7203b7a1fad9656ed72dd3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d992c790941ebf3490caf4501c694b89f6b533db"
+        },
+        "date": 1688143139138,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.072,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.173,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.113,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.799,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 61.4702381,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 55.954018700000006,
             "unit": "milliseconds"
           }
         ]
