@@ -836,13 +836,9 @@ version = "3.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ea181bf566f71cb9a5d17a59e1871af638180a18fb0035c92ae62b705207123"
 dependencies = [
- "atty",
  "bitflags",
  "clap_lex 0.2.4",
  "indexmap 1.9.3",
- "once_cell",
- "strsim",
- "termcolor",
  "textwrap",
 ]
 
@@ -867,6 +863,7 @@ dependencies = [
  "anstyle",
  "bitflags",
  "clap_lex 0.5.0",
+ "once_cell",
  "strsim",
 ]
 
@@ -1230,7 +1227,7 @@ name = "fuser"
 version = "0.12.0"
 dependencies = [
  "bincode",
- "clap 3.2.25",
+ "clap 4.3.9",
  "env_logger",
  "libc",
  "log",
@@ -1943,7 +1940,7 @@ dependencies = [
  "base64ct",
  "built",
  "bytes",
- "clap 3.2.25",
+ "clap 4.3.9",
  "const_format",
  "ctor",
  "futures",
