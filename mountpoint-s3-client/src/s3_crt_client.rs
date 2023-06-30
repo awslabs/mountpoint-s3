@@ -246,6 +246,12 @@ impl S3CrtClientInner {
             .retry_strategy(retry_strategy);
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
+
+        if !(5 * 1024 * 1024..=5 * 1024 * 1024 * 1024).contains(&config.part_size) {
+            return Err(NewClientError::InvalidConfiguration(
+                "part size must be at between 5MiB and 5GiB".into(),
+            ));
+        }
         client_config.part_size(config.part_size);
 
         let client_agent = format!("mountpoint-s3-client/{}", build_info::FULL_VERSION);
@@ -628,6 +634,9 @@ pub enum NewClientError {
     /// Invalid AWS credentials
     #[error("invalid AWS credentials")]
     ProviderFailure(#[from] mountpoint_s3_crt::common::error::Error),
+    /// Invalid configuration
+    #[error("invalid configuration: {0}")]
+    InvalidConfiguration(String),
 }
 
 /// Failed S3 request results
@@ -719,6 +728,9 @@ impl ObjectClient for S3CrtClient {
     type ClientError = S3RequestError;
 
     fn part_size(&self) -> Option<usize> {
+        // TODO: the CRT does some clamping to a max size rather than just swallowing the part size
+        // we configured it with, so this might be wrong. Right now the only clamping is to the max
+        // S3 part size (5GiB), so this shouldn't affect the result.
         Some(self.inner.part_size)
     }
 
