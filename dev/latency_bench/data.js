@@ -1,52 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1688143139627,
+  "lastUpdate": 1688143227251,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "db804032dd5d78222bacb6a674254cfc2eda6bd9",
-          "message": "Move some inode-related error logging (#310)\n\nThese failures in `inode.rs` aren't really errors -- in general, if the\r\nuser asked us to do something, it's not an internal error if that's not\r\npossible. These are really \"expected failures\" from Mountpoint's\r\nperspective. So this change shifts the actual `error!` log message into\r\nthe filesystem, and changes the `inode.rs` messages to warnings. This\r\nmakes our CI and test output less spammy, especially the reftests that\r\nexpect to test these cases repeatedly.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-06-23T10:03:31+01:00",
-          "tree_id": "1dc6a293ce2564fa26543deb1fe5bc1996d3d9ab",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/db804032dd5d78222bacb6a674254cfc2eda6bd9"
-        },
-        "date": 1687511580397,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.067,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.172,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.133,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.935,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1015,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 55.954018700000006,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "69d9f90334fd77f54c7c1ae331e0ffb900fec60c",
+          "message": "Abort upload on out-of-order writes (#341)\n\n* Add fuse test for out-of-order writes\r\n\r\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\r\n\r\n* Abort upload after an out-of-order write attempt.\r\n\r\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\r\n\r\n---------\r\n\r\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-06-30T11:29:44-05:00",
+          "tree_id": "6656b398c77c324d0bb836ba0673fa3c6936b936",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/69d9f90334fd77f54c7c1ae331e0ffb900fec60c"
+        },
+        "date": 1688143226753,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.068,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.165,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.122,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.034,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 50.703101100000005,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 54.932501,
             "unit": "milliseconds"
           }
         ]
