@@ -37,7 +37,7 @@ assert_cmd = "2.0.6"
 assert_fs = "1.0.9"
 aws-config = "0.54.1"
 aws-sdk-s3 = "0.24.0"
-base16ct = { version = "0.1.1", features = ["alloc"] }
+base16ct = { version = "0.2.0", features = ["alloc"] }
 ctor = "0.1.23"
 predicates = "2.1.2"
 proptest = "1.0.0"
