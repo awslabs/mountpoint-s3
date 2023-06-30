@@ -36,7 +36,7 @@ serde_json = "1.0.95"
 assert_cmd = "2.0.6"
 assert_fs = "1.0.9"
 aws-config = "0.54.1"
-aws-sdk-s3 = "0.24.0"
+aws-sdk-s3 = "0.28.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
 ctor = "0.1.23"
 predicates = "2.1.2"
