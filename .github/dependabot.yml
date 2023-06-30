@@ -11,3 +11,4 @@ updates:
     day: "wednesday"
     time: "08:00"
     timezone: "Europe/London"
+  versioning-strategy: lockfile-only
