@@ -19,11 +19,11 @@ checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
 name = "ahash"
-version = "0.7.6"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcb51a0695d8f838b1ee009b3fbf66bda078cd64590202a864a8f3e8c4315c47"
+checksum = "2c99f64d1e06488f620f932677e24bc6e2897582980441ae90a671415bd7ec2f"
 dependencies = [
- "getrandom",
+ "cfg-if",
  "once_cell",
  "version_check",
 ]
@@ -1836,24 +1836,24 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "0.20.1"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b9b8653cec6897f73b519a43fba5ee3d50f62fe9af80b428accdcc093b4a849"
+checksum = "aa8ebbd1a9e57bbab77b9facae7f5136aea44c356943bf9a198f647da64285d6"
 dependencies = [
  "ahash",
  "metrics-macros",
- "portable-atomic 0.3.20",
+ "portable-atomic",
 ]
 
 [[package]]
 name = "metrics-macros"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "731f8ecebd9f3a4aa847dfe75455e4757a45da40a7793d2f0b1f9b6ed18b23f3"
+checksum = "ddece26afd34c31585c74a4db0630c376df271c285d682d1e55012197830b6df"
 dependencies = [
  "proc-macro2 1.0.63",
  "quote 1.0.29",
- "syn 1.0.109",
+ "syn 2.0.22",
 ]
 
 [[package]]
@@ -2222,15 +2222,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38f6d39893cca0701371e3c27294f09797214b86f1fb951b89ade8ec04e2abab"
 dependencies = [
  "plotters-backend",
-]
-
-[[package]]
-name = "portable-atomic"
-version = "0.3.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e30165d31df606f5726b090ec7592c308a0eaf61721ff64c9a3018e344a8753e"
-dependencies = [
- "portable-atomic 1.3.3",
 ]
 
 [[package]]
