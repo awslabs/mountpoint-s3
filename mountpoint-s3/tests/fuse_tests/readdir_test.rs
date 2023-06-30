@@ -1,4 +1,4 @@
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
@@ -36,7 +36,7 @@ fn prepare_fs(mut test_client: TestClientBox, map: &HashMap<String, File>) {
 
 fn readdir<F>(creator_fn: F, prefix: &str, rng_seed: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
@@ -55,7 +55,13 @@ where
     }
     expected_list.sort();
 
-    let (mount_point, _session, test_client) = creator_fn(prefix, filesystem_config);
+    let (mount_point, _session, test_client) = creator_fn(
+        prefix,
+        TestSessionConfig {
+            filesystem_config,
+            ..Default::default()
+        },
+    );
 
     prepare_fs(test_client, &map);
 
@@ -69,7 +75,7 @@ where
 
 fn readdir_while_writing<F>(creator_fn: F, prefix: &str, rng_seed: usize)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
@@ -87,9 +93,15 @@ where
         expected_list.push(file_name);
     }
 
-    let (mount_point, _session, put_object_fn) = creator_fn(prefix, filesystem_config);
+    let (mount_point, _session, test_client) = creator_fn(
+        prefix,
+        TestSessionConfig {
+            filesystem_config,
+            ..Default::default()
+        },
+    );
 
-    prepare_fs(put_object_fn, &map);
+    prepare_fs(test_client, &map);
 
     const OBJECT_SIZE: usize = 1024;
     // open some new files for write and leave it open

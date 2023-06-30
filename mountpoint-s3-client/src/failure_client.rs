@@ -68,6 +68,10 @@ where
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
 
+    fn part_size(&self) -> Option<usize> {
+        self.client.part_size()
+    }
+
     async fn delete_object(
         &self,
         bucket: &str,

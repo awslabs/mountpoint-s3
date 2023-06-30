@@ -188,7 +188,7 @@ struct CliArgs {
         value_parser = value_parser!(u64).range(1..),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub part_size: Option<u64>,
+    pub part_size: u64,
 
     #[clap(
         long,
@@ -397,18 +397,19 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         S3ClientAuthConfig::Default
     };
 
-    let client_config = S3ClientConfig {
-        auth_config,
-        throughput_target_gbps: Some(throughput_target_gbps),
-        part_size: args.part_size.map(|t| t as usize),
-        endpoint,
-        user_agent_prefix: Some(format!("mountpoint-s3/{}", build_info::FULL_VERSION)),
-        request_payer: args.requester_pays.then_some("requester".to_owned()),
-    };
+    let mut client_config = S3ClientConfig::new()
+        .auth_config(auth_config)
+        .throughput_target_gbps(throughput_target_gbps)
+        .part_size(args.part_size as usize)
+        .user_agent_prefix(&format!("mountpoint-s3/{}", build_info::FULL_VERSION));
+    if args.requester_pays {
+        client_config = client_config.request_payer("requester");
+    }
 
     let client = create_client_for_bucket(
         &args.bucket_name,
         args.region.as_deref(),
+        endpoint,
         client_config,
         addressing_style,
     )
@@ -428,9 +429,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     if let Some(file_mode) = args.file_mode {
         filesystem_config.file_mode = file_mode;
     }
-    if let Some(part_size) = args.part_size {
-        filesystem_config.prefetcher_config.part_alignment = part_size as usize;
-    }
+    filesystem_config.prefetcher_config.part_alignment = args.part_size as usize;
 
     let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &args.prefix, filesystem_config);
 
@@ -471,13 +470,14 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 fn create_client_for_bucket(
     bucket: &str,
     supposed_region: Option<&str>,
+    endpoint: Option<Endpoint>,
     client_config: S3ClientConfig,
     addressing_style: AddressingStyle,
 ) -> Result<S3CrtClient, anyhow::Error> {
     const DEFAULT_REGION: &str = "us-east-1";
 
     let region_to_try = supposed_region.unwrap_or_else(|| {
-        if client_config.endpoint.is_some() {
+        if endpoint.is_some() {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
                 DEFAULT_REGION
@@ -486,19 +486,13 @@ fn create_client_for_bucket(
         DEFAULT_REGION
     });
 
-    let endpoint = if let Some(endpoint) = client_config.endpoint.clone() {
+    let endpoint = if let Some(endpoint) = endpoint.clone() {
         endpoint
     } else {
         Endpoint::from_region(region_to_try, addressing_style)?
     };
 
-    let client = S3CrtClient::new(
-        region_to_try,
-        S3ClientConfig {
-            endpoint: Some(endpoint),
-            ..client_config.clone()
-        },
-    )?;
+    let client = S3CrtClient::new(region_to_try, client_config.clone().endpoint(endpoint))?;
 
     let head_request = client.head_bucket(bucket);
     match futures::executor::block_on(head_request) {
@@ -507,13 +501,7 @@ fn create_client_for_bucket(
         Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let endpoint = Endpoint::from_region(&region, addressing_style)?;
-            let new_client = S3CrtClient::new(
-                &region,
-                S3ClientConfig {
-                    endpoint: Some(endpoint),
-                    ..client_config.clone()
-                },
-            )?;
+            let new_client = S3CrtClient::new(&region, client_config.endpoint(endpoint))?;
             let head_request = new_client.head_bucket(bucket);
             futures::executor::block_on(head_request)
                 .map(|_| new_client)

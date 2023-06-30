@@ -18,13 +18,7 @@ fn init_tracing_subscriber() {
 }
 
 pub fn get_test_client() -> S3CrtClient {
-    // Try to match what mountpoint-s3's defaults are
-    let client_config = S3ClientConfig {
-        throughput_target_gbps: Some(10.0),
-        part_size: Some(8 * 1024 * 1024),
-        ..Default::default()
-    };
-    S3CrtClient::new(&get_test_region(), client_config).expect("could not create test client")
+    S3CrtClient::new(&get_test_region(), S3ClientConfig::new()).expect("could not create test client")
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {

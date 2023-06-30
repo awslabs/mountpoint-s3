@@ -63,8 +63,7 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             let length = range.end.saturating_sub(range.start);
-            let part_size = self.inner.part_size.unwrap_or(0) as u64;
-            if length >= part_size {
+            if length >= self.inner.part_size as u64 {
                 (MetaRequestType::GetObject, 0)
             } else {
                 (MetaRequestType::Default, range.start)

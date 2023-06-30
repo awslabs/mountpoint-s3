@@ -10,11 +10,11 @@ use nix::unistd::{getgid, getuid};
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn perm_test<F>(creator_fn: F, uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>)
 where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let mut config = S3FilesystemConfig::default();
     if let Some(id) = uid {
@@ -30,7 +30,13 @@ where
         config.file_mode = mode;
     }
 
-    let (mount_point, _session, mut test_client) = creator_fn("", config);
+    let (mount_point, _session, mut test_client) = creator_fn(
+        "",
+        TestSessionConfig {
+            filesystem_config: config,
+            ..Default::default()
+        },
+    );
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -85,7 +91,7 @@ fn perm_test_negative<F>(
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) where
-    F: FnOnce(&str, S3FilesystemConfig) -> (TempDir, BackgroundSession, TestClientBox),
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
     let mut config = S3FilesystemConfig::default();
     if let Some(id) = uid {
@@ -101,7 +107,13 @@ fn perm_test_negative<F>(
         config.file_mode = mode;
     }
 
-    let (mount_point, _session, mut test_client) = creator_fn("", config);
+    let (mount_point, _session, mut test_client) = creator_fn(
+        "",
+        TestSessionConfig {
+            filesystem_config: config,
+            ..Default::default()
+        },
+    );
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
