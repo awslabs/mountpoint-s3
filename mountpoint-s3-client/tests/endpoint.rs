@@ -6,7 +6,7 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::{AddressingStyle, Endpoint, ObjectClient, S3ClientConfig, S3CrtClient};
-use mountpoint_s3_crt::{common::allocator::Allocator, s3::endpoint_resolver::RuleEngine};
+use mountpoint_s3_crt::common::allocator::Allocator;
 use test_case::test_case;
 
 async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {
@@ -46,8 +46,7 @@ async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {
 #[tokio::test]
 async fn test_addressing_style_region(addressing_style: AddressingStyle) {
     let mut allocator = Allocator::default();
-    let rule_engine = RuleEngine::new(&allocator).unwrap();
-    run_test(|region| Endpoint::from_region(region, addressing_style, &rule_engine, &mut allocator).unwrap()).await;
+    run_test(|region| Endpoint::from_region(region, addressing_style, &mut allocator).unwrap()).await;
 }
 
 #[test_case(AddressingStyle::Automatic)]
@@ -144,9 +143,7 @@ async fn run_access_points<F: FnOnce(&str) -> Endpoint>(f: F) {
 #[tokio::test]
 async fn test_single_region_access_point_alias(addressing_style: AddressingStyle) {
     let mut allocator = Allocator::default();
-    let rule_engine = RuleEngine::new(&allocator).unwrap();
-    run_access_points(|region| Endpoint::from_region(region, addressing_style, &rule_engine, &mut allocator).unwrap())
-        .await;
+    run_access_points(|region| Endpoint::from_region(region, addressing_style, &mut allocator).unwrap()).await;
 }
 
 async fn run_other_access_points<F: FnOnce(&str) -> Endpoint>(f: F, access_point_type: AccessPointType) {
@@ -184,9 +181,8 @@ async fn test_multi_region_access_point_alias(addressing_style: AddressingStyle)
 #[tokio::test]
 async fn test_object_lambda_access_point_alias(addressing_style: AddressingStyle) {
     let mut allocator = Allocator::default();
-    let rule_engine = RuleEngine::new(&allocator).unwrap();
     run_other_access_points(
-        |region| Endpoint::from_region(region, addressing_style, &rule_engine, &mut allocator).unwrap(),
+        |region| Endpoint::from_region(region, addressing_style, &mut allocator).unwrap(),
         AccessPointType::ObjectLambda,
     )
     .await;

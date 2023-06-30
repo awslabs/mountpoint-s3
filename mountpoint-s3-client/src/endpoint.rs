@@ -25,10 +25,10 @@ impl Endpoint {
     pub fn from_region(
         region: &str,
         addressing_style: AddressingStyle,
-        endpoint_rule_engine: &RuleEngine,
         allocator: &mut Allocator,
     ) -> Result<Self, EndpointError> {
         let mut endpoint_request_context = RequestContext::new(allocator).unwrap();
+        let endpoint_rule_engine = RuleEngine::new(allocator).unwrap();
         endpoint_request_context
             .add_string(allocator, OsStr::new("Region"), OsStr::new(region))
             .unwrap();
