@@ -75,6 +75,7 @@ pub struct S3ClientConfig {
     endpoint: Option<Endpoint>,
     user_agent_prefix: Option<String>,
     request_payer: Option<String>,
+    bucket_owner: Option<String>,
 }
 
 impl Default for S3ClientConfig {
@@ -86,6 +87,7 @@ impl Default for S3ClientConfig {
             endpoint: None,
             user_agent_prefix: None,
             request_payer: None,
+            bucket_owner: None,
         }
     }
 }
@@ -136,6 +138,13 @@ impl S3ClientConfig {
         self.request_payer = Some(request_payer.to_owned());
         self
     }
+
+    /// Set an expected bucket owner value
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn bucket_owner(mut self, bucket_owner: &str) -> Self {
+        self.bucket_owner = Some(bucket_owner.to_owned());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -180,6 +189,7 @@ struct S3CrtClientInner {
     user_agent_header: String,
     request_payer: Option<String>,
     part_size: usize,
+    bucket_owner: Option<String>,
 }
 
 impl S3CrtClientInner {
@@ -277,6 +287,7 @@ impl S3CrtClientInner {
             user_agent_header,
             request_payer: config.request_payer,
             part_size: config.part_size,
+            bucket_owner: config.bucket_owner,
         })
     }
 
@@ -302,6 +313,10 @@ impl S3CrtClientInner {
 
         if let Some(ref payer) = self.request_payer {
             message.add_header(&Header::new("x-amz-request-payer", payer))?;
+        }
+
+        if let Some(ref owner) = self.bucket_owner {
+            message.add_header(&Header::new("x-amz-expected-bucket-owner", owner))?;
         }
 
         Ok(S3Message {
@@ -798,6 +813,8 @@ impl ObjectClient for S3CrtClient {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_eq;
+
     use super::*;
     use test_case::test_case;
 
@@ -867,5 +884,14 @@ mod tests {
         let header = Header::new("Content-Range", range);
         headers.add_header(&header).unwrap();
         extract_range_header(&headers)
+    }
+
+    /// Simple test to ensure the expected bucket owner can be set
+    #[test]
+    fn test_expected_bucket_owner() {
+        let mut config: S3ClientConfig = Default::default();
+
+        config = config.bucket_owner("some_acnt_id");
+        assert_eq!(config.bucket_owner, Some("some_acnt_id".to_owned()));
     }
 }
