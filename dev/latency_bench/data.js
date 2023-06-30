@@ -1,52 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1688138811810,
+  "lastUpdate": 1688139893480,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cb8ec0e0afe48381482d9c438ea0397f141109d1",
-          "message": "Remove AL2 + fuse3 pair from test matrix (#306)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-06-22T10:39:04Z",
-          "tree_id": "efcc179009113b1e3b2cd58f32404a0adca232a4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/cb8ec0e0afe48381482d9c438ea0397f141109d1"
-        },
-        "date": 1687430940380,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.068,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.171,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.11,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.961,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1039,6 +995,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 59.4612985,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d71d4b437f3055eea8e53bf36b6ee67502ef9d11",
+          "message": "Limit dependabot to focus on lockfile updates only (#342)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-06-30T10:34:28-05:00",
+          "tree_id": "d26a1458fd0ef396572b60011e22a1b0510fccea",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d71d4b437f3055eea8e53bf36b6ee67502ef9d11"
+        },
+        "date": 1688139893011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.07,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.177,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.126,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.936,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 82.5062983,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 50.1459948,
             "unit": "milliseconds"
           }
         ]
