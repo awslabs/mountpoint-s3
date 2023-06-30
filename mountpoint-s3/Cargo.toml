@@ -1,6 +1,6 @@
 [package]
 name = "mountpoint-s3"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -55,7 +55,7 @@ walkdir = "2.3.3"
 fuse_tests = []
 s3_tests = []
 shuttle = []
-put = []
+delete = []
 # A temporary feature flag to enable read-path checksums while we are working to improve its performance
 checksum = []
 

@@ -65,12 +65,15 @@ Basic read-only operations are fully supported, including both sequential and ra
 
 #### Writes
 
-Write operations (`write`, `writev`, `pwrite`, `pwritev`) are not currently supported. In the future, Mountpoint for Amazon S3 [will support sequential writes](https://github.com/awslabs/mountpoint-s3/issues/27), but with some limitations:
+Mountpoint for Amazon S3 supports sequential write operations (through `write`, `writev`, `pwrite`, `pwritev`),
+but with some limitations:
+
 * Writes will only be supported to new files, and must be done sequentially.
 * Modifying existing files will not be supported.
 * Truncation will not be supported.
 
-Synchronization operations (`fsync`, `fdatasync`) are currently no-ops because writes are not supported.
+Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow
+further writes.
 
 Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
@@ -91,7 +94,7 @@ Because the object is immediately deleted from S3, future reads from other hosts
 
 Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported.
 
-Creating directories (`mkdir`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/77):
+Creating directories (`mkdir`) is supported, with the following behavior:
 
 * `mkdir` will create a new empty directory in the file system, but not affect the S3 bucket.
 * Note that this is different from e.g. the S3 Console, which creates "directory markers" (i.e. zero-byte objects with `<directory-name>/` key) in the bucket.
@@ -99,15 +102,15 @@ Creating directories (`mkdir`) is not currently supported, but will be [in the f
 
 Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
-File deletion (`unlink`) semantics are described in the [Deletes](#Deletes) section.
+File deletion (`unlink`) semantics are described in the [Deletes](#deletes) section.
 
-Empty directory removal (`rmdir`) is not currently supported, but will be [in the future](https://github.com/awslabs/mountpoint-s3/issues/194). The following semantics are proposed:
+Empty directory removal (`rmdir`) is supported, with the following semantics:
 
 * `rmdir` will only delete empty directories created by `mkdir`.
 * `rmdir` will fail on directories backed on S3 by a directory marker (i.e. zero-byte object with `<directory-name>/` key).
 * As soon as a file is committed to the S3 bucket by Mountpoint,
   the directory will be considered to exist implicitly.
-  If Mountpoint later observes that there are no files existing for that directory in S3, 
+  If Mountpoint later observes that there are no files existing for that directory in S3,
   Mountpoint will consider the directory to have been deleted.
 * On success, the directory will be deleted immediately. Subsequent reads or writes to the directory (e.g. creating a file or subdirectory) will fail.
 
@@ -142,4 +145,3 @@ Mountpoint for Amazon S3 does not currently make any guarantees about the effect
 When Mountpoint for Amazon S3 detects that an object has been mutated in S3 while being read by the file client, it will cause future reads to the same file descriptor to return `EIO`. To read the new contents of the object, re-open the file.
 
 We have not yet [nailed down the exact semantics](https://github.com/awslabs/mountpoint-s3/issues/128) of concurrent mutations that affect the directory hierarchy (like creating a `foo/` key when `foo` already exists).
-

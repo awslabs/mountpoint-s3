@@ -7,6 +7,7 @@ mod prefetch_test;
 mod readdir_test;
 mod rmdir_test;
 mod semantics_doc_test;
+#[cfg(feature = "delete")]
 mod unlink_test;
 mod write_test;
 
