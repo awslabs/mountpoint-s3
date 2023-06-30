@@ -1,5 +1,5 @@
 use std::fs::{metadata, read, read_dir, File};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
@@ -327,4 +327,71 @@ where
 #[test_case(640001; "single write too big")]
 fn write_too_big_test_mock(write_size: usize) {
     write_too_big_test(crate::fuse_tests::mock_session::new, write_size);
+}
+
+fn out_of_order_write_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const OBJECT_SIZE: usize = 32;
+    const KEY: &str = "new.txt";
+
+    let (mount_point, _session, _test_client) = creator_fn("out_of_order_write_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, false).unwrap();
+
+    // The file is visible with size 0 as soon as we open it for write
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), 0);
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    let part1 = &body[..(OBJECT_SIZE / 2)];
+    let part2 = &body[(OBJECT_SIZE / 2)..];
+
+    f.write_all(part1).unwrap();
+
+    // Attempt to seek to start and write over.
+    f.seek(std::io::SeekFrom::Start(0)).unwrap();
+    let err = f.write_all(part2).expect_err("out of order write should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+
+    // Attempt to seek beyond end and write.
+    f.seek(std::io::SeekFrom::Start((part1.len() + 1) as u64)).unwrap();
+    let err = f.write_all(part2).expect_err("out of order write should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+
+    // Seek where we left off and write sequentially.
+    f.seek(std::io::SeekFrom::Start((part1.len()) as u64)).unwrap();
+    f.write_all(part2).unwrap();
+
+    drop(f);
+
+    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
+    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
+    // the file will fail.
+    // TODO we can remove this when we implement fsync, or change it when we make files visible
+    // during writes
+    std::thread::sleep(Duration::from_secs(5));
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), body.len() as u64);
+
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &body[..]);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn out_of_order_write_test_s3() {
+    out_of_order_write_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn out_of_order_write_test_mock() {
+    out_of_order_write_test(crate::fuse_tests::mock_session::new);
 }
