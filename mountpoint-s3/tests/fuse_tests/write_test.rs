@@ -329,7 +329,7 @@ fn write_too_big_test_mock(write_size: usize) {
     write_too_big_test(crate::fuse_tests::mock_session::new, write_size);
 }
 
-fn out_of_order_write_test<F>(creator_fn: F)
+fn out_of_order_write_test<F>(creator_fn: F, offset: i64)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
@@ -350,24 +350,17 @@ where
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
-    let part1 = &body[..(OBJECT_SIZE / 2)];
-    let part2 = &body[(OBJECT_SIZE / 2)..];
+    f.write_all(&body).unwrap();
 
-    f.write_all(part1).unwrap();
-
-    // Attempt to seek to start and write over.
-    f.seek(std::io::SeekFrom::Start(0)).unwrap();
-    let err = f.write_all(part2).expect_err("out of order write should fail");
+    // Attempt to write out-of-order.
+    f.seek(std::io::SeekFrom::Current(offset)).unwrap();
+    let err = f.write_all(&body).expect_err("out of order write should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
 
-    // Attempt to seek beyond end and write.
-    f.seek(std::io::SeekFrom::Start((part1.len() + 1) as u64)).unwrap();
-    let err = f.write_all(part2).expect_err("out of order write should fail");
+    // Seek where we left off and attempt to write.
+    f.seek(std::io::SeekFrom::Start((OBJECT_SIZE) as u64)).unwrap();
+    let err = f.write_all(&body).expect_err("writes after an error should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
-
-    // Seek where we left off and write sequentially.
-    f.seek(std::io::SeekFrom::Start((part1.len()) as u64)).unwrap();
-    f.write_all(part2).unwrap();
 
     drop(f);
 
@@ -378,20 +371,19 @@ where
     // during writes
     std::thread::sleep(Duration::from_secs(5));
 
-    let m = metadata(&path).unwrap();
-    assert_eq!(m.len(), body.len() as u64);
-
-    let buf = read(&path).unwrap();
-    assert_eq!(&buf[..], &body[..]);
+    let err = metadata(&path).expect_err("upload shouldn't have succeeded");
+    assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn out_of_order_write_test_s3() {
-    out_of_order_write_test(crate::fuse_tests::s3_session::new);
+#[test_case(-1; "earlier offset")]
+#[test_case(1; "later offset")]
+fn out_of_order_write_test_s3(offset: i64) {
+    out_of_order_write_test(crate::fuse_tests::s3_session::new, offset);
 }
 
-#[test]
-fn out_of_order_write_test_mock() {
-    out_of_order_write_test(crate::fuse_tests::mock_session::new);
+#[test_case(-1; "earlier offset")]
+#[test_case(1; "later offset")]
+fn out_of_order_write_test_mock(offset: i64) {
+    out_of_order_write_test(crate::fuse_tests::mock_session::new, offset);
 }
