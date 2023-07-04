@@ -260,14 +260,6 @@ impl CliArgs {
 fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
-    // validate mount point
-    if !args.mount_point.exists() || !args.mount_point.is_dir() {
-        return Err(anyhow!(
-            "Mount point {} does not exist or it is not a directory",
-            args.mount_point.display()
-        ));
-    }
-
     if args.foreground {
         init_tracing_subscriber(args.foreground, args.log_directory.as_deref())
             .context("failed to initialize logging")?;
@@ -378,6 +370,8 @@ fn main() -> anyhow::Result<()> {
 
 fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
+
+    validate_mount_point(&args.mount_point)?;
 
     let addressing_style = args.addressing_style();
     let endpoint = args
@@ -582,6 +576,39 @@ fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64
         .get(ec2_instance_type)
         .and_then(|t| t.as_f64())
         .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
+}
+
+fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
+    let mount_point = path.as_ref();
+
+    if !mount_point.exists() {
+        return Err(anyhow!("mount point {} does not exist", mount_point.display()));
+    }
+
+    if !mount_point.is_dir() {
+        return Err(anyhow!("mount point {} is not a directory", mount_point.display()));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use procfs::process::Process;
+
+        // This is a best-effort validation, so don't fail if we can't read /proc/self/mountinfo for
+        // some reason.
+        let mounts = match Process::myself().and_then(|me| me.mountinfo()) {
+            Ok(mounts) => mounts,
+            Err(e) => {
+                tracing::debug!("failed to read mountinfo, not checking for existing mounts: {e:?}");
+                return Ok(());
+            }
+        };
+
+        if mounts.iter().any(|mount| mount.mount_point == path.as_ref()) {
+            return Err(anyhow!("mount point {} is already mounted", path.as_ref().display()));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

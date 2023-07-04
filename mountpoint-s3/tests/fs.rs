@@ -350,8 +350,10 @@ async fn test_sequential_write(write_size: usize) {
     fs.release(file_ino, fh, 0, None, true).await.unwrap();
 }
 
+#[test_case(-27; "earlier offset")]
+#[test_case(28; "later offset")]
 #[tokio::test]
-async fn test_unordered_write_fails() {
+async fn test_unordered_write_fails(offset: i64) {
     const BUCKET_NAME: &str = "test_unordered_write_fails";
 
     let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
@@ -374,15 +376,15 @@ async fn test_unordered_write_fails() {
     assert_eq!(written, 27);
 
     let err = fs
-        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
+        .write(file_ino, fh, written as i64 + offset, &[0xaa; 27], 0, 0, None)
         .await
-        .expect_err("writes to earlier offsets should fail");
+        .expect_err("writes to out-of-order offsets should fail");
     assert_eq!(err, libc::EINVAL);
 
     let err = fs
-        .write(file_ino, fh, 55, &[0xaa; 27], 0, 0, None)
+        .write(file_ino, fh, written as i64, &[0xaa; 27], 0, 0, None)
         .await
-        .expect_err("writes to later offsets should fail");
+        .expect_err("any write after an error should fail");
     assert_eq!(err, libc::EINVAL);
 }
 

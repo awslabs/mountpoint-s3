@@ -76,15 +76,10 @@ impl<Client: ObjectClient> UploadState<Client> {
             Ok(len) => Ok(len as u32),
             Err(e) => {
                 error!("write failed: {e}");
-                match e {
-                    UploadWriteError::PutRequestFailed(_) | UploadWriteError::ObjectTooBig { .. } => {
-                        // Abort the request.
-                        let ret: libc::c_int = e.into();
-                        *self = Self::Failed(ret);
-                        Err(ret)
-                    }
-                    UploadWriteError::OutOfOrderWrite { .. } => Err(e.into()),
-                }
+                // Abort the request.
+                let ret: libc::c_int = e.into();
+                *self = Self::Failed(ret);
+                Err(ret)
             }
         }
     }

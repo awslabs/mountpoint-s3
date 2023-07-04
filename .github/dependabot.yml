@@ -4,11 +4,3 @@ updates:
   directory: "/"
   schedule:
     interval: "weekly"
-- package-ecosystem: "cargo"
-  directory: "/"
-  schedule:
-    interval: "weekly"
-    day: "wednesday"
-    time: "08:00"
-    timezone: "Europe/London"
-  versioning-strategy: lockfile-only
