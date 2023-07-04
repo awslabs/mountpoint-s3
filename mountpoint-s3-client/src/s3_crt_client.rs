@@ -889,9 +889,26 @@ mod tests {
     /// Simple test to ensure the expected bucket owner can be set
     #[test]
     fn test_expected_bucket_owner() {
-        let mut config: S3ClientConfig = Default::default();
+        let expected_bucket_owner = "111122223333";
 
-        config = config.bucket_owner("some_acnt_id");
-        assert_eq!(config.bucket_owner, Some("some_acnt_id".to_owned()));
+        let config: S3ClientConfig = S3ClientConfig::new().bucket_owner("111122223333");
+
+        let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
+
+        let mut message = client
+            .inner
+            .new_request_template("GET", "doc-example-bucket")
+            .expect("new request template expected");
+
+        let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
+
+        let expected_bucket_owner_header = headers
+            .get("x-amz-expected-bucket-owner")
+            .expect("the headers should contain x-amz-expected-bucket-owner");
+        let expected_bucket_owner_value = expected_bucket_owner_header.value();
+
+        assert!(expected_bucket_owner_value
+            .to_string_lossy()
+            .starts_with(expected_bucket_owner));
     }
 }
