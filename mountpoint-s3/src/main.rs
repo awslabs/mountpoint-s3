@@ -409,8 +409,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         client_config = client_config.request_payer("requester");
     }
 
-    if let Some(ref owner) = args.expected_bucket_owner {
-        client_config = client_config.bucket_owner(owner);
+    if let Some(owner) = args.expected_bucket_owner {
+        client_config = client_config.bucket_owner(&owner);
     }
 
     let client = create_client_for_bucket(
