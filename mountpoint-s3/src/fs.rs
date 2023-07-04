@@ -340,7 +340,6 @@ where
 
         let lookup = self.superblock.lookup(&self.client, parent, name).await?;
         let attr = self.make_attr(&lookup);
-
         Ok(Entry {
             ttl: lookup.validity(),
             attr,
@@ -358,6 +357,11 @@ where
             ttl: lookup.validity(),
             attr,
         })
+    }
+
+    pub async fn forget(&self, ino: InodeNo, n: u64) {
+        trace!("fs:forget with ino {:?} n {:?}", ino, n);
+        self.superblock.forget(ino, n);
     }
 
     pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, libc::c_int> {
@@ -500,7 +504,6 @@ where
             .create(&self.client, parent, name, InodeKind::File)
             .await?;
         let attr = self.make_attr(&lookup);
-
         Ok(Entry {
             ttl: lookup.validity(),
             attr,
@@ -520,7 +523,6 @@ where
             .create(&self.client, parent, name, InodeKind::Directory)
             .await?;
         let attr = self.make_attr(&lookup);
-
         Ok(Entry {
             ttl: lookup.validity(),
             attr,
@@ -584,6 +586,7 @@ where
         parent: InodeNo,
         fh: u64,
         offset: i64,
+        inc_lookup_count: bool,
         mut reply: R,
     ) -> Result<R, libc::c_int> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
@@ -630,7 +633,7 @@ where
         }
 
         loop {
-            let next = match handle.handle.next(&self.client).await? {
+            let next = match handle.handle.next(&self.client, inc_lookup_count).await? {
                 None => return Ok(reply),
                 Some(next) => next,
             };
@@ -673,12 +676,13 @@ where
 
     pub async fn release(
         &self,
-        _ino: InodeNo,
+        ino: InodeNo,
         fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
     ) -> Result<(), libc::c_int> {
+        trace!("fs:release with ino {:?} fh {:?}", ino, fh);
         let file_handle = {
             let mut file_handles = self.file_handles.write().await;
             file_handles.remove(&fh).ok_or(libc::EBADF)?

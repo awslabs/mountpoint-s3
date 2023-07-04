@@ -59,6 +59,11 @@ where
         }
     }
 
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino, nlookup))]
+    fn forget(&self, _req: &Request<'_>, ino: u64, nlookup: u64) {
+        block_on(self.fs.forget(ino, nlookup));
+    }
+
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
     fn open(&self, _req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.open(ino, flags).in_current_span()) {
@@ -147,7 +152,7 @@ where
 
         let replier = ReplyDirectory { inner: &mut reply };
 
-        match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
+        match block_on(self.fs.readdir(parent, fh, offset, false, replier).in_current_span()) {
             Ok(_) => reply.ok(),
             Err(e) => reply.error(e),
         }
@@ -182,7 +187,7 @@ where
 
         let replier = ReplyDirectoryPlus { inner: &mut reply };
 
-        match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
+        match block_on(self.fs.readdir(parent, fh, offset, true, replier).in_current_span()) {
             Ok(_) => reply.ok(),
             Err(e) => reply.error(e),
         }
