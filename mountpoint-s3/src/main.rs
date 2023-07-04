@@ -234,6 +234,15 @@ struct CliArgs {
 
     #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS)]
     pub profile: Option<String>,
+
+    #[clap(
+        long,
+        help = "Account ID of the expected bucket owner. \
+            If the bucket is owned by a different account, S3 requests fail with an access denied error.",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        value_name = "AWS_ACCOUNT_ID"
+    )]
+    pub expected_bucket_owner: Option<String>,
 }
 
 impl CliArgs {
@@ -398,6 +407,10 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .user_agent_prefix(&format!("mountpoint-s3/{}", build_info::FULL_VERSION));
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
+    }
+
+    if let Some(owner) = args.expected_bucket_owner {
+        client_config = client_config.bucket_owner(&owner);
     }
 
     let client = create_client_for_bucket(
