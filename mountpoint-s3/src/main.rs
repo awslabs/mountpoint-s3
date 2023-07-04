@@ -235,7 +235,13 @@ struct CliArgs {
     #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS)]
     pub profile: Option<String>,
 
-    #[clap(long, help = "Expected bucket owner (use: <AWS_ACCOUNT_ID>)", help_heading = AWS_CREDENTIALS)]
+    #[clap(
+        long,
+        help = "Account ID of the expected bucket owner. \
+            If the bucket is owned by a different account, S3 requests fail with an access denied error.",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        value_name = "AWS_ACCOUNT_ID"
+    )]
     pub expected_bucket_owner: Option<String>,
 }
 
