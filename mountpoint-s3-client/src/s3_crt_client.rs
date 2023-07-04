@@ -271,11 +271,10 @@ impl S3CrtClientInner {
         };
 
         let s3_client = Client::new(&allocator, client_config).unwrap();
-
         let endpoint = if let Some(endpoint) = config.endpoint {
             endpoint
         } else {
-            Endpoint::from_region(region, AddressingStyle::Automatic)?
+            Endpoint::from_region(region, AddressingStyle::Automatic, &allocator)?
         };
 
         Ok(Self {

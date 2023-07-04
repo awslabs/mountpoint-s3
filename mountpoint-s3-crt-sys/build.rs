@@ -48,6 +48,8 @@ const CRT_HEADERS: &[&str] = &[
     "io/uri.h",
     "s3/s3.h",
     "s3/s3_client.h",
+    "s3/s3_endpoint_resolver.h",
+    "sdkutils/endpoints_rule_engine.h",
 ];
 
 /// Private CRT headers required for our build. These will always be read from the Git submodules
@@ -245,6 +247,10 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
         // Force compiler optimizations for aws-checksums even in debug builds to improve throughput
         if lib.package_name == "aws-checksums" {
             builder.profile("RelWithDebInfo");
+        }
+
+        if lib.package_name == "aws-c-s3" {
+            builder.define("AWS_ENABLE_S3_ENDPOINT_RESOLVER", "ON");
         }
 
         // Configure ASan in a way that will be compatible with Rust's clang-based version

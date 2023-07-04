@@ -1,15 +1,13 @@
-use std::ffi::OsStr;
-use std::os::unix::prelude::OsStrExt;
-
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
+use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
 use regex::Regex;
+use std::ffi::OsStr;
+use std::os::unix::prelude::OsStrExt;
 use thiserror::Error;
 
 lazy_static! {
-    /// Regions in the "aws" partition (from the SDK's `partitions.json`)
-    static ref AWS_PARTITION_REGEX: Regex = Regex::new(r"^(us|eu|ap|sa|ca|me|af)\-\w+\-\d+$").unwrap();
     /// Bucket names that are acceptable as virtual host names for DNS
     static ref VALID_DNS_REGEX: Regex = Regex::new(r"[a-z0-9][a-z0-9\-]*[a-z0-9]").unwrap();
 }
@@ -24,13 +22,24 @@ pub struct Endpoint {
 impl Endpoint {
     /// Create a new endpoint for the given S3 region. This method automatically resolves the right
     /// endpoint URI to target.
-    pub fn from_region(region: &str, addressing_style: AddressingStyle) -> Result<Self, EndpointError> {
-        if AWS_PARTITION_REGEX.is_match(region) {
-            // TODO: support partitions other than "aws"
-            Self::from_uri_inner(&format!("https://s3.{region}.amazonaws.com"), addressing_style)
-        } else {
-            Err(EndpointError::UnsupportedRegion(region.to_owned()))
-        }
+    pub fn from_region(
+        region: &str,
+        addressing_style: AddressingStyle,
+        allocator: &Allocator,
+    ) -> Result<Self, EndpointError> {
+        let endpoint_rule_engine = RuleEngine::new(allocator).unwrap();
+        let mut endpoint_request_context = RequestContext::new(allocator).unwrap();
+        endpoint_request_context
+            .add_string(allocator, OsStr::new("Region"), OsStr::new(region))
+            .unwrap();
+        let resolved_endpoint = endpoint_rule_engine
+            .resolve(endpoint_request_context)
+            .map_err(|_| EndpointError::UnsupportedRegion(region.to_owned()))?;
+
+        let endpoint_uri = resolved_endpoint.get_url().map_err(EndpointError::UnresolvedEndpoint)?;
+        let uri = Uri::new_from_str(allocator, &endpoint_uri)
+            .map_err(|e| EndpointError::InvalidUri(InvalidUriError::CouldNotParse(e)))?;
+        Ok(Self { uri, addressing_style })
     }
 
     /// Create a new endpoint with a manually specified URI.
@@ -45,7 +54,7 @@ impl Endpoint {
     }
 
     fn from_uri_inner(uri: &str, addressing_style: AddressingStyle) -> Result<Self, EndpointError> {
-        let parsed_uri = Uri::new_from_str(&mut Allocator::default(), OsStr::from_bytes(uri.as_bytes()))
+        let parsed_uri = Uri::new_from_str(&Allocator::default(), OsStr::from_bytes(uri.as_bytes()))
             .map_err(InvalidUriError::CouldNotParse)?;
         tracing::debug!(endpoint=?parsed_uri.as_os_str(), ?addressing_style, "selected endpoint");
         Ok(Self {
@@ -95,7 +104,7 @@ fn insert_virtual_host(bucket: &str, uri: &Uri) -> Result<Uri, InvalidUriError> 
     let authority = uri.authority().to_str().ok_or(InvalidUriError::InvalidUtf8)?;
     let new_uri = format!("{scheme}://{bucket}.{authority}");
     Ok(Uri::new_from_str(
-        &mut Allocator::default(),
+        &Allocator::default(),
         OsStr::from_bytes(new_uri.as_bytes()),
     )?)
 }
@@ -117,8 +126,10 @@ pub enum EndpointError {
     InvalidUri(#[from] InvalidUriError),
     #[error("endpoint URI cannot include path or query string")]
     InvalidEndpoint,
-    #[error("region {0} is not yet supported")]
+    #[error("region {0} could not be resolved")]
     UnsupportedRegion(String),
+    #[error("Endpoint could not be resolved")]
+    UnresolvedEndpoint(#[from] mountpoint_s3_crt::common::error::Error),
 }
 
 #[derive(Debug, Error)]
