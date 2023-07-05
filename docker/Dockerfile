@@ -1,17 +1,33 @@
 FROM amazonlinux:2023 as builder
-RUN yum -y update && \
-    yum -y install fuse fuse-devel cmake3 \
-    clang-devel git cargo
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Install build tools
+RUN dnf install -y \
+    fuse \
+    fuse-devel \
+    cmake3 \
+    clang \
+    git \
+    pkg-config && \
+    dnf clean all
+
+# Install rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    source "$HOME/.cargo/env"
+
+# Build mountpoint-s3
 RUN git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git && \
+    source "$HOME/.cargo/env" && \
     cd mountpoint-s3 && \
     cargo build --release
-WORKDIR /mountpoint-s3/target/release
 
-FROM amazonlinux:2023
+
+
+FROM amazonlinux:2023 as release
 COPY --from=builder /mountpoint-s3/target/release/mount-s3 /mount-s3
 
-RUN yum -y update && \
-    yum -y install fuse fuse-devel
+RUN dnf update -y && \
+    dnf install -y \
+    fuse-devel && \
+    dnf clean all
 
 CMD [ "/mount-s3" ]
