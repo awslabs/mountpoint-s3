@@ -104,7 +104,11 @@ impl ReaddirHandle {
 
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`.
-    pub async fn next<OC: ObjectClient>(&self, client: &OC, inc_lookup_count: bool) -> Result<Option<LookedUp>, InodeError> {
+    pub async fn next<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        inc_lookup_count: bool,
+    ) -> Result<Option<LookedUp>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
