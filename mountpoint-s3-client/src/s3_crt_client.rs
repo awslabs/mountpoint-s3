@@ -274,7 +274,7 @@ impl S3CrtClientInner {
         let endpoint = if let Some(endpoint) = config.endpoint {
             endpoint
         } else {
-            Endpoint::from_region(region, AddressingStyle::Automatic, &allocator)?
+            Endpoint::from_region(region, AddressingStyle::Automatic)?
         };
 
         Ok(Self {

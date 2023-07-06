@@ -6,7 +6,6 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::{AddressingStyle, Endpoint, ObjectClient, S3ClientConfig, S3CrtClient};
-use mountpoint_s3_crt::common::allocator::Allocator;
 use test_case::test_case;
 
 async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {
@@ -42,8 +41,7 @@ async fn run_test<F: FnOnce(&str) -> Endpoint>(f: F) {
 #[test_case(AddressingStyle::Path)]
 #[tokio::test]
 async fn test_addressing_style_region(addressing_style: AddressingStyle) {
-    let allocator = Allocator::default();
-    run_test(|region| Endpoint::from_region(region, addressing_style, &allocator).unwrap()).await;
+    run_test(|region| Endpoint::from_region(region, addressing_style).unwrap()).await;
 }
 
 #[test_case(AddressingStyle::Automatic)]

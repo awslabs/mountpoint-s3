@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
-use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
+use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, ResolverError, RuleEngine};
 use regex::Regex;
 use std::ffi::OsStr;
 use std::os::unix::prelude::OsStrExt;
@@ -22,22 +22,19 @@ pub struct Endpoint {
 impl Endpoint {
     /// Create a new endpoint for the given S3 region. This method automatically resolves the right
     /// endpoint URI to target.
-    pub fn from_region(
-        region: &str,
-        addressing_style: AddressingStyle,
-        allocator: &Allocator,
-    ) -> Result<Self, EndpointError> {
-        let endpoint_rule_engine = RuleEngine::new(allocator).unwrap();
-        let mut endpoint_request_context = RequestContext::new(allocator).unwrap();
+    pub fn from_region(region: &str, addressing_style: AddressingStyle) -> Result<Self, EndpointError> {
+        let allocator = Allocator::default();
+        let endpoint_rule_engine = RuleEngine::new(&allocator).unwrap();
+        let mut endpoint_request_context = RequestContext::new(&allocator).unwrap();
         endpoint_request_context
-            .add_string(allocator, OsStr::new("Region"), OsStr::new(region))
+            .add_string(&allocator, "Region", region)
             .unwrap();
         let resolved_endpoint = endpoint_rule_engine
             .resolve(endpoint_request_context)
-            .map_err(|_| EndpointError::UnsupportedRegion(region.to_owned()))?;
+            .map_err(EndpointError::UnresolvedEndpoint)?;
 
-        let endpoint_uri = resolved_endpoint.get_url().map_err(EndpointError::UnresolvedEndpoint)?;
-        let uri = Uri::new_from_str(allocator, &endpoint_uri)
+        let endpoint_uri = resolved_endpoint.get_url();
+        let uri = Uri::new_from_str(&allocator, &endpoint_uri)
             .map_err(|e| EndpointError::InvalidUri(InvalidUriError::CouldNotParse(e)))?;
         Ok(Self { uri, addressing_style })
     }
@@ -126,10 +123,8 @@ pub enum EndpointError {
     InvalidUri(#[from] InvalidUriError),
     #[error("endpoint URI cannot include path or query string")]
     InvalidEndpoint,
-    #[error("region {0} could not be resolved")]
-    UnsupportedRegion(String),
-    #[error("Endpoint could not be resolved")]
-    UnresolvedEndpoint(#[from] mountpoint_s3_crt::common::error::Error),
+    #[error("Endpoint could not be resolved. {0}")]
+    UnresolvedEndpoint(#[from] ResolverError),
 }
 
 #[derive(Debug, Error)]

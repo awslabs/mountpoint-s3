@@ -6,6 +6,7 @@ use std::{
     os::unix::prelude::OsStrExt,
     ptr::{self, NonNull},
 };
+use thiserror::Error;
 
 use crate::{
     aws_byte_cursor_as_slice,
@@ -14,6 +15,18 @@ use crate::{
 };
 
 use super::s3_library_init;
+
+/// Errors returned on operations from `resolve()`.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ResolverError {
+    /// The header was not found
+    #[error("Resolved Endpoint Error: {0}")]
+    EndpointNotResolved(String),
+
+    /// Internal CRT error
+    #[error("CRT error: {0}")]
+    CrtError(#[from] Error),
+}
 
 /// [RuleEngine] to resolve endpoint with given [RequestContext] and ruleset
 #[derive(Debug)]
@@ -32,10 +45,13 @@ impl RuleEngine {
     }
 
     /// Resolve the endpoint with given [RequestContext] and ruleset.
-    pub fn resolve(&self, context: RequestContext) -> Result<ResolvedEndpoint, Error> {
+    pub fn resolve(&self, context: RequestContext) -> Result<ResolvedEndpoint, ResolverError> {
         // SAFETY: `aws_endpoints_rule_engine_resolve` ensures that it returns a `aws_endpoints_resolved_endpoint`
         // (which is checked for being non-null later) or it will return an error. So, the out_endpoint is valid and non null.
         // SAFETY: Next, we handle all the arms `aws_endpoints_resolved_endpoint_get_type` separately.
+        // In case of `AWS_ENDPOINTS_RESOLVED_ERROR`, releasing the `out_endpoint` reference as Drop is not implemented for it anywhere.
+        // `aws_endpoints_resolved_endpoint_get_error` gives out a non-null `resolved_endpoint_error` pointer.
+        // Then owning the `resolved_endpoint_error` as OsString makes it safe to return. The return value is not borrowing the reference.
         unsafe {
             let mut out_endpoint: *mut aws_endpoints_resolved_endpoint = ptr::null_mut();
             aws_endpoints_rule_engine_resolve(self.inner.as_ptr(), context.inner.as_ptr(), &mut out_endpoint)
@@ -43,13 +59,16 @@ impl RuleEngine {
             match aws_endpoints_resolved_endpoint_get_type(out_endpoint) {
                 aws_endpoints_resolved_endpoint_type::AWS_ENDPOINTS_RESOLVED_ERROR => {
                     let mut out_error: aws_byte_cursor = Default::default();
-                    let err = Error::from(aws_endpoints_resolved_endpoint_get_error(out_endpoint, &mut out_error));
-                    Err(err)
+                    aws_endpoints_resolved_endpoint_get_error(out_endpoint, &mut out_error);
+                    let resolved_endpoint_error = std::str::from_utf8(aws_byte_cursor_as_slice(&out_error))
+                        .unwrap()
+                        .to_owned();
+                    aws_endpoints_resolved_endpoint_release(out_endpoint);
+                    Err(ResolverError::EndpointNotResolved(resolved_endpoint_error))
                 }
-                aws_endpoints_resolved_endpoint_type::AWS_ENDPOINTS_RESOLVED_ENDPOINT => {
-                    let out_endpoint = out_endpoint.ok_or_last_error()?;
-                    Ok(ResolvedEndpoint { inner: out_endpoint })
-                }
+                aws_endpoints_resolved_endpoint_type::AWS_ENDPOINTS_RESOLVED_ENDPOINT => Ok(ResolvedEndpoint {
+                    inner: NonNull::new_unchecked(out_endpoint),
+                }),
                 _ => unreachable!("Invalid resolved endpoint type"),
             }
         }
@@ -59,7 +78,7 @@ impl RuleEngine {
 impl Drop for RuleEngine {
     fn drop(&mut self) {
         // SAFETY: `self.inner` is a valid `aws_endpoints_rule_engine`, and on Drop it's safe to decrement
-        // the reference count since we won't use it again through `self`.
+        // the reference count since this is balancing the `acquire` in `new`.
         unsafe {
             aws_endpoints_rule_engine_release(self.inner.as_ptr());
         }
@@ -83,9 +102,14 @@ impl RequestContext {
     }
 
     /// Add the parameter to [RequestContext] whose value is in form of string
-    pub fn add_string(&mut self, allocator: &Allocator, name: &OsStr, value: &OsStr) -> Result<(), Error> {
+    pub fn add_string(
+        &mut self,
+        allocator: &Allocator,
+        name: impl AsRef<OsStr>,
+        value: impl AsRef<OsStr>,
+    ) -> Result<(), Error> {
         // SAFETY: allocator.inner and self.inner should be valid pointers.
-        // `name` and `value` should be valid aws byte cursor not be modified further.
+        // `name` and `value` will be copied by CRT, thus borrowing is safe.
         unsafe {
             aws_endpoints_request_context_add_string(
                 allocator.inner.as_ptr(),
@@ -98,9 +122,9 @@ impl RequestContext {
     }
 
     /// Add the parameter to [RequestContext] whose value is in form of boolean
-    pub fn add_boolean(&mut self, allocator: &Allocator, name: &OsStr, value: bool) -> Result<(), Error> {
+    pub fn add_boolean(&mut self, allocator: &Allocator, name: impl AsRef<OsStr>, value: bool) -> Result<(), Error> {
         // SAFETY: allocator.inner and self.inner should be valid pointers.
-        // `name` will be copied by CRT, thus borrowing is safe
+        // `name` will be copied by CRT, thus borrowing is safe.
         unsafe {
             aws_endpoints_request_context_add_boolean(
                 allocator.inner.as_ptr(),
@@ -116,7 +140,7 @@ impl RequestContext {
 impl Drop for RequestContext {
     fn drop(&mut self) {
         // SAFETY: `self.inner` is a valid `aws_endpoints_request_context`, and on Drop it's safe to decrement
-        // the reference count since we won't use it again through `self.`
+        // the reference count since this is balancing the `acquire` in `new`.
         unsafe {
             aws_endpoints_request_context_release(self.inner.as_ptr());
         }
@@ -131,23 +155,25 @@ pub struct ResolvedEndpoint {
 
 impl ResolvedEndpoint {
     /// Get URI from the [ResolvedEndpoint]
-    pub fn get_url(&self) -> Result<OsString, Error> {
+    pub fn get_url(&self) -> OsString {
         let mut url: aws_byte_cursor = Default::default();
         // SAFETY: self.inner is valid pointer to resolved endpoint as it is supposed to be used after Resolve(). url is passed as valid mutable pointer.
-        //`aws_endpoint_resolved_enpoint_get_url` ensures to return an initialized aws_byte_cursor for url or else it will return an error.
+        //`aws_endpoint_resolved_enpoint_get_url` ensures to return an initialized aws_byte_cursor for url in such case.
         unsafe {
-            aws_endpoints_resolved_endpoint_get_url(self.inner.as_ptr(), &mut url).ok_or_last_error()?;
+            aws_endpoints_resolved_endpoint_get_url(self.inner.as_ptr(), &mut url);
         }
         // SAFETY: `uri` does not outlive the aws_byte_cursor `url` as an owned OsString is returned rather than reference to a slice.
-        let uri = unsafe { aws_byte_cursor_as_slice(&url) };
-        Ok(OsStr::from_bytes(uri).to_os_string())
+        unsafe {
+            let uri = aws_byte_cursor_as_slice(&url);
+            OsStr::from_bytes(uri).to_os_string()
+        }
     }
 }
 
 impl Drop for ResolvedEndpoint {
     fn drop(&mut self) {
         // SAFETY: `self.inner` is a valid `aws_endpoints_resolved_endpoint`, and on Drop it's safe to decrement
-        // the reference count since we won't use it again through `self.`
+        // the reference count since this is balancing the `acquire` in `new`.
         unsafe {
             aws_endpoints_resolved_endpoint_release(self.inner.as_ptr());
         }
@@ -156,27 +182,35 @@ impl Drop for ResolvedEndpoint {
 
 #[cfg(test)]
 mod test {
-    use std::ffi::OsStr;
-
     use crate::common::allocator::Allocator;
 
     use super::{RequestContext, RuleEngine};
+
+    fn test_endpoint_resolver_init(
+        bucket: &str,
+        region: &str,
+        allocator: &Allocator,
+        request_context: &mut RequestContext,
+    ) {
+        request_context.add_string(allocator, "Bucket", bucket).unwrap();
+        request_context.add_string(allocator, "Region", region).unwrap();
+    }
 
     #[test]
     fn test_regions_outside_aws_partition() {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("cn-north-1"))
-            .unwrap();
+        test_endpoint_resolver_init(
+            "s3-bucket-test",
+            "cn-north-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(endpoint_uri, "https://s3-bucket-test.s3.cn-north-1.amazonaws.com.cn");
     }
 
@@ -185,29 +219,30 @@ mod test {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("eu-west-1"))
-            .unwrap();
+        test_endpoint_resolver_init(
+            "s3-bucket-test",
+            "eu-west-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(endpoint_uri, "https://s3-bucket-test.s3.eu-west-1.amazonaws.com");
-        // Adding a '.' in the bucket name
+        // Adding a '.' in the bucket name to see its default addressing style in special cases of
+        // Object Lambda Access Point and Multi Region accesspoint aliases
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket.test"))
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("eu-west-1"))
-            .unwrap();
+        test_endpoint_resolver_init(
+            "s3-bucket.test",
+            "eu-west-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(endpoint_uri, "https://s3.eu-west-1.amazonaws.com/s3-bucket.test");
     }
 
@@ -216,19 +251,19 @@ mod test {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
+        test_endpoint_resolver_init(
+            "s3-bucket-test",
+            "us-east-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("us-east-1"))
-            .unwrap();
-        endpoint_request_context
-            .add_boolean(&new_allocator, OsStr::new("UseFIPS"), true)
+            .add_boolean(&new_allocator, "UseFIPS", true)
             .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(endpoint_uri, "https://s3-bucket-test.s3-fips.us-east-1.amazonaws.com");
     }
 
@@ -237,22 +272,22 @@ mod test {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
+        test_endpoint_resolver_init(
+            "s3-bucket-test",
+            "us-east-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
+            .add_boolean(&new_allocator, "UseDualStack", true)
             .unwrap();
         endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("us-east-1"))
-            .unwrap();
-        endpoint_request_context
-            .add_boolean(&new_allocator, OsStr::new("UseDualStack"), true)
-            .unwrap();
-        endpoint_request_context
-            .add_boolean(&new_allocator, OsStr::new("Accelerate"), true)
+            .add_boolean(&new_allocator, "Accelerate", true)
             .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(
             endpoint_uri,
             "https://s3-bucket-test.s3-accelerate.dualstack.amazonaws.com"
@@ -264,19 +299,19 @@ mod test {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
+        test_endpoint_resolver_init(
+            "s3-bucket-test",
+            "eu-west-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Bucket"), OsStr::new("s3-bucket-test"))
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("eu-west-1"))
-            .unwrap();
-        endpoint_request_context
-            .add_boolean(&new_allocator, OsStr::new("ForcePathStyle"), true)
+            .add_boolean(&new_allocator, "ForcePathStyle", true)
             .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(endpoint_uri, "https://s3.eu-west-1.amazonaws.com/s3-bucket-test");
     }
 
@@ -285,21 +320,17 @@ mod test {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        endpoint_request_context
-            .add_string(
-                &new_allocator,
-                OsStr::new("Bucket"),
-                OsStr::new("mountpoint-o-o0f129d3877cfede5ed9w5rxpf30v7bhaa83yause10--op-s3"),
-            )
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("us-east-1"))
-            .unwrap();
+        test_endpoint_resolver_init(
+            "mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3",
+            "us-east-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
-        assert_eq!(endpoint_uri, "https://mountpoint-o-o0f129d3877cfede5ed9w5rxpf30v7bhaa83yause10--op-s3.op-0f129d3877cfede5e.s3-outposts.us-east-1.amazonaws.com");
+        let endpoint_uri = endpoint_resolved.get_url();
+        assert_eq!(endpoint_uri, "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-east-1.amazonaws.com");
     }
 
     #[test]
@@ -307,23 +338,19 @@ mod test {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        endpoint_request_context
-            .add_string(
-                &new_allocator,
-                OsStr::new("Bucket"),
-                OsStr::new("arn:aws:s3::accountID:accesspoint/mfzwi23gnjvgw.mrap"),
-            )
-            .unwrap();
-        endpoint_request_context
-            .add_string(&new_allocator, OsStr::new("Region"), OsStr::new("eu-west-1"))
-            .unwrap();
+        test_endpoint_resolver_init(
+            "arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap",
+            "eu-west-1",
+            &new_allocator,
+            &mut endpoint_request_context,
+        );
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url().unwrap();
+        let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(
             endpoint_uri.as_os_str(),
-            "https://mfzwi23gnjvgw.mrap.accesspoint.s3-global.amazonaws.com"
+            "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com"
         );
     }
 }
