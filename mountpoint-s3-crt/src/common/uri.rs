@@ -20,7 +20,7 @@ pub struct Uri {
 
 impl Uri {
     /// Create a new URI by parsing the given string
-    pub fn new_from_str(allocator: &mut Allocator, src: &OsStr) -> Result<Self, Error> {
+    pub fn new_from_str(allocator: &Allocator, src: &OsStr) -> Result<Self, Error> {
         let mut inner: Box<aws_uri> = Default::default();
         // SAFETY: the parser copies the bytes it needs out of this string
         let uri_cursor = unsafe { src.as_aws_byte_cursor() };
@@ -155,7 +155,7 @@ mod tests {
         let uri_str = OsStr::from_bytes(
             "https://examplebucket.s3.us-west-2.amazonaws.com:443/directory/file.txt?a=b&c=d".as_bytes(),
         );
-        let uri = Uri::new_from_str(&mut Allocator::default(), uri_str).unwrap();
+        let uri = Uri::new_from_str(&Allocator::default(), uri_str).unwrap();
 
         assert_eq!(uri.scheme(), OsStr::from_bytes("https".as_bytes()));
         assert_eq!(
