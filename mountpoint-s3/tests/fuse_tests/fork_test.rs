@@ -214,7 +214,6 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_mount_readonly");
-    let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
@@ -280,10 +279,7 @@ fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathB
 }
 
 fn mount_exists(source: &str, mount_point: &str) -> bool {
-    match get_mount_from_source_and_mountpoint(source, mount_point) {
-        Some(_) => true,
-        None => false,
-    }
+    get_mount_from_source_and_mountpoint(source, mount_point).is_some()
 }
 
 /// Read all mount records in the system and return the line that matches given arguments.
