@@ -362,19 +362,22 @@ impl ObjectClient for MockClient {
         let mut object_vec: Vec<ObjectInfo> = Vec::new();
         let mut next_continuation_token: Option<String> = None;
         let mut current_common_prefix: Option<String> = None;
+        // When handling prefixes and delimiters, we care about characters, not bytes.
+        let prefix_len = prefix.chars().count();
 
         // If there is a continuation token, set up an iterator starting at that token. Otherwise,
         // start at the beginning of the bucket.
         let object_iterator = objects.range(continuation_token.unwrap_or("").to_string()..);
 
         for (key, object) in object_iterator {
+            let key_len = key.chars().count();
             // If the prefix is `n` characters long, and we encounter a key whose first `n`
             // characters are lexicographically larger than the prefix, then we can stop iterating.
             // Note that we cannot just do a direct comparison between the full key and prefix. For
             // example, A/C/c is lexicographically larger than A/C, but A/C is a prefix of A/C/c and
             // we risk skipping directory entries if we stop when we encounter A/C/c.
-            let key_prefix = if key.len() >= prefix.len() {
-                key[..prefix.len()].to_string()
+            let key_prefix = if key_len >= prefix_len {
+                key.chars().take(prefix_len).collect::<String>()
             } else {
                 key.to_string()
             };
@@ -408,11 +411,7 @@ impl ObjectClient for MockClient {
             // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html). So here
             // remove the prefix (if any) to make sure we are only looking for delimiters
             // that come after the prefix
-            let no_prefix_key = key[prefix.len()..].to_string();
-            // TODO I think this check is unnecessary (and was wrong anyway, needs to use the actual delimiter)
-            // if no_prefix_key.starts_with('/') {
-            //     no_prefix_key = no_prefix_key[1..].to_string();
-            // }
+            let no_prefix_key = key.chars().skip(prefix_len).collect::<String>();
 
             // If we have a delimiter, split the prefix-less key on it. If that gives a non-empty
             // string, it's a common prefix. If not, it's a regular key.
@@ -732,6 +731,48 @@ mod tests {
         check_continuation!("", 6, "", &keys[6..], &[]);
         check_continuation!("/", 1, "dirs/", &[], &["dirs/dir2/"]);
         check_continuation!("/", 2, "dirs/dir2/", &keys[7..9], &[]);
+    }
+
+    #[tokio::test]
+    async fn list_objects_unicode() {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+        });
+
+        let mut keys = vec![];
+        for i in 0..5 {
+            keys.push(format!("dirs/こんにちは/file{i}.txt"));
+        }
+        for i in 0..5 {
+            keys.push(format!("dirs/😄🥹/file{i}.txt"));
+        }
+        for key in &keys {
+            client.add_object(key, MockObject::constant(0u8, 5, ETag::for_tests()));
+        }
+
+        macro_rules! check {
+            ($delimiter:expr, $prefix:expr, $objects:expr, $prefixes:expr) => {
+                let result = client
+                    .list_objects("test_bucket", None, $delimiter, 1000, $prefix)
+                    .await
+                    .expect("should not fail");
+                assert_eq!(
+                    &result
+                        .objects
+                        .into_iter()
+                        .map(|object| object.key)
+                        .collect::<Vec<_>>(),
+                    $objects as &[String],
+                    "wrong objects"
+                );
+                assert_eq!(&result.common_prefixes, $prefixes as &[&str], "wrong prefixes");
+            };
+        }
+
+        check!("", "", &keys[..], &[]);
+        check!("/", "dirs/", &[], &["dirs/こんにちは/", "dirs/😄🥹/"]);
+        check!("", "dirs/😄🥹/", &keys[5..], &[]);
     }
 
     #[tokio::test]
