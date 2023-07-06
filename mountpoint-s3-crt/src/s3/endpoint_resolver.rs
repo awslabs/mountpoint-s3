@@ -46,8 +46,7 @@ impl RuleEngine {
 
     /// Resolve the endpoint with given [RequestContext] and ruleset.
     pub fn resolve(&self, context: RequestContext) -> Result<ResolvedEndpoint, ResolverError> {
-        // SAFETY: `aws_endpoints_rule_engine_resolve` ensures that it returns a `aws_endpoints_resolved_endpoint`
-        // (which is checked for being non-null later) or it will return an error. So, the out_endpoint is valid and non null.
+        // SAFETY: `aws_endpoints_rule_engine_resolve` ensures that it returns a `aws_endpoints_resolved_endpoint` which is non-null later or it will return an error.
         // SAFETY: Next, we handle all the arms `aws_endpoints_resolved_endpoint_get_type` separately.
         // In case of `AWS_ENDPOINTS_RESOLVED_ERROR`, releasing the `out_endpoint` reference as Drop is not implemented for it anywhere.
         // `aws_endpoints_resolved_endpoint_get_error` gives out a non-null `resolved_endpoint_error` pointer.
@@ -69,7 +68,7 @@ impl RuleEngine {
                 aws_endpoints_resolved_endpoint_type::AWS_ENDPOINTS_RESOLVED_ENDPOINT => Ok(ResolvedEndpoint {
                     inner: NonNull::new_unchecked(out_endpoint),
                 }),
-                _ => Err(ResolverError::EndpointNotResolved("Invalid Resolved Endpoint type".to_owned())),
+                _ => unreachable!("Invalid Resolved Endpoint type"),
             }
         }
     }
@@ -182,7 +181,7 @@ impl Drop for ResolvedEndpoint {
 
 #[cfg(test)]
 mod test {
-    use crate::common::{allocator::Allocator};
+    use crate::common::allocator::Allocator;
 
     use super::{RequestContext, ResolverError, RuleEngine};
 
@@ -220,7 +219,7 @@ mod test {
     #[test_case("UseDualStack", "https://s3-bucket-test.s3.dualstack.us-east-1.amazonaws.com"; "Using Dual Stack (IPv6) option")]
     #[test_case("Accelerate", "https://s3-bucket-test.s3-accelerate.amazonaws.com"; "Using transfer acceleration option")]
     #[test_case("ForcePathStyle", "https://s3.us-east-1.amazonaws.com/s3-bucket-test"; "Addressing style set to Path style")]
-    #[test_case("InvalidMountOption", "https://s3-bucket-test.s3.us-east-1.amazonaws.com"; "Using Invalid mount option")]
+    #[test_case("InvalidMountOption", "https://s3-bucket-test.s3.us-east-1.amazonaws.com"; "Invalid mount option is ignored")]
     fn test_optional_settings(mount_option: &str, resolved_endpoint: &str) {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
@@ -241,9 +240,9 @@ mod test {
         assert_eq!(endpoint_uri, resolved_endpoint);
     }
 
-    #[test_case("UseDualStack", "Accelerate", "https://s3-bucket-test.s3-accelerate.dualstack.amazonaws.com"; "Using Dual Stack and transfer acceleration")]
-    #[test_case("UseDualStack", "UseFIPS", "https://s3-bucket-test.s3-fips.dualstack.us-east-1.amazonaws.com"; "Using Dual Stack and FIPS settings")]
-    fn test_options_combination_setting(mount_option_1: &str, mount_option_2: &str, resolved_endpoint: &str) {
+    #[test_case(vec!["UseDualStack".to_string(), "Accelerate".to_string()], "https://s3-bucket-test.s3-accelerate.dualstack.amazonaws.com"; "Using Dual Stack and transfer acceleration")]
+    #[test_case(vec!["UseDualStack".to_string(), "UseFIPS".to_string()], "https://s3-bucket-test.s3-fips.dualstack.us-east-1.amazonaws.com"; "Using Dual Stack and FIPS settings")]
+    fn test_options_combination_setting(mount_options: Vec<String>, resolved_endpoint: &str) {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
@@ -253,21 +252,20 @@ mod test {
             &new_allocator,
             &mut endpoint_request_context,
         );
-        endpoint_request_context
-            .add_boolean(&new_allocator, mount_option_1, true)
-            .unwrap();
-        endpoint_request_context
-            .add_boolean(&new_allocator, mount_option_2, true)
-            .unwrap();
+        for options in mount_options.iter() {
+            endpoint_request_context
+                .add_boolean(&new_allocator, options, true)
+                .unwrap();
+        }
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved.get_url();
         assert_eq!(endpoint_uri, resolved_endpoint);
     }
-    
-    #[test_case("ForcePathStyle", "Accelerate", ResolverError::EndpointNotResolved("Path-style addressing cannot be used with S3 Accelerate".to_owned()); "Using path style with transfer acceleration")]
-    fn test_incorrect_options_combination_setting(mount_option_1: &str, mount_option_2: &str, resolved_endpoint_error: ResolverError) {
+
+    #[test]
+    fn test_incorrect_transfer_acceleration_path_style_combination() {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
@@ -278,14 +276,34 @@ mod test {
             &mut endpoint_request_context,
         );
         endpoint_request_context
-            .add_boolean(&new_allocator, mount_option_1, true)
+            .add_boolean(&new_allocator, "ForcePathStyle", true)
             .unwrap();
         endpoint_request_context
-            .add_boolean(&new_allocator, mount_option_2, true)
+            .add_boolean(&new_allocator, "Accelerate", true)
             .unwrap();
         let err = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect_err("Transfer acceleration should not work with Path style addressing");
-        assert_eq!(err, resolved_endpoint_error);
+        assert_eq!(
+            err,
+            ResolverError::EndpointNotResolved("Path-style addressing cannot be used with S3 Accelerate".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_resolver_without_region_failure() {
+        let new_allocator = Allocator::default();
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
+        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
+        endpoint_request_context
+            .add_string(&new_allocator, "Bucket", "test-bucket")
+            .unwrap();
+        let err = endpoint_rule_engine
+            .resolve(endpoint_request_context)
+            .expect_err("Ednpoint should not be formed without region specified");
+        assert_eq!(
+            err,
+            ResolverError::EndpointNotResolved("A region must be set when sending requests to S3.".to_owned())
+        );
     }
 }
