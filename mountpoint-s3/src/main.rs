@@ -480,6 +480,7 @@ fn create_client_for_bucket(
     addressing_style: AddressingStyle,
 ) -> Result<S3CrtClient, anyhow::Error> {
     const DEFAULT_REGION: &str = "us-east-1";
+
     let region_to_try = supposed_region.unwrap_or_else(|| {
         if endpoint.is_some() {
             tracing::warn!(
@@ -504,10 +505,8 @@ fn create_client_for_bucket(
         // Don't try to automatically correct the region if it was manually specified incorrectly
         Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
-
             let endpoint = Endpoint::from_region(&region, addressing_style)?;
             let new_client = S3CrtClient::new(&region, client_config.endpoint(endpoint))?;
-
             let head_request = new_client.head_bucket(bucket);
             futures::executor::block_on(head_request)
                 .map(|_| new_client)
