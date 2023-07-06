@@ -123,7 +123,7 @@ pub enum EndpointError {
     InvalidUri(#[from] InvalidUriError),
     #[error("endpoint URI cannot include path or query string")]
     InvalidEndpoint,
-    #[error("Endpoint could not be resolved. {0}")]
+    #[error("endpoint could not be resolved")]
     UnresolvedEndpoint(#[from] ResolverError),
 }
 

@@ -20,7 +20,7 @@ use super::s3_library_init;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ResolverError {
     /// The header was not found
-    #[error("Resolved Endpoint Error: {0}")]
+    #[error("endpoint not resolved: {0}")]
     EndpointNotResolved(String),
 
     /// Internal CRT error
@@ -60,7 +60,7 @@ impl RuleEngine {
                     let mut out_error: aws_byte_cursor = Default::default();
                     aws_endpoints_resolved_endpoint_get_error(out_endpoint, &mut out_error);
                     let resolved_endpoint_error = std::str::from_utf8(aws_byte_cursor_as_slice(&out_error))
-                        .unwrap()
+                        .expect("endpoint errors are always valid UTF-8")
                         .to_owned();
                     aws_endpoints_resolved_endpoint_release(out_endpoint);
                     Err(ResolverError::EndpointNotResolved(resolved_endpoint_error))
@@ -199,6 +199,7 @@ mod test {
 
     #[test_case("s3-bucket-test", "cn-north-1", "https://s3-bucket-test.s3.cn-north-1.amazonaws.com.cn"; "regions outside aws partition")]
     #[test_case("s3-bucket-test", "eu-west-1", "https://s3-bucket-test.s3.eu-west-1.amazonaws.com"; "regions within aws partition")]
+    #[test_case("s3-bucket-test", "us-gov-west-1", "https://s3-bucket-test.s3.us-gov-west-1.amazonaws.com"; "regions in aws-us-gov partition")]
     #[test_case("s3-bucket.test", "eu-west-1", "https://s3.eu-west-1.amazonaws.com/s3-bucket.test"; "bucket name with . to check default behviour for aliases")]
     #[test_case("mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3", "us-east-1", "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-east-1.amazonaws.com"; "Outpost Access Point alias")]
     #[test_case("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap", "eu-west-1", "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com"; "ARN as bucket name")]
@@ -219,7 +220,7 @@ mod test {
     #[test_case("UseDualStack", "https://s3-bucket-test.s3.dualstack.us-east-1.amazonaws.com"; "Using Dual Stack (IPv6) option")]
     #[test_case("Accelerate", "https://s3-bucket-test.s3-accelerate.amazonaws.com"; "Using transfer acceleration option")]
     #[test_case("ForcePathStyle", "https://s3.us-east-1.amazonaws.com/s3-bucket-test"; "Addressing style set to Path style")]
-    #[test_case("InvalidMountOption", "https://s3-bucket-test.s3.us-east-1.amazonaws.com"; "Invalid mount option is ignored")]
+    #[test_case("InvalidOption", "https://s3-bucket-test.s3.us-east-1.amazonaws.com"; "Invalid option is ignored")]
     fn test_optional_settings(mount_option: &str, resolved_endpoint: &str) {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
