@@ -151,7 +151,7 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Mount the filesystem in read-only mode",
+        help = "Mount file system in read-only mode",
         help_heading = MOUNT_OPTIONS_HEADER
     )]
     pub read_only: bool,
