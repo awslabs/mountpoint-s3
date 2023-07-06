@@ -211,6 +211,51 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_mount_readonly");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg("--foreground")
+        .arg("--read-only")
+        .spawn()
+        .expect("unable to spawn child");
+
+    let st = std::time::Instant::now();
+
+    loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        if mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // verify that process is still alive
+    let child_status = child.try_wait().unwrap();
+    assert_eq!(None, child_status);
+
+    let mount_line =
+        get_mount_from_source_and_mountpoint("mountpoint-s3", mount_point.path().to_str().unwrap()).unwrap();
+
+    // mount entry looks like
+    // /dev/nvme0n1p2 on /boot type ext4 (rw,relatime)
+    let mount_opts_str = mount_line.split_whitespace().last().unwrap();
+    let mount_opts: Vec<&str> = mount_opts_str.trim_matches(&['(', ')'] as &[_]).split(',').collect();
+    assert!(mount_opts.contains(&"ro"));
+
+    Ok(())
+}
+
 fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathBuf) {
     // create objects for test
     create_objects(bucket, prefix, region, "file1.txt", b"hello world");
@@ -234,12 +279,19 @@ fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathB
     assert_eq!(file_content, "hello world");
 }
 
-/// Read all mount records in the system and find the one that matches given arguments.
+fn mount_exists(source: &str, mount_point: &str) -> bool {
+    match get_mount_from_source_and_mountpoint(source, mount_point) {
+        Some(_) => true,
+        None => false,
+    }
+}
+
+/// Read all mount records in the system and return the line that matches given arguments.
 /// # Arguments
 ///
 /// * `source` - name of the file system.
 /// * `mount_point` - path to the mount point.
-fn mount_exists(source: &str, mount_point: &str) -> bool {
+fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Option<String> {
     // macOS wrap its temp directory under /private but it's not visible to users
     #[cfg(target_os = "macos")]
     let mount_point = format!("/private{}", mount_point);
@@ -258,8 +310,8 @@ fn mount_exists(source: &str, mount_point: &str) -> bool {
         let source_rec = str[0];
         let mount_point_rec = str[2];
         if source_rec == source && mount_point_rec == mount_point {
-            return true;
+            return Some(line);
         }
     }
-    false
+    None
 }
