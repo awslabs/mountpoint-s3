@@ -126,8 +126,8 @@ impl Superblock {
                 error!("forget called on inode {ino} already removed from the superblock");
             }
             Some(inode) => {
-                let lookup_count = inode.dec_lookup_count(n);
-                if lookup_count < 1 {
+                let new_lookup_count = inode.dec_lookup_count(n);
+                if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
                     trace!(ino, "removing inode from superblock");
                     inodes.remove(&ino);
