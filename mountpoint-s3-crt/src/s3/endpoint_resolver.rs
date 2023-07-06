@@ -186,6 +186,8 @@ mod test {
 
     use super::{RequestContext, RuleEngine};
 
+    use test_case::test_case;
+
     fn test_endpoint_resolver_init(
         bucket: &str,
         region: &str,
@@ -196,58 +198,28 @@ mod test {
         request_context.add_string(allocator, "Region", region).unwrap();
     }
 
-    #[test]
-    fn test_regions_outside_aws_partition() {
+    #[test_case("s3-bucket-test", "cn-north-1", "https://s3-bucket-test.s3.cn-north-1.amazonaws.com.cn"; "regions outside aws partition")]
+    #[test_case("s3-bucket-test", "eu-west-1", "https://s3-bucket-test.s3.eu-west-1.amazonaws.com"; "regions within aws partition")]
+    #[test_case("s3-bucket.test", "eu-west-1", "https://s3.eu-west-1.amazonaws.com/s3-bucket.test"; "bucket name with . to check default behviour for aliases")]
+    #[test_case("mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3", "us-east-1", "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-east-1.amazonaws.com"; "Outpost Access Point alias")]
+    #[test_case("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap", "eu-west-1", "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com"; "ARN as bucket name")]
+    fn test_default_regions_and_buckets_setting(bucket: &str, region: &str, resolved_endpoint: &str) {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        test_endpoint_resolver_init(
-            "s3-bucket-test",
-            "cn-north-1",
-            &new_allocator,
-            &mut endpoint_request_context,
-        );
+        test_endpoint_resolver_init(bucket, region, &new_allocator, &mut endpoint_request_context);
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(endpoint_uri, "https://s3-bucket-test.s3.cn-north-1.amazonaws.com.cn");
+        assert_eq!(endpoint_uri, resolved_endpoint);
     }
 
-    #[test]
-    fn test_default_behaviour_aws_partition() {
-        let new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
-        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        test_endpoint_resolver_init(
-            "s3-bucket-test",
-            "eu-west-1",
-            &new_allocator,
-            &mut endpoint_request_context,
-        );
-        let endpoint_resolved = endpoint_rule_engine
-            .resolve(endpoint_request_context)
-            .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(endpoint_uri, "https://s3-bucket-test.s3.eu-west-1.amazonaws.com");
-        // Adding a '.' in the bucket name to see its default addressing style in special cases of
-        // Object Lambda Access Point and Multi Region accesspoint aliases
-        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        test_endpoint_resolver_init(
-            "s3-bucket.test",
-            "eu-west-1",
-            &new_allocator,
-            &mut endpoint_request_context,
-        );
-        let endpoint_resolved = endpoint_rule_engine
-            .resolve(endpoint_request_context)
-            .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(endpoint_uri, "https://s3.eu-west-1.amazonaws.com/s3-bucket.test");
-    }
-
-    #[test]
-    fn test_fips_setting() {
+    #[test_case("UseFIPS", "https://s3-bucket-test.s3-fips.us-east-1.amazonaws.com"; "Using FIPS option")]
+    #[test_case("UseDualStack", "https://s3-bucket-test.s3.dualstack.us-east-1.amazonaws.com"; "Using Dual Stack (IPv6) option")]
+    #[test_case("Accelerate", "https://s3-bucket-test.s3-accelerate.amazonaws.com"; "Using transfer acceleration option")]
+    #[test_case("ForcePathStyle", "https://s3.us-east-1.amazonaws.com/s3-bucket-test"; "Addressing style set to Path style")]
+    fn test_optional_settings(mount_option: &str, resolved_endpoint: &str) {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
@@ -258,17 +230,18 @@ mod test {
             &mut endpoint_request_context,
         );
         endpoint_request_context
-            .add_boolean(&new_allocator, "UseFIPS", true)
+            .add_boolean(&new_allocator, mount_option, true)
             .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(endpoint_uri, "https://s3-bucket-test.s3-fips.us-east-1.amazonaws.com");
+        assert_eq!(endpoint_uri, resolved_endpoint);
     }
 
-    #[test]
-    fn test_transfer_acceleration_dual_stack_setting() {
+    #[test_case("UseDualStack", "Accelerate", "https://s3-bucket-test.s3-accelerate.dualstack.amazonaws.com"; "Using Dual Stack and transfer acceleration")]
+    #[test_case("UseDualStack", "UseFIPS", "https://s3-bucket-test.s3-fips.dualstack.us-east-1.amazonaws.com"; "Using Dual Stack and FIPS settings")]
+    fn test_options_combination_setting(mount_option_1: &str, mount_option_2: &str, resolved_endpoint: &str) {
         let new_allocator = Allocator::default();
         let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
         let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
@@ -279,78 +252,15 @@ mod test {
             &mut endpoint_request_context,
         );
         endpoint_request_context
-            .add_boolean(&new_allocator, "UseDualStack", true)
+            .add_boolean(&new_allocator, mount_option_1, true)
             .unwrap();
         endpoint_request_context
-            .add_boolean(&new_allocator, "Accelerate", true)
+            .add_boolean(&new_allocator, mount_option_2, true)
             .unwrap();
         let endpoint_resolved = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .expect("endpoint should resolve as rules should match context");
         let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(
-            endpoint_uri,
-            "https://s3-bucket-test.s3-accelerate.dualstack.amazonaws.com"
-        );
-    }
-
-    #[test]
-    fn test_force_path_style_setting() {
-        let new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
-        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        test_endpoint_resolver_init(
-            "s3-bucket-test",
-            "eu-west-1",
-            &new_allocator,
-            &mut endpoint_request_context,
-        );
-        endpoint_request_context
-            .add_boolean(&new_allocator, "ForcePathStyle", true)
-            .unwrap();
-        let endpoint_resolved = endpoint_rule_engine
-            .resolve(endpoint_request_context)
-            .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(endpoint_uri, "https://s3.eu-west-1.amazonaws.com/s3-bucket-test");
-    }
-
-    #[test]
-    fn test_access_point_alias() {
-        let new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
-        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        test_endpoint_resolver_init(
-            "mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3",
-            "us-east-1",
-            &new_allocator,
-            &mut endpoint_request_context,
-        );
-        let endpoint_resolved = endpoint_rule_engine
-            .resolve(endpoint_request_context)
-            .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(endpoint_uri, "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-east-1.amazonaws.com");
-    }
-
-    #[test]
-    fn test_arn_as_bucket_name() {
-        let new_allocator = Allocator::default();
-        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
-        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
-        test_endpoint_resolver_init(
-            "arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap",
-            "eu-west-1",
-            &new_allocator,
-            &mut endpoint_request_context,
-        );
-        let endpoint_resolved = endpoint_rule_engine
-            .resolve(endpoint_request_context)
-            .expect("endpoint should resolve as rules should match context");
-        let endpoint_uri = endpoint_resolved.get_url();
-        assert_eq!(
-            endpoint_uri.as_os_str(),
-            "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com"
-        );
+        assert_eq!(endpoint_uri, resolved_endpoint);
     }
 }
