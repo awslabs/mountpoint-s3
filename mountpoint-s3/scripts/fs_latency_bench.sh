@@ -48,7 +48,7 @@ do
     echo "Running ${job_name}"
 
     # mount file system
-    cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+    cargo run --release --features delete ${S3_BUCKET_NAME} ${mount_dir} \
         --prefix=${S3_BUCKET_TEST_PREFIX} \
         --thread-count=${thread_count}
     mount_status=$?
@@ -109,7 +109,7 @@ for job_file in "${jobs_dir}"/*.fio; do
   echo "Running ${job_name}"
 
   # mount file system
-  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+  cargo run --release --features delete ${S3_BUCKET_NAME} ${mount_dir} \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
     --thread-count=${thread_count}
   mount_status=$?

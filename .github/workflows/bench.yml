@@ -62,7 +62,7 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
-      run: cargo build --release
+      run: cargo build --release --features delete
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Save Cargo cache
@@ -131,7 +131,7 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
-      run: cargo build --release
+      run: cargo build --release --features delete
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_latency_bench.sh
     - name: Save Cargo cache
