@@ -94,6 +94,7 @@ impl Superblock {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
+                lookup_count: 1,
             }),
         };
         let root = Inode { inner: Arc::new(root) };
@@ -111,7 +112,32 @@ impl Superblock {
         Self { inner: Arc::new(inner) }
     }
 
-    /// Lookup an inode in the parent directory with the given name
+    /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
+    /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
+    /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
+    pub fn forget(&self, ino: InodeNo, n: u64) {
+        let mut inodes = self.inner.inodes.write().unwrap();
+        match inodes.get(&ino) {
+            None => {
+                debug_assert!(
+                    false,
+                    "forget should not be called on inode already removed from superblock"
+                );
+                error!("forget called on inode {ino} already removed from the superblock");
+            }
+            Some(inode) => {
+                let new_lookup_count = inode.dec_lookup_count(n);
+                if new_lookup_count == 0 {
+                    // Safe to remove, kernel no longer has a reference to it.
+                    trace!(ino, "removing inode from superblock");
+                    inodes.remove(&ino);
+                }
+            }
+        }
+    }
+
+    /// Lookup an inode in the parent directory with the given name and
+    /// increments its lookup count.
     pub async fn lookup<OC: ObjectClient>(
         &self,
         client: &OC,
@@ -119,149 +145,9 @@ impl Superblock {
         name: &OsStr,
     ) -> Result<LookedUp, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
-
-        let name = name
-            .to_str()
-            .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
-
-        // This should be impossible, but just to be safe, explicitly reject lookups to files that
-        // end with '/', since they could be shadowed by directories.
-        if name.ends_with('/') {
-            return Err(InodeError::InvalidFileName(name.into()));
-        }
-
-        // TODO use caches. if we already know about this name, we just need to revalidate the stat
-        // cache and then read it.
-        let remote = self.remote_lookup(client, parent_ino, name).await?;
-        self.inner.update_from_remote(parent_ino, name, remote)
-    }
-
-    /// Lookup an inode in the parent directory with the given name
-    /// on the remote client.
-    async fn remote_lookup<OC: ObjectClient>(
-        &self,
-        client: &OC,
-        parent_ino: InodeNo,
-        name: &str,
-    ) -> Result<Option<RemoteLookup>, InodeError> {
-        let parent = self.inner.get(parent_ino)?;
-        if parent.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(parent_ino));
-        }
-        let mut full_path = parent.full_key().to_owned();
-        assert!(full_path.is_empty() || full_path.ends_with('/'));
-        full_path.push_str(name);
-
-        let mut full_path_suffixed = full_path.clone();
-        full_path_suffixed.push('/');
-
-        // We need to try two requests here, one to find an object with the given name, and one to
-        // discover a possible shadowing (implicit) directory with the same name. There's a few
-        // different cases we need to consider here:
-        //   (1) Consider this namespace with two keys:
-        //           a
-        //           a/b
-        //       Here we need to make a choice about whether to make `a` visible as a file or as a
-        //       directory. We choose to make it a directory. If we lookup("a") and only do a
-        //       HeadObject for `a`, we'd see the object `a`, but we need to shadow that object with
-        //       a directory. Doing the concurrent ListObjects lets us find out that `a` needs to be
-        //       a directory and so we should suppress the file lookup. Note that this means we
-        //       can't respond to the `lookup` call until both the Head and List calls complete.
-        //   (2) Consider this namespace with two keys, similar to (1):
-        //           a
-        //           a/
-        //       This has the same problem as (1), except that we also need to warn the user that
-        //       the key `a/` will be inaccessible.
-        //   (3) Consider this namespace with two keys:
-        //           dir-1/foo
-        //           dir/ bar
-        //       Here we need to be careful how we issue the ListObjects call. If we don't append a
-        //       "/" to the prefix in the request, the first common prefix we'll get back will be
-        //       "dir-1/", because that precedes "dir/" in lexicographic order. Doing the
-        //       ListObjects with "/" appended makes sure we always observe the correct prefix.
-        let mut file_lookup = client.head_object(&self.inner.bucket, &full_path).fuse();
-        let mut dir_lookup = client
-            .list_objects(&self.inner.bucket, None, "/", 1, &full_path_suffixed)
-            .fuse();
-
-        let mut file_state = None;
-
-        for _ in 0..2 {
-            select_biased! {
-                result = file_lookup => {
-                    match result {
-                        Ok(HeadObjectResult { object, .. }) => {
-                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), self.inner.cache_config.file_ttl);
-                            file_state = Some(stat);
-                        }
-                        // If the object is not found, might be a directory, so keep going
-                        Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::ClientError(e.into())),
-                    }
-                }
-
-                result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
-
-                    let found_directory = if result
-                        .common_prefixes
-                        .get(0)
-                        .map(|prefix| prefix.starts_with(&full_path_suffixed))
-                        .unwrap_or(false)
-                    {
-                        true
-                    } else if result
-                        .objects
-                        .get(0)
-                        .map(|object| object.key.starts_with(&full_path_suffixed))
-                        .unwrap_or(false)
-                    {
-                        if result.objects[0].key == full_path_suffixed {
-                            trace!(
-                                parent = ?parent_ino,
-                                ?name,
-                                size = result.objects[0].size,
-                                "found a directory that shadows this name"
-                            );
-                            // The S3 Console creates zero-sized keys for explicit directories, so
-                            // let's not warn about those cases.
-                            if result.objects[0].size > 0 {
-                                warn!(
-                                    "key {:?} is not a valid filename (ends in `/`); will be hidden and unavailable",
-                                    full_path_suffixed
-                                );
-                            }
-                        }
-                        true
-                    } else {
-                        false
-                    };
-
-                    // We don't have to wait for the HeadObject to complete because in our
-                    // semantics, directories always shadow files.
-                    if found_directory {
-                        trace!(parent = ?parent_ino, ?name, "lookup ListObjects found a directory");
-                        let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
-                        return Ok(Some(RemoteLookup { kind: InodeKind::Directory, stat }));
-                    }
-                }
-            }
-        }
-
-        // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
-        // have a valid file, or both requests failed to find the object so the file must not exist remotely
-        if let Some(mut stat) = file_state {
-            trace!(parent = ?parent_ino, ?name, "found a regular file");
-            // Update the validity of the stat in case the racing ListObjects took a long time
-            stat.update_validity(self.inner.cache_config.file_ttl);
-            Ok(Some(RemoteLookup {
-                kind: InodeKind::File,
-                stat,
-            }))
-        } else {
-            trace!(parent = ?parent_ino, ?name, "not found");
-            Ok(None)
-        }
+        let lookup = self.inner.lookup(client, parent_ino, name).await?;
+        self.inner.remember(&lookup.inode);
+        Ok(lookup)
     }
 
     /// Retrieve the attributes for an inode
@@ -282,7 +168,7 @@ impl Superblock {
             }
         }
 
-        self.lookup(client, inode.parent(), inode.name().as_ref()).await
+        self.inner.lookup(client, inode.parent(), inode.name().as_ref()).await
     }
 
     /// Create a new write handle to be used for state transition
@@ -330,7 +216,7 @@ impl Superblock {
     ) -> Result<LookedUp, InodeError> {
         trace!(parent=?dir, ?name, "create");
 
-        let existing = self.lookup(client, dir, name).await;
+        let existing = self.inner.lookup(client, dir, name).await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.ino())),
             Err(InodeError::FileDoesNotExist) => (),
@@ -366,11 +252,13 @@ impl Superblock {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status: WriteStatus::LocalUnopened,
+            lookup_count: 0,
         };
         let inode = self
             .inner
             .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
 
+        self.inner.remember(&inode);
         Ok(LookedUp { inode, stat })
     }
 
@@ -382,7 +270,7 @@ impl Superblock {
         parent_ino: InodeNo,
         name: &OsStr,
     ) -> Result<(), InodeError> {
-        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+        let LookedUp { inode, .. } = self.inner.lookup(client, parent_ino, name).await?;
 
         if inode.kind() == InodeKind::File {
             return Err(InodeError::NotADirectory(inode.ino()));
@@ -448,7 +336,7 @@ impl Superblock {
         name: &OsStr,
     ) -> Result<(), InodeError> {
         let parent = self.inner.get(parent_ino)?;
-        let LookedUp { inode, .. } = self.lookup(client, parent_ino, name).await?;
+        let LookedUp { inode, .. } = self.inner.lookup(client, parent_ino, name).await?;
 
         if inode.kind() == InodeKind::Directory {
             return Err(InodeError::IsDirectory(inode.ino()));
@@ -512,8 +400,6 @@ impl Superblock {
             }
         };
 
-        // TODO: When inode lookup/ref counting is implemented, decrement here to eventually remove from superblock.
-
         Ok(())
     }
 }
@@ -527,6 +413,171 @@ impl SuperblockInner {
             .get(&ino)
             .cloned()
             .ok_or(InodeError::InodeDoesNotExist(ino))
+    }
+
+    /// Increase the lookup count of the given inode and
+    /// ensure it is registered with this superblock.
+    pub fn remember(&self, inode: &Inode) -> u64 {
+        let lookup_count = inode.inc_lookup_count();
+        if lookup_count == 1 {
+            let previous = self.inodes.write().unwrap().insert(inode.ino(), inode.clone());
+            assert!(previous.is_none(), "inode numbers are never reused");
+        }
+        lookup_count
+    }
+
+    /// Lookup an inode in the parent directory with the given name.
+    /// Updates the parent inode to be in sync with the client, but does
+    /// not add new inodes to the superblock. The caller is responsible
+    /// for calling [`remember()`] if that is required.
+    pub async fn lookup<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &OsStr,
+    ) -> Result<LookedUp, InodeError> {
+        let name = name
+            .to_str()
+            .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
+
+        // This should be impossible, but just to be safe, explicitly reject lookups to files that
+        // end with '/', since they could be shadowed by directories.
+        if name.ends_with('/') {
+            return Err(InodeError::InvalidFileName(name.into()));
+        }
+
+        // TODO use caches. if we already know about this name, we just need to revalidate the stat
+        // cache and then read it.
+        let remote = self.remote_lookup(client, parent_ino, name).await?;
+        self.update_from_remote(parent_ino, name, remote)
+    }
+
+    /// Lookup an inode in the parent directory with the given name
+    /// on the remote client.
+    async fn remote_lookup<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        parent_ino: InodeNo,
+        name: &str,
+    ) -> Result<Option<RemoteLookup>, InodeError> {
+        let parent = self.get(parent_ino)?;
+        if parent.kind() != InodeKind::Directory {
+            return Err(InodeError::NotADirectory(parent_ino));
+        }
+        let mut full_path = parent.full_key().to_owned();
+        assert!(full_path.is_empty() || full_path.ends_with('/'));
+        full_path.push_str(name);
+
+        let mut full_path_suffixed = full_path.clone();
+        full_path_suffixed.push('/');
+
+        // We need to try two requests here, one to find an object with the given name, and one to
+        // discover a possible shadowing (implicit) directory with the same name. There's a few
+        // different cases we need to consider here:
+        //   (1) Consider this namespace with two keys:
+        //           a
+        //           a/b
+        //       Here we need to make a choice about whether to make `a` visible as a file or as a
+        //       directory. We choose to make it a directory. If we lookup("a") and only do a
+        //       HeadObject for `a`, we'd see the object `a`, but we need to shadow that object with
+        //       a directory. Doing the concurrent ListObjects lets us find out that `a` needs to be
+        //       a directory and so we should suppress the file lookup. Note that this means we
+        //       can't respond to the `lookup` call until both the Head and List calls complete.
+        //   (2) Consider this namespace with two keys, similar to (1):
+        //           a
+        //           a/
+        //       This has the same problem as (1), except that we also need to warn the user that
+        //       the key `a/` will be inaccessible.
+        //   (3) Consider this namespace with two keys:
+        //           dir-1/foo
+        //           dir/ bar
+        //       Here we need to be careful how we issue the ListObjects call. If we don't append a
+        //       "/" to the prefix in the request, the first common prefix we'll get back will be
+        //       "dir-1/", because that precedes "dir/" in lexicographic order. Doing the
+        //       ListObjects with "/" appended makes sure we always observe the correct prefix.
+        let mut file_lookup = client.head_object(&self.bucket, &full_path).fuse();
+        let mut dir_lookup = client
+            .list_objects(&self.bucket, None, "/", 1, &full_path_suffixed)
+            .fuse();
+
+        let mut file_state = None;
+
+        for _ in 0..2 {
+            select_biased! {
+                result = file_lookup => {
+                    match result {
+                        Ok(HeadObjectResult { object, .. }) => {
+                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), self.cache_config.file_ttl);
+                            file_state = Some(stat);
+                        }
+                        // If the object is not found, might be a directory, so keep going
+                        Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
+                        Err(e) => return Err(InodeError::ClientError(e.into())),
+                    }
+                }
+
+                result = dir_lookup => {
+                    let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
+
+                    let found_directory = if result
+                        .common_prefixes
+                        .get(0)
+                        .map(|prefix| prefix.starts_with(&full_path_suffixed))
+                        .unwrap_or(false)
+                    {
+                        true
+                    } else if result
+                        .objects
+                        .get(0)
+                        .map(|object| object.key.starts_with(&full_path_suffixed))
+                        .unwrap_or(false)
+                    {
+                        if result.objects[0].key == full_path_suffixed {
+                            trace!(
+                                parent = ?parent_ino,
+                                ?name,
+                                size = result.objects[0].size,
+                                "found a directory that shadows this name"
+                            );
+                            // The S3 Console creates zero-sized keys for explicit directories, so
+                            // let's not warn about those cases.
+                            if result.objects[0].size > 0 {
+                                warn!(
+                                    "key {:?} is not a valid filename (ends in `/`); will be hidden and unavailable",
+                                    full_path_suffixed
+                                );
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    };
+
+                    // We don't have to wait for the HeadObject to complete because in our
+                    // semantics, directories always shadow files.
+                    if found_directory {
+                        trace!(parent = ?parent_ino, ?name, "lookup ListObjects found a directory");
+                        let stat = InodeStat::for_directory(self.mount_time, self.cache_config.dir_ttl);
+                        return Ok(Some(RemoteLookup { kind: InodeKind::Directory, stat }));
+                    }
+                }
+            }
+        }
+
+        // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
+        // have a valid file, or both requests failed to find the object so the file must not exist remotely
+        if let Some(mut stat) = file_state {
+            trace!(parent = ?parent_ino, ?name, "found a regular file");
+            // Update the validity of the stat in case the racing ListObjects took a long time
+            stat.update_validity(self.cache_config.file_ttl);
+            Ok(Some(RemoteLookup {
+                kind: InodeKind::File,
+                stat,
+            }))
+        } else {
+            trace!(parent = ?parent_ino, ?name, "not found");
+            Ok(None)
+        }
     }
 
     /// Update the inode with the given name in a parent directory with the remote data.
@@ -574,7 +625,6 @@ impl SuperblockInner {
                             Ok(LookedUp { inode, stat })
                         } else {
                             // Remove from children.
-                            // TODO: also handle inode in [Self::inodes].
                             children.remove(name);
                             Err(InodeError::FileDoesNotExist)
                         }
@@ -586,6 +636,7 @@ impl SuperblockInner {
                     stat: stat.clone(),
                     kind_data: InodeKindData::default_for(kind),
                     write_status: WriteStatus::Remote,
+                    lookup_count: 0,
                 };
                 self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
                     .map(|inode| LookedUp { inode, stat })
@@ -706,9 +757,6 @@ impl SuperblockInner {
                 }
             }
         }
-
-        let previous = self.inodes.write().unwrap().insert(next_ino, inode.clone());
-        assert!(previous.is_none(), "inode numbers are never reused");
 
         Ok(inode)
     }
@@ -889,6 +937,29 @@ impl Inode {
         &self.inner.full_key
     }
 
+    /// Increment lookup count for [Inode] by 1, returning the new value.
+    /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
+    ///
+    /// Locks [InodeState] for writing.
+    pub fn inc_lookup_count(&self) -> u64 {
+        let mut state = self.inner.sync.write().unwrap();
+        let lookup_count = &mut state.lookup_count;
+        *lookup_count += 1;
+        trace!(new_lookup_count = lookup_count, "incremented lookup count");
+        *lookup_count
+    }
+
+    /// Decrement lookup count by `n` for [Inode], returning the new value.
+    ///
+    /// Locks [InodeState] for writing.
+    pub fn dec_lookup_count(&self, n: u64) -> u64 {
+        let mut state = self.inner.sync.write().unwrap();
+        let lookup_count = &mut state.lookup_count;
+        *lookup_count -= n;
+        trace!(new_lookup_count = lookup_count, "decremented lookup count");
+        *lookup_count
+    }
+
     pub fn start_reading(&self) -> Result<(), InodeError> {
         let state = self.get_inode_state()?;
         match state.write_status {
@@ -926,6 +997,9 @@ struct InodeState {
     stat: InodeStat,
     write_status: WriteStatus,
     kind_data: InodeKindData,
+    /// Number of references the kernel is holding to the [Inode].
+    /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
+    lookup_count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1211,6 +1285,84 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_forget() {
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let ino = 42;
+        let inode_name = "made-up-inode";
+        let inode = Inode {
+            inner: Arc::new(InodeInner {
+                ino,
+                parent: ROOT_INODE_NO,
+                name: inode_name.to_owned(),
+                full_key: inode_name.to_owned(),
+                kind: InodeKind::File,
+                sync: RwLock::new(InodeState {
+                    write_status: WriteStatus::Remote,
+                    stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, Default::default()),
+                    kind_data: InodeKindData::File {},
+                    lookup_count: 5,
+                }),
+            }),
+        };
+        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
+
+        superblock.forget(ino, 3);
+        let lookup_count = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.lookup_count
+        };
+        assert_eq!(lookup_count, 2, "lookup should have been reduced");
+        assert!(
+            superblock.inner.get(ino).is_ok(),
+            "inode should be present in superblock"
+        );
+
+        superblock.forget(ino, 2);
+        let lookup_count = {
+            let inode_state = inode.inner.sync.read().unwrap();
+            inode_state.lookup_count
+        };
+        assert_eq!(lookup_count, 0, "lookup should have been reduced");
+        assert!(
+            superblock.inner.inodes.read().unwrap().get(&ino).is_none(),
+            "inode should not be present in superblock"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_forget_can_remove_inodes() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let name = "foo";
+        client.add_object(name, b"foo".into());
+
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+
+        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        assert_eq!(lookup_count, 1);
+        let ino = lookup.inode.ino();
+        superblock.forget(ino, 1);
+
+        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        assert_eq!(lookup_count, 0);
+
+        let err = superblock
+            .getattr(&client, ino, false)
+            .await
+            .expect_err("Inode should not be valid");
+        assert!(matches!(err, InodeError::InodeDoesNotExist(_)));
+
+        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        assert_eq!(lookup_count, 1);
+    }
+
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
@@ -1257,6 +1409,7 @@ mod tests {
             assert_inode_stat!(entries[0], InodeKind::Directory, ts, 0);
             assert_inode_stat!(entries[1], InodeKind::Directory, ts, 0);
 
+            dir_handle.remember(&entries[0]);
             let dir0_inode = entries[0].inode.ino();
             let dir_handle = superblock.readdir(&client, dir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
@@ -1269,6 +1422,7 @@ mod tests {
             assert_inode_stat!(entries[1], InodeKind::Directory, ts, 0);
             assert_inode_stat!(entries[2], InodeKind::Directory, ts, 0);
 
+            dir_handle.remember(&entries[1]);
             let sdir0_inode = entries[1].inode.ino();
             let dir_handle = superblock.readdir(&client, sdir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
@@ -1757,6 +1911,7 @@ mod tests {
             &["dir1"]
         );
 
+        dir_handle.remember(&entries[0]);
         let dir1_ino = entries[0].inode.ino();
         let dir_handle = superblock.readdir(&client, dir1_ino, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();

@@ -47,7 +47,7 @@ async fn test_read_dir_root(prefix: &str) {
     // Listing the root directory doesn't require resolving it first, can just opendir the root inode
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdir(1, dir_handle, 0, &mut reply).await.unwrap();
+    let _reply = fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 3);
 
@@ -122,7 +122,7 @@ async fn test_read_dir_nested(prefix: &str) {
 
     let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdir(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 2);
 
@@ -176,7 +176,7 @@ async fn test_random_read(object_size: usize) {
     // Find the object
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdir(1, dir_handle, 0, &mut reply).await.unwrap();
+    let _reply = fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -226,7 +226,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdir(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -808,4 +808,61 @@ async fn test_directory_shadowing_readdir() {
     let bar_file = fs.lookup(foo_dir.attr.ino, "bar".as_ref()).await.unwrap();
     assert_eq!(bar_file.attr.kind, FileType::RegularFile);
     assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
+}
+
+#[tokio::test]
+async fn test_readdir_vs_readdirplus() {
+    let (client, fs) = make_test_filesystem("test_readdir_vs_readdirplus", &Default::default(), Default::default());
+
+    client.add_object("bar", b"bar".into());
+    client.add_object("baz/foo", b"foo".into());
+
+    let readdir_entries = {
+        let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs.readdir(FUSE_ROOT_INODE, dir_handle, 0, &mut reply).await.unwrap();
+        fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+
+        // Skip . and ..
+        reply.entries.into_iter().skip(2).collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        readdir_entries.iter().map(|e| &e.name).collect::<Vec<_>>(),
+        &["bar", "baz"]
+    );
+
+    for entry in readdir_entries {
+        let err = fs
+            .getattr(entry.ino)
+            .await
+            .expect_err("readdir should not add inodes to the superblock");
+        assert!(matches!(err, libc::ENOENT));
+    }
+
+    let readdirplus_entries = {
+        let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs
+            .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+            .await
+            .unwrap();
+        fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+
+        // Skip . and ..
+        reply.entries.into_iter().skip(2).collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        readdirplus_entries.iter().map(|e| &e.name).collect::<Vec<_>>(),
+        &["bar", "baz"]
+    );
+
+    for entry in readdirplus_entries {
+        let attr = fs
+            .getattr(entry.ino)
+            .await
+            .expect("readdirplus should add inodes to the superblock");
+        assert_eq!(entry.ino, attr.attr.ino);
+    }
 }

@@ -103,7 +103,8 @@ impl ReaddirHandle {
     }
 
     /// Return the next inode for the directory stream. If the stream is finished, returns
-    /// `Ok(None)`.
+    /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
+    /// is responsible for calling [`remember()`] if required.
     pub async fn next<OC: ObjectClient>(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
@@ -135,6 +136,12 @@ impl ReaddirHandle {
     pub fn readd(&self, entry: LookedUp) {
         let old = self.readded.lock().unwrap().replace(entry);
         assert!(old.is_none(), "cannot readd more than one entry");
+    }
+
+    /// Increase the lookup count of the looked up inode and
+    /// ensure it is registered with the superblock.
+    pub fn remember(&self, entry: &LookedUp) {
+        self.inner.remember(&entry.inode);
     }
 
     /// Return the inode number of the parent directory of this directory handle
