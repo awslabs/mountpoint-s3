@@ -103,12 +103,9 @@ impl ReaddirHandle {
     }
 
     /// Return the next inode for the directory stream. If the stream is finished, returns
-    /// `Ok(None)`.
-    pub async fn next<OC: ObjectClient>(
-        &self,
-        client: &OC,
-        inc_lookup_count: bool,
-    ) -> Result<Option<LookedUp>, InodeError> {
+    /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
+    /// is responsible for calling [`remember()`] if required.
+    pub async fn next<OC: ObjectClient>(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
@@ -127,9 +124,6 @@ impl ReaddirHandle {
                     warn!("{} has an invalid name and will be unavailable", next.description());
                 } else {
                     let lookup = self.instantiate_remote_inode(next)?;
-                    if inc_lookup_count {
-                        self.inner.remember(&lookup.inode);
-                    }
                     return Ok(Some(lookup));
                 }
             } else {
@@ -142,6 +136,12 @@ impl ReaddirHandle {
     pub fn readd(&self, entry: LookedUp) {
         let old = self.readded.lock().unwrap().replace(entry);
         assert!(old.is_none(), "cannot readd more than one entry");
+    }
+
+    /// Increase the lookup count of the looked up inode and
+    /// ensure it is registered with the superblock.
+    pub fn remember(&self, entry: &LookedUp) {
+        self.inner.remember(&entry.inode);
     }
 
     /// Return the inode number of the parent directory of this directory handle
@@ -175,7 +175,7 @@ impl ReaddirHandle {
     #[cfg(test)]
     pub(super) async fn collect<OC: ObjectClient>(&self, client: &OC) -> Result<Vec<LookedUp>, InodeError> {
         let mut result = vec![];
-        while let Some(entry) = self.next(client, true).await? {
+        while let Some(entry) = self.next(client).await? {
             result.push(entry);
         }
         Ok(result)

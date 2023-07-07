@@ -586,42 +586,62 @@ where
         parent: InodeNo,
         fh: u64,
         offset: i64,
-        inc_lookup_count: bool,
-        mut reply: R,
+        reply: R,
     ) -> Result<R, libc::c_int> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
+        self.readdir_impl(parent, fh, offset, false, reply).await
+    }
 
-        let handle = {
+    pub async fn readdirplus<R: DirectoryReplier>(
+        &self,
+        parent: InodeNo,
+        fh: u64,
+        offset: i64,
+        reply: R,
+    ) -> Result<R, libc::c_int> {
+        trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
+        self.readdir_impl(parent, fh, offset, true, reply).await
+    }
+
+    async fn readdir_impl<R: DirectoryReplier>(
+        &self,
+        parent: InodeNo,
+        fh: u64,
+        offset: i64,
+        is_readdirplus: bool,
+        mut reply: R,
+    ) -> Result<R, libc::c_int> {
+        let dir_handle = {
             let dir_handles = self.dir_handles.read().await;
             dir_handles.get(&fh).cloned().ok_or(libc::EBADF)?
         };
 
-        if offset != handle.offset() {
+        if offset != dir_handle.offset() {
             error!(
-                expected = handle.offset(),
+                expected = dir_handle.offset(),
                 actual = offset,
                 "fs:readdir: offset mismatch"
             );
             return Err(libc::EINVAL);
         }
 
-        if handle.offset() < 1 {
+        if dir_handle.offset() < 1 {
             let lookup = self.superblock.getattr(&self.client, parent, false).await?;
             let attr = self.make_attr(&lookup);
-            if reply.add(parent, handle.offset() + 1, ".", attr, 0u64, lookup.validity()) {
+            if reply.add(parent, dir_handle.offset() + 1, ".", attr, 0u64, lookup.validity()) {
                 return Ok(reply);
             }
-            handle.next_offset();
+            dir_handle.next_offset();
         }
-        if handle.offset() < 2 {
+        if dir_handle.offset() < 2 {
             let lookup = self
                 .superblock
-                .getattr(&self.client, handle.handle.parent(), false)
+                .getattr(&self.client, dir_handle.handle.parent(), false)
                 .await?;
             let attr = self.make_attr(&lookup);
             if reply.add(
-                handle.handle.parent(),
-                handle.offset() + 1,
+                dir_handle.handle.parent(),
+                dir_handle.offset() + 1,
                 "..",
                 attr,
                 0u64,
@@ -629,11 +649,11 @@ where
             ) {
                 return Ok(reply);
             }
-            handle.next_offset();
+            dir_handle.next_offset();
         }
 
         loop {
-            let next = match handle.handle.next(&self.client, inc_lookup_count).await? {
+            let next = match dir_handle.handle.next(&self.client).await? {
                 None => return Ok(reply),
                 Some(next) => next,
             };
@@ -641,16 +661,19 @@ where
             let attr = self.make_attr(&next);
             if reply.add(
                 attr.ino,
-                handle.offset() + 1,
+                dir_handle.offset() + 1,
                 next.inode.name(),
                 attr,
                 0u64,
                 next.validity(),
             ) {
-                handle.handle.readd(next);
+                dir_handle.handle.readd(next);
                 return Ok(reply);
             }
-            handle.next_offset();
+            if is_readdirplus {
+                dir_handle.handle.remember(&next);
+            }
+            dir_handle.next_offset();
         }
     }
 

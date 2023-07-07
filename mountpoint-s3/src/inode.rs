@@ -429,6 +429,9 @@ impl SuperblockInner {
     }
 
     /// Lookup an inode in the parent directory with the given name.
+    /// Updates the parent inode to be in sync with the client, but does
+    /// not add new inodes to the superblock. The caller is responsible
+    /// for calling [`remember()`] if that is required.
     pub async fn lookup<OC: ObjectClient>(
         &self,
         client: &OC,
@@ -1408,6 +1411,7 @@ mod tests {
             assert_inode_stat!(entries[0], InodeKind::Directory, ts, 0);
             assert_inode_stat!(entries[1], InodeKind::Directory, ts, 0);
 
+            dir_handle.remember(&entries[0]);
             let dir0_inode = entries[0].inode.ino();
             let dir_handle = superblock.readdir(&client, dir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
@@ -1420,6 +1424,7 @@ mod tests {
             assert_inode_stat!(entries[1], InodeKind::Directory, ts, 0);
             assert_inode_stat!(entries[2], InodeKind::Directory, ts, 0);
 
+            dir_handle.remember(&entries[1]);
             let sdir0_inode = entries[1].inode.ino();
             let dir_handle = superblock.readdir(&client, sdir0_inode, 2).await.unwrap();
             let entries = dir_handle.collect(&client).await.unwrap();
@@ -1908,6 +1913,7 @@ mod tests {
             &["dir1"]
         );
 
+        dir_handle.remember(&entries[0]);
         let dir1_ino = entries[0].inode.ino();
         let dir_handle = superblock.readdir(&client, dir1_ino, 2).await.unwrap();
         let entries = dir_handle.collect(&client).await.unwrap();
