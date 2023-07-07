@@ -29,7 +29,7 @@ then mounting your bucket would give the following file system structure:
 S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html) than POSIX does for valid file and directory names. As a result, some object keys in your S3 bucket may not be visible when mounting the bucket using Mountpoint for Amazon S3:
 
 * Object keys that contain null bytes (`\0`) will not be accessible.
-* Files or directories named `.` or `..` will not be accessible. This includes the object keys `.` or `..`, any key that ends in `/.` or `/..`, and any key that contains `/./` or `/../`.
+* Object keys that would result in files or directories named `.` or `..` will not be accessible. This includes the object keys `.` or `..`, any key that ends in `/.` or `/..`, and any key that contains `/./` or `/../`. The `.` and `..` names are instead reserved for use by the usual relative directories (`.` for the current directory, and `..` for the parent).
 * Object keys that end in the path delimiter (`/`) will not be accessible. Instead, a directory of the same name will be visible.
   For example, if your bucket has the following object keys:
 
