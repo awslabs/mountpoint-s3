@@ -1,3 +1,6 @@
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::thread::sleep;
 use std::{
     fs::{metadata, read_dir, read_to_string},
     time::Duration,
@@ -146,4 +149,54 @@ fn lookup_previously_shadowed_file_test_s3() {
 #[test]
 fn lookup_previously_shadowed_file_test_mock() {
     lookup_previously_shadowed_file_test(crate::fuse_tests::mock_session::new);
+}
+
+fn lookup_unicode_keys_test<F>(creator_fn: F, prefix: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+
+    let keys = &["مرحبًا", "こんにちは/", "🇦🇺", "🐈/🦀"];
+
+    for (i, key) in keys.iter().enumerate() {
+        test_client
+            .put_object(key, format!("hello world {i}").as_bytes())
+            .unwrap();
+    }
+
+    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["مرحبًا", "こんにちは", "🇦🇺", "🐈"]);
+
+    let m = metadata(mount_point.path().join("こんにちは")).unwrap();
+    assert!(m.file_type().is_dir());
+    let m = metadata(mount_point.path().join("🐈")).unwrap();
+    assert!(m.file_type().is_dir());
+
+    // Not really a "lookup" test, but since we're playing with Unicode, may as well do it here
+    let new_path = mount_point.path().join("🐈/👻");
+    let mut f = OpenOptions::new().write(true).create(true).open(&new_path).unwrap();
+    f.write_all("hello world 4".as_bytes()).unwrap();
+    f.sync_all().unwrap();
+    drop(f);
+
+    sleep(Duration::from_secs(1));
+
+    let f = read_to_string(mount_point.path().join(keys[0])).unwrap();
+    assert_eq!(f, "hello world 0");
+
+    let f = read_to_string(new_path).unwrap();
+    assert_eq!(f, "hello world 4");
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn lookup_unicode_keys_s3() {
+    lookup_unicode_keys_test(crate::fuse_tests::s3_session::new, "lookup_unicode_keys_test");
+}
+
+#[test]
+fn lookup_unicode_keys_mock() {
+    lookup_unicode_keys_test(crate::fuse_tests::mock_session::new, "lookup_unicode_keys_test");
 }
