@@ -1,11 +1,13 @@
+use std::sync::{Arc, Mutex};
+
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams};
 use crate::{ObjectClientError, PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType};
+use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
 use tracing::debug;
 
-use super::S3HttpRequest;
+use super::{S3CrtClientInner, S3HttpRequest};
 
 impl S3CrtClient {
     pub(super) async fn put_object(
@@ -35,13 +37,55 @@ impl S3CrtClient {
         message.set_body_stream(Some(body_async_stream));
 
         span.in_scope(|| debug!(?bucket, ?key, ?params, "make request"));
+
+        let review_callback = ReviewCallbackBox::default();
+        let callback = review_callback.clone();
+
+        let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
+        options.on_upload_review(move |review| callback.invoke(review));
         let body = self
             .inner
-            .make_simple_http_request(message, MetaRequestType::PutObject, span, |result| {
+            .make_simple_http_request_from_options(options, span, |result| {
                 ObjectClientError::ClientError(S3RequestError::ResponseError(result))
             })?;
 
-        Ok(S3PutObjectRequest { body, writer })
+        Ok(S3PutObjectRequest {
+            body,
+            writer,
+            review_callback,
+        })
+    }
+}
+
+type ReviewCallback = dyn FnOnce(UploadReview) -> bool + Send;
+
+#[derive(Clone, Default)]
+struct ReviewCallbackBox {
+    callback: Arc<Mutex<Option<Box<ReviewCallback>>>>,
+}
+
+impl std::fmt::Debug for ReviewCallbackBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReviewCallbackBox").finish()
+    }
+}
+
+impl ReviewCallbackBox {
+    fn set(&mut self, callback: impl FnOnce(UploadReview) -> bool + Send + 'static) {
+        let _ = self.callback.lock().unwrap().insert(Box::new(callback));
+    }
+
+    fn invoke(self, review: UploadReview) -> Result<(), i32> {
+        let mut callback = self.callback.lock().unwrap();
+        if let Some(callback) = callback.take() {
+            if (callback)(review) {
+                Ok(())
+            } else {
+                Err(UploadReview::FAILURE)
+            }
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -49,6 +93,7 @@ impl S3CrtClient {
 pub struct S3PutObjectRequest {
     body: S3HttpRequest<Vec<u8>, PutObjectError>,
     writer: AsyncStreamWriter,
+    review_callback: ReviewCallbackBox,
 }
 
 #[async_trait]
@@ -72,5 +117,13 @@ impl PutObjectRequest for S3PutObjectRequest {
         };
 
         body.await.map(|_| PutObjectResult {})
+    }
+
+    async fn review_and_complete(
+        mut self,
+        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        self.review_callback.set(review_callback);
+        self.complete().await
     }
 }

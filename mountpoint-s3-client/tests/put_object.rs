@@ -6,13 +6,18 @@ use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::GetObjectError;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::ObjectClientError;
 use mountpoint_s3_client::ObjectClientResult;
 use mountpoint_s3_client::PutObjectParams;
 use mountpoint_s3_client::PutObjectRequest;
 use mountpoint_s3_client::S3ClientConfig;
 use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::UploadReview;
 use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use rand::Rng;
+use test_case::test_case;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
@@ -227,5 +232,46 @@ async fn test_put_checksums() {
     for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
         let encoded = expected_checksum.to_base64();
         assert_eq!(checksum, encoded);
+    }
+}
+
+#[test_case(true; "pass review")]
+#[test_case(false; "fail review")]
+#[tokio::test]
+async fn test_put_review(pass_review: bool) {
+    const PART_SIZE: usize = 5 * 1024 * 1024;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
+    let client_config = S3ClientConfig::new().part_size(PART_SIZE);
+    let client = S3CrtClient::new(&get_test_region(), client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; PART_SIZE * 2];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectParams::new().trailing_checksums(true);
+    let mut request = client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+
+    let contents_size = contents.len();
+    let result = request
+        .review_and_complete(move |review| {
+            let total_size: u64 = review.parts.iter().map(|p| p.size).sum();
+            assert_eq!(total_size, contents_size as u64);
+            pass_review
+        })
+        .await;
+
+    if pass_review {
+        _ = result.expect("putobject should succeed when review passes");
+    } else {
+        let err = result.expect_err("putobject should abort when review fails");
+        assert!(
+            matches!(err, ObjectClientError::ClientError(S3RequestError::ResponseError(MetaRequestResult { crt_error, .. })) if crt_error.raw_error() == UploadReview::FAILURE)
+        );
     }
 }

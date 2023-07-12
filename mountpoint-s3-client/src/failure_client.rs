@@ -12,7 +12,7 @@ use pin_project::pin_project;
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError, ObjectClientResult,
-    PutObjectError, PutObjectParams,
+    PutObjectError, PutObjectParams, UploadReview,
 };
 use crate::{ETag, ListObjectsResult, ObjectAttribute, ObjectClient, PutObjectRequest, PutObjectResult};
 
@@ -204,6 +204,14 @@ where
     async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         (self.result_fn)(&mut self.state)?;
         self.request.complete().await
+    }
+
+    async fn review_and_complete(
+        mut self,
+        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        (self.result_fn)(&mut self.state)?;
+        self.request.review_and_complete(review_callback).await
     }
 }
 

@@ -118,6 +118,9 @@ type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 /// Callback for when part of the response body is received. Given (range_start, data).
 type BodyCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
 
+/// Callback for reviewing an upload before it completes.
+type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> Result<(), i32> + Send>;
+
 /// Callback for when the request is finished. Given (error_code, optional_error_body).
 type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
@@ -147,6 +150,9 @@ struct MetaRequestOptionsInner {
 
     /// Body callback, if provided.
     on_body: Option<BodyCallback>,
+
+    /// Upload review callback, if provided.
+    on_upload_review: Option<UploadReviewCallback>,
 
     /// Finish callback, if provided (and not already called, since it's FnOnce).
     on_finish: Option<FinishCallback>,
@@ -207,6 +213,7 @@ impl MetaRequestOptions {
                 body_callback: Some(meta_request_receive_body_callback),
                 finish_callback: Some(meta_request_finish_callback),
                 shutdown_callback: Some(meta_request_shutdown_callback),
+                upload_review_callback: Some(meta_request_upload_review_callback),
                 user_data: std::ptr::null_mut(), // Set to null until the Box is made.
                 ..Default::default()
             },
@@ -217,6 +224,7 @@ impl MetaRequestOptions {
             on_telemetry: None,
             on_headers: None,
             on_body: None,
+            on_upload_review: None,
             on_finish: None,
             _pinned: Default::default(),
         });
@@ -304,6 +312,17 @@ impl MetaRequestOptions {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_body = Some(Box::new(callback));
+        self
+    }
+
+    /// Provide a callback to run when the upload request is ready to complete.
+    pub fn on_upload_review(
+        &mut self,
+        callback: impl FnOnce(UploadReview) -> Result<(), i32> + Send + 'static,
+    ) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.on_upload_review = Some(Box::new(callback));
         self
     }
 
@@ -440,6 +459,26 @@ unsafe extern "C" fn meta_request_shutdown_callback(user_data: *mut libc::c_void
 
     // SAFETY: at this point, we shouldn't receieve any more callbacks for this request.
     std::mem::drop(user_data);
+}
+
+/// Safety: Don't call this function directly, only called by the CRT as a callback.
+unsafe extern "C" fn meta_request_upload_review_callback(
+    _request: *mut aws_s3_meta_request,
+    upload_review: *const aws_s3_upload_review,
+    user_data: *mut libc::c_void,
+) -> i32 {
+    // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
+    // in MetaRequestOptions::new.
+    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+
+    if let Some(callback) = user_data.on_upload_review.take() {
+        return match callback(UploadReview::new(&*upload_review)) {
+            Ok(()) => AWS_OP_SUCCESS,
+            Err(err) => aws_raise_error(err),
+        };
+    }
+
+    AWS_OP_SUCCESS
 }
 
 /// An in-progress request to S3.
@@ -866,5 +905,95 @@ impl ChecksumConfig {
     /// Get out the inner pointer to the checksum config
     pub(crate) fn to_inner_ptr(&self) -> *const aws_s3_checksum_config {
         &self.inner
+    }
+}
+
+/// Checksum algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ChecksumAlgorithm {
+    /// No checksums.
+    None,
+    /// Crc32c checksum.
+    Crc32c,
+    /// Crc32 checksum.
+    Crc32,
+    /// Sha1 checksum.
+    Sha1,
+    /// Sha256 checksum.
+    Sha256,
+}
+
+impl From<aws_s3_checksum_algorithm> for ChecksumAlgorithm {
+    fn from(algorithm: aws_s3_checksum_algorithm) -> Self {
+        match algorithm {
+            aws_s3_checksum_algorithm::AWS_SCA_NONE => ChecksumAlgorithm::None,
+            aws_s3_checksum_algorithm::AWS_SCA_CRC32C => ChecksumAlgorithm::Crc32c,
+            aws_s3_checksum_algorithm::AWS_SCA_CRC32 => ChecksumAlgorithm::Crc32,
+            aws_s3_checksum_algorithm::AWS_SCA_SHA1 => ChecksumAlgorithm::Sha1,
+            aws_s3_checksum_algorithm::AWS_SCA_SHA256 => ChecksumAlgorithm::Sha256,
+            _ => unreachable!("unknown aws_s3_checksum_algorithm"),
+        }
+    }
+}
+
+impl From<ChecksumAlgorithm> for aws_s3_checksum_algorithm {
+    fn from(algorithm: ChecksumAlgorithm) -> Self {
+        match algorithm {
+            ChecksumAlgorithm::None => aws_s3_checksum_algorithm::AWS_SCA_NONE,
+            ChecksumAlgorithm::Crc32c => aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
+            ChecksumAlgorithm::Crc32 => aws_s3_checksum_algorithm::AWS_SCA_CRC32,
+            ChecksumAlgorithm::Sha1 => aws_s3_checksum_algorithm::AWS_SCA_SHA1,
+            ChecksumAlgorithm::Sha256 => aws_s3_checksum_algorithm::AWS_SCA_SHA256,
+        }
+    }
+}
+
+/// Info for the caller to review before an upload completes.
+#[derive(Debug)]
+pub struct UploadReview {
+    /// Info about each part uploaded.
+    pub parts: Vec<UploadPartReview>,
+    /// The checksum algorithm used.
+    pub checksum_algorithm: ChecksumAlgorithm,
+}
+
+impl UploadReview {
+    fn new(review: &aws_s3_upload_review) -> Self {
+        let checksum_algorithm = review.checksum_algorithm.into();
+        let count = review.part_count;
+        let mut parts = Vec::new();
+        for i in 0..count {
+            // SAFETY: `part_array` is an array of length `count`.
+            let part = unsafe { &*review.part_array.add(i) };
+            parts.push(UploadPartReview::new(part));
+        }
+        Self {
+            parts,
+            checksum_algorithm,
+        }
+    }
+
+    /// Failure error code.
+    pub const FAILURE: i32 = aws_s3_errors::AWS_ERROR_S3_CANCELED as i32;
+}
+
+/// Info about a single part, for the caller to review before the upload completes.
+#[derive(Debug)]
+pub struct UploadPartReview {
+    /// Size in bytes of this part.
+    pub size: u64,
+
+    /// Checksum string (usually base64-encoded). This is empty if no checksum is used.
+    pub checksum: String,
+}
+
+impl UploadPartReview {
+    fn new(part: &aws_s3_upload_part_review) -> Self {
+        // SAFETY: `part` is a valid aws_byte_cursor. The returned slice is only used in current scope.
+        let slice = unsafe { aws_byte_cursor_as_slice(&part.checksum) };
+        let str = core::str::from_utf8(slice).expect("Checksum should be a valid UTF-8 string.");
+        let checksum = str.to_owned();
+        let size = part.size;
+        Self { size, checksum }
     }
 }

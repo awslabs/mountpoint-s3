@@ -269,6 +269,9 @@ impl PutObjectParams {
     }
 }
 
+/// Info for the caller to review before an upload completes.
+pub type UploadReview = mountpoint_s3_crt::s3::client::UploadReview;
+
 /// A streaming put request which allows callers to asynchronously write
 /// the body of the request.
 #[async_trait]
@@ -280,6 +283,12 @@ pub trait PutObjectRequest: Send {
 
     /// Complete the put request and return a [PutObjectResult].
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
+
+    /// Review and complete the put request and return a [PutObjectResult].
+    async fn review_and_complete(
+        self,
+        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 }
 
 /// Result of a [ObjectClient::put_object] request

@@ -327,6 +327,18 @@ impl S3CrtClientInner {
         })
     }
 
+    fn new_meta_request_options(message: S3Message, meta_request_type: MetaRequestType) -> MetaRequestOptions {
+        let mut options = MetaRequestOptions::new();
+        if let Some(checksum_config) = message.checksum_config {
+            options.checksum_config(checksum_config);
+        }
+        options
+            .message(message.inner)
+            .endpoint(message.uri)
+            .request_type(meta_request_type);
+        options
+    }
+
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
     /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
     /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
@@ -335,6 +347,23 @@ impl S3CrtClientInner {
         &self,
         message: S3Message,
         meta_request_type: MetaRequestType,
+        request_span: Span,
+        on_headers: impl FnMut(&Headers, i32) + Send + 'static,
+        on_body: impl FnMut(u64, &[u8]) + Send + 'static,
+        on_finish: impl FnOnce(MetaRequestResult) -> ObjectClientResult<T, E, S3RequestError> + Send + 'static,
+    ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
+        let options = Self::new_meta_request_options(message, meta_request_type);
+        self.make_meta_request_from_options(options, request_span, on_headers, on_body, on_finish)
+    }
+
+    /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
+    /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
+    /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
+    /// succeeded.
+    #[allow(clippy::too_many_arguments)] // TODO: review
+    fn make_meta_request_from_options<T: Send + 'static, E: Send + 'static>(
+        &self,
+        mut options: MetaRequestOptions,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
@@ -350,13 +379,7 @@ impl S3CrtClientInner {
         let first_body_part = Arc::new(AtomicBool::new(true));
         let first_body_part_clone = Arc::clone(&first_body_part);
 
-        let mut options = MetaRequestOptions::new();
-        if let Some(checksum_config) = message.checksum_config {
-            options.checksum_config(checksum_config);
-        }
         options
-            .message(message.inner)
-            .endpoint(message.uri)
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
 
@@ -435,8 +458,7 @@ impl S3CrtClientInner {
                 let result = on_finish(request_result);
 
                 let _ = tx.send(result);
-            })
-            .request_type(meta_request_type);
+            });
 
         // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
         // the resulting meta request, as it's a reference-counted object.
@@ -459,13 +481,27 @@ impl S3CrtClientInner {
         request_span: Span,
         on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
+        let options = Self::new_meta_request_options(message, request_type);
+        self.make_simple_http_request_from_options(options, request_span, on_error)
+    }
+
+    /// Make an HTTP request using this S3 client that returns the body on success or invokes the
+    /// given callback on failure.
+    ///
+    /// The `on_error` callback can assume that `result.is_err()` is true for the result it
+    /// receives.
+    fn make_simple_http_request_from_options<E: Send + 'static>(
+        &self,
+        options: MetaRequestOptions,
+        request_span: Span,
+        on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
+    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
         let body_clone = Arc::clone(&body);
 
-        self.make_meta_request(
-            message,
-            request_type,
+        self.make_meta_request_from_options(
+            options,
             request_span,
             |_, _| (),
             move |offset, data| {

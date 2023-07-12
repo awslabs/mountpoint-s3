@@ -8,6 +8,8 @@ use std::task::{Context, Poll};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
+use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_crt::s3::client::{ChecksumAlgorithm, UploadPartReview};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
@@ -15,7 +17,7 @@ use tracing::trace;
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
-    ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
+    ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult, UploadReview,
 };
 use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest};
 
@@ -445,7 +447,7 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
-        _params: &PutObjectParams,
+        params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         trace!(bucket, key, "PutObject");
 
@@ -453,7 +455,13 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
-        let put_request = MockPutObjectRequest::new(key, &self.objects, &self.in_progress_uploads);
+        let put_request = MockPutObjectRequest::new(
+            key,
+            self.config.part_size,
+            params.trailing_checksums,
+            &self.objects,
+            &self.in_progress_uploads,
+        );
         Ok(put_request)
     }
 
@@ -501,6 +509,8 @@ impl ObjectClient for MockClient {
 pub struct MockPutObjectRequest {
     key: String,
     buffer: Vec<u8>,
+    part_size: usize,
+    compute_checksum: bool,
     objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
@@ -508,6 +518,8 @@ pub struct MockPutObjectRequest {
 impl MockPutObjectRequest {
     fn new(
         key: &str,
+        part_size: usize,
+        compute_checksum: bool,
         objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
         in_progress_uploads: &Arc<RwLock<BTreeSet<String>>>,
     ) -> Self {
@@ -515,6 +527,8 @@ impl MockPutObjectRequest {
         Self {
             key: key.to_owned(),
             buffer: vec![],
+            part_size,
+            compute_checksum,
             objects: objects.clone(),
             in_progress_uploads: in_progress_uploads.clone(),
         }
@@ -540,6 +554,39 @@ impl PutObjectRequest for MockPutObjectRequest {
         let buffer = std::mem::take(&mut self.buffer);
         add_object(&self.objects, &self.key, buffer.into());
         Ok(PutObjectResult {})
+    }
+
+    async fn review_and_complete(
+        self,
+        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        let checksum_algorithm = if self.compute_checksum {
+            ChecksumAlgorithm::Crc32c
+        } else {
+            ChecksumAlgorithm::None
+        };
+        let parts: Vec<UploadPartReview> = self
+            .buffer
+            .chunks(self.part_size)
+            .map(|part| {
+                let size = part.len() as u64;
+                let checksum = if self.compute_checksum {
+                    let checksum = crc32c::checksum(part);
+                    checksum.to_base64()
+                } else {
+                    String::new()
+                };
+                UploadPartReview { size, checksum }
+            })
+            .collect();
+        let review = UploadReview {
+            checksum_algorithm,
+            parts,
+        };
+        if !review_callback(review) {
+            return mock_client_error("upload review failed, aborting");
+        }
+        self.complete().await
     }
 }
 
