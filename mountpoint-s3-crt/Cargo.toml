@@ -16,6 +16,8 @@ description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazo
 mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.2.2" }
 
 async-channel = "1.8.0"
+base64ct = { version = "1.6.0", features = ["std"] }
+crc32c = "0.6.3"
 futures = "0.3.24"
 libc = "0.2.132"
 log = "0.4.17"

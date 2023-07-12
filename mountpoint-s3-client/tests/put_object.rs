@@ -2,8 +2,6 @@
 
 pub mod common;
 
-use base64ct::Base64;
-use base64ct::Encoding;
 use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::GetObjectError;
@@ -227,7 +225,7 @@ async fn test_put_checksums() {
 
     assert_eq!(checksums.len(), expected_checksums.len());
     for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
-        let encoded = Base64::encode_string(&expected_checksum.value().to_be_bytes());
+        let encoded = expected_checksum.to_base64();
         assert_eq!(checksum, encoded);
     }
 }

@@ -38,7 +38,6 @@ anyhow = { version = "1.0.64", features = ["backtrace"] }
 aws-config = "0.54.1"
 aws-credential-types = "0.54.1"
 aws-sdk-s3 = "0.24.0"
-base64ct = { version = "1.6.0", features = ["std"] }
 bytes = "1.2.1"
 clap = "3.2.12"
 ctor = "0.1.23"
