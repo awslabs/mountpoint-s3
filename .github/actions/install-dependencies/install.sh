@@ -159,6 +159,10 @@ if [[ $dry_run == false ]]; then
     case $os_release_id in
         amzn)
             sudo yum install -y $package_list
+            type -p yum-config-manager >/dev/null || sudo yum install yum-utils -y
+            sudo yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo -y
+            sudo yum install gh -y
+            sudo yum update gh -y
             ;;
         ubuntu)
             sudo apt-get -q update
