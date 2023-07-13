@@ -8,16 +8,16 @@ use std::task::{Context, Poll};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
-use mountpoint_s3_crt::checksums::crc32c;
-use mountpoint_s3_crt::s3::client::{ChecksumAlgorithm, UploadPartReview};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
 
+use crate::checksums::crc32c;
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectClient,
-    ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult, UploadReview,
+    ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError,
+    GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
+    ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
+    UploadPartReview, UploadReview,
 };
 use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest};
 

@@ -272,6 +272,12 @@ impl PutObjectParams {
 /// Info for the caller to review before an upload completes.
 pub type UploadReview = mountpoint_s3_crt::s3::client::UploadReview;
 
+/// Info about a single part, for the caller to review before the upload completes.
+pub type UploadPartReview = mountpoint_s3_crt::s3::client::UploadPartReview;
+
+/// Checksum algorithm.
+pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
+
 /// A streaming put request which allows callers to asynchronously write
 /// the body of the request.
 #[async_trait]

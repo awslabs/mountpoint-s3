@@ -1,4 +1,5 @@
 mod build_info;
+pub mod checksums;
 mod endpoint;
 pub mod failure_client;
 mod imds_crt_client;

@@ -1,4 +1,4 @@
-use mountpoint_s3_crt_sys::aws_checksums_crc32;
+use mountpoint_s3_crt::checksums::crc32;
 
 /// CRC32 checksum
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -39,25 +39,12 @@ impl Hasher {
 
     /// Update the hash state with the given bytes slice.
     pub fn update(&mut self, buf: &[u8]) {
-        self.state = Hasher::crc32(buf, self.state);
+        self.state = Crc32(crc32(buf, self.state.0));
     }
 
     /// Finalize the hash state and return the computed CRC32 checksum value.
     pub fn finalize(self) -> Crc32 {
         self.state
-    }
-
-    /// Compute CRC32 checksum of the data in the given bytes slice, append to the previous checksum.
-    ///
-    /// The underlying CRT funtion requires the buffer's length to be type `i32`, so this function cannot take
-    /// any buffer that is bigger than `i32::MAX` as an input.
-    fn crc32(buf: &[u8], previous_checksum: Crc32) -> Crc32 {
-        assert!(buf.len() <= i32::MAX as usize);
-
-        // SAFETY: we pass a valid buffer to the CRT, and trust
-        // the CRT function to only read from the buffer's boundary.
-        let checksum = unsafe { aws_checksums_crc32(buf.as_ptr(), buf.len() as i32, previous_checksum.0) };
-        Crc32(checksum)
     }
 }
 

@@ -4,6 +4,7 @@ pub mod common;
 
 use common::*;
 use futures::{pin_mut, StreamExt};
+use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::GetObjectError;
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::ObjectClientError;
@@ -14,7 +15,6 @@ use mountpoint_s3_client::S3ClientConfig;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::UploadReview;
-use mountpoint_s3_crt::checksums::crc32c;
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use rand::Rng;
 use test_case::test_case;

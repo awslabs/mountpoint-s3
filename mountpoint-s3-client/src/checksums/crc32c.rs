@@ -1,7 +1,6 @@
-use mountpoint_s3_crt_sys::aws_checksums_crc32c;
-
 use base64ct::Base64;
 use base64ct::Encoding;
+use mountpoint_s3_crt::checksums::crc32c;
 use thiserror::Error;
 
 /// CRC32C checksum
@@ -29,13 +28,6 @@ impl Crc32c {
         let mut dec_buf = [0u8; std::mem::size_of::<u32>()];
         let _ = Base64::decode(base64_str, &mut dec_buf)?;
         Ok(Self(u32::from_be_bytes(dec_buf)))
-    }
-
-    /// Calculates the combined checksum for `AB` where `self` is the checksum for `A`,
-    /// `suffix_crc` is the checksum for `B`, and `suffic_len` is the length of `B`.
-    pub fn combine(&self, suffix_crc: Crc32c, suffix_len: usize) -> Self {
-        let combined = ::crc32c::crc32c_combine(self.value(), suffix_crc.value(), suffix_len);
-        Self(combined)
     }
 }
 
@@ -70,25 +62,12 @@ impl Hasher {
 
     /// Update the hash state with the given bytes slice.
     pub fn update(&mut self, buf: &[u8]) {
-        self.state = Hasher::crc32c(buf, self.state);
+        self.state = Crc32c(crc32c(buf, self.state.0));
     }
 
     /// Finalize the hash state and return the computed CRC32C checksum value.
     pub fn finalize(self) -> Crc32c {
         self.state
-    }
-
-    /// Compute CRC32C checksum of the data in the given bytes slice, append to the previous checksum.
-    ///
-    /// The underlying CRT funtion requires the buffer's length to be type `i32`, so this function cannot take
-    /// any buffer that is bigger than `i32::MAX` as an input.
-    fn crc32c(buf: &[u8], previous_checksum: Crc32c) -> Crc32c {
-        assert!(buf.len() <= i32::MAX as usize);
-
-        // SAFETY: we pass a valid buffer to the CRT, and trust
-        // the CRT function to only read from the buffer's boundary.
-        let checksum = unsafe { aws_checksums_crc32c(buf.as_ptr(), buf.len() as i32, previous_checksum.0) };
-        Crc32c(checksum)
     }
 }
 
@@ -127,17 +106,6 @@ mod tests {
         hasher.update(b"56789");
         let crc = hasher.finalize();
         assert_eq!(crc, Crc32c(0xe3069283));
-    }
-
-    #[test]
-    fn crc32c_combine() {
-        let buf: &[u8] = b"123456789";
-        let (buf1, buf2) = buf.split_at(4);
-        let crc = crc32c::checksum(buf);
-        let crc1 = crc32c::checksum(buf1);
-        let crc2 = crc32c::checksum(buf2);
-        let combined = crc1.combine(crc2, buf2.len());
-        assert_eq!(combined, crc);
     }
 
     #[test]

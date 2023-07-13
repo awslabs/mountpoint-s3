@@ -5,11 +5,11 @@ use mountpoint_s3_client::{
     PutObjectResult, UploadReview,
 };
 
-use mountpoint_s3_crt::checksums::crc32c::Crc32c;
+use mountpoint_s3_client::checksums::crc32c::Crc32c;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::error;
 
-use crate::checksums::ChecksummedSlice;
+use crate::checksums::{combine_checksums, ChecksummedSlice};
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -149,7 +149,7 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
             }
         };
 
-        combined_checksum = combined_checksum.combine(checksum, part.size as usize);
+        combined_checksum = combine_checksums(combined_checksum, checksum, part.size as usize);
     }
 
     total_size == expected_size && combined_checksum == expected_checksum

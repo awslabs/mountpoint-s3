@@ -1904,6 +1904,7 @@ dependencies = [
  "bytes",
  "clap 4.3.9",
  "const_format",
+ "crc32c",
  "ctor",
  "ctrlc",
  "fuser",
@@ -1947,6 +1948,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "base64ct",
  "built",
  "bytes",
  "clap 3.2.25",
@@ -1982,8 +1984,6 @@ name = "mountpoint-s3-crt"
 version = "0.2.2"
 dependencies = [
  "async-channel",
- "base64ct",
- "crc32c",
  "criterion",
  "ctor",
  "futures",

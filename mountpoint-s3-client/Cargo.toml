@@ -17,6 +17,7 @@ mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.2.2" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
+base64ct = { version = "1.6.0", features = ["std"] }
 const_format = "0.2.30"
 futures = { version = "0.3.24", features = ["thread-pool"] }
 lazy_static = "1.4.0"
