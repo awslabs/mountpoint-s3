@@ -13,7 +13,7 @@ A new log file will be created for each execution of `mount-s3`.
 Both the directory and log files are created with permissions such that the process owner has read/write access and the group has read access.
 Log files are not rotated or cleaned up.
 
-When running in foreground mode (`-f, --foreground`), `mount-s3` will emit logs to stdout irrespective of the `--log-directory` configuration.
+When running in foreground mode (`-f, --foreground`), `mount-s3` will emit logs to stdout in addition to any configured log directory.
 
 ## Log details
 
