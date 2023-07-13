@@ -164,7 +164,8 @@ struct CliArgs {
     #[clap(
         short,
         long,
-        help = "Configure a directory for logs to be written to a file. [default: no logs written to a file]"
+        help = "Configure a directory for logs to be written to. [default: no logs written to a file]",
+        value_name = "DIRECTORY"
     )]
     pub log_directory: Option<PathBuf>,
 
