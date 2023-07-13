@@ -14,8 +14,6 @@ use mountpoint_s3_client::PutObjectRequest;
 use mountpoint_s3_client::S3ClientConfig;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::S3RequestError;
-use mountpoint_s3_client::UploadReview;
-use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use rand::Rng;
 use test_case::test_case;
 
@@ -146,17 +144,6 @@ async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, prefi
     request.write(&contents).await.unwrap();
     drop(request); // Drop without calling complete().
 
-    async fn check_get_object<Client: ObjectClient>(
-        client: &Client,
-        bucket: &str,
-        key: &str,
-    ) -> ObjectClientResult<(), GetObjectError, Client::ClientError> {
-        let result = client.get_object(bucket, key, None, None).await?;
-        pin_mut!(result);
-        result.next().await.unwrap()?;
-        Ok(())
-    }
-
     let result = check_get_object(client, bucket, &key).await;
     assert!(result.is_err(), "get_object should fail for dropped PUT");
 }
@@ -258,7 +245,7 @@ async fn test_put_review(pass_review: bool) {
     request.write(&contents).await.unwrap();
 
     let contents_size = contents.len();
-    let result = request
+    let put_result = request
         .review_and_complete(move |review| {
             let total_size: u64 = review.parts.iter().map(|p| p.size).sum();
             assert_eq!(total_size, contents_size as u64);
@@ -266,12 +253,39 @@ async fn test_put_review(pass_review: bool) {
         })
         .await;
 
+    let get_result = check_get_object(&client, &bucket, &key).await;
     if pass_review {
-        _ = result.expect("putobject should succeed when review passes");
+        _ = put_result.expect("putobject should succeed when review passes");
+        get_result.expect("getobject should succeed after successful put");
     } else {
-        let err = result.expect_err("putobject should abort when review fails");
-        assert!(
-            matches!(err, ObjectClientError::ClientError(S3RequestError::ResponseError(MetaRequestResult { crt_error, .. })) if crt_error.raw_error() == UploadReview::FAILURE)
-        );
+        let err = put_result.expect_err("putobject should abort when review fails");
+        assert!(matches!(
+            err,
+            ObjectClientError::ClientError(S3RequestError::ResponseError(_))
+        ));
+
+        let err = get_result.expect_err("getobject should fail for aborted put");
+        assert!(matches!(
+            err,
+            ObjectClientError::ServiceError(GetObjectError::NoSuchKey)
+        ));
+
+        // Allow for the AbortMultipartUpload to complete.
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        let sdk_client = get_test_sdk_client().await;
+        let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
+        assert_eq!(uploads_in_progress, 0);
     }
+}
+
+async fn check_get_object<Client: ObjectClient>(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+) -> ObjectClientResult<(), GetObjectError, Client::ClientError> {
+    let result = client.get_object(bucket, key, None, None).await?;
+    pin_mut!(result);
+    result.next().await.unwrap()?;
+    Ok(())
 }

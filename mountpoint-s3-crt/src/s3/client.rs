@@ -119,7 +119,7 @@ type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 type BodyCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
 
 /// Callback for reviewing an upload before it completes.
-type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> Result<(), i32> + Send>;
+type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> bool + Send>;
 
 /// Callback for when the request is finished. Given (error_code, optional_error_body).
 type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
@@ -151,7 +151,7 @@ struct MetaRequestOptionsInner {
     /// Body callback, if provided.
     on_body: Option<BodyCallback>,
 
-    /// Upload review callback, if provided.
+    /// Upload review callback, if provided (and not already called, since it's FnOnce).
     on_upload_review: Option<UploadReviewCallback>,
 
     /// Finish callback, if provided (and not already called, since it's FnOnce).
@@ -316,10 +316,7 @@ impl MetaRequestOptions {
     }
 
     /// Provide a callback to run when the upload request is ready to complete.
-    pub fn on_upload_review(
-        &mut self,
-        callback: impl FnOnce(UploadReview) -> Result<(), i32> + Send + 'static,
-    ) -> &mut Self {
+    pub fn on_upload_review(&mut self, callback: impl FnOnce(UploadReview) -> bool + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_upload_review = Some(Box::new(callback));
@@ -471,14 +468,18 @@ unsafe extern "C" fn meta_request_upload_review_callback(
     // in MetaRequestOptions::new.
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
-    if let Some(callback) = user_data.on_upload_review.take() {
-        return match callback(UploadReview::new(&*upload_review)) {
-            Ok(()) => AWS_OP_SUCCESS,
-            Err(err) => aws_raise_error(err),
-        };
-    }
+    let Some(callback) = user_data.on_upload_review.take() else {
+        return AWS_OP_SUCCESS;
+    };
 
-    AWS_OP_SUCCESS
+    let upload_review = upload_review
+        .as_ref()
+        .expect("CRT should provide a valid upload_review");
+    if callback(UploadReview::new(upload_review)) {
+        AWS_OP_SUCCESS
+    } else {
+        aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32)
+    }
 }
 
 /// An in-progress request to S3.
@@ -958,9 +959,6 @@ impl UploadReview {
             checksum_algorithm,
         }
     }
-
-    /// Failure error code.
-    pub const FAILURE: i32 = aws_s3_errors::AWS_ERROR_S3_CANCELED as i32;
 }
 
 /// Info about a single part, for the caller to review before the upload completes.

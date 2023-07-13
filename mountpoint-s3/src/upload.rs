@@ -136,10 +136,10 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
 }
 
 fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: Crc32c) -> bool {
-    let mut total_size = 0u64;
-    let mut combined_checksum = Crc32c::new(0);
+    let mut uploaded_size = 0u64;
+    let mut uploaded_checksum = Crc32c::new(0);
     for part in review.parts {
-        total_size += part.size;
+        uploaded_size += part.size;
 
         let Some(checksum) = &part.checksum else {
             error!("missing part checksum");
@@ -153,10 +153,27 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
             }
         };
 
-        combined_checksum = combine_checksums(combined_checksum, checksum, part.size as usize);
+        uploaded_checksum = combine_checksums(uploaded_checksum, checksum, part.size as usize);
     }
 
-    total_size == expected_size && combined_checksum == expected_checksum
+    if uploaded_size != expected_size {
+        error!(
+            uploaded_size,
+            expected_size, "Total uploaded size differs from expected size"
+        );
+        return false;
+    }
+
+    if uploaded_checksum != expected_checksum {
+        error!(
+            ?uploaded_checksum,
+            ?expected_checksum,
+            "Combined checksum of all uploaded parts differs from expected checksum"
+        );
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]
