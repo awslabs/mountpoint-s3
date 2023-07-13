@@ -5,11 +5,9 @@ use mountpoint_s3_client::{
     PutObjectResult, UploadReview,
 };
 
-use mountpoint_s3_client::checksums::crc32c::Crc32c;
+use mountpoint_s3_client::checksums::crc32c::{Crc32c, Hasher};
 use thiserror::Error;
 use tracing::error;
-
-use crate::checksums::{combine_checksums, ChecksummedSlice};
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -62,7 +60,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     bucket: String,
     key: String,
     next_request_offset: u64,
-    checksum: Crc32c,
+    hasher: Hasher,
     request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
 }
@@ -81,7 +79,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             next_request_offset: 0,
-            checksum: Crc32c::new(0),
+            hasher: Hasher::new(),
             request,
             maximum_upload_size,
         })
@@ -94,7 +92,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     pub async fn write(
         &mut self,
         offset: i64,
-        data: ChecksummedSlice<'_>,
+        data: &[u8],
     ) -> Result<usize, UploadWriteError<PutRequestError<Client>>> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
@@ -109,15 +107,15 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             }
         }
 
-        self.checksum = data.combined_with_prefix(&self.checksum);
-        self.request.write(data.slice()).await?;
+        self.hasher.update(data);
+        self.request.write(data).await?;
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
     }
 
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
-        let checksum = self.checksum;
         let size = self.size();
+        let checksum = self.hasher.finalize();
         self.request
             .review_and_complete(move |review| verify_checksums(review, size, checksum))
             .await
@@ -130,7 +128,7 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
             .field("bucket", &self.bucket)
             .field("key", &self.key)
             .field("next_request_offset", &self.next_request_offset)
-            .field("checksum", &self.checksum)
+            .field("hasher", &self.hasher)
             .finish()
     }
 }
@@ -176,12 +174,20 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
     true
 }
 
+/// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
+/// `suffix_crc` is the checksum for `B`, and `suffic_len` is the length of `B`.
+pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
+    let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
+    Crc32c::new(combined)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
     use mountpoint_s3_client::{
+        checksums::crc32c,
         failure_client::countdown_failure_client,
         mock_client::{MockClient, MockClientConfig, MockClientError},
     };
@@ -223,7 +229,7 @@ mod tests {
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
-        let data = ChecksummedSlice::new(b"foo");
+        let data = b"foo";
         let mut offset = 0;
         offset += request.write(offset, data).await.unwrap() as i64;
 
@@ -274,10 +280,7 @@ mod tests {
             let mut request = uploader.put(bucket, key).await.unwrap();
 
             let data = b"foo";
-            request
-                .write(0, ChecksummedSlice::new(data))
-                .await
-                .expect_err("first write should fail");
+            request.write(0, data).await.expect_err("first write should fail");
         }
         assert!(!client.is_upload_in_progress(key));
         assert!(!client.contains_key(key));
@@ -287,7 +290,7 @@ mod tests {
             let mut request = uploader.put(bucket, key).await.unwrap();
 
             let data = b"foo";
-            _ = request.write(0, ChecksummedSlice::new(data)).await.unwrap();
+            _ = request.write(0, data).await.unwrap();
 
             request.complete().await.expect_err("complete should fail");
         }
@@ -315,15 +318,14 @@ mod tests {
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
         let data = vec![0xaa; write_size];
-        let slice = ChecksummedSlice::new(&data);
         for i in 0..successful_writes {
             let offset = i * write_size;
-            request.write(offset as i64, slice).await.expect("object should fit");
+            request.write(offset as i64, &data).await.expect("object should fit");
         }
 
         let offset = successful_writes * write_size;
         request
-            .write(offset as i64, slice)
+            .write(offset as i64, &data)
             .await
             .expect_err("object should be too big");
 
@@ -331,5 +333,16 @@ mod tests {
 
         assert!(!client.contains_key(key));
         assert!(!client.is_upload_in_progress(key));
+    }
+
+    #[test]
+    fn test_combine_checksums() {
+        let buf: &[u8] = b"123456789";
+        let (buf1, buf2) = buf.split_at(4);
+        let crc = crc32c::checksum(buf);
+        let crc1 = crc32c::checksum(buf1);
+        let crc2 = crc32c::checksum(buf2);
+        let combined = combine_checksums(crc1, crc2, buf2.len());
+        assert_eq!(combined, crc);
     }
 }

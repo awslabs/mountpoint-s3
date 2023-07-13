@@ -1,7 +1,6 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-use mountpoint_s3::checksums::ChecksummedSlice;
 use mountpoint_s3::fs::FUSE_ROOT_INODE;
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
@@ -289,10 +288,7 @@ async fn test_sequential_write(write_size: usize) {
 
     let mut offset = 0;
     for data in body.chunks(write_size) {
-        let written = fs
-            .write(file_ino, fh, offset, ChecksummedSlice::new(data), 0, 0, None)
-            .await
-            .unwrap();
+        let written = fs.write(file_ino, fh, offset, data, 0, 0, None).await.unwrap();
         assert_eq!(written as usize, data.len());
         offset += written as i64;
     }
@@ -376,7 +372,7 @@ async fn test_unordered_write_fails(offset: i64) {
         .unwrap()
         .fh;
 
-    let slice = ChecksummedSlice::new(&[0xaa; 27]);
+    let slice = &[0xaa; 27];
     let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
     assert_eq!(written, 27);
 
@@ -452,28 +448,20 @@ async fn test_upload_aborted_on_write_failure() {
         .fh;
 
     let written = fs
-        .write(file_ino, fh, 0, ChecksummedSlice::new(&[0xaa; 27]), 0, 0, None)
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect("first write should succeed");
 
     assert!(client.is_upload_in_progress(FILE_NAME));
 
     let write_error = fs
-        .write(
-            file_ino,
-            fh,
-            written as i64,
-            ChecksummedSlice::new(&[0xaa; 27]),
-            0,
-            0,
-            None,
-        )
+        .write(file_ino, fh, written as i64, &[0xaa; 27], 0, 0, None)
         .await
         .expect_err("second write should fail");
     assert_eq!(write_error, libc::EIO);
 
     let err = fs
-        .write(file_ino, fh, 0, ChecksummedSlice::new(&[0xaa; 27]), 0, 0, None)
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect_err("subsequent writes should fail");
     assert_eq!(err, libc::EIO);
@@ -527,7 +515,7 @@ async fn test_upload_aborted_on_fsync_failure() {
         .fh;
 
     _ = fs
-        .write(file_ino, fh, 0, ChecksummedSlice::new(&[0xaa; 27]), 0, 0, None)
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect("first write should succeed");
 
@@ -582,7 +570,7 @@ async fn test_upload_aborted_on_release_failure() {
         .fh;
 
     _ = fs
-        .write(file_ino, fh, 0, ChecksummedSlice::new(&[0xaa; 27]), 0, 0, None)
+        .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect("first write should succeed");
 

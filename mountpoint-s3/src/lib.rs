@@ -1,4 +1,3 @@
-pub mod checksums;
 pub mod fs;
 pub mod fuse;
 mod inode;

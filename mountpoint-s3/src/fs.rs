@@ -11,7 +11,6 @@ use tracing::{debug, error, trace, warn};
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, ObjectClient};
 
-use crate::checksums::ChecksummedSlice;
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::checksummed_bytes::IntegrityError;
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
@@ -71,7 +70,7 @@ enum UploadState<Client: ObjectClient> {
 }
 
 impl<Client: ObjectClient> UploadState<Client> {
-    async fn write(&mut self, offset: i64, data: ChecksummedSlice<'_>, key: &str) -> Result<u32, libc::c_int> {
+    async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, libc::c_int> {
         let upload = self.get_upload_in_progress(key)?;
         match upload.write(offset, data).await {
             Ok(len) => Ok(len as u32),
@@ -537,7 +536,7 @@ where
         ino: InodeNo,
         fh: u64,
         offset: i64,
-        data: ChecksummedSlice<'_>,
+        data: &[u8],
         _write_flags: u32,
         _flags: i32,
         _lock_owner: Option<u64>,
