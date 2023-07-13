@@ -4,6 +4,7 @@ use proptest::prelude::*;
 use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
 use std::collections::{BTreeMap, HashSet};
+use std::fmt::Debug;
 use std::ops::Deref;
 
 use crate::reftests::reference::valid_inode_name;
@@ -17,7 +18,7 @@ pub fn name_strategy() -> impl Strategy<Value = String> {
         // Valid names
         5 => valid_name_strategy(),
         // Potentially invalid names
-        1 => string_regex("[a\\-/\u{1}]{1,3}").unwrap(),
+        1 => string_regex("[a\\-/.\u{1}]{1,3}").unwrap(),
     ]
 }
 
@@ -56,7 +57,7 @@ impl From<&str> for ValidName {
     }
 }
 
-#[derive(Clone, Copy, Debug, Arbitrary)]
+#[derive(Clone, Copy, Arbitrary)]
 pub enum FileSize {
     Small(u8),
     Large(#[proptest(strategy = "128*1024..2*1024*1024usize")] usize),
@@ -71,6 +72,15 @@ impl From<FileSize> for usize {
     }
 }
 
+impl Debug for FileSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Small(size) => write!(f, "FileSize::Small({size})"),
+            Self::Large(size) => write!(f, "FileSize::Large({size})"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Arbitrary)]
 pub struct FileContent(pub u8, pub FileSize);
 
@@ -80,10 +90,29 @@ impl FileContent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum TreeNode {
     File(FileContent),
     Directory(BTreeMap<Name, TreeNode>),
+}
+
+// A custom Debug implementation that makes it easier to copy and paste failing test cases from
+// proptest's output.
+impl Debug for TreeNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File(content) => {
+                write!(f, "TreeNode::File({:?})", content)
+            }
+            Self::Directory(contents) => {
+                write!(f, "TreeNode::Directory(BTreeMap::from([")?;
+                for (name, node) in contents.iter() {
+                    write!(f, "({:?}.into(), {:?}), ", name.0, node)?;
+                }
+                write!(f, "]))")
+            }
+        }
+    }
 }
 
 pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> impl Strategy<Value = TreeNode> {
@@ -106,7 +135,10 @@ pub fn flatten_tree(node: TreeNode) -> Vec<(String, MockObject)> {
     fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, MockObject)>) {
         match node {
             TreeNode::File(content) => {
-                acc.push((path, content.to_mock_object()));
+                // Don't create an empty key if a [TreeNode::File] is the root of the tree
+                if !path.is_empty() {
+                    acc.push((path, content.to_mock_object()));
+                }
             }
             TreeNode::Directory(contents) => {
                 for (name, child) in contents {
