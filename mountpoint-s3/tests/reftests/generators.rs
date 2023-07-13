@@ -3,7 +3,7 @@ use mountpoint_s3_client::ETag;
 use proptest::prelude::*;
 use proptest::string::string_regex;
 use proptest_derive::Arbitrary;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ops::Deref;
 
 use crate::reftests::reference::valid_inode_name;
@@ -14,10 +14,10 @@ pub fn valid_name_strategy() -> impl Strategy<Value = String> {
 
 pub fn name_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
-        // Valid keys
+        // Valid names
         5 => valid_name_strategy(),
-        // Potentially invalid keys
-        1 => string_regex("[a\\-\\./\0]{1,3}").unwrap(),
+        // Potentially invalid names
+        1 => string_regex("[a\\-/\u{1}]{1,3}").unwrap(),
     ]
 }
 
@@ -120,7 +120,10 @@ pub fn flatten_tree(node: TreeNode) -> Vec<(String, MockObject)> {
             }
         }
     }
-    let mut ret = vec![];
-    aux(node, String::new(), &mut ret);
-    ret
+    let mut contents = vec![];
+    aux(node, String::new(), &mut contents);
+    // We allow names in the tree to contain `/`, which can cause duplicate keys
+    let mut keys = HashSet::new();
+    contents.retain(|(key, _)| keys.insert(key.clone()));
+    contents
 }
