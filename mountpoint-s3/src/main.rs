@@ -84,10 +84,6 @@ mod logging {
     }
 
     fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) -> anyhow::Result<()> {
-        const LOG_DIRECTORY: &str = ".mountpoint-s3";
-        const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
-            macros::format_description!("mountpoint_s3_[year][month][day][hour][minute][second].log");
-
         /// Create the logging config from the RUST_LOG environment variable or the default config if
         /// that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
         /// need a second copy of it in the foreground case to replicate logs to stdout.
@@ -103,51 +99,48 @@ mod logging {
 
         RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
-        let filename = OffsetDateTime::now_utc()
-            .format(LOG_FILE_NAME_FORMAT)
-            .context("couldn't format log file name")?;
+        let file_layer = if let Some(path) = log_directory {
+            const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
+                macros::format_description!("mountpoint_s3_[year][month][day][hour][minute][second].log");
+            let filename = OffsetDateTime::now_utc()
+                .format(LOG_FILE_NAME_FORMAT)
+                .context("couldn't format log file name")?;
 
-        // log directories and files should not be accessible by other users
-        let mut file_options = OpenOptions::new();
-        file_options.mode(0o640).write(true).create(true);
+            // log directories and files created by Mountpoint should not be accessible by other users
+            let mut dir_builder = DirBuilder::new();
+            dir_builder.recursive(true).mode(0o750);
+            let mut file_options = OpenOptions::new();
+            file_options.mode(0o640).write(true).create(true);
 
-        let mut dir_builder = DirBuilder::new();
-        dir_builder.recursive(true).mode(0o750);
-
-        let file = if let Some(path) = log_directory {
             dir_builder.create(path).context("failed to create log folder")?;
-            file_options
+            let file = file_options
                 .open(path.join(filename))
-                .context("failed to create log file")?
+                .context("failed to create log file")?;
+
+            let file_layer = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(file)
+                .with_filter(env_filter);
+            Some(file_layer)
         } else {
-            let default_log_directory = home::home_dir()
-                .ok_or(anyhow!("no home directory found"))?
-                .join(LOG_DIRECTORY);
-            dir_builder
-                .create(&default_log_directory)
-                .context("failed to create log folder")?;
-            file_options
-                .open(default_log_directory.join(filename))
-                .context("failed to create log file")?
+            None
         };
 
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_ansi(false)
-            .with_writer(file)
-            .with_filter(env_filter);
-        let registry = tracing_subscriber::registry()
-            .with(fmt_layer)
-            .with(metrics_tracing_span_layer());
-
-        if is_foreground {
-            // Replicate logs to the console with the same filter applied
-            let fmt_layer_to_console = tracing_subscriber::fmt::layer()
+        let console_layer = if is_foreground {
+            let fmt_layer = tracing_subscriber::fmt::layer()
                 .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
                 .with_filter(create_env_filter());
-            registry.with(fmt_layer_to_console).init();
+            Some(fmt_layer)
         } else {
-            registry.init();
-        }
+            None
+        };
+
+        let registry = tracing_subscriber::registry()
+            .with(console_layer)
+            .with(file_layer)
+            .with(metrics_tracing_span_layer());
+
+        registry.init();
 
         Ok(())
     }
@@ -168,7 +161,11 @@ struct CliArgs {
     #[clap(help = "Mount point for file system")]
     pub mount_point: PathBuf,
 
-    #[clap(short, long, help = "Log file directory [default: $HOME/.mountpoint-s3]")]
+    #[clap(
+        short,
+        long,
+        help = "Configure a directory for logs to be written to a file. [default: no logs written to a file]"
+    )]
     pub log_directory: Option<PathBuf>,
 
     #[clap(

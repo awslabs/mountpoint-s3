@@ -170,36 +170,6 @@ fn invalid_profile() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn validate_default_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
-    let dir = assert_fs::TempDir::new()?;
-    let default_log_dir = home::home_dir().unwrap().join(".mountpoint-s3");
-
-    cmd.arg("test-bucket").arg(dir.path());
-    cmd.assert().failure();
-
-    // verify log directory metadata
-    let metadata = fs::metadata(&default_log_dir).unwrap();
-    assert!(metadata.is_dir());
-    // mask with 0o7777 to get only permission bits
-    let dir_perm = metadata.permissions().mode() & 0o7777;
-    assert_eq!(dir_perm, 0o750);
-
-    // verify log files metadata
-    let log_files = fs::read_dir(&default_log_dir).unwrap();
-    for log_file in log_files {
-        let log_file = log_file.unwrap();
-        let metadata = fs::metadata(log_file.path()).unwrap();
-        assert!(metadata.is_file());
-        // mask with 0o7777 to get only permission bits
-        let file_perm = metadata.permissions().mode() & 0o7777;
-        assert_eq!(file_perm, 0o640);
-    }
-
-    Ok(())
-}
-
-#[test]
 fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let dir = assert_fs::TempDir::new()?;
@@ -215,7 +185,12 @@ fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
     assert!(metadata.is_dir());
     // mask with 0o7777 to get only permission bits
     let dir_perm = metadata.permissions().mode() & 0o7777;
-    assert_eq!(dir_perm, 0o750);
+    let expected_dir_perm = 0o750;
+    assert_eq!(
+        expected_dir_perm, dir_perm,
+        "log directory created by mountpoint should have {:#o} permissions, not {:#o}",
+        expected_dir_perm, dir_perm,
+    );
 
     // verify log files metadata
     let log_files = fs::read_dir(&log_dir).unwrap();
@@ -225,7 +200,12 @@ fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
         assert!(metadata.is_file());
         // mask with 0o7777 to get only permission bits
         let file_perm = metadata.permissions().mode() & 0o7777;
-        assert_eq!(file_perm, 0o640);
+        let expected_file_perm = 0o640;
+        assert_eq!(
+            expected_file_perm, file_perm,
+            "log file should have {:#o} permissions, not {:#o}",
+            expected_file_perm, file_perm,
+        );
     }
 
     Ok(())
