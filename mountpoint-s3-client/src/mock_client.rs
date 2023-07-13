@@ -17,7 +17,7 @@ use crate::object_client::{
     ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError,
     GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
     ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
-    UploadPartReview, UploadReview,
+    UploadReview, UploadReviewPart,
 };
 use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest};
 
@@ -561,22 +561,22 @@ impl PutObjectRequest for MockPutObjectRequest {
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         let checksum_algorithm = if self.compute_checksum {
-            ChecksumAlgorithm::Crc32c
+            Some(ChecksumAlgorithm::Crc32c)
         } else {
-            ChecksumAlgorithm::None
+            None
         };
-        let parts: Vec<UploadPartReview> = self
+        let parts: Vec<UploadReviewPart> = self
             .buffer
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len() as u64;
                 let checksum = if self.compute_checksum {
                     let checksum = crc32c::checksum(part);
-                    checksum.to_base64()
+                    Some(checksum.to_base64())
                 } else {
-                    String::new()
+                    None
                 };
-                UploadPartReview { size, checksum }
+                UploadReviewPart { size, checksum }
             })
             .collect();
         let review = UploadReview {

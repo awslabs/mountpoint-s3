@@ -141,7 +141,11 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
     for part in review.parts {
         total_size += part.size;
 
-        let checksum = match Crc32c::from_base64(&part.checksum) {
+        let Some(checksum) = &part.checksum else {
+            error!("missing part checksum");
+            return false;
+        };
+        let checksum = match Crc32c::from_base64(checksum) {
             Ok(checksum) => checksum,
             Err(error) => {
                 error!(?error, "error decoding part checksum");

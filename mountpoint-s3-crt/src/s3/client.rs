@@ -911,8 +911,6 @@ impl ChecksumConfig {
 /// Checksum algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ChecksumAlgorithm {
-    /// No checksums.
-    None,
     /// Crc32c checksum.
     Crc32c,
     /// Crc32 checksum.
@@ -923,27 +921,15 @@ pub enum ChecksumAlgorithm {
     Sha256,
 }
 
-impl From<aws_s3_checksum_algorithm> for ChecksumAlgorithm {
-    fn from(algorithm: aws_s3_checksum_algorithm) -> Self {
+impl ChecksumAlgorithm {
+    fn from_aws_s3_checksum_algorithm(algorithm: aws_s3_checksum_algorithm) -> Option<Self> {
         match algorithm {
-            aws_s3_checksum_algorithm::AWS_SCA_NONE => ChecksumAlgorithm::None,
-            aws_s3_checksum_algorithm::AWS_SCA_CRC32C => ChecksumAlgorithm::Crc32c,
-            aws_s3_checksum_algorithm::AWS_SCA_CRC32 => ChecksumAlgorithm::Crc32,
-            aws_s3_checksum_algorithm::AWS_SCA_SHA1 => ChecksumAlgorithm::Sha1,
-            aws_s3_checksum_algorithm::AWS_SCA_SHA256 => ChecksumAlgorithm::Sha256,
+            aws_s3_checksum_algorithm::AWS_SCA_NONE => None,
+            aws_s3_checksum_algorithm::AWS_SCA_CRC32C => Some(ChecksumAlgorithm::Crc32c),
+            aws_s3_checksum_algorithm::AWS_SCA_CRC32 => Some(ChecksumAlgorithm::Crc32),
+            aws_s3_checksum_algorithm::AWS_SCA_SHA1 => Some(ChecksumAlgorithm::Sha1),
+            aws_s3_checksum_algorithm::AWS_SCA_SHA256 => Some(ChecksumAlgorithm::Sha256),
             _ => unreachable!("unknown aws_s3_checksum_algorithm"),
-        }
-    }
-}
-
-impl From<ChecksumAlgorithm> for aws_s3_checksum_algorithm {
-    fn from(algorithm: ChecksumAlgorithm) -> Self {
-        match algorithm {
-            ChecksumAlgorithm::None => aws_s3_checksum_algorithm::AWS_SCA_NONE,
-            ChecksumAlgorithm::Crc32c => aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
-            ChecksumAlgorithm::Crc32 => aws_s3_checksum_algorithm::AWS_SCA_CRC32,
-            ChecksumAlgorithm::Sha1 => aws_s3_checksum_algorithm::AWS_SCA_SHA1,
-            ChecksumAlgorithm::Sha256 => aws_s3_checksum_algorithm::AWS_SCA_SHA256,
         }
     }
 }
@@ -952,20 +938,20 @@ impl From<ChecksumAlgorithm> for aws_s3_checksum_algorithm {
 #[derive(Debug)]
 pub struct UploadReview {
     /// Info about each part uploaded.
-    pub parts: Vec<UploadPartReview>,
+    pub parts: Vec<UploadReviewPart>,
     /// The checksum algorithm used.
-    pub checksum_algorithm: ChecksumAlgorithm,
+    pub checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 impl UploadReview {
     fn new(review: &aws_s3_upload_review) -> Self {
-        let checksum_algorithm = review.checksum_algorithm.into();
+        let checksum_algorithm = ChecksumAlgorithm::from_aws_s3_checksum_algorithm(review.checksum_algorithm);
         let count = review.part_count;
         let mut parts = Vec::new();
         for i in 0..count {
             // SAFETY: `part_array` is an array of length `count`.
             let part = unsafe { &*review.part_array.add(i) };
-            parts.push(UploadPartReview::new(part));
+            parts.push(UploadReviewPart::new(part));
         }
         Self {
             parts,
@@ -979,20 +965,24 @@ impl UploadReview {
 
 /// Info about a single part, for the caller to review before the upload completes.
 #[derive(Debug)]
-pub struct UploadPartReview {
+pub struct UploadReviewPart {
     /// Size in bytes of this part.
     pub size: u64,
 
-    /// Checksum string (usually base64-encoded). This is empty if no checksum is used.
-    pub checksum: String,
+    /// Checksum string (usually base64-encoded), if computed.
+    pub checksum: Option<String>,
 }
 
-impl UploadPartReview {
+impl UploadReviewPart {
     fn new(part: &aws_s3_upload_part_review) -> Self {
-        // SAFETY: `part` is a valid aws_byte_cursor. The returned slice is only used in current scope.
+        // SAFETY: `part.checksum` is a valid aws_byte_cursor. The returned slice is only used in current scope.
         let slice = unsafe { aws_byte_cursor_as_slice(&part.checksum) };
-        let str = core::str::from_utf8(slice).expect("Checksum should be a valid UTF-8 string.");
-        let checksum = str.to_owned();
+        let checksum = if slice.is_empty() {
+            None
+        } else {
+            let str = std::str::from_utf8(slice).expect("Checksum should be a valid UTF-8 string.");
+            Some(str.to_owned())
+        };
         let size = part.size;
         Self { size, checksum }
     }
