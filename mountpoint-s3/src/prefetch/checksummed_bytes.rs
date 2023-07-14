@@ -25,7 +25,6 @@ impl ChecksummedBytes {
     ///
     /// Return `IntegrityError` on data corruption.
     pub fn into_bytes(self) -> Result<Bytes, IntegrityError> {
-        #[cfg(feature = "checksum")]
         self.validate()?;
 
         Ok(self.curr_slice)
@@ -72,7 +71,6 @@ impl ChecksummedBytes {
         let new_checksummed_bytes = ChecksummedBytes::new(new_bytes, new_checksum);
 
         // Validate data integrity with checksum bracketing.
-        #[cfg(feature = "checksum")]
         {
             // 1. repeat the operation, which means copying into a new buffer in this case.
             let mut bytes_mut_dup = BytesMut::with_capacity(total_len);
@@ -145,7 +143,6 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[cfg(feature = "checksum")]
     #[test]
     fn test_into_bytes_integrity_error() {
         let bytes = Bytes::from_static(b"some bytes");
@@ -210,7 +207,6 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[cfg(feature = "checksum")]
     #[test]
     fn test_extend_self_corrupted() {
         let bytes = Bytes::from_static(b"some bytes");
@@ -228,7 +224,6 @@ mod tests {
         assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
     }
 
-    #[cfg(feature = "checksum")]
     #[test]
     fn test_extend_other_corrupted() {
         let bytes = Bytes::from_static(b"some bytes");
