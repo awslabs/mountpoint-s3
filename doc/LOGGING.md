@@ -1,18 +1,23 @@
 # Logging
 
-Mountpoint for Amazon S3 uses the [tracing](https://docs.rs/tracing/latest/tracing/) ecosystem for logging. This makes it easy to configure the verbosity and target of log output. By default we output minimal log information, but for reporting issues or debugging application problems, you may want to customize this logging behavior.
+Mountpoint for Amazon S3 uses the [tracing](https://docs.rs/tracing/latest/tracing/) ecosystem for logging. This makes it easy to configure the verbosity and target of log output.
+The logging level is minimal by default, but for reporting issues or debugging application problems, you may want to customize this logging behavior.
 
 ## Log outputs
 
-By default, Mountpoint for Amazon S3 outputs logs to the `~/.mountpoint-s3/` directory, creating it if it doesn't exist. This destination can be changed using the `-l, --log-directory` command-line argument.
+By default, Mountpoint for Amazon S3 will not emit any logs to disk.
 
-A new log file is created for each execution of `mount-s3`. Log files are never automatically rotated or cleaned up.
+You can enable logging to disk by providing a destination directory using the `-l, --log-directory` command-line argument.
+The directory will be created if it doesn't exist.
+A new log file will be created for each execution of `mount-s3`.
+Both the directory and log files are created with permissions such that the process owner has read/write access and the group has read access.
+Log files are not rotated or cleaned up.
 
-When running in foreground mode (`-f, --foreground`), `mount-s3` also emits the same log information to stdout.
+When running in foreground mode (`-f, --foreground`), `mount-s3` will emit logs to stdout in addition to any configured log directory.
 
 ## Log details
 
-By default, we output minimal (error-level) information to the log file. For reporting issues or debugging application problems, it can be helpful to increase this verbosity. We use the common `RUST_LOG` environment variable for controlling log verbosity and subjects.
+By default, the logging level is minimal. For reporting issues or debugging application problems, it can be helpful to increase this verbosity. We use the common `RUST_LOG` environment variable for controlling log verbosity and subjects.
 
 To control the log verbosity, set the `RUST_LOG` environment variable. If unset, it defaults to `error` to enable only error-level log messages. Verbosity can be increased by instead setting `RUST_LOG` to `warn`, `info`, `debug`, or `trace`.
 
