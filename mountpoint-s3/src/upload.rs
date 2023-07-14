@@ -22,15 +22,15 @@ pub struct Uploader<Client> {
 #[derive(Debug)]
 struct UploaderInner<Client> {
     client: Arc<Client>,
-    storage_class: String,
+    storage_class: Option<String>,
 }
 
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Arc<Client>, storage_class: &str) -> Self {
+    pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
         let inner = UploaderInner {
             client,
-            storage_class: storage_class.to_owned(),
+            storage_class: storage_class,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -77,7 +77,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
         let params = PutObjectParams::new()
             .trailing_checksums(true)
-            .storage_class(&inner.storage_class);
+            .storage_class(inner.storage_class.to_owned());
         let request = inner.client.put_object(bucket, key, &params).await?;
         let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
 
