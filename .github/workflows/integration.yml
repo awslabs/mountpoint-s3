@@ -20,7 +20,7 @@ env:
   # A bucket our IAM role has no access to, but is in the right region, for permissions tests
   S3_FORBIDDEN_BUCKET_NAME: ${{ vars.S3_FORBIDDEN_BUCKET_NAME }}
   S3_REGION: ${{ vars.S3_REGION }}
-  RUST_FEATURES: fuse_tests,s3_tests,checksum,delete
+  RUST_FEATURES: fuse_tests,s3_tests,delete
 
 permissions:
   id-token: write
