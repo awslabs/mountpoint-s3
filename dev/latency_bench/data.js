@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1689343055750,
+  "lastUpdate": 1689344938241,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d992c790941ebf3490caf4501c694b89f6b533db",
-          "message": "Disable dependabot for cargo (#347)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-06-30T11:28:38-05:00",
-          "tree_id": "027ec96056595d9f9d7203b7a1fad9656ed72dd3",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d992c790941ebf3490caf4501c694b89f6b533db"
-        },
-        "date": 1688143139138,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.072,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.173,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.113,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.799,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 61.4702381,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 55.954018700000006,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 51.0913398,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d335a48ee2b2d2bb87408b557345af2166e7085d",
+          "message": "Remove the temporary checksum feature (#378)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2023-07-14T14:18:22Z",
+          "tree_id": "329e09fadd5876c558ae99a2fd8e3b0bf4325eff",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d335a48ee2b2d2bb87408b557345af2166e7085d"
+        },
+        "date": 1689344937718,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.068,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.17,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.135,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.156,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 76.132757,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 58.778100200000004,
             "unit": "milliseconds"
           }
         ]
