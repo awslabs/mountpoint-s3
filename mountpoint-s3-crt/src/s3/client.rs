@@ -948,6 +948,7 @@ impl UploadReview {
     fn new(review: &aws_s3_upload_review) -> Self {
         let checksum_algorithm = ChecksumAlgorithm::from_aws_s3_checksum_algorithm(review.checksum_algorithm);
         let count = review.part_count;
+        assert!(count == 0 || !review.part_array.is_null());
         let mut parts = Vec::new();
         for i in 0..count {
             // SAFETY: `part_array` is an array of length `count`.

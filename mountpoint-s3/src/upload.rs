@@ -176,7 +176,7 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
 
 /// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
 /// `suffix_crc` is the checksum for `B`, and `suffic_len` is the length of `B`.
-pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
+fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
     let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
     Crc32c::new(combined)
 }

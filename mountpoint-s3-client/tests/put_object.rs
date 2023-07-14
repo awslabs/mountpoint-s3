@@ -227,7 +227,7 @@ async fn test_put_checksums() {
 #[tokio::test]
 async fn test_put_review(pass_review: bool) {
     const PART_SIZE: usize = 5 * 1024 * 1024;
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_review");
     let client_config = S3ClientConfig::new().part_size(PART_SIZE);
     let client = S3CrtClient::new(&get_test_region(), client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
@@ -269,9 +269,6 @@ async fn test_put_review(pass_review: bool) {
             err,
             ObjectClientError::ServiceError(GetObjectError::NoSuchKey)
         ));
-
-        // Allow for the AbortMultipartUpload to complete.
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
         let sdk_client = get_test_sdk_client().await;
         let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
