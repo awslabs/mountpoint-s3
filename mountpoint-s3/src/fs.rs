@@ -237,7 +237,7 @@ pub struct S3FilesystemConfig {
     /// Allow delete
     pub allow_delete: bool,
     /// Storage class to be used
-    pub storage_class: String,
+    pub storage_class: Option<String>,
 }
 
 impl Default for S3FilesystemConfig {
@@ -254,7 +254,7 @@ impl Default for S3FilesystemConfig {
             file_mode: 0o644,
             prefetcher_config: PrefetcherConfig::default(),
             allow_delete: false,
-            storage_class: "INTELLIGENT_TIERING".to_string(),
+            storage_class: None,
         }
     }
 }
@@ -285,7 +285,7 @@ where
         let client = Arc::new(client);
 
         let prefetcher = Prefetcher::new(client.clone(), runtime, config.prefetcher_config);
-        let uploader = Uploader::new(client.clone(), &config.storage_class);
+        let uploader = Uploader::new(client.clone(), config.storage_class.to_owned());
 
         Self {
             config,
