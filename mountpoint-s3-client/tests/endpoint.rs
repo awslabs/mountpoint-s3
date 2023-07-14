@@ -50,7 +50,8 @@ async fn test_addressing_style_region(addressing_style: AddressingStyle) {
 #[tokio::test]
 async fn test_addressing_style_uri(addressing_style: AddressingStyle) {
     run_test(|region| {
-        let uri = format!("https://s3.{region}.amazonaws.com");
+        let domain = get_test_domain(region);
+        let uri = format!("https://s3.{region}.amazonaws.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
@@ -62,29 +63,41 @@ async fn test_addressing_style_uri(addressing_style: AddressingStyle) {
 #[tokio::test]
 async fn test_addressing_style_uri_dualstack(addressing_style: AddressingStyle) {
     run_test(|region| {
-        let uri = format!("https://s3.dualstack.{region}.amazonaws.com");
+        let domain = get_test_domain(region);
+        let uri = format!("https://s3.dualstack.{region}.amazonaws.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
 }
 
 // FIPS endpoints can only be used with virtual-hosted-style addressing
+#[cfg(feature = "fips_tests")]
 #[test_case(AddressingStyle::Virtual)]
 #[tokio::test]
 async fn test_addressing_style_uri_fips(addressing_style: AddressingStyle) {
     run_test(|region| {
-        let uri = format!("https://s3-fips.{region}.amazonaws.com");
+        let domain = get_test_domain(region);
+        let uri = format!("https://s3-fips.{region}.amazonaws.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
 }
 // FIPS endpoints can only be used with virtual-hosted-style addressing
+#[cfg(feature = "fips_tests")]
 #[test_case(AddressingStyle::Virtual)]
 #[tokio::test]
 async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingStyle) {
     run_test(|region| {
-        let uri = format!("https://s3-fips.dualstack.{region}.amazonaws.com");
+        let domain = get_test_domain(region);
+        let uri = format!("https://s3-fips.dualstack.{region}.amazonaws.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
+}
+
+fn get_test_domain(region: &str) -> String {
+    match region {
+        "cn-north-1" | "cn-northwest-1" => "com.cn".to_string(),
+        _ => "com".to_string(),
+    }
 }
