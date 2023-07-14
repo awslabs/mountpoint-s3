@@ -128,7 +128,6 @@ mod tests {
     use bytes::Bytes;
     use mountpoint_s3_crt::checksums::crc32c;
 
-    #[cfg(feature = "checksum")]
     use crate::prefetch::checksummed_bytes::IntegrityError;
 
     use super::ChecksummedBytes;
