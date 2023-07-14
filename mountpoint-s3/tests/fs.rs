@@ -372,17 +372,18 @@ async fn test_unordered_write_fails(offset: i64) {
         .unwrap()
         .fh;
 
-    let written = fs.write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None).await.unwrap();
+    let slice = &[0xaa; 27];
+    let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
     assert_eq!(written, 27);
 
     let err = fs
-        .write(file_ino, fh, written as i64 + offset, &[0xaa; 27], 0, 0, None)
+        .write(file_ino, fh, written as i64 + offset, slice, 0, 0, None)
         .await
         .expect_err("writes to out-of-order offsets should fail");
     assert_eq!(err, libc::EINVAL);
 
     let err = fs
-        .write(file_ino, fh, written as i64, &[0xaa; 27], 0, 0, None)
+        .write(file_ino, fh, written as i64, slice, 0, 0, None)
         .await
         .expect_err("any write after an error should fail");
     assert_eq!(err, libc::EINVAL);
