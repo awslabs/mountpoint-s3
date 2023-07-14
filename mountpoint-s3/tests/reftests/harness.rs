@@ -33,6 +33,9 @@ pub enum Op {
     WritePart(InflightWriteIndex, usize),
     FinishWrite(InflightWriteIndex),
 
+    /// Remove a file
+    UnlinkFile(DirectoryIndex, ChildIndex),
+
     /// Create a local directory
     CreateDirectory(DirectoryIndex, ValidName),
     /// Remove a local directory
@@ -56,6 +59,7 @@ impl DirectoryIndex {
         let directories = reference.directories();
         assert!(!directories.is_empty(), "directories can never be empty");
         let idx = self.0 % directories.len();
+        trace!("{self:?} is actually {idx}");
         &directories[idx]
     }
 }
@@ -73,6 +77,7 @@ impl ChildIndex {
             None
         } else {
             let idx = self.0 % reference.len();
+            trace!("{self:?} is actually {idx}");
             let key = reference.keys().nth(idx).unwrap();
             Some((key, reference.get(key).unwrap()))
         }
@@ -173,6 +178,9 @@ impl Harness {
                 }
                 Op::FinishWrite(index) => {
                     self.perform_finish_write(*index).await;
+                }
+                Op::UnlinkFile(directory_index, file_index) => {
+                    self.perform_unlink_file(*directory_index, *file_index).await;
                 }
                 Op::CreateDirectory(directory_index, name) => {
                     self.perform_create_directory(*directory_index, &name.0).await;
@@ -385,10 +393,38 @@ impl Harness {
         let inflight_write = self.inflight_writes.remove(index);
         self.reference.remove_local_file(&inflight_write.path);
         self.reference.remove_local_parents(&inflight_write.path);
-        let key = inflight_write.path.to_string_lossy();
-        assert_eq!(key.chars().next(), Some('/'));
         self.reference
-            .add_remote_key(key[1..].to_owned(), inflight_write.object);
+            .add_remote_file(inflight_write.path, inflight_write.object);
+    }
+
+    /// Unlink a file from a directory
+    async fn perform_unlink_file(&mut self, directory_index: DirectoryIndex, file_index: ChildIndex) {
+        let parent_path = directory_index.get(&self.reference);
+        let Some(Node::Directory { children, .. }) = self.reference.lookup(parent_path.as_ref()) else {
+            panic!("directory must already exist");
+        };
+        let Some((name, node)) = file_index.get(children) else {
+            return;
+        };
+
+        let full_path = parent_path.as_ref().join(name);
+        trace!(path=?full_path, "unlink file");
+        let parent_ino = self.lookup(parent_path.as_ref()).await.expect("parent should exist");
+        drop(parent_path);
+
+        let unlink = self.fs.unlink(parent_ino, name.as_ref()).await;
+        match node {
+            Node::Directory { .. } => {
+                assert_eq!(unlink, Err(libc::EISDIR), "unlink of directory should fail");
+            }
+            Node::File(File::Local) => {
+                assert_eq!(unlink, Err(libc::EPERM), "unlink of local files not supported");
+            }
+            Node::File(File::Remote(_)) => {
+                assert_eq!(unlink, Ok(()));
+                self.reference.remove_remote_file(full_path);
+            }
+        }
     }
 
     /// Create a new local directory
@@ -421,11 +457,10 @@ impl Harness {
     async fn perform_remove_directory(&mut self, directory_index: DirectoryIndex) {
         let (parent_inode, full_path) = {
             let full_path = directory_index.get(&self.reference);
-            if full_path.as_ref() == Path::new("/") {
+            let Some(parent_path) = full_path.as_ref().parent() else {
                 // Not possible to send an rmdir for the root directory (it has no parent)
                 return;
-            }
-            let parent_path = full_path.as_ref().parent().expect("directory must have a parent");
+            };
             let parent_inode = self.lookup(parent_path).await.expect("parent must exist");
             (parent_inode, full_path.as_ref().to_owned())
         };
@@ -840,6 +875,164 @@ mod mutations {
                 Op::StartWriting(InflightWriteIndex(0)),
                 Op::WritePart(InflightWriteIndex(0), 0),
                 Op::WritePart(InflightWriteIndex(0), 0),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_local_directory() {
+        run_test(
+            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::UnlinkFile(DirectoryIndex(0), ChildIndex(0)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_implicit_directory1() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([(
+                "-".into(),
+                TreeNode::Directory(BTreeMap::from([(
+                    "--".into(),
+                    TreeNode::File(FileContent(0, FileSize::Small(0))),
+                )])),
+            )])),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(1), "-".into()),
+                Op::UnlinkFile(DirectoryIndex(1), ChildIndex(1)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_implicit_directory2() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([
+                ("-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                (
+                    "a".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "a".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+            ])),
+            vec![
+                Op::CreateFile("-".into(), DirectoryIndex(1), FileContent(0, FileSize::Small(0))),
+                Op::UnlinkFile(DirectoryIndex(1), ChildIndex(1)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_duplicate_key() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([
+                (
+                    "-".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "a".into(),
+                        TreeNode::Directory(BTreeMap::from([(
+                            "a".into(),
+                            TreeNode::File(FileContent(0, FileSize::Small(0))),
+                        )])),
+                    )])),
+                ),
+                (
+                    "--".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "-".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+                (
+                    "-a".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "a".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+                (
+                    "a".into(),
+                    TreeNode::Directory(BTreeMap::from([
+                        (
+                            "-".into(),
+                            TreeNode::Directory(BTreeMap::from([(
+                                "-".into(),
+                                TreeNode::File(FileContent(0, FileSize::Small(0))),
+                            )])),
+                        ),
+                        ("--".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                        ("-a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                        ("a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                        (
+                            "a-".into(),
+                            TreeNode::Directory(BTreeMap::from([(
+                                "a".into(),
+                                TreeNode::File(FileContent(0, FileSize::Small(0))),
+                            )])),
+                        ),
+                    ])),
+                ),
+                (
+                    "a-".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "-".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+                (
+                    "a--".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "-".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+                ("a/a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                (
+                    "aa".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "a".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+            ])),
+            vec![Op::UnlinkFile(DirectoryIndex(5), ChildIndex(3))],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_directories() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([
+                (
+                    "-".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "a-".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+                (
+                    "a".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "a".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+            ])),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "-a".into()),
+                Op::CreateDirectory(DirectoryIndex(1), "a".into()),
+                Op::UnlinkFile(DirectoryIndex(1), ChildIndex(1)),
+                Op::UnlinkFile(DirectoryIndex(3), ChildIndex(0)),
             ],
             0,
         )
