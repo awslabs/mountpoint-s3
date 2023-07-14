@@ -130,7 +130,20 @@ impl Superblock {
                 if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
                     trace!(ino, "removing inode from superblock");
-                    inodes.remove(&ino);
+                    let inode = inodes.remove(&ino).expect("we just retrieved it");
+
+                    // Should be impossible for this to fail (VFS inodes reference their parent, so
+                    // children need to be freed first), but let's not crash in a `forget` function...
+                    let Some(parent) = inodes.get(&inode.parent()) else {
+                        debug_assert!(false, "children should be forgotten before parents");
+                        return;
+                    };
+                    let mut parent_state = parent.inner.sync.write().unwrap();
+                    let InodeKindData::Directory { children, writing_children, .. } = &mut parent_state.kind_data else {
+                        unreachable!("parent is always a directory");
+                    };
+                    children.remove(inode.name());
+                    writing_children.remove(&ino);
                 }
             }
         }
@@ -1328,6 +1341,9 @@ mod tests {
             superblock.inner.inodes.read().unwrap().get(&ino).is_none(),
             "inode should not be present in superblock"
         );
+
+        // Make sure we didn't leak the inode anywhere else
+        assert_eq!(Arc::strong_count(&inode.inner), 1);
     }
 
     #[tokio::test]
@@ -1347,10 +1363,15 @@ mod tests {
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
+
         superblock.forget(ino, 1);
 
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 0);
+        // This test should now hold the only reference to the inode, so we know it's unreferenced
+        // and will be freed
+        assert_eq!(Arc::strong_count(&lookup.inode.inner), 1);
+        drop(lookup);
 
         let err = superblock
             .getattr(&client, ino, false)
