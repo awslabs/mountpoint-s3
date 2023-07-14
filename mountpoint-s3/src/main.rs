@@ -101,7 +101,7 @@ mod logging {
 
         let file_layer = if let Some(path) = log_directory {
             const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
-                macros::format_description!("mountpoint_s3_[year][month][day][hour][minute][second].log");
+                macros::format_description!("mountpoint-s3-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
             let filename = OffsetDateTime::now_utc()
                 .format(LOG_FILE_NAME_FORMAT)
                 .context("couldn't format log file name")?;
