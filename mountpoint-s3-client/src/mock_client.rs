@@ -8,11 +8,12 @@ use std::task::{Context, Poll};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
+use mountpoint_s3_crt::checksums::crc32c;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
 
-use crate::checksums::crc32c;
+use crate::checksums::crc32c_to_base64;
 use crate::object_client::{
     ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError,
     GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
@@ -572,7 +573,7 @@ impl PutObjectRequest for MockPutObjectRequest {
                 let size = part.len() as u64;
                 let checksum = if self.compute_checksum {
                     let checksum = crc32c::checksum(part);
-                    Some(checksum.to_base64())
+                    Some(crc32c_to_base64(&checksum))
                 } else {
                     None
                 };

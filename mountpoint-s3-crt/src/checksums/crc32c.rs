@@ -1,7 +1,4 @@
-use base64ct::Base64;
-use base64ct::Encoding;
-use mountpoint_s3_crt::checksums::crc32c;
-use thiserror::Error;
+use mountpoint_s3_crt_sys::aws_checksums_crc32c;
 
 /// CRC32C checksum
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -17,26 +14,6 @@ impl Crc32c {
     pub fn value(&self) -> u32 {
         self.0
     }
-
-    /// The base64 encoding for this CRC32C checksum value.
-    pub fn to_base64(&self) -> String {
-        Base64::encode_string(&self.value().to_be_bytes())
-    }
-
-    /// Create a CRC32C checksum from a base64 encoding.
-    pub fn from_base64(base64_str: &str) -> Result<Self, ParseError> {
-        let mut dec_buf = [0u8; std::mem::size_of::<u32>()];
-        let _ = Base64::decode(base64_str, &mut dec_buf)?;
-        Ok(Self(u32::from_be_bytes(dec_buf)))
-    }
-}
-
-/// Error parsing CRC32C checksums.
-#[derive(Error, Debug)]
-pub enum ParseError {
-    /// Error parsing base64 encoding.
-    #[error("Failed to parse base64 encoding")]
-    Base64ParseError(#[from] base64ct::Error),
 }
 
 /// Computes the CRC32C checksum of a byte slice.
@@ -62,12 +39,24 @@ impl Hasher {
 
     /// Update the hash state with the given bytes slice.
     pub fn update(&mut self, buf: &[u8]) {
-        self.state = Crc32c(crc32c(buf, self.state.0));
+        self.state = Crc32c(Self::crc32c(buf, self.state.0));
     }
 
     /// Finalize the hash state and return the computed CRC32C checksum value.
     pub fn finalize(self) -> Crc32c {
         self.state
+    }
+
+    /// Compute CRC32C checksum of the data in the given bytes slice, append to the previous checksum.
+    ///
+    /// The underlying CRT funtion requires the buffer's length to be type `i32`, so this function cannot take
+    /// any buffer that is bigger than `i32::MAX` as an input.
+    fn crc32c(buf: &[u8], previous_checksum: u32) -> u32 {
+        assert!(buf.len() <= i32::MAX as usize);
+
+        // SAFETY: we pass a valid buffer to the CRT, and trust
+        // the CRT function to only read from the buffer's boundary.
+        unsafe { aws_checksums_crc32c(buf.as_ptr(), buf.len() as i32, previous_checksum) }
     }
 }
 
@@ -89,8 +78,7 @@ impl std::hash::Hasher for Hasher {
 
 #[cfg(test)]
 mod tests {
-    use crate::checksums::crc32c::{self, Crc32c, ParseError};
-    use test_case::test_case;
+    use crate::checksums::crc32c::{self, Crc32c};
 
     #[test]
     fn crc32c_simple() {
@@ -106,27 +94,5 @@ mod tests {
         hasher.update(b"56789");
         let crc = hasher.finalize();
         assert_eq!(crc, Crc32c(0xe3069283));
-    }
-
-    #[test]
-    fn crc32c_to_base64() {
-        let crc = Crc32c(1234);
-        let base64 = crc.to_base64();
-        assert_eq!(&base64, "AAAE0g==");
-    }
-
-    #[test]
-    fn crc32c_from_base64() {
-        let base64 = "AAAE0g==";
-        let crc = Crc32c::from_base64(base64).expect("parsing should succeeed");
-        assert_eq!(crc.value(), 1234);
-    }
-
-    #[test_case("AAA")]
-    #[test_case("AAAE0g")]
-    #[test_case("AAAE0gAA==")]
-    fn crc32c_from_base64_error(invalid_base64: &str) {
-        let err = Crc32c::from_base64(invalid_base64).expect_err("parsing should fail");
-        assert!(matches!(err, ParseError::Base64ParseError(_)));
     }
 }

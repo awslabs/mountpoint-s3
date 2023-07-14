@@ -20,7 +20,8 @@ use futures::pin_mut;
 use futures::stream::StreamExt;
 use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
-use mountpoint_s3_client::{checksums::crc32c, ETag, GetObjectError, ObjectClient, ObjectClientError};
+use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
+use mountpoint_s3_crt::checksums::crc32c;
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 

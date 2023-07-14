@@ -1,11 +1,11 @@
 use std::{fmt::Debug, sync::Arc};
 
 use mountpoint_s3_client::{
-    ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, UploadReview,
+    checksums::crc32c_from_base64, ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError,
+    PutObjectParams, PutObjectRequest, PutObjectResult, UploadReview,
 };
 
-use mountpoint_s3_client::checksums::crc32c::{Crc32c, Hasher};
+use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
 use thiserror::Error;
 use tracing::error;
 
@@ -143,7 +143,7 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
             error!("missing part checksum");
             return false;
         };
-        let checksum = match Crc32c::from_base64(checksum) {
+        let checksum = match crc32c_from_base64(checksum) {
             Ok(checksum) => checksum,
             Err(error) => {
                 error!(?error, "error decoding part checksum");
@@ -187,10 +187,10 @@ mod tests {
 
     use super::*;
     use mountpoint_s3_client::{
-        checksums::crc32c,
         failure_client::countdown_failure_client,
         mock_client::{MockClient, MockClientConfig, MockClientError},
     };
+    use mountpoint_s3_crt::checksums::crc32c;
     use test_case::test_case;
 
     #[tokio::test]

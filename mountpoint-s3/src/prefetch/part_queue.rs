@@ -105,7 +105,7 @@ mod tests {
 
     use bytes::Bytes;
     use futures::executor::block_on;
-    use mountpoint_s3_client::checksums::crc32c;
+    use mountpoint_s3_crt::checksums::crc32c;
     use proptest::proptest;
     use proptest_derive::Arbitrary;
     use thiserror::Error;

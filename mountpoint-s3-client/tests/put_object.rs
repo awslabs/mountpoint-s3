@@ -4,7 +4,7 @@ pub mod common;
 
 use common::*;
 use futures::{pin_mut, StreamExt};
-use mountpoint_s3_client::checksums::crc32c;
+use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::GetObjectError;
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::ObjectClientError;
@@ -14,6 +14,7 @@ use mountpoint_s3_client::PutObjectRequest;
 use mountpoint_s3_client::S3ClientConfig;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_crt::checksums::crc32c;
 use rand::Rng;
 use test_case::test_case;
 
@@ -217,7 +218,7 @@ async fn test_put_checksums() {
 
     assert_eq!(checksums.len(), expected_checksums.len());
     for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
-        let encoded = expected_checksum.to_base64();
+        let encoded = crc32c_to_base64(&expected_checksum);
         assert_eq!(checksum, encoded);
     }
 }
