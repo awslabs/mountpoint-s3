@@ -130,7 +130,25 @@ impl Superblock {
                 if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
                     trace!(ino, "removing inode from superblock");
-                    inodes.remove(&ino);
+                    let inode = inodes.remove(&ino).expect("we just retrieved it");
+
+                    // Should be impossible for this to fail (VFS inodes reference their parent, so
+                    // children need to be freed first), but let's not crash in a `forget` function...
+                    let Some(parent) = inodes.get(&inode.parent()) else {
+                        debug_assert!(false, "children should be forgotten before parents");
+                        return;
+                    };
+                    let mut parent_state = parent.inner.sync.write().unwrap();
+                    let InodeKindData::Directory { children, writing_children, .. } = &mut parent_state.kind_data else {
+                        unreachable!("parent is always a directory");
+                    };
+                    if let Some(child) = children.get(inode.name()) {
+                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
+                        if child.ino() == ino {
+                            children.remove(inode.name());
+                        }
+                    }
+                    writing_children.remove(&ino);
                 }
             }
         }
@@ -1333,6 +1351,9 @@ mod tests {
             superblock.inner.inodes.read().unwrap().get(&ino).is_none(),
             "inode should not be present in superblock"
         );
+
+        // Make sure we didn't leak the inode anywhere else
+        assert_eq!(Arc::strong_count(&inode.inner), 1);
     }
 
     #[tokio::test]
@@ -1352,10 +1373,15 @@ mod tests {
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
+
         superblock.forget(ino, 1);
 
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 0);
+        // This test should now hold the only reference to the inode, so we know it's unreferenced
+        // and will be freed
+        assert_eq!(Arc::strong_count(&lookup.inode.inner), 1);
+        drop(lookup);
 
         let err = superblock
             .getattr(&client, ino, false)
@@ -1366,6 +1392,38 @@ mod tests {
         let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_forget_shadowed_inode() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let name = "foo";
+        client.add_object(name, b"foo".into());
+
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+
+        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        assert_eq!(lookup_count, 1);
+        let ino = lookup.inode.ino();
+        drop(lookup);
+
+        client.add_object(&format!("{name}/bar"), b"bar".into());
+
+        // Should be a directory now, so a different inode
+        let new_lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        assert_ne!(ino, new_lookup.inode.ino());
+
+        superblock.forget(ino, 1);
+
+        // Lookup still works after forgetting the old inode
+        let new_lookup2 = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        assert_eq!(new_lookup.inode.ino(), new_lookup2.inode.ino());
     }
 
     #[test_case(""; "unprefixed")]
