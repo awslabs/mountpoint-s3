@@ -184,7 +184,7 @@ where
         .expect_err("writing to O_RDONLY file should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
-    // We can't write to an existing file even it's opened in O_RDWR
+    // Existing files can be opened O_RDWR but only reading should work on them
     let mut file = File::options().read(true).write(true).create(true).open(&path).unwrap();
     let err = file
         .write(b"hello world")
