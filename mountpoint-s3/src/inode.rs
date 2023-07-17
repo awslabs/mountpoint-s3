@@ -142,7 +142,12 @@ impl Superblock {
                     let InodeKindData::Directory { children, writing_children, .. } = &mut parent_state.kind_data else {
                         unreachable!("parent is always a directory");
                     };
-                    children.remove(inode.name());
+                    if let Some(child) = children.get(inode.name()) {
+                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
+                        if child.ino() == ino {
+                            children.remove(inode.name());
+                        }
+                    }
                     writing_children.remove(&ino);
                 }
             }
@@ -1382,6 +1387,38 @@ mod tests {
         let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_forget_shadowed_inode() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let name = "foo";
+        client.add_object(name, b"foo".into());
+
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+
+        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        assert_eq!(lookup_count, 1);
+        let ino = lookup.inode.ino();
+        drop(lookup);
+
+        client.add_object(&format!("{name}/bar"), b"bar".into());
+
+        // Should be a directory now, so a different inode
+        let new_lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        assert_ne!(ino, new_lookup.inode.ino());
+
+        superblock.forget(ino, 1);
+
+        // Lookup still works after forgetting the old inode
+        let new_lookup2 = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        assert_eq!(new_lookup.inode.ino(), new_lookup2.inode.ino());
     }
 
     #[test_case(""; "unprefixed")]
