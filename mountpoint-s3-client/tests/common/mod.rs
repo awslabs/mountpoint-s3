@@ -46,11 +46,11 @@ pub fn get_test_bucket_without_permissions() -> String {
 
 pub fn get_secondary_test_region() -> String {
     std::env::var("S3_SECONDARY_REGION").unwrap_or(String::from("ap-southeast-2"))
- }
- 
+}
+
 pub fn get_test_domain() -> String {
     std::env::var("S3_DOMAIN").unwrap_or(String::from("amazonaws.com"))
- }
+}
 
 pub async fn get_test_sdk_client() -> s3::Client {
     let config = aws_config::from_env()
