@@ -58,7 +58,7 @@ Mountpoint for Amazon S3 intentionally does not support all POSIX file system op
 #### Reads
 
 Basic read-only operations are fully supported, including both sequential and random reads:
-* `open`, `openat`, in read-only mode (`O_RDONLY`)
+* `open`, `openat`
 * `read`, `readv`, `pread`, `preadv`
 * `lseek`
 * `close`
