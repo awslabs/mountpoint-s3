@@ -84,6 +84,57 @@ where
     // We shouldn't be allowed to open the file for writing again
     let err = open_for_write(&path, append).expect_err("can't write existing file");
     assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+
+    // Also test writing with O_RDWR flag
+    let path = mount_point.path().join("dir/new_rdwr.txt");
+
+    let mut f = File::options().read(true).write(true).create(true).open(&path).unwrap();
+
+    // The file is visible with size 0 as soon as we open it for write
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), 0);
+
+    // verify the new file is visible in readdir
+    let read_dir_iter = read_dir(&subdir).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt", "new_rdwr.txt"]);
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    for part in body.chunks(WRITE_SIZE) {
+        f.write_all(part).unwrap();
+    }
+
+    // We shouldn't be able to read from a file mid-write
+    let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
+    assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+
+    drop(f);
+
+    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
+    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
+    // the file will fail.
+    // TODO we can remove this when we implement fsync, or change it when we make files visible
+    // during writes
+    std::thread::sleep(Duration::from_secs(5));
+
+    // Now it's closed, we can stat or read it
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), body.len() as u64);
+
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &body[..]);
+
+    // Readdir should still work correctly
+    let read_dir_iter = read_dir(&subdir).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt", "new_rdwr.txt"]);
+
+    // We shouldn't be allowed to open the file for writing again
+    let err = open_for_write(&path, append).expect_err("can't write existing file");
+    assert_eq!(err.kind(), ErrorKind::PermissionDenied);
 }
 
 #[cfg(feature = "s3_tests")]
@@ -117,15 +168,6 @@ where
     let err = open_for_write(&path, true).expect_err("can't write existing file");
     assert_eq!(err.kind(), ErrorKind::PermissionDenied);
 
-    // New files can't be opened in O_RDWR
-    let err = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(&path)
-        .expect_err("O_RDWR should fail");
-    assert_eq!(err.kind(), ErrorKind::InvalidInput);
-
     // New files can't be opened with O_SYNC
     let err = File::options()
         .write(true)
@@ -141,6 +183,15 @@ where
         .write(b"hello world")
         .expect_err("writing to O_RDONLY file should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+
+    // We can't write to an existing file even it's opened in O_RDWR
+    let mut file = File::options().read(true).write(true).create(true).open(&path).unwrap();
+    let err = file
+        .write(b"hello world")
+        .expect_err("write to an existing file should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+    // However, read should work
+    assert!(file.read(&mut [0u8; 1]).is_ok());
 }
 
 #[cfg(feature = "s3_tests")]

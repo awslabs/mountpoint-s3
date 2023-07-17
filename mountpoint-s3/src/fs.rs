@@ -61,6 +61,54 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
     },
 }
 
+impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
+    async fn new_write_handle(
+        lookup: &LookedUp,
+        ino: InodeNo,
+        flags: i32,
+        fs: &S3Filesystem<Client, Runtime>,
+    ) -> Result<FileHandleType<Client, Runtime>, libc::c_int> {
+        // We can't support O_SYNC writes because they require the data to go to stable storage
+        // at `write` time, but we only commit a PUT at `close` time.
+        if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
+            error!("O_SYNC and O_DSYNC are unsupported");
+            return Err(libc::EINVAL);
+        }
+
+        let handle = match fs.superblock.write(&fs.client, ino, lookup.inode.parent()).await {
+            Ok(handle) => handle,
+            Err(e) => {
+                error!("open failed: {e:?}");
+                return Err(e.into());
+            }
+        };
+        let key = lookup.inode.full_key();
+        let handle = match fs.uploader.put(&fs.bucket, key).await {
+            Err(e) => {
+                error!(key, "put failed to start: {e:?}");
+                return Err(libc::EIO);
+            }
+            Ok(request) => FileHandleType::Write {
+                request: UploadState::InProgress(request).into(),
+                handle,
+            },
+        };
+        Ok(handle)
+    }
+
+    async fn new_read_handle(lookup: &LookedUp) -> Result<FileHandleType<Client, Runtime>, libc::c_int> {
+        lookup.inode.start_reading()?;
+        let handle = FileHandleType::Read {
+            request: Default::default(),
+            etag: match &lookup.stat.etag {
+                None => return Err(libc::EBADF),
+                Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
+            },
+        };
+        Ok(handle)
+    }
+}
+
 #[derive(Debug)]
 enum UploadState<Client: ObjectClient> {
     InProgress(UploadRequest<Client>),
@@ -375,43 +423,16 @@ where
         }
 
         let handle_type = if flags & libc::O_RDWR != 0 {
-            error!("O_RDWR is unsupported");
-            return Err(libc::EINVAL);
+            let remote_file = lookup.inode.is_remote()?;
+            if remote_file {
+                FileHandleType::new_read_handle(&lookup).await?
+            } else {
+                FileHandleType::new_write_handle(&lookup, ino, flags, self).await?
+            }
         } else if flags & libc::O_WRONLY != 0 {
-            // We can't support O_SYNC writes because they require the data to go to stable storage
-            // at `write` time, but we only commit a PUT at `close` time.
-            if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
-                error!("O_SYNC and O_DSYNC are unsupported");
-                return Err(libc::EINVAL);
-            }
-
-            let handle = match self.superblock.write(&self.client, ino, lookup.inode.parent()).await {
-                Ok(handle) => handle,
-                Err(e) => {
-                    error!("open failed: {e:?}");
-                    return Err(e.into());
-                }
-            };
-            let key = lookup.inode.full_key();
-            match self.uploader.put(&self.bucket, key).await {
-                Err(e) => {
-                    error!(key, "put failed to start: {e:?}");
-                    return Err(libc::EIO);
-                }
-                Ok(request) => FileHandleType::Write {
-                    request: UploadState::InProgress(request).into(),
-                    handle,
-                },
-            }
+            FileHandleType::new_write_handle(&lookup, ino, flags, self).await?
         } else {
-            lookup.inode.start_reading()?;
-            FileHandleType::Read {
-                request: Default::default(),
-                etag: match lookup.stat.etag {
-                    None => return Err(libc::EBADF),
-                    Some(etag) => ETag::from_str(&etag).expect("E-Tag should be set"),
-                },
-            }
+            FileHandleType::new_read_handle(&lookup).await?
         };
 
         let full_key = lookup.inode.full_key().to_owned();

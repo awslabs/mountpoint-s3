@@ -960,6 +960,11 @@ impl Inode {
         *lookup_count
     }
 
+    pub fn is_remote(&self) -> Result<bool, InodeError> {
+        let state = self.get_inode_state()?;
+        Ok(state.write_status == WriteStatus::Remote)
+    }
+
     pub fn start_reading(&self) -> Result<(), InodeError> {
         let state = self.get_inode_state()?;
         match state.write_status {
