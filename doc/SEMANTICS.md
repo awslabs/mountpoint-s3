@@ -58,7 +58,7 @@ Mountpoint for Amazon S3 intentionally does not support all POSIX file system op
 #### Reads
 
 Basic read-only operations are fully supported, including both sequential and random reads:
-* `open`, `openat`, in read-only mode (`O_RDONLY`)
+* `open`, `openat`, a file can be opened in read-write mode (`O_RDWR`) but you can't both read and write to the same file descriptor
 * `read`, `readv`, `pread`, `preadv`
 * `lseek`
 * `close`
