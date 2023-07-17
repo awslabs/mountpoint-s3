@@ -24,7 +24,6 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
         .spawn()
         .expect("unable to spawn child");
 
