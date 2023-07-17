@@ -158,7 +158,7 @@ struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
     pub bucket_name: String,
 
-    #[clap(help = "Mount point for file system")]
+    #[clap(help = "Directory to mount the bucket at", value_name = "DIRECTORY")]
     pub mount_point: PathBuf,
 
     #[clap(
@@ -201,6 +201,16 @@ struct CliArgs {
 
     #[clap(
         long,
+        help = "Do not sign requests. Credentials will not be loaded if this argument is provided.",
+        help_heading = AWS_CREDENTIALS
+    )]
+    pub no_sign_request: bool,
+
+    #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS)]
+    pub profile: Option<String>,
+
+    #[clap(
+        long,
         help = "Mount file system in read-only mode",
         help_heading = MOUNT_OPTIONS_HEADER
     )]
@@ -221,12 +231,12 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Desired throughput in Gbps [default: 10]",
+        help = "Maximum throughput in Gbps [default: auto-detected on EC2 instances, 10 Gbps elsewhere]",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub throughput_target_gbps: Option<u64>,
+    pub maximum_throughput_gbps: Option<u64>,
 
     #[clap(
         long,
@@ -281,16 +291,6 @@ struct CliArgs {
 
     #[clap(short, long, help = "Run as foreground process")]
     pub foreground: bool,
-
-    #[clap(
-        long,
-        help = "Do not sign requests. Credentials will not be loaded if this argument is provided.",
-        help_heading = AWS_CREDENTIALS
-    )]
-    pub no_sign_request: bool,
-
-    #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS)]
-    pub profile: Option<String>,
 
     #[clap(
         long,
@@ -438,7 +438,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .context("Failed to parse endpoint URL")?;
 
     let throughput_target_gbps =
-        args.throughput_target_gbps
+        args.maximum_throughput_gbps
             .map(|t| t as f64)
             .unwrap_or_else(|| match calculate_network_throughput() {
                 Ok(throughput) => throughput,
