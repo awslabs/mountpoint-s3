@@ -51,7 +51,7 @@ async fn test_addressing_style_region(addressing_style: AddressingStyle) {
 async fn test_addressing_style_uri(addressing_style: AddressingStyle) {
     run_test(|region| {
         let domain = get_test_domain();
-        let uri = format!("https://s3.{region}.amazonaws.{domain}");
+        let uri = format!("https://s3.{region}.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
@@ -64,7 +64,7 @@ async fn test_addressing_style_uri(addressing_style: AddressingStyle) {
 async fn test_addressing_style_uri_dualstack(addressing_style: AddressingStyle) {
     run_test(|region| {
         let domain = get_test_domain();
-        let uri = format!("https://s3.dualstack.{region}.amazonaws.{domain}");
+        let uri = format!("https://s3.dualstack.{region}.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
@@ -77,7 +77,7 @@ async fn test_addressing_style_uri_dualstack(addressing_style: AddressingStyle) 
 async fn test_addressing_style_uri_fips(addressing_style: AddressingStyle) {
     run_test(|region| {
         let domain = get_test_domain();
-        let uri = format!("https://s3-fips.{region}.amazonaws.{domain}");
+        let uri = format!("https://s3-fips.{region}.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;
@@ -89,7 +89,7 @@ async fn test_addressing_style_uri_fips(addressing_style: AddressingStyle) {
 async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingStyle) {
     run_test(|region| {
         let domain = get_test_domain();
-        let uri = format!("https://s3-fips.dualstack.{region}.amazonaws.{domain}");
+        let uri = format!("https://s3-fips.dualstack.{region}.{domain}");
         Endpoint::from_uri(&uri, addressing_style).unwrap()
     })
     .await;

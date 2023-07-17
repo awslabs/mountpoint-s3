@@ -49,7 +49,7 @@ pub fn get_secondary_test_region() -> String {
  }
  
 pub fn get_test_domain() -> String {
-    std::env::var("S3_DOMAIN").unwrap_or(String::from("com"))
+    std::env::var("S3_DOMAIN").unwrap_or(String::from("amazonaws.com"))
  }
 
 pub async fn get_test_sdk_client() -> s3::Client {
