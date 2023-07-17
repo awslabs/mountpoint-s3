@@ -15,7 +15,8 @@ async fn test_head_bucket_correct_region() {
 
 #[tokio::test]
 async fn test_head_bucket_wrong_region() {
-    let client = S3CrtClient::new("ap-southeast-2", Default::default()).expect("could not create test client");
+    let secondary_region = get_secondary_test_region();
+    let client = S3CrtClient::new(&secondary_region, Default::default()).expect("could not create test client");
     let (bucket, _) = get_test_bucket_and_prefix("test_head_bucket_wrong_region");
     let expected_region = get_test_region();
 

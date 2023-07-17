@@ -24,6 +24,43 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
+        .spawn()
+        .expect("unable to spawn child");
+
+    let st = std::time::Instant::now();
+
+    let exit_status = loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        match child.try_wait().expect("unable to wait for result") {
+            Some(result) => break result,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    Ok(())
+}
+
+#[test]
+fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
         .spawn()
         .expect("unable to spawn child");
 
@@ -61,6 +98,7 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg("--foreground")
+        .arg(format!("--region={region}"))
         .spawn()
         .expect("unable to spawn child");
 
@@ -158,6 +196,7 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
 fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_duplicate_mount");
     let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let mut first_mount = cmd
@@ -165,6 +204,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
         .spawn()
         .expect("unable to spawn child");
 
@@ -215,6 +255,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
 fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_mount_readonly");
     let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let mut child = cmd
@@ -224,6 +265,7 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
         .arg("--auto-unmount")
         .arg("--foreground")
         .arg("--read-only")
+        .arg(format!("--region={region}"))
         .spawn()
         .expect("unable to spawn child");
 
