@@ -425,8 +425,10 @@ where
         let handle_type = if flags & libc::O_RDWR != 0 {
             let remote_file = lookup.inode.is_remote()?;
             if remote_file {
+                trace!("fs:open choosing read handle for O_RDWR");
                 FileHandleType::new_read_handle(&lookup).await?
             } else {
+                trace!("fs:open choosing write handle for O_RDWR");
                 FileHandleType::new_write_handle(&lookup, ino, flags, self).await?
             }
         } else if flags & libc::O_WRONLY != 0 {
