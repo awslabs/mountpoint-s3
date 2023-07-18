@@ -45,6 +45,9 @@ impl<B: std::io::Write> SyslogLayer<B> {
     }
 }
 
+// This is a stripped down version of [tracing_subscribers::fmt::Layer] that skips some tracing
+// stuff we don't use, like timings and span enter/exit events.
+// https://github.com/tokio-rs/tracing/blob/0114ec1cf56e01e79b2e429e77c660457711d263/tracing-subscriber/src/fmt/fmt_layer.rs#L786
 impl<S, B> Layer<S> for SyslogLayer<B>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -52,6 +55,8 @@ where
 {
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span must exist");
+        // Format the span fields now (we won't have access to them at [on_event] time) and stash
+        // the result in the `extensions` bag to access from [on_event]
         let mut extensions = span.extensions_mut();
         if extensions.get_mut::<FormattedFields>().is_none() {
             let mut fields = String::new();
@@ -63,6 +68,7 @@ where
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span must exist");
         let mut extensions = span.extensions_mut();
+        // Update the fields in place if we already formatted them at [on_new_span] time
         if let Some(fields) = extensions.get_mut::<FormattedFields>() {
             FormatFields::format_record(&mut fields.0, values);
             return;
@@ -77,7 +83,8 @@ where
         // build the message and ship it.
         let metadata = event.metadata();
         let mut message = format!("[{}] {}: ", metadata.level(), metadata.target());
-        // First deal with any spans
+        // First deal with any spans by walking up the span tree and adding each span's formatted
+        // representation to the message
         if let Some(scope) = ctx.event_scope(event) {
             let mut seen = false;
             for span in scope.from_root() {
@@ -92,7 +99,7 @@ where
                 let _ = write!(message, " ");
             }
         }
-        // Now deal with the event
+        // Now deal with the event itself
         FormatFields::format_event(&mut message, event);
 
         let mut logger = self.logger.lock().unwrap();
@@ -101,12 +108,13 @@ where
             Level::WARN => logger.warning(message),
             Level::INFO => logger.info(message),
             Level::DEBUG => logger.debug(message),
+            // syslog has no trace level, so just re-use debug (the lowest syslog level)
             Level::TRACE => logger.debug(message),
         };
     }
 }
 
-/// Convert `tracing` events/attributes into strings with a visitor pattern
+/// Convert `tracing` events/attributes into strings with a visitor pattern.
 struct FormatFields<'a> {
     buf: &'a mut String,
 }
