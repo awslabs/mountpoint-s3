@@ -985,7 +985,7 @@ impl Inode {
 
     pub fn inc_file_size(&self, len: usize) {
         let mut state = self.inner.sync.write().unwrap();
-        state.stat.update_size(len);
+        state.stat.size += len;
     }
 
     pub fn start_reading(&self) -> Result<(), InodeError> {
@@ -1140,10 +1140,6 @@ impl InodeStat {
             mtime: datetime,
             etag: None,
         }
-    }
-
-    fn update_size(&mut self, len: usize) {
-        self.size += len;
     }
 
     fn update_validity(&mut self, validity: Duration) {
