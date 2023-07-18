@@ -614,11 +614,8 @@ impl SuperblockInner {
         }
 
         // Fast path: try with only a read lock on the directory first.
-        {
-            let parent_state = parent.get_inode_state()?;
-            if let Some(looked_up) = Self::try_update_fast_path(&parent_state, name, &remote)? {
-                return Ok(looked_up);
-            }
+        if let Some(looked_up) = Self::try_update_fast_path(&parent, name, &remote)? {
+            return Ok(looked_up);
         }
 
         self.update_slow_path(parent, name, remote)
@@ -627,10 +624,11 @@ impl SuperblockInner {
     /// Try to update the inode for the given name in the parent directory with only a read lock on
     /// the parent.
     fn try_update_fast_path(
-        parent_state: &InodeState,
+        parent: &Inode,
         name: &str,
         remote: &Option<RemoteLookup>,
     ) -> Result<Option<LookedUp>, InodeError> {
+        let parent_state = parent.get_inode_state()?;
         let inode = match &parent_state.kind_data {
             InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
             InodeKindData::Directory { children, .. } => children.get(name),
@@ -682,9 +680,9 @@ impl SuperblockInner {
                         stat,
                     })
                 } else {
-                    // This existing inode is local-only (because `remote` is None), but is no
-                    // longer being written. It must have previously existed but been removed on the
-                    // remote side.
+                    // This existing inode is local-only (because `remote` is None), but is not
+                    // being written. It must have previously existed but been removed on the remote
+                    // side.
                     children.remove(name);
                     Err(InodeError::FileDoesNotExist)
                 }
