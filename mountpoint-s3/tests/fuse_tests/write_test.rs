@@ -306,7 +306,7 @@ where
     assert!(!test_client.is_upload_in_progress(KEY).unwrap());
 
     let m = metadata(&path).unwrap();
-    assert_eq!(m.len(), 0);
+    assert_eq!(m.len(), body.len() as u64);
 
     f.write_all(&body).expect_err("write after sync should fail");
 

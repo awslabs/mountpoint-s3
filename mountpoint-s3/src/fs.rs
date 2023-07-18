@@ -580,11 +580,16 @@ where
                 None => return Err(libc::EBADF),
             }
         };
-        let mut request = match &handle.typ {
-            FileHandleType::Write { request, .. } => request.lock().await,
-            FileHandleType::Read { .. } => return Err(libc::EBADF),
+
+        let len = {
+            let mut request = match &handle.typ {
+                FileHandleType::Write { request, .. } => request.lock().await,
+                FileHandleType::Read { .. } => return Err(libc::EBADF),
+            };
+            request.write(offset, data, &handle.full_key).await?
         };
-        request.write(offset, data, &handle.full_key).await
+        handle.inode.inc_file_size(len as usize);
+        Ok(len)
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {

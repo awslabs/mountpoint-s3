@@ -983,6 +983,11 @@ impl Inode {
         Ok(state.write_status == WriteStatus::Remote)
     }
 
+    pub fn inc_file_size(&self, len: usize) {
+        let mut state = self.inner.sync.write().unwrap();
+        state.stat.update_size(len);
+    }
+
     pub fn start_reading(&self) -> Result<(), InodeError> {
         let state = self.get_inode_state()?;
         match state.write_status {
@@ -1135,6 +1140,10 @@ impl InodeStat {
             mtime: datetime,
             etag: None,
         }
+    }
+
+    fn update_size(&mut self, len: usize) {
+        self.size += len;
     }
 
     fn update_validity(&mut self, validity: Duration) {
