@@ -12,9 +12,13 @@ use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use time::format_description::FormatItem;
 use time::macros;
 use time::OffsetDateTime;
-use tracing_subscriber::{
-    filter::EnvFilter, filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer,
-};
+use tracing_subscriber::filter::{EnvFilter, Filtered, LevelFilter};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{Layer, Registry};
+
+mod syslog;
+use self::syslog::SyslogLayer;
 
 /// Set up all our logging infrastructure.
 ///
@@ -102,6 +106,16 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
         None
     };
 
+    let syslog_layer: Option<Filtered<_, _, Registry>> = if log_directory.is_none() {
+        // TODO decide how to configure the filter for syslog
+        let env_filter = EnvFilter::new("warn,awscrt=off");
+        // Don't fail if syslog isn't available on the system, since it's a default
+        let syslog_layer = SyslogLayer::new().ok();
+        syslog_layer.map(|l| l.with_filter(env_filter))
+    } else {
+        None
+    };
+
     let console_layer = if is_foreground {
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
@@ -112,6 +126,7 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
     };
 
     let registry = tracing_subscriber::registry()
+        .with(syslog_layer)
         .with(console_layer)
         .with(file_layer)
         .with(metrics_tracing_span_layer());
