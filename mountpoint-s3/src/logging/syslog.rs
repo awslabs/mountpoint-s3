@@ -192,7 +192,7 @@ mod tests {
             let _enter2 = span2.enter();
             tracing::info!(field5 = 5, field6 = 6, "msg3={:?}", 3);
         });
-        let vec = std::mem::replace(&mut *buf.inner.lock().unwrap(), Vec::new());
+        let vec = std::mem::take(&mut *buf.inner.lock().unwrap());
         let output = String::from_utf8(vec).unwrap();
         // The actual output is syslog-formatted, so includes the current time and PID. Let's just
         // check the parts of the payload we really care about.
