@@ -52,8 +52,11 @@ where
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
+    let mut current_size = 0;
     for part in body.chunks(WRITE_SIZE) {
         f.write_all(part).unwrap();
+        current_size += part.len() as u64;
+        assert_eq!(f.metadata().unwrap().len(), current_size);
     }
 
     // We shouldn't be able to read from a file mid-write
@@ -229,8 +232,11 @@ where
     let mut body = vec![0u8; object_size];
     rng.fill(&mut body[..]);
 
+    let mut current_size = 0;
     for part in body.chunks(write_chunk_size) {
         f.write_all(part).unwrap();
+        current_size += part.len() as u64;
+        assert_eq!(f.metadata().unwrap().len(), current_size);
     }
 
     // We shouldn't be able to read from a file mid-write
@@ -306,7 +312,7 @@ where
     assert!(!test_client.is_upload_in_progress(KEY).unwrap());
 
     let m = metadata(&path).unwrap();
-    assert_eq!(m.len(), 0);
+    assert_eq!(m.len(), body.len() as u64);
 
     f.write_all(&body).expect_err("write after sync should fail");
 
@@ -350,8 +356,11 @@ where
 
     let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
     let data = vec![0xaa; write_size];
+    let mut current_size = 0;
     for _ in 0..successful_writes {
         f.write_all(&data).expect("object should fit");
+        current_size += data.len() as u64;
+        assert_eq!(f.metadata().unwrap().len(), current_size);
     }
 
     let err = f.write_all(&data).expect_err("object should be too big");
