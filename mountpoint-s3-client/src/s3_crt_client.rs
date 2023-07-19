@@ -40,8 +40,7 @@ use crate::s3_crt_client::put_object::S3PutObjectRequest;
 macro_rules! request_span {
     ($self:expr, $method:expr) => {{
         let counter = $self.next_request_counter();
-        // Request failures are emitted at warning verbosity, so emit their spans there too
-        tracing::warn_span!($method, id = counter)
+        tracing::debug_span!($method, id = counter)
     }};
 }
 

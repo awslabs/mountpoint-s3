@@ -1,3 +1,8 @@
+//! Provides a subscriber that sends [tracing] logs to `syslog` over a Unix socket.
+//!
+//! We do this by implementing a [tracing_subscriber::Layer] that listens for [tracing] events and
+//! emits them to a syslog socket that was opened when the layer was created.
+
 use std::fmt::Write;
 use std::sync::Mutex;
 
@@ -9,7 +14,7 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
-/// A [tracing_subscribrer::Layer] that emits log events to syslog. This layer does no filtering,
+/// A [tracing_subscriber::Layer] that emits log events to syslog. This layer does no filtering,
 /// and so should be paired with a [tracing_subscriber::Filter].
 pub struct SyslogLayer<Backend: std::io::Write = LoggerBackend> {
     logger: Mutex<Logger<Backend, Formatter3164>>,
@@ -40,49 +45,68 @@ impl<B: std::io::Write> SyslogLayer<B> {
             facility: Facility::LOG_USER,
             hostname: None,
             process: "mount-s3".into(),
-            pid: unsafe { libc::getpid() as u32 },
+            pid: std::process::id(),
         }
     }
 }
 
-// This is a stripped down version of [tracing_subscribers::fmt::Layer] that skips some tracing
-// stuff we don't use, like timings and span enter/exit events.
-// https://github.com/tokio-rs/tracing/blob/0114ec1cf56e01e79b2e429e77c660457711d263/tracing-subscriber/src/fmt/fmt_layer.rs#L786
+/// Implement a [tracing_subscriber::Layer] that will emit [tracing] events to syslog.
+///
+/// [tracing] has both "spans", a period of time during program execution, and "events", something
+/// that happens at a moment in time. We use spans to remember information for the duration of an
+/// interesting context -- for example, a GetObject request might have a span for the duration of
+/// the request that records the key being retrieved. We use events to record interesting things
+/// that happened -- for example, the GetObject request succeeded or failed. When an event is
+/// generated, we can look up all the open spans at that moment in time to recover all the
+/// interesting context for the event.
+///
+/// This layer listens for new spans and records the information associated with them (which tracing
+/// allows to be mutated via [on_record]). Then it listens for events, and when an event is
+/// received, it builds a message to send to syslog by combining the previously recorded information
+/// for all open spans with the information for the event.
+///
+/// This is a stripped down version of [tracing_subscribers::fmt::Layer] that skips some tracing
+/// stuff we don't need, like timings and span enter/exit events.
+/// https://github.com/tokio-rs/tracing/blob/0114ec1cf56e01e79b2e429e77c660457711d263/tracing-subscriber/src/fmt/fmt_layer.rs#L786
 impl<S, B> Layer<S> for SyslogLayer<B>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     B: std::io::Write + 'static,
 {
+    // A new span has been constructed -- record its fields for use in [on_event]
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span must exist");
         // Format the span fields now (we won't have access to them at [on_event] time) and stash
         // the result in the `extensions` bag to access from [on_event]
         let mut extensions = span.extensions_mut();
         if extensions.get_mut::<FormattedFields>().is_none() {
-            let mut fields = String::new();
-            FormatFields::format_attributes(&mut fields, attrs);
-            extensions.insert(FormattedFields(fields));
+            let mut fields = FormattedFields(String::new());
+            FormatFields::format_attributes(&mut fields.0, attrs);
+            extensions.insert(fields);
         }
     }
 
+    // An existing span is being mutated with new values -- update the recorded fields
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let span = ctx.span(id).expect("span must exist");
         let mut extensions = span.extensions_mut();
-        // Update the fields in place if we already formatted them at [on_new_span] time
+        // Append the fields to the existing string if it exists (from [on_new_span]), otherwise
+        // store a new string
         if let Some(fields) = extensions.get_mut::<FormattedFields>() {
             FormatFields::format_record(&mut fields.0, values);
-            return;
+        } else {
+            let mut fields = FormattedFields(String::new());
+            FormatFields::format_record(&mut fields.0, values);
+            extensions.insert(fields);
         }
-        let mut fields = String::new();
-        FormatFields::format_record(&mut fields, values);
-        extensions.insert(FormattedFields(fields));
     }
 
+    // An event has been emitted
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         // No need to do any filtering -- we assume this layer is paired with a filter. So just
         // build the message and ship it.
         let metadata = event.metadata();
-        let mut message = format!("[{}] {}: ", metadata.level(), metadata.target());
+        let mut message = format!("[{}] ", metadata.level());
         // First deal with any spans by walking up the span tree and adding each span's formatted
         // representation to the message
         if let Some(scope) = ctx.event_scope(event) {
@@ -99,6 +123,7 @@ where
                 let _ = write!(message, " ");
             }
         }
+        let _ = write!(message, "{}: ", metadata.target());
         // Now deal with the event itself
         FormatFields::format_event(&mut message, event);
 
@@ -198,13 +223,13 @@ mod tests {
             let _enter = span.enter();
             let span2 = tracing::warn_span!("span2", field3 = 3, field4 = 4, "msg2={:?}", 2);
             let _enter2 = span2.enter();
-            tracing::info!(field5 = 5, field6 = 6, "msg3={:?}", 3);
+            tracing::info!(field5 = 5, field6 = 6, "this is a real {:?} message", "cool");
         });
         let vec = std::mem::take(&mut *buf.inner.lock().unwrap());
         let output = String::from_utf8(vec).unwrap();
         // The actual output is syslog-formatted, so includes the current time and PID. Let's just
         // check the parts of the payload we really care about.
-        let expected = "mountpoint_s3::logging::syslog::tests: span1{msg1=1 field1=1 field2=2}:span2{msg2=2 field3=3 field4=4}: msg3=3 field5=5 field6=6";
+        let expected = "[INFO] span1{msg1=1 field1=1 field2=2}:span2{msg2=2 field3=3 field4=4}: mountpoint_s3::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6";
         assert!(
             output.ends_with(expected),
             "expected payload {:?} to end with {:?}",
