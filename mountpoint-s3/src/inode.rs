@@ -432,7 +432,7 @@ impl SuperblockInner {
             .get(&ino)
             .cloned()
             .ok_or(InodeError::InodeDoesNotExist(ino))?;
-        inode.verify_checksum()?;
+        inode.verify_inode(ino)?;
         Ok(inode)
     }
 
@@ -471,7 +471,7 @@ impl SuperblockInner {
         // cache and then read it.
         let remote = self.remote_lookup(client, parent_ino, name).await?;
         let lookup = self.update_from_remote(parent_ino, name, remote)?;
-        lookup.inode.verify_checksum()?;
+        lookup.inode.verify_child(parent_ino, name.as_ref())?;
         Ok(lookup)
     }
 
@@ -1027,9 +1027,18 @@ impl Inode {
         Self { inner: inner.into() }
     }
 
-    fn verify_checksum(&self) -> Result<(), InodeError> {
+    fn verify_inode(&self, expected_ino: InodeNo) -> Result<(), InodeError> {
         let computed = Self::compute_checksum(self.ino(), self.full_key());
-        if computed == self.inner.checksum {
+        if computed == self.inner.checksum && self.ino() == expected_ino {
+            Ok(())
+        } else {
+            Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
+        }
+    }
+
+    fn verify_child(&self, expected_parent: InodeNo, expected_name: &str) -> Result<(), InodeError> {
+        let computed = Self::compute_checksum(self.ino(), self.full_key());
+        if computed == self.inner.checksum && self.parent() == expected_parent && self.name() == expected_name {
             Ok(())
         } else {
             Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
