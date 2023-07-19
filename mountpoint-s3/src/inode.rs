@@ -360,10 +360,6 @@ impl Superblock {
             return Err(InodeError::IsDirectory(inode.ino()));
         }
 
-        if !inode.verify_checksum() {
-            return Err(InodeError::CorruptedMetadata(inode.ino(), inode.full_key().to_owned()));
-        }
-
         let write_status = {
             let inode_state = inode.get_inode_state()?;
             inode_state.write_status
@@ -429,12 +425,15 @@ impl Superblock {
 impl SuperblockInner {
     /// Retrieve the inode for the given number if it exists
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
-        self.inodes
+        let inode = self
+            .inodes
             .read()
             .unwrap()
             .get(&ino)
             .cloned()
-            .ok_or(InodeError::InodeDoesNotExist(ino))
+            .ok_or(InodeError::InodeDoesNotExist(ino))?;
+        inode.verify_checksum()?;
+        Ok(inode)
     }
 
     /// Increase the lookup count of the given inode and
@@ -471,7 +470,9 @@ impl SuperblockInner {
         // TODO use caches. if we already know about this name, we just need to revalidate the stat
         // cache and then read it.
         let remote = self.remote_lookup(client, parent_ino, name).await?;
-        self.update_from_remote(parent_ino, name, remote)
+        let lookup = self.update_from_remote(parent_ino, name, remote)?;
+        lookup.inode.verify_checksum()?;
+        Ok(lookup)
     }
 
     /// Lookup an inode in the parent directory with the given name
@@ -1026,9 +1027,13 @@ impl Inode {
         Self { inner: inner.into() }
     }
 
-    fn verify_checksum(&self) -> bool {
+    fn verify_checksum(&self) -> Result<(), InodeError> {
         let computed = Self::compute_checksum(self.ino(), self.full_key());
-        computed == self.inner.checksum
+        if computed == self.inner.checksum {
+            Ok(())
+        } else {
+            Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
+        }
     }
 
     fn compute_checksum(ino: InodeNo, full_key: &str) -> Crc32c {
