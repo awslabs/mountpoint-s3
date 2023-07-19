@@ -111,6 +111,7 @@ where
     }
 
     // We shouldn't be able to read from a file mid-write
+    f.seek(std::io::SeekFrom::End(-1)).unwrap();
     let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
