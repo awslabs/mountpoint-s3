@@ -4,6 +4,7 @@ use crate::auth::credentials::CredentialsProvider;
 use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
+use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
@@ -937,15 +938,15 @@ impl RequestMetrics {
     }
 
     /// Get the ID of the thread the request was made from
-    pub fn thread_id(&self) -> Option<u64> {
-        let mut out: u64 = 0;
+    pub fn thread_id(&self) -> Option<ThreadId> {
+        let mut out: aws_thread_id_t = 0;
         // SAFETY: `inner` is a valid aws_s3_request_metrics
         unsafe {
             aws_s3_request_metrics_get_thread_id(self.inner.as_ptr(), &mut out)
                 .ok_or_last_error()
                 .ok()?
         };
-        Some(out)
+        Some(out.into())
     }
 
     /// Get the stream ID of the request
