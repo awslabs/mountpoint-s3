@@ -53,12 +53,6 @@ impl S3CrtClient {
                 ObjectClientError::ClientError(S3RequestError::ResponseError(result))
             })?;
 
-        if let Some(storage_class) = self.params.storage_class.to_owned() {
-            message
-                .add_header(&Header::new("x-amz-storage-class", storage_class))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-
         Ok(S3PutObjectRequest {
             body,
             writer,
