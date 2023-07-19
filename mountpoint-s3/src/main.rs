@@ -215,7 +215,7 @@ struct CliArgs {
         help_heading = MOUNT_OPTIONS_HEADER
     )]
     pub read_only: bool,
-    
+
     #[clap(long, help = "Set the storage class for new objects", help_heading = BUCKET_OPTIONS_HEADER)]
     pub storage_class: Option<String>,
 

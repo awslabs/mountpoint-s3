@@ -146,7 +146,7 @@ mod mock_session {
 
         fn get_storage_class(&self, key: &str) -> Result<String, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-           Ok(self.client.get_object_storage_class(&full_key))
+            Ok(self.client.get_object_storage_class(&full_key))
         }
     }
 }
@@ -304,15 +304,13 @@ mod s3_session {
             let full_key = format!("{}{}", self.prefix, key);
             tokio_block_on(
                 self.sdk_client
-                        .get_object_attributes()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
-                .send()
+                    .get_object_attributes()
+                    .bucket(&self.bucket)
+                    .key(full_key)
+                    .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
+                    .send(),
             )
-            .map(|output| {
-                output.storage_class.unwrap().as_str().to_owned()
-            })
+            .map(|output| output.storage_class.unwrap().as_str().to_owned())
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
     }
