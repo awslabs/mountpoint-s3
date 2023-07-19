@@ -1,7 +1,7 @@
 use std::fs::{metadata, read, read_dir, File};
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::OpenOptionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use fuser::BackgroundSession;
@@ -12,6 +12,8 @@ use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
 
+use crate::common::{get_test_bucket_and_prefix, get_test_region};
+use crate::fuse_tests::s3_session::get_test_sdk_client;
 use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
@@ -437,65 +439,6 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
 }
 
-fn write_with_storage_class_test<F>(creator_fn: F, storage_class: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    const KEY: &str = "new.txt";
-
-    let filesystem_config: S3FilesystemConfig = S3FilesystemConfig {
-        storage_class: Some(storage_class.to_owned()),
-        ..Default::default()
-    };
-
-    let config = TestSessionConfig {
-        filesystem_config,
-        ..Default::default()
-    };
-    let (mount_point, _session, test_client) = creator_fn("write_with_storage_class_test", config);
-
-    let path = mount_point.path().join(KEY);
-
-    let mut f = open_for_write(&path, false).unwrap();
-
-    let data = [0xaa; 16];
-    f.write_all(&data).unwrap();
-    f.sync_all().unwrap();
-    drop(f);
-
-    let s3_storage_class = test_client.get_storage_class(KEY).unwrap();
-
-    assert_eq!(s3_storage_class, storage_class);
-}
-
-fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    const KEY: &str = "new.txt";
-
-    let filesystem_config: S3FilesystemConfig = S3FilesystemConfig {
-        storage_class: Some(storage_class.to_owned()),
-        ..Default::default()
-    };
-
-    let config = TestSessionConfig {
-        filesystem_config,
-        ..Default::default()
-    };
-    let (mount_point, _session, _test_client) = creator_fn("write_with_storage_class_test", config);
-
-    let path = mount_point.path().join(KEY);
-    write_file(path).expect_err("write with invalid storage class should fail");
-}
-
-fn write_file(path: PathBuf) -> std::io::Result<()> {
-    let mut f = open_for_write(&path, false)?;
-    let data = [0xaa; 16];
-    f.write_all(&data)?;
-    Ok(())
-}
-
 #[cfg(feature = "s3_tests")]
 #[test_case(-1; "earlier offset")]
 #[test_case(1; "later offset")]
@@ -509,6 +452,39 @@ fn out_of_order_write_test_mock(offset: i64) {
     out_of_order_write_test(crate::fuse_tests::mock_session::new, offset);
 }
 
+async fn write_with_storage_class_test<F>(creator_fn: F, storage_class: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            storage_class: Some(storage_class.to_owned()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, _test_client) = creator_fn("write_with_storage_class_test", config);
+
+    let path = mount_point.path().join(KEY);
+
+    write_file(path).unwrap();
+    let region = get_test_region();
+    let sdk_client = get_test_sdk_client(&region).await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_storage_class_test");
+    let attributes = sdk_client
+        .get_object_attributes()
+        .bucket(bucket)
+        .key(KEY)
+        .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
+}
+
 #[cfg(feature = "s3_tests")]
 #[test_case("INTELLIGENT_TIERING")]
 #[test_case("GLACIER")]
@@ -516,6 +492,34 @@ fn write_with_storage_class_test_s3(storage_class: &str) {
     write_with_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
 }
 
+fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            storage_class: Some(storage_class.to_owned()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, _test_client) = creator_fn("write_with_storage_class_test", config);
+
+    let path = mount_point.path().join(KEY);
+    write_file(path).expect_err("write with invalid storage class should fail");
+}
+
+fn write_file(path: impl AsRef<Path>) -> std::io::Result<()> {
+    let mut f = open_for_write(&path, false)?;
+    let data = [0xaa; 16];
+    f.write_all(&data)?;
+    f.sync_all()?;
+    Ok(())
+}
+
+#[cfg(feature = "s3_tests")]
 #[test_case("INVALID_CLASS")]
 fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
     write_with_invalid_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
