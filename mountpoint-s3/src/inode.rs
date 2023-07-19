@@ -608,109 +608,158 @@ impl SuperblockInner {
     ) -> Result<LookedUp, InodeError> {
         let parent = self.get(parent_ino)?;
 
-        // TODO what if a file was overwritten by a directory on the server side?
+        // Should be impossible since all callers check this already, but let's be safe
         if parent.kind() != InodeKind::Directory {
             return Err(InodeError::NotADirectory(parent_ino));
         }
 
         // Fast path: try with only a read lock on the directory first.
-        {
-            let parent_state = parent.get_inode_state()?;
-            match Self::try_update_child(&parent_state, name, &remote)? {
-                UpdateStatus::Neither => return Err(InodeError::FileDoesNotExist),
-                UpdateStatus::Updated(lookedup) => return Ok(lookedup),
-                _ => {} // Fallback, we need a write lock to update the parent.
-            }
+        if let Some(looked_up) = Self::try_update_fast_path(&parent, name, &remote)? {
+            return Ok(looked_up);
         }
 
-        // If the fast path failed, take the write lock. We first have to try the update again, as
-        // a racing writer might have beat us to the lock after our fast path attempt.
-        let mut parent_state = parent.get_mut_inode_state()?;
-        match Self::try_update_child(&parent_state, name, &remote)? {
-            UpdateStatus::Neither => Err(InodeError::FileDoesNotExist),
-            UpdateStatus::Updated(lookedup) => Ok(lookedup),
-            UpdateStatus::LocalOnly(inode) => {
-                match &mut parent_state.kind_data {
-                    InodeKindData::File {} => unreachable!("we know parent is a directory"),
-                    InodeKindData::Directory {
-                        children,
-                        writing_children,
-                        ..
-                    } => {
-                        if writing_children.contains(&inode.ino()) {
-                            // Return the local inode.
-                            let stat = inode.get_inode_state()?.stat.clone();
-                            Ok(LookedUp { inode, stat })
-                        } else {
-                            // Remove from children.
-                            children.remove(name);
-                            Err(InodeError::FileDoesNotExist)
-                        }
-                    }
-                }
-            }
-            UpdateStatus::RemoteKey(RemoteLookup { stat, kind }) => {
-                let state = InodeState {
-                    stat: stat.clone(),
-                    kind_data: InodeKindData::default_for(kind),
-                    write_status: WriteStatus::Remote,
-                    lookup_count: 0,
-                };
-                self.create_inode_locked(&parent, &mut parent_state, name, kind, state, false)
-                    .map(|inode| LookedUp { inode, stat })
-            }
-        }
+        self.update_slow_path(parent, name, remote)
     }
 
-    /// Try to update the inode for the given name in the parent directory and
-    /// return an [UpdateStatus].
-    /// Don't use this directly -- use [SuperblockInner::update_from_remote] instead.
-    fn try_update_child(
-        parent_state: &InodeState,
+    /// Try to update the inode for the given name in the parent directory with only a read lock on
+    /// the parent.
+    fn try_update_fast_path(
+        parent: &Inode,
         name: &str,
         remote: &Option<RemoteLookup>,
-    ) -> Result<UpdateStatus, InodeError> {
+    ) -> Result<Option<LookedUp>, InodeError> {
+        let parent_state = parent.get_inode_state()?;
         let inode = match &parent_state.kind_data {
             InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
             InodeKindData::Directory { children, .. } => children.get(name),
         };
         match (remote, inode) {
-            (None, None) => Ok(UpdateStatus::Neither),
-            (None, Some(inode)) => Ok(UpdateStatus::LocalOnly(inode.clone())),
-            (Some(remote), None) => Ok(UpdateStatus::RemoteKey(remote.clone())),
-            (
-                Some(
-                    remote @ RemoteLookup {
-                        kind: remote_kind,
-                        stat,
-                    },
-                ),
-                Some(existing_inode),
-            ) => {
-                let mut inode_state = existing_inode.get_mut_inode_state()?;
-                match (existing_inode.kind(), remote_kind) {
-                    // If the kind has changed, we need a new inode.
-                    (InodeKind::File, InodeKind::Directory) | (InodeKind::Directory, InodeKind::File) => {
-                        warn!(
-                            parent=?existing_inode.parent(),
-                            name=?existing_inode.name(),
-                            ino=?existing_inode.ino(),
-                            "inode changed from {:?} to {:?}, will recreate it",
-                            existing_inode.kind(),
-                            remote_kind,
-                        );
-                        Ok(UpdateStatus::RemoteKey(remote.clone()))
-                    }
-                    // Otherwise, we'll just update this inode in place.
-                    (InodeKind::File, InodeKind::File) | (InodeKind::Directory, InodeKind::Directory) => {
-                        trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place");
-                        inode_state.stat = stat.clone();
-                        Ok(UpdateStatus::Updated(LookedUp {
-                            inode: existing_inode.clone(),
-                            stat: stat.clone(),
-                        }))
-                    }
+            (None, None) => Err(InodeError::FileDoesNotExist),
+            (Some(remote), Some(existing_inode)) => {
+                let mut existing_state = existing_inode.get_mut_inode_state()?;
+                let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
+                if remote.kind == existing_inode.kind() && existing_is_remote {
+                    trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place");
+                    existing_state.stat = remote.stat.clone();
+                    Ok(Some(LookedUp {
+                        inode: existing_inode.clone(),
+                        stat: remote.stat.clone(),
+                    }))
+                } else {
+                    Ok(None)
                 }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Update or create the inode for the given name in the parent directory with a write lock on
+    /// the parent. This method still needs to handle the cases handled by [try_update_fast_path]
+    /// because an intervening writer might have modified the inode we're updating.
+    fn update_slow_path(
+        &self,
+        parent: Inode,
+        name: &str,
+        remote: Option<RemoteLookup>,
+    ) -> Result<LookedUp, InodeError> {
+        let mut parent_state = parent.get_mut_inode_state()?;
+        let inode = match &parent_state.kind_data {
+            InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
+            InodeKindData::Directory { children, .. } => children.get(name).cloned(),
+        };
+        match (remote, inode) {
+            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, Some(existing_inode)) => {
+                let InodeKindData::Directory { children, writing_children, .. } = &mut parent_state.kind_data else {
+                    unreachable!("we know parent is a directory");
+                };
+                if writing_children.contains(&existing_inode.ino()) {
+                    let stat = existing_inode.get_inode_state()?.stat.clone();
+                    Ok(LookedUp {
+                        inode: existing_inode,
+                        stat,
+                    })
+                } else {
+                    // This existing inode is local-only (because `remote` is None), but is not
+                    // being written. It must have previously existed but been removed on the remote
+                    // side.
+                    children.remove(name);
+                    Err(InodeError::FileDoesNotExist)
+                }
+            }
+            (Some(remote), None) => {
+                let state = InodeState {
+                    stat: remote.stat.clone(),
+                    kind_data: InodeKindData::default_for(remote.kind),
+                    write_status: WriteStatus::Remote,
+                    lookup_count: 0,
+                };
+                self.create_inode_locked(&parent, &mut parent_state, name, remote.kind, state, false)
+                    .map(|inode| LookedUp {
+                        inode,
+                        stat: remote.stat,
+                    })
+            }
+            (Some(remote), Some(existing_inode)) => {
+                // We need to reconcile the existing state with the state we just got from the
+                // remote. Our goal here is for the behavior to be as unsurprising as possible while
+                // being consistent with our stated semantics about implicit directories and how
+                // directories shadow files.
+                let mut existing_state = existing_inode.get_mut_inode_state()?;
+                let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
+
+                // Remote files are always shadowed by existing local files/directories, so do
+                // nothing and return the existing inode.
+                if remote.kind == InodeKind::File && !existing_is_remote {
+                    return Ok(LookedUp {
+                        inode: existing_inode.clone(),
+                        stat: existing_state.stat.clone(),
+                    });
+                }
+
+                // Try to update in place if we can. The fast path does this too, but here we can
+                // also handle the case of a local directory becoming remote, which requires
+                // updating the parent.
+                if remote.kind == existing_inode.kind() && (existing_is_remote || remote.kind == InodeKind::Directory) {
+                    trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place (slow path)");
+                    existing_state.stat = remote.stat.clone();
+                    if remote.kind == InodeKind::Directory && !existing_is_remote {
+                        trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "local directory has become remote");
+                        existing_state.write_status = WriteStatus::Remote;
+                        let InodeKindData::Directory { writing_children, .. } = &mut parent_state.kind_data else {
+                            unreachable!("we know parent is a directory");
+                        };
+                        writing_children.remove(&existing_inode.ino());
+                    }
+                    return Ok(LookedUp {
+                        inode: existing_inode.clone(),
+                        stat: remote.stat,
+                    });
+                }
+
+                // Otherwise, create a fresh inode, possibly merging the existing contents. Note
+                // that [create_inode_locked] takes care of unlinking the existing inode from its
+                // parent if necessary.
+                warn!(
+                    parent=?existing_inode.parent(),
+                    name=?existing_inode.name(),
+                    ino=?existing_inode.ino(),
+                    "inode changed from {:?} to {:?}, will recreate it",
+                    existing_inode.kind(),
+                    remote.kind,
+                );
+                let state = InodeState {
+                    stat: remote.stat.clone(),
+                    kind_data: InodeKindData::default_for(remote.kind),
+                    write_status: WriteStatus::Remote,
+                    lookup_count: 0,
+                };
+                let new_inode =
+                    self.create_inode_locked(&parent, &mut parent_state, name, remote.kind, state, false)?;
+                Ok(LookedUp {
+                    inode: new_inode,
+                    stat: remote.stat,
+                })
             }
         }
     }
@@ -769,9 +818,12 @@ impl SuperblockInner {
                 writing_children,
                 ..
             } => {
-                children.insert(name.to_owned(), inode.clone());
+                let existing_inode = children.insert(name.to_owned(), inode.clone());
                 if is_new_file {
                     writing_children.insert(next_ino);
+                }
+                if let Some(existing_inode) = existing_inode {
+                    writing_children.remove(&existing_inode.ino());
                 }
             }
         }
@@ -785,23 +837,6 @@ impl SuperblockInner {
 pub struct RemoteLookup {
     kind: InodeKind,
     stat: InodeStat,
-}
-
-/// Result of a call to [SuperblockInner::try_update_child].
-#[derive(Debug)]
-enum UpdateStatus {
-    /// Key not found on remote, but local inode exists.
-    LocalOnly(Inode),
-
-    /// New key on remote, no local inode.
-    RemoteKey(RemoteLookup),
-
-    /// Local inode already up to date with remote.
-    /// [LookedUp] contains the inode and its updated `stat`.
-    Updated(LookedUp),
-
-    /// No remote key, no local inode.
-    Neither,
 }
 
 /// Result of a call to [Superblock::lookup] or [Superblock::getattr]. `stat` is a copy of the

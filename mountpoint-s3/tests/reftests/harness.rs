@@ -10,16 +10,16 @@ use mountpoint_s3::fs::{InodeNo, ReadReplier, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
+use mountpoint_s3_client::ObjectClient;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, trace};
 
 use crate::common::{make_test_filesystem, DirectoryReply};
-use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, TreeNode, ValidName};
+use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, Name, TreeNode, ValidName};
 use crate::reftests::reference::{File, Node, Reference};
 
 /// Operations that the mutating proptests can perform on the file system.
-// TODO: mkdir, readdir, unlink
 // TODO: "reboot" (forget all the local inodes and re-bootstrap)
 #[derive(Debug, Arbitrary)]
 pub enum Op {
@@ -45,6 +45,13 @@ pub enum Op {
     /// this as an explicit operation tests a different code path (doing recursive path resolution
     /// rather than walking the directory hierarchy with `readdir`).
     Read(DirectoryIndex, ChildIndex),
+
+    /// Put a new object into the bucket (to simulate concurrent access by a non-Mountpoint client).
+    /// This includes generating keys that would be invalid filenames by using [Name] instead of
+    /// [ValidName].
+    PutObject(DirectoryIndex, Name, FileContent),
+    /// Remove an object from the bucket (to simulate concurrent access by a non-Mountpoint client)
+    DeleteObject(KeyIndex),
 }
 
 /// An index into the reference model's list of directories. We use this to randomly select an
@@ -80,6 +87,24 @@ impl ChildIndex {
             trace!("{self:?} is actually {idx}");
             let key = reference.keys().nth(idx).unwrap();
             Some((key, reference.get(key).unwrap()))
+        }
+    }
+}
+
+/// An index into the keys in a bucket
+#[derive(Debug, Clone, Copy, Arbitrary)]
+pub struct KeyIndex(usize);
+
+impl KeyIndex {
+    /// Get the key at the given index in the reference. Returns None if the bucket is empty.
+    fn get<'a>(&self, reference: &'a Reference) -> Option<&'a str> {
+        let mut remote_keys = reference.remote_keys();
+        if remote_keys.len() == 0 {
+            None
+        } else {
+            let idx = self.0 % remote_keys.len();
+            trace!("{self:?} is actually {idx}");
+            Some(remote_keys.nth(idx).unwrap())
         }
     }
 }
@@ -139,16 +164,26 @@ pub struct Harness {
     readdir_limit: usize, // max number of entries that a readdir will return; 0 means no limit
     reference: Reference,
     fs: S3Filesystem<Arc<MockClient>, ThreadPool>,
+    client: Arc<MockClient>,
+    bucket: String,
     inflight_writes: InflightWrites,
 }
 
 impl Harness {
     /// Create a new test harness
-    pub fn new(fs: S3Filesystem<Arc<MockClient>, ThreadPool>, reference: Reference, readdir_limit: usize) -> Self {
+    pub fn new(
+        fs: S3Filesystem<Arc<MockClient>, ThreadPool>,
+        client: Arc<MockClient>,
+        reference: Reference,
+        bucket: &str,
+        readdir_limit: usize,
+    ) -> Self {
         Self {
             readdir_limit,
             reference,
             fs,
+            client,
+            bucket: bucket.to_owned(),
             inflight_writes: Default::default(),
         }
     }
@@ -190,6 +225,12 @@ impl Harness {
                 }
                 Op::Read(directory_index, file_index) => {
                     self.perform_read(*directory_index, *file_index).await;
+                }
+                Op::PutObject(directory_index, name, contents) => {
+                    self.perform_put_object(*directory_index, name, contents).await;
+                }
+                Op::DeleteObject(key_index) => {
+                    self.perform_delete_object(*key_index).await;
                 }
             }
 
@@ -504,6 +545,43 @@ impl Harness {
         }
     }
 
+    /// Perform a PutObject on the bucket, to simulate concurrent access to the bucket by a client
+    /// other than this filesystem. We use a [DirectoryIndex] to generate an interesting key to
+    /// put to, one that is likely to overlap existing directories.
+    async fn perform_put_object(&mut self, directory_index: DirectoryIndex, name: &str, contents: &FileContent) {
+        let key_as_path = {
+            let dir = directory_index.get(&self.reference);
+            dir.as_ref().join(name)
+        };
+        assert!(key_as_path.has_root());
+        let key = key_as_path.strip_prefix("/").unwrap().display().to_string();
+        trace!(key, "put object");
+
+        let object = contents.to_mock_object();
+        self.client.add_object(&key, object.clone());
+        self.reference.add_remote_key(&key, object);
+        // Any local directories along the path are made remote by adding this object
+        self.reference.remove_local_parents(key_as_path);
+    }
+
+    /// Perform a DeleteObject on the bucket, to simulate concurrent access to the bucket by a
+    /// client other than this filesystem.
+    async fn perform_delete_object(&mut self, key_index: KeyIndex) {
+        let Some(key) = key_index.get(&self.reference) else {
+            // Nothing to do if the bucket is empty
+            return;
+        };
+        let key = key.to_owned();
+
+        trace!(key, "delete object");
+
+        self.client
+            .delete_object(&self.bucket, &key)
+            .await
+            .expect("delete should succeed");
+        self.reference.remove_remote_key(&key);
+    }
+
     fn compare_contents_recursive<'a>(
         &'a self,
         fs_parent: InodeNo,
@@ -583,7 +661,7 @@ impl Harness {
 
             assert!(
                 keys.is_empty(),
-                "reference contained elements not in the filesystem: {keys:?}"
+                "reference contained elements not in the filesystem in dir inode {fs_dir}: {keys:?}"
             );
 
             self.fs.releasedir(fs_dir, dir_handle, 0).await.unwrap();
@@ -606,9 +684,12 @@ impl Harness {
             }
         }
 
-        let fh = self.fs.open(fs_file, 0x8000).await.unwrap().fh;
+        let fh = match self.fs.open(fs_file, 0x8000).await {
+            Ok(ret) => ret.fh,
+            Err(e) => panic!("failed to open {fs_file}: {e:?}"),
+        };
         let mut offset = 0;
-        const MAX_READ_SIZE: usize = 4_096;
+        const MAX_READ_SIZE: usize = 128 * 1024;
         let file_size = ref_file.len();
         while offset < file_size {
             let num_bytes = MAX_READ_SIZE.min(file_size - offset);
@@ -648,12 +729,14 @@ mod read_only {
     }
 
     fn run_test(tree: TreeNode, check: CheckType, readdir_limit: usize) {
-        let test_prefix = Prefix::new("test_prefix/").expect("valid prefix");
+        const BUCKET_NAME: &str = "test-bucket";
+
+        let test_prefix = Prefix::new("").expect("valid prefix");
         let config = S3FilesystemConfig {
             readdir_size: 5,
             ..Default::default()
         };
-        let (client, fs) = make_test_filesystem("harness", &test_prefix, config);
+        let (client, fs) = make_test_filesystem(BUCKET_NAME, &test_prefix, config);
 
         let namespace = flatten_tree(tree);
         for (key, object) in namespace.iter() {
@@ -662,7 +745,7 @@ mod read_only {
 
         let reference = Reference::new(namespace);
 
-        let harness = Harness::new(fs, reference, readdir_limit);
+        let harness = Harness::new(fs, client, reference, BUCKET_NAME, readdir_limit);
 
         futures::executor::block_on(async move {
             match check {
@@ -790,12 +873,14 @@ mod mutations {
     use proptest::collection::vec;
 
     fn run_test(initial_tree: TreeNode, ops: Vec<Op>, readdir_limit: usize) {
-        let test_prefix = Prefix::new("test_prefix/").expect("valid prefix");
+        const BUCKET_NAME: &str = "test-bucket";
+
+        let test_prefix = Prefix::new("").expect("valid prefix");
         let config = S3FilesystemConfig {
             readdir_size: 5,
             ..Default::default()
         };
-        let (client, fs) = make_test_filesystem("harness", &test_prefix, config);
+        let (client, fs) = make_test_filesystem(BUCKET_NAME, &test_prefix, config);
 
         let namespace = flatten_tree(initial_tree);
         for (key, object) in namespace.iter() {
@@ -804,7 +889,7 @@ mod mutations {
 
         let reference = Reference::new(namespace);
 
-        let mut harness = Harness::new(fs, reference, readdir_limit);
+        let mut harness = Harness::new(fs, client, reference, BUCKET_NAME, readdir_limit);
 
         futures::executor::block_on(harness.run(ops));
     }
@@ -1033,6 +1118,171 @@ mod mutations {
                 Op::CreateDirectory(DirectoryIndex(1), "a".into()),
                 Op::UnlinkFile(DirectoryIndex(1), ChildIndex(1)),
                 Op::UnlinkFile(DirectoryIndex(3), ChildIndex(0)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_put_object_delete() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([(
+                "--a".into(),
+                TreeNode::File(FileContent(0, FileSize::Small(0))),
+            )])),
+            vec![
+                Op::PutObject(DirectoryIndex(0), "--a".into(), FileContent(0, FileSize::Small(0))),
+                Op::DeleteObject(KeyIndex(0)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_mkdir_put() {
+        run_test(
+            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_put_over_open_file() {
+        run_test(
+            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            vec![
+                Op::CreateFile("a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
+                Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_put_over_open_directory() {
+        run_test(
+            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_newly_put_directory() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([(
+                "-".into(),
+                TreeNode::Directory(BTreeMap::from([
+                    ("-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                    ("a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))),
+                ])),
+            )])),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::PutObject(DirectoryIndex(2), "a".into(), FileContent(0, FileSize::Small(0))),
+                Op::RemoveDirectory(DirectoryIndex(2)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_local_to_remote_directory() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([(
+                "-".into(),
+                TreeNode::Directory(BTreeMap::from([(
+                    "-".into(),
+                    TreeNode::File(FileContent(0, FileSize::Small(0))),
+                )])),
+            )])),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
+                Op::PutObject(DirectoryIndex(2), "a".into(), FileContent(0, FileSize::Small(0))),
+                Op::UnlinkFile(DirectoryIndex(2), ChildIndex(0)),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_put_into_directory1() {
+        run_test(
+            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::CreateDirectory(DirectoryIndex(0), "-".into()),
+                Op::CreateFile("a".into(), DirectoryIndex(2), FileContent(0, FileSize::Small(0))),
+                Op::PutObject(DirectoryIndex(2), "-".into(), FileContent(0, FileSize::Small(0))),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_put_into_directory2() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([
+                (
+                    "-".into(),
+                    TreeNode::Directory(BTreeMap::from([
+                        (
+                            "a".into(),
+                            TreeNode::Directory(BTreeMap::from([(
+                                "a".into(),
+                                TreeNode::File(FileContent(0, FileSize::Small(0))),
+                            )])),
+                        ),
+                        (
+                            "aa".into(),
+                            TreeNode::Directory(BTreeMap::from([(
+                                "a".into(),
+                                TreeNode::File(FileContent(0, FileSize::Small(0))),
+                            )])),
+                        ),
+                    ])),
+                ),
+                (
+                    "-a".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "\u{1}/".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+                (
+                    "a".into(),
+                    TreeNode::Directory(BTreeMap::from([(
+                        "-/".into(),
+                        TreeNode::File(FileContent(0, FileSize::Small(0))),
+                    )])),
+                ),
+            ])),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "--".into()),
+                Op::CreateDirectory(DirectoryIndex(0), "aa".into()),
+                Op::CreateDirectory(DirectoryIndex(9), "a".into()),
+                Op::PutObject(DirectoryIndex(9), "-".into(), FileContent(0, FileSize::Small(0))),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_unlink_newly_put_object() {
+        run_test(
+            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            vec![
+                Op::CreateDirectory(DirectoryIndex(0), "a".into()),
+                Op::PutObject(DirectoryIndex(1), "a".into(), FileContent(0, FileSize::Small(0))),
+                Op::UnlinkFile(DirectoryIndex(1), ChildIndex(0)),
             ],
             0,
         )

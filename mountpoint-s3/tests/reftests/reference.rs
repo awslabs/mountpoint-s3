@@ -62,7 +62,7 @@ impl Node {
 #[derive(Debug)]
 pub struct Reference {
     /// Contents of our S3 bucket
-    remote_keys: Vec<(String, MockObject)>,
+    remote_keys: BTreeMap<String, MockObject>,
     /// Local files
     local_files: Vec<PathBuf>,
     /// Local directories
@@ -141,9 +141,9 @@ impl Reference {
     pub fn new(remote_keys: Vec<(String, MockObject)>) -> Self {
         let local_files = vec![];
         let local_directories = vec![];
-        let materialized = build_reference(&remote_keys);
+        let materialized = build_reference(remote_keys.iter().map(|(k, o)| (k, o)));
         Self {
-            remote_keys,
+            remote_keys: remote_keys.into_iter().collect(),
             local_files,
             local_directories,
             materialized,
@@ -155,7 +155,7 @@ impl Reference {
             remote_keys=?self.remote_keys, local_files=?self.local_files, local_directories=?self.local_directories,
             "rematerialize",
         );
-        let mut materialized = build_reference(&self.remote_keys);
+        let mut materialized = build_reference(self.remote_keys.iter());
         for local_dir in self.local_directories.iter() {
             let added = materialized.add_local_node(local_dir, NodeType::Directory);
             if added {
@@ -230,27 +230,24 @@ impl Reference {
     /// When a file is made remote, all its parent directories implicitly become remote too. This
     /// method removes those parents from the local directories list if they exist.
     pub fn remove_local_parents(&mut self, path: impl AsRef<Path>) {
-        let parent = path
-            .as_ref()
-            .parent()
-            .expect("cannot remove local parents without a root");
+        let Some(parent) = path.as_ref().parent() else {
+            // `/` is a valid key (so could be used by PutObject) but not a valid filename
+            assert_eq!(path.as_ref(), Path::new("/"));
+            return;
+        };
         // [Path::starts_with] only considers whole path components, so this won't remove a local
         // directory `a` if a sibling `ab` became remote, even though "ab" starts with "a".
         self.local_directories.retain(|dir| !parent.starts_with(dir));
+        self.materialized = self.rematerialize();
     }
 
     pub fn add_remote_key(&mut self, key: &str, object: MockObject) {
-        self.remote_keys.push((key.to_owned(), object));
+        self.remote_keys.insert(key.to_owned(), object);
         self.materialized = self.rematerialize();
     }
 
     pub fn remove_remote_key(&mut self, key: &str) {
-        let idx = self
-            .remote_keys
-            .iter()
-            .position(|(k, _)| k == key)
-            .expect("remote key must exist");
-        self.remote_keys.remove(idx);
+        self.remote_keys.remove(key);
         self.materialized = self.rematerialize();
     }
 
@@ -291,6 +288,11 @@ impl Reference {
     pub fn directories(&self) -> &[impl AsRef<Path>] {
         &self.materialized.directories
     }
+
+    /// A list of objects in the bucket
+    pub fn remote_keys(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.remote_keys.keys().map(|key| key.as_str())
+    }
 }
 
 pub fn valid_inode_name(name: &str) -> bool {
@@ -300,7 +302,7 @@ pub fn valid_inode_name(name: &str) -> bool {
 /// Take an S3 namespace (list of keys) and create the expected reference file system tree. This is
 /// where all our semantics decisions about how to present a flat keyspace as a file system are
 /// made; we'll be testing the connector against the decisions made here.
-fn build_reference(flat: &[(String, MockObject)]) -> MaterializedReference {
+fn build_reference<'a>(flat: impl Iterator<Item = (&'a String, &'a MockObject)>) -> MaterializedReference {
     #[derive(Debug)]
     enum RefNode {
         Directory(Rc<RefCell<BTreeMap<String, RefNode>>>),

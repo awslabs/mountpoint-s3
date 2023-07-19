@@ -151,11 +151,17 @@ impl ReaddirHandle {
 
     /// Create or update an inode for the given ReaddirEntry.
     fn instantiate_remote_inode(&self, entry: ReaddirEntry) -> Result<LookedUp, InodeError> {
-        let (stat, kind) = match &entry {
-            ReaddirEntry::LocalInode { lookup } => return Ok(lookup.clone()),
+        let remote_lookup = match &entry {
+            // If we made it this far with a local inode, we know there's nothing on the remote with
+            // the same name, because [LocalInode] is last in the ordering and so otherwise would
+            // have been deduplicated by now.
+            ReaddirEntry::LocalInode { .. } => None,
             ReaddirEntry::RemotePrefix { .. } => {
                 let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
-                (stat, InodeKind::Directory)
+                Some(RemoteLookup {
+                    stat,
+                    kind: InodeKind::Directory,
+                })
             }
             ReaddirEntry::RemoteObject { object_info, .. } => {
                 let stat = InodeStat::for_file(
@@ -164,12 +170,13 @@ impl ReaddirHandle {
                     Some(object_info.etag.clone()),
                     self.inner.cache_config.file_ttl,
                 );
-                (stat, InodeKind::File)
+                Some(RemoteLookup {
+                    stat,
+                    kind: InodeKind::File,
+                })
             }
         };
-        let remote_lookup = RemoteLookup { stat, kind };
-        self.inner
-            .update_from_remote(self.dir_ino, entry.name(), Some(remote_lookup))
+        self.inner.update_from_remote(self.dir_ino, entry.name(), remote_lookup)
     }
 
     #[cfg(test)]
@@ -223,7 +230,7 @@ impl ReaddirEntry {
                 format!("directory '{name}'")
             }
             Self::RemoteObject { name, object_info } => {
-                format!("file '{}' (full key '{}')", name, object_info.key)
+                format!("file '{}' (full key {:?})", name, object_info.key)
             }
             Self::LocalInode { lookup } => {
                 let kind = match lookup.inode.kind() {
@@ -366,13 +373,13 @@ impl RemoteIter {
         if self.entries.is_empty() {
             let continuation_token = match &mut self.state {
                 RemoteIterState::Finished => {
-                    trace!(self=?self as *const _, "remote iter finished");
+                    trace!(self=?self as *const _, prefix=?self.full_path, "remote iter finished");
                     return Ok(None);
                 }
                 RemoteIterState::InProgress(token) => token.take(),
             };
 
-            trace!(self=?self as *const _, ?continuation_token, "continuing remote iter");
+            trace!(self=?self as *const _, prefix=?self.full_path, ?continuation_token, "continuing remote iter");
 
             let result = client
                 .list_objects(
