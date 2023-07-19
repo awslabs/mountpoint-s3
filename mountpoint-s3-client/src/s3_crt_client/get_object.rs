@@ -11,7 +11,6 @@ use mountpoint_s3_crt::common::error::Error;
 use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 use pin_project::pin_project;
-use tracing::debug;
 
 use crate::object_client::{GetBodyPart, GetObjectError, ObjectClientError};
 use crate::s3_crt_client::S3HttpRequest;
@@ -28,10 +27,7 @@ impl S3CrtClient {
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
     ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
-        let span = request_span!(self.inner, "get_object");
-        span.in_scope(
-            || debug!(?bucket, ?key, ?range, ?if_match, size=?range.as_ref().map(|range| range.end - range.start), "new request"),
-        );
+        let span = request_span!(self.inner, "get_object", bucket, key, ?range, ?if_match);
 
         let mut message = self
             .inner

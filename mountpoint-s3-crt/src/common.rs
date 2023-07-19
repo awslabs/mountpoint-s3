@@ -12,6 +12,7 @@ pub mod logging;
 pub mod ref_count;
 pub mod rust_log_adapter;
 pub mod task_scheduler;
+pub mod thread;
 pub mod uri;
 
 static COMMON_LIBRARY_INIT: Once = Once::new();

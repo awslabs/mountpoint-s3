@@ -4,6 +4,7 @@ use crate::auth::credentials::CredentialsProvider;
 use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
+use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
@@ -728,7 +729,6 @@ impl MetaRequestResult {
 }
 
 /// Metrics for an individual request
-#[derive(Debug)]
 pub struct RequestMetrics {
     inner: NonNull<aws_s3_request_metrics>,
 }
@@ -762,6 +762,82 @@ impl RequestMetrics {
         }
     }
 
+    /// Get the start time of the request in nanoseconds
+    pub fn start_timestamp_ns(&self) -> u64 {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_start_timestamp_ns(self.inner.as_ptr(), &mut out);
+        }
+        out
+    }
+
+    /// Get the start time of the request in nanoseconds
+    pub fn end_timestamp_ns(&self) -> u64 {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_end_timestamp_ns(self.inner.as_ptr(), &mut out);
+        }
+        out
+    }
+
+    /// Return the total duration for this request
+    pub fn total_duration(&self) -> Duration {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe { aws_s3_request_metrics_get_total_duration_ns(self.inner.as_ptr(), &mut out) };
+        Duration::from_nanos(out)
+    }
+
+    /// Get the time when the request started to be encoded in nanoseconds
+    pub fn send_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_send_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request finished being encoded in nanoseconds
+    pub fn send_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_send_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the response started to be received from the network in nanoseconds
+    pub fn receive_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_receive_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the response finished being received from the network in nanoseconds
+    pub fn receive_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_receive_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
     /// Return the response status code for this request, or None if unavailable (e.g. the
     /// request failed before sending).
     pub fn status_code(&self) -> Option<i32> {
@@ -792,12 +868,104 @@ impl RequestMetrics {
         unsafe { Some(Headers::from_crt(NonNull::new_unchecked(out))) }
     }
 
-    /// Return the total duration for this request
-    pub fn total_duration(&self) -> Duration {
-        let mut out: u64 = 0;
+    /// Get the IP address the request connected to
+    pub fn request_path_query(&self) -> Option<String> {
+        let mut out: *const aws_string = std::ptr::null();
         // SAFETY: `inner` is a valid aws_s3_request_metrics
-        unsafe { aws_s3_request_metrics_get_total_duration_ns(self.inner.as_ptr(), &mut out) };
-        Duration::from_nanos(out)
+        unsafe {
+            aws_s3_request_metrics_get_request_path_query(self.inner.as_ptr(), &mut out);
+        };
+        if out.is_null() {
+            return None;
+        }
+        // SAFETY: `out` is now a valid pointer to an aws_string, and we'll copy the bytes
+        // out of it so it won't live beyond this function call
+        unsafe {
+            let byte_cursor = aws_byte_cursor_from_string(out);
+            let os_str = OsStr::from_bytes(aws_byte_cursor_as_slice(&byte_cursor));
+            Some(os_str.to_string_lossy().into_owned())
+        }
+    }
+
+    /// Get the host address of the request
+    pub fn host_address(&self) -> Option<String> {
+        let mut out: *const aws_string = std::ptr::null();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_host_address(self.inner.as_ptr(), &mut out);
+        };
+        if out.is_null() {
+            return None;
+        }
+        // SAFETY: `out` is now a valid pointer to an aws_string, and we'll copy the bytes
+        // out of it so it won't live beyond this function call
+        unsafe {
+            let byte_cursor = aws_byte_cursor_from_string(out);
+            let os_str = OsStr::from_bytes(aws_byte_cursor_as_slice(&byte_cursor));
+            Some(os_str.to_string_lossy().into_owned())
+        }
+    }
+
+    /// Get the IP address the request connected to
+    pub fn ip_address(&self) -> Option<String> {
+        let mut out: *const aws_string = std::ptr::null();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_ip_address(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        assert!(!out.is_null(), "IP address should be available if call succeeded");
+        // SAFETY: `out` is now a valid pointer to an aws_string, and we'll copy the bytes
+        // out of it so it won't live beyond this function call
+        unsafe {
+            let byte_cursor = aws_byte_cursor_from_string(out);
+            let os_str = OsStr::from_bytes(aws_byte_cursor_as_slice(&byte_cursor));
+            Some(os_str.to_string_lossy().into_owned())
+        }
+    }
+
+    /// Get the ID of the connection that request was made from
+    pub fn connection_id(&self) -> Option<usize> {
+        let mut out: usize = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_connection_id(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        Some(out)
+    }
+
+    /// Get the ID of the thread the request was made from
+    pub fn thread_id(&self) -> Option<ThreadId> {
+        let mut out: aws_thread_id_t = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_thread_id(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        Some(out.into())
+    }
+
+    /// Get the stream ID of the request
+    pub fn request_stream_id(&self) -> Option<u32> {
+        let mut out: u32 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_request_stream_id(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        Some(out)
+    }
+
+    /// Get the AWS CRT error code of the request
+    pub fn error(&self) -> Error {
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        let err = unsafe { aws_s3_request_metrics_get_error_code(self.inner.as_ptr()) };
+        err.into()
     }
 
     /// Return the first-byte latency for this request (time first byte received - time last byte
@@ -815,6 +983,30 @@ impl RequestMetrics {
                 .ok()?;
         };
         Some(Duration::from_nanos(receive_start.saturating_sub(send_end)))
+    }
+}
+
+impl Debug for RequestMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RequestMetrics")
+            .field("request_id", &self.request_id())
+            .field("start_timestamp_ns", &self.start_timestamp_ns())
+            .field("end_timestamp_ns", &self.end_timestamp_ns())
+            .field("send_start_timestamp_ns", &self.send_start_timestamp_ns())
+            .field("send_end_timestamp_ns", &self.send_end_timestamp_ns())
+            .field("receive_start_timestamp_ns", &self.receive_start_timestamp_ns())
+            .field("receive_end_timestamp_ns", &self.receive_end_timestamp_ns())
+            .field("response_status_code", &self.status_code())
+            .field("response_headers", &self.response_headers())
+            .field("request_path_query", &self.request_path_query())
+            .field("host_address", &self.host_address())
+            .field("ip_address", &self.ip_address())
+            .field("connection_id", &self.connection_id())
+            .field("thread_id", &self.thread_id())
+            .field("request_stream_id", &self.request_stream_id())
+            .field("request_type", &self.request_type())
+            .field("error_code", &self.error())
+            .finish()
     }
 }
 

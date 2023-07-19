@@ -2,7 +2,6 @@ use crate::object_client::{ObjectClientError, ObjectClientResult};
 use crate::{S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
-use tracing::debug;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -29,8 +28,7 @@ impl S3CrtClient {
                 .set_request_path("/")
                 .map_err(S3RequestError::construction_failure)?;
 
-            let span = request_span!(self.inner, "head_bucket");
-            span.in_scope(|| debug!(?bucket, endpoint = ?self.inner.endpoint, "new request"));
+            let span = request_span!(self.inner, "head_bucket", bucket, endpoint=?self.inner.endpoint);
 
             self.inner
                 .make_simple_http_request(message, MetaRequestType::Default, span, |request_result| {

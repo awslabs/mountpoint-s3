@@ -38,10 +38,13 @@ use crate::s3_crt_client::get_object::S3GetObjectRequest;
 use crate::s3_crt_client::put_object::S3PutObjectRequest;
 
 macro_rules! request_span {
-    ($self:expr, $method:expr) => {{
+    ($self:expr, $method:expr, $($field:tt)*) => {{
         let counter = $self.next_request_counter();
-        tracing::debug_span!($method, id = counter)
+        let span = tracing::debug_span!($method, id = counter, $($field)*);
+        span.in_scope(|| tracing::debug!("new request"));
+        span
     }};
+    ($self:expr, $method:expr) => { request_span!($self, $method,) };
 }
 
 pub(crate) mod delete_object;
@@ -399,6 +402,7 @@ impl S3CrtClientInner {
                     "request finished"
                 };
                 event!(log_level, %request_type, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
+                trace!(detailed_metrics=?metrics, "request completed");
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {

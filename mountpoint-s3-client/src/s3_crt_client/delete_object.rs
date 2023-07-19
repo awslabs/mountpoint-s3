@@ -2,7 +2,6 @@ use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
-use tracing::debug;
 
 use crate::object_client::{DeleteObjectError, DeleteObjectResult, ObjectClientError};
 use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
@@ -14,8 +13,7 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, S3RequestError> {
-        let span = request_span!(self.inner, "delete_object");
-        span.in_scope(|| debug!(?bucket, ?key, "new request"));
+        let span = request_span!(self.inner, "delete_object", bucket, key);
 
         // Scope the endpoint, message, etc. since otherwise rustc thinks we use Message across the await.
         let request = {

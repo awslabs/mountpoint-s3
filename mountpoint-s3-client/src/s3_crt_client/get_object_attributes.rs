@@ -7,7 +7,6 @@ use mountpoint_s3_crt::{
     s3::client::{MetaRequestResult, MetaRequestType},
 };
 use thiserror::Error;
-use tracing::debug;
 
 use crate::{
     Checksum, GetObjectAttributesError, GetObjectAttributesParts, GetObjectAttributesResult, ObjectAttribute,
@@ -140,17 +139,15 @@ impl S3CrtClient {
                 .add_header(&Header::new("x-amz-object-attributes", object_attributes.join(",")))
                 .map_err(S3RequestError::construction_failure)?;
 
-            let span = request_span!(self.inner, "get_object_attributes");
-            span.in_scope(|| {
-                debug!(
-                    ?bucket,
-                    ?key,
-                    ?max_parts,
-                    ?part_number_marker,
-                    ?object_attributes,
-                    "new request"
-                )
-            });
+            let span = request_span!(
+                self.inner,
+                "get_object_attributes",
+                bucket,
+                key,
+                ?max_parts,
+                ?part_number_marker,
+                ?object_attributes
+            );
 
             self.inner
                 .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
