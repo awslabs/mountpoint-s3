@@ -42,6 +42,7 @@ aws-config = "0.54.1"
 aws-sdk-s3 = "0.24.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
 ctor = "0.1.23"
+filetime = "0.2.21"
 predicates = "2.1.2"
 proptest = "1.0.0"
 proptest-derive = "0.3.0"

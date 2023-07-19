@@ -3,13 +3,15 @@
 use futures::executor::block_on;
 use futures::task::Spawn;
 use std::ffi::OsStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+use time::OffsetDateTime;
 use tracing::{instrument, Instrument};
 
 use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
 use crate::prefix::Prefix;
 use fuser::{
     FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, Request,
+    TimeOrNow,
 };
 use mountpoint_s3_client::ObjectClient;
 
@@ -293,6 +295,38 @@ where
     fn unlink(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.unlink(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
+            Err(e) => reply.error(e),
+        }
+    }
+
+    fn setattr(
+        &self,
+        _req: &Request<'_>,
+        ino: u64,
+        _mode: Option<u32>,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
+        _size: Option<u64>,
+        atime: Option<TimeOrNow>,
+        mtime: Option<TimeOrNow>,
+        _ctime: Option<SystemTime>,
+        _fh: Option<u64>,
+        _crtime: Option<SystemTime>,
+        _chgtime: Option<SystemTime>,
+        _bkuptime: Option<SystemTime>,
+        flags: Option<u32>,
+        reply: ReplyAttr,
+    ) {
+        let atime = atime.map(|t| match t {
+            TimeOrNow::SpecificTime(st) => OffsetDateTime::from(st),
+            TimeOrNow::Now => OffsetDateTime::now_utc(),
+        });
+        let mtime = mtime.map(|t| match t {
+            TimeOrNow::SpecificTime(st) => OffsetDateTime::from(st),
+            TimeOrNow::Now => OffsetDateTime::now_utc(),
+        });
+        match block_on(self.fs.setattr(ino, atime, mtime, flags).in_current_span()) {
+            Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => reply.error(e),
         }
     }

@@ -77,6 +77,8 @@ further writes.
 
 Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
+Changing file last access and modification times (`utime`) are supported on files that are being written only.
+
 #### Deletes
 
 File deletion (`unlink`) is planned but not yet supported (see [#78](https://github.com/awslabs/mountpoint-s3/issues/78)).

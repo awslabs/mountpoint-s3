@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
+use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
 use fuser::{FileAttr, KernelConfig};
@@ -399,6 +400,29 @@ where
         trace!("fs:getattr with ino {:?}", ino);
 
         let lookup = self.superblock.getattr(&self.client, ino, false).await?;
+        let attr = self.make_attr(&lookup);
+
+        Ok(Attr {
+            ttl: lookup.validity(),
+            attr,
+        })
+    }
+
+    pub async fn setattr(
+        &self,
+        ino: InodeNo,
+        atime: Option<OffsetDateTime>,
+        mtime: Option<OffsetDateTime>,
+        _flags: Option<u32>,
+    ) -> Result<Attr, libc::c_int> {
+        tracing::info!(
+            "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?}",
+            ino,
+            _flags,
+            atime,
+            mtime
+        );
+        let lookup = self.superblock.setattr(&self.client, ino, atime, mtime).await?;
         let attr = self.make_attr(&lookup);
 
         Ok(Attr {
@@ -810,6 +834,8 @@ impl From<InodeError> for i32 {
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
             InodeError::CorruptedMetadata(_, _) => libc::EIO,
+            InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
+            InodeError::SetAttrOnExpiredStat(_) => libc::EINVAL,
         }
     }
 }
