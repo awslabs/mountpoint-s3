@@ -204,13 +204,12 @@ mod tests {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
-        let storage_class = "INTELLIGENT_TIERING";
 
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 32,
         }));
-        let uploader = Uploader::new(client.clone(), storage_class);
+        let uploader = Uploader::new(client.clone(), None);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -233,7 +232,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 32,
         }));
-        let uploader = Uploader::new(client.clone(), storage_class);
+        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()));
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
@@ -263,7 +262,6 @@ mod tests {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
-        let storage_class = "INTELLIGENT_TIERING";
 
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
@@ -282,7 +280,7 @@ mod tests {
             put_failures,
         ));
 
-        let uploader = Uploader::new(failure_client.clone(), storage_class);
+        let uploader = Uploader::new(failure_client.clone(), None);
 
         // First request fails on first write.
         {
@@ -317,13 +315,12 @@ mod tests {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
-        let storage_class = "INTELLIGENT_TIERING";
 
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: PART_SIZE,
         }));
-        let uploader = Uploader::new(client.clone(), storage_class);
+        let uploader = Uploader::new(client.clone(), None);
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
