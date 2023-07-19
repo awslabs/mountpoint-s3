@@ -5,7 +5,7 @@ use crate::{ObjectClientError, PutObjectRequest, PutObjectResult, S3CrtClient, S
 use async_trait::async_trait;
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
-use tracing::{debug, error};
+use tracing::error;
 
 use super::{S3CrtClientInner, S3HttpRequest};
 
@@ -16,8 +16,7 @@ impl S3CrtClient {
         key: &str,
         params: &PutObjectParams,
     ) -> ObjectClientResult<S3PutObjectRequest, PutObjectError, S3RequestError> {
-        let span = request_span!(self.inner, "put_object");
-        span.in_scope(|| debug!(?bucket, ?key, ?params, "create request"));
+        let span = request_span!(self.inner, "put_object", bucket, key);
         let mut message = self
             .inner
             .new_request_template("PUT", bucket)
@@ -35,8 +34,6 @@ impl S3CrtClient {
 
         let (body_async_stream, writer) = async_stream::new_stream(&self.inner.allocator);
         message.set_body_stream(Some(body_async_stream));
-
-        span.in_scope(|| debug!(?bucket, ?key, ?params, "make request"));
 
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();

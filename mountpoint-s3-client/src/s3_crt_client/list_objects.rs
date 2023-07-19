@@ -6,7 +6,7 @@ use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::object_client::{ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo};
 use crate::s3_crt_client::S3RequestError;
@@ -159,17 +159,15 @@ impl S3CrtClient {
                 .set_request_path_and_query("/", query)
                 .map_err(S3RequestError::construction_failure)?;
 
-            let span = request_span!(self.inner, "list_objects");
-            span.in_scope(|| {
-                debug!(
-                    ?bucket,
-                    continued = continuation_token.is_some(),
-                    ?delimiter,
-                    ?max_keys,
-                    ?prefix,
-                    "new request"
-                )
-            });
+            let span = request_span!(
+                self.inner,
+                "list_objects",
+                bucket,
+                continued = continuation_token.is_some(),
+                delimiter,
+                max_keys,
+                prefix
+            );
 
             self.inner
                 .make_simple_http_request(message, MetaRequestType::Default, span, |result| {

@@ -7,7 +7,7 @@ use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo};
 use crate::s3_crt_client::S3RequestError;
@@ -81,8 +81,7 @@ impl S3CrtClient {
             let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
             let header1 = header.clone();
 
-            let span = request_span!(self.inner, "head_object");
-            span.in_scope(|| debug!(?bucket, ?key, "new request"));
+            let span = request_span!(self.inner, "head_object", bucket, key);
 
             self.inner.make_meta_request(
                 message,
