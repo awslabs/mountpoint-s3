@@ -1834,23 +1834,42 @@ mod tests {
             part_size: 1024 * 1024,
         };
         let client = Arc::new(MockClient::new(client_config));
-
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
-
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let parent_ino = FUSE_ROOT_INODE;
-        let LookedUp { inode, .. } = superblock
-            .lookup(&client, parent_ino, file_name.as_ref())
-            .await
-            .expect("file should exist");
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
-        // Inject a key mutation in the Inode.
-        // SAFETY: Inode and String not accessed concurrently. Mutated string is still valid utf8.
-        unsafe {
-            let key = inode.inner.full_key.as_ptr() as *mut u8;
-            *key = b'k';
+        // Create an inode with "corrupted" metadata, i.e.
+        // checksum not matching ino + full key.
+        let parent_ino = FUSE_ROOT_INODE;
+        let bad_checksum = Crc32c::new(42);
+        let inode = Inode {
+            inner: Arc::new(InodeInner {
+                ino: 42,
+                parent: parent_ino,
+                name: file_name.into(),
+                full_key: file_name.into(),
+                kind: InodeKind::File,
+                checksum: bad_checksum,
+                sync: RwLock::new(InodeState {
+                    stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, NEVER_EXPIRE_TTL),
+                    write_status: WriteStatus::Remote,
+                    kind_data: InodeKindData::File {},
+                    lookup_count: 1,
+                }),
+            }),
+        };
+
+        // Manually add the corrupted inode to the superblock and root directory.
+        {
+            let mut inodes = superblock.inner.inodes.write().unwrap();
+            inodes.insert(inode.ino(), inode.clone());
+            let parent = inodes.get(&parent_ino).unwrap();
+            let mut parent_state = parent.get_mut_inode_state().unwrap();
+            match &mut parent_state.kind_data {
+                InodeKindData::File {} => panic!("root is always a directory"),
+                InodeKindData::Directory { children, .. } => _ = children.insert(file_name.into(), inode.clone()),
+            }
         }
 
         let err = superblock
