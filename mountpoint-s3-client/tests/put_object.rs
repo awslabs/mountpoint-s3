@@ -305,11 +305,9 @@ where
     f.sync_all().unwrap();
     drop(f);
 
-
     let s3_storage_class = test_client.get_storage_class(KEY).unwrap();
-    
-    assert_eq!(s3_storage_class, storage_class);
 
+    assert_eq!(s3_storage_class, storage_class);
 }
 
 fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
@@ -331,7 +329,6 @@ where
 
     let path = mount_point.path().join(KEY);
     write_file(path).expect_err("write with invalid storage class should fail");
-  
 }
 
 fn write_file(path: PathBuf) -> std::io::Result<()> {
@@ -340,7 +337,6 @@ fn write_file(path: PathBuf) -> std::io::Result<()> {
     f.write_all(&data)?;
     Ok(())
 }
-
 
 async fn check_get_object<Client: ObjectClient>(
     client: &Client,

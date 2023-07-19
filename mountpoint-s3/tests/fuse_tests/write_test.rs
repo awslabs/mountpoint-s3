@@ -410,7 +410,6 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
 }
 
-
 fn write_with_storage_class_test<F>(creator_fn: F, storage_class: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
@@ -437,13 +436,10 @@ where
     f.sync_all().unwrap();
     drop(f);
 
-
     let s3_storage_class = test_client.get_storage_class(KEY).unwrap();
-    
+
     assert_eq!(s3_storage_class, storage_class);
-
 }
-
 
 fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
 where
@@ -464,7 +460,6 @@ where
 
     let path = mount_point.path().join(KEY);
     write_file(path).expect_err("write with invalid storage class should fail");
-  
 }
 
 fn write_file(path: PathBuf) -> std::io::Result<()> {
@@ -498,4 +493,3 @@ fn write_with_storage_class_test_s3(storage_class: &str) {
 fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
     write_with_invalid_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
 }
-
