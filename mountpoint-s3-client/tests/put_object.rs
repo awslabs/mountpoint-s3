@@ -18,6 +18,8 @@ use mountpoint_s3_crt::checksums::crc32c;
 use rand::Rng;
 use test_case::test_case;
 
+use test_case::test_case;
+
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
 async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str) {
@@ -277,6 +279,69 @@ async fn test_put_review(pass_review: bool) {
     }
 }
 
+fn write_with_storage_class_test<F>(creator_fn: F, storage_class: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+
+    let filesystem_config: S3FilesystemConfig = S3FilesystemConfig {
+        storage_class: Some(storage_class.to_owned()),
+        ..Default::default()
+    };
+
+    let config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, test_client) = creator_fn("write_with_storage_class_test", config);
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, false).unwrap();
+
+    let data = [0xaa; 16];
+    f.write_all(&data).unwrap();
+    f.sync_all().unwrap();
+    drop(f);
+
+
+    let s3_storage_class = test_client.get_storage_class(KEY).unwrap();
+    
+    assert_eq!(s3_storage_class, storage_class);
+
+}
+
+fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+
+    let filesystem_config: S3FilesystemConfig = S3FilesystemConfig {
+        storage_class: Some(storage_class.to_owned()),
+        ..Default::default()
+    };
+
+    let config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, _test_client) = creator_fn("write_with_storage_class_test", config);
+
+    let path = mount_point.path().join(KEY);
+    write_file(path).expect_err("write with invalid storage class should fail");
+  
+}
+
+fn write_file(path: PathBuf) -> std::io::Result<()> {
+    let mut f = open_for_write(&path, false)?;
+    let data = [0xaa; 16];
+    f.write_all(&data)?;
+    Ok(())
+}
+
+
 async fn check_get_object<Client: ObjectClient>(
     client: &Client,
     bucket: &str,
@@ -320,4 +385,16 @@ async fn test_put_object_storage_class(storage_class: &str) {
         .unwrap();
 
     assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
+}
+#[cfg(feature = "s3_tests")]
+#[test_case("INTELLIGENT_TIERING")]
+#[test_case("GLACIER")]
+fn write_with_storage_class_test_s3(storage_class: &str) {
+    write_with_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case("INVALID_CLASS")]
+fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
+    write_with_invalid_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
 }
