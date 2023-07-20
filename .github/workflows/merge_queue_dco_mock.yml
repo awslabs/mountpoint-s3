@@ -1,0 +1,12 @@
+---
+name: DCO
+"on":
+  merge_group:
+
+jobs:
+  DCO:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    steps:
+      - run: echo "This workflow always succeeds to unlock GitHub's Merge Queue."
+      - run: echo "DCO should already be completed during PR workflows."
