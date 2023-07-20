@@ -878,6 +878,7 @@ mod mutations {
         let test_prefix = Prefix::new("").expect("valid prefix");
         let config = S3FilesystemConfig {
             readdir_size: 5,
+            allow_delete: true,
             ..Default::default()
         };
         let (client, fs) = make_test_filesystem(BUCKET_NAME, &test_prefix, config);

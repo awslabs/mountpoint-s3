@@ -6,6 +6,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::{path::PathBuf, process::Command}; // Run programs
+use test_case::test_case;
 
 use crate::common::{create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region};
 use crate::fuse_tests::read_dir_to_entry_names;
@@ -293,6 +294,53 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     let mount_opts_str = mount_line.split_whitespace().last().unwrap();
     let mount_opts: Vec<&str> = mount_opts_str.trim_matches(&['(', ')'] as &[_]).split(',').collect();
     assert!(mount_opts.contains(&"ro"));
+
+    Ok(())
+}
+
+#[test_case(true)]
+#[test_case(false)]
+fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("mount_allow_delete");
+    let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"));
+    if allow_delete {
+        cmd.arg("--allow-delete");
+    }
+    let mut child = cmd.spawn().expect("unable to spawn child");
+
+    let st = std::time::Instant::now();
+
+    let exit_status = loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        match child.try_wait().expect("unable to wait for result") {
+            Some(result) => break result,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    // create and try to delete an object
+    create_objects(&bucket, &prefix, &region, "file.txt", b"hello world");
+
+    let result = fs::remove_file(mount_point.path().join("file.txt"));
+    if allow_delete {
+        result.expect("remove file should succeed when --allow_delete is set");
+    } else {
+        result.expect_err("remove file should fail when --allow_delete is not set");
+    }
 
     Ok(())
 }

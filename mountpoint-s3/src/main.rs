@@ -94,6 +94,13 @@ struct CliArgs {
     )]
     pub read_only: bool,
 
+    #[clap(
+        long,
+        help = "Allow delete operations on file system",
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
+    pub allow_delete: bool,
+
     #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
 
@@ -370,6 +377,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         filesystem_config.file_mode = file_mode;
     }
     filesystem_config.prefetcher_config.part_alignment = args.part_size as usize;
+    filesystem_config.allow_delete = args.allow_delete;
 
     let prefix = args.prefix.unwrap_or_default();
     let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &prefix, filesystem_config);

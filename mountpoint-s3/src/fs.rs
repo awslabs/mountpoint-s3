@@ -224,6 +224,8 @@ pub struct S3FilesystemConfig {
     pub file_mode: u16,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
+    /// Allow delete
+    pub allow_delete: bool,
 }
 
 impl Default for S3FilesystemConfig {
@@ -239,6 +241,7 @@ impl Default for S3FilesystemConfig {
             dir_mode: 0o755,
             file_mode: 0o644,
             prefetcher_config: PrefetcherConfig::default(),
+            allow_delete: false,
         }
     }
 }
@@ -806,6 +809,9 @@ where
     }
 
     pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
+        if !self.config.allow_delete {
+            return Err(libc::EPERM);
+        }
         match self.superblock.unlink(&self.client, parent_ino, name).await {
             Ok(()) => Ok(()),
             Err(e) => {

@@ -48,7 +48,8 @@ read_bechmark () {
     echo "Running ${job_name}"
 
     # mount file system
-    cargo run --release --features delete ${S3_BUCKET_NAME} ${mount_dir} \
+    cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+      --allow-delete \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --thread-count=${thread_count}
     mount_status=$?
@@ -93,7 +94,8 @@ read_bechmark () {
 write_benchmark () {
   # mount file system
   mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-  cargo run --release --features delete ${S3_BUCKET_NAME} ${mount_dir} \
+  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+      --allow-delete \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --thread-count=${thread_count}
   mount_status=$?

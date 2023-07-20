@@ -13,7 +13,6 @@ Mountpoint for Amazon S3 is **currently an alpha release and should not be used 
 This release has some notable restrictions:
 * The only way to install the alpha release of Mountpoint for Amazon S3 is by compiling from source (see [Installation](#installation) below). This will change in a future release.
 * Manual endpoint configuration might be required for some S3 customers (see [Configuration and usage](#configuration-and-usage) below).
-* Mountpoint for Amazon S3 does not currently support [deleting objects](https://github.com/awslabs/mountpoint-s3/issues/78).
 * Objects written with Mountpoint for Amazon S3 are [always stored in the S3 Standard storage class](https://github.com/awslabs/mountpoint-s3/issues/34).
 
 ## Getting started

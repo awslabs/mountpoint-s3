@@ -12,7 +12,7 @@ env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  RUST_FEATURES: fuse_tests,delete
+  RUST_FEATURES: fuse_tests
 
 jobs:
   test:

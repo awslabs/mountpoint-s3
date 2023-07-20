@@ -290,7 +290,6 @@ where
         }
     }
 
-    #[cfg(feature = "delete")]
     #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
     fn unlink(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.unlink(parent, name).in_current_span()) {
