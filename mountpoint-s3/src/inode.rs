@@ -2227,8 +2227,12 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
-        let ino = 42;
+        let ino: u64 = 42;
         let inode_name = "made-up-inode";
+        let mut hasher = crc32c::Hasher::new();
+        hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(inode_name.as_bytes());
+        let checksum = hasher.finalize();
         let inode = Inode {
             inner: Arc::new(InodeInner {
                 ino,
@@ -2236,7 +2240,7 @@ mod tests {
                 name: inode_name.to_owned(),
                 full_key: inode_name.to_owned(),
                 kind: InodeKind::File,
-                checksum: Crc32c::new(0),
+                checksum,
                 sync: RwLock::new(InodeState {
                     write_status: WriteStatus::LocalOpen,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, Default::default()),
