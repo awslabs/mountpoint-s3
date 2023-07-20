@@ -1,3 +1,4 @@
+use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::unix::prelude::{FromRawFd, OpenOptionsExt};
@@ -608,9 +609,20 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
 }
 
 fn calculate_network_throughput() -> anyhow::Result<f64> {
-    let instance_type = retrieve_instance_type().context("failed to retrieve instance type")?;
-    let throughput = get_maximum_network_throughput(&instance_type).context("failed to get network throughput")?;
-    Ok(throughput)
+    if !imds_disabled() {
+        let instance_type = retrieve_instance_type().context("failed to retrieve instance type")?;
+        let throughput = get_maximum_network_throughput(&instance_type).context("failed to get network throughput")?;
+        Ok(throughput)
+    } else {
+        Err(anyhow!("IMDS was disabled"))
+    }
+}
+
+fn imds_disabled() -> bool {
+    match env::var_os("AWS_EC2_METADATA_DISABLED") {
+        Some(val) => val.to_ascii_lowercase() != "false",
+        None => false,
+    }
 }
 
 fn retrieve_instance_type() -> anyhow::Result<String> {
