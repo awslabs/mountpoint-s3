@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use clap::{Arg, Command};
 use futures::StreamExt;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_client::{EndpointConfig, ObjectClient, S3ClientConfig, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use regex::Regex;
 use tracing_subscriber::fmt::Subscriber;
@@ -51,7 +51,8 @@ fn main() {
         start..(end + 1)
     });
 
-    let client = S3CrtClient::new(region, Default::default()).expect("couldn't create client");
+    let client = S3CrtClient::new(S3ClientConfig::new().endpoint_config(EndpointConfig::new(region)))
+        .expect("couldn't create client");
 
     let last_offset = Arc::new(Mutex::new(None));
     let last_offset_clone = Arc::clone(&last_offset);

@@ -3,7 +3,7 @@
 use aws_sdk_s3 as s3;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
+use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -18,7 +18,8 @@ fn init_tracing_subscriber() {
 }
 
 pub fn get_test_client() -> S3CrtClient {
-    S3CrtClient::new(&get_test_region(), S3ClientConfig::new()).expect("could not create test client")
+    let endpoint_config = EndpointConfig::new(&get_test_region());
+    S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("could not create test client")
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {

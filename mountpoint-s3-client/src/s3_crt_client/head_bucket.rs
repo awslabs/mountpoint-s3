@@ -28,7 +28,7 @@ impl S3CrtClient {
                 .set_request_path("/")
                 .map_err(S3RequestError::construction_failure)?;
 
-            let span = request_span!(self.inner, "head_bucket", bucket, endpoint=?self.inner.endpoint);
+            let span = request_span!(self.inner, "head_bucket", bucket);
 
             self.inner
                 .make_simple_http_request(message, MetaRequestType::Default, span, |request_result| {

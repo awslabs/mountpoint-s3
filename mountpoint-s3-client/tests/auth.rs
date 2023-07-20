@@ -12,7 +12,7 @@ use aws_sdk_s3::Region;
 use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_client::{EndpointConfig, ObjectClient, S3CrtClient};
 use mountpoint_s3_client::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
@@ -53,8 +53,10 @@ async fn test_static_provider() {
         session_token: credentials.session_token(),
     };
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
-    let config = S3ClientConfig::new().auth_config(S3ClientAuthConfig::Provider(provider));
-    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
 
     let result = client
         .get_object(&bucket, &key, None, None)
@@ -72,8 +74,10 @@ async fn test_static_provider() {
         session_token: credentials.session_token(),
     };
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
-    let config = S3ClientConfig::new().auth_config(S3ClientAuthConfig::Provider(provider));
-    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
         .get_object(&bucket, &key, None, None)
@@ -140,8 +144,10 @@ aws_secret_access_key = {}",
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
     // Build a S3CrtClient that uses the config file
-    let config = S3ClientConfig::new().auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()));
-    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
 
     let result = client
         .get_object(&bucket, &key, None, None)
@@ -155,8 +161,10 @@ aws_secret_access_key = {}",
     let length = config_file.as_file().metadata().unwrap().len();
     config_file.as_file_mut().set_len(length - 5).unwrap();
 
-    let config = S3ClientConfig::new().auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()));
-    let client = S3CrtClient::new(&get_test_region(), config).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
         .get_object(&bucket, &key, None, None)
@@ -172,9 +180,10 @@ aws_secret_access_key = {}",
     // Try it again with a bogus profile name so we know it's not succeeding by accident. This time
     // the client can tell that the profile is invalid (it doesn't exist), so the client can't even
     // be constructed.
-    let config =
-        S3ClientConfig::new().auth_config(S3ClientAuthConfig::Profile("not-the-right-profile-name".to_owned()));
-    let _result = S3CrtClient::new(&get_test_region(), config).expect_err("profile doesn't exist");
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile("not-the-right-profile-name".to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
 }
 
 rusty_fork_test! {

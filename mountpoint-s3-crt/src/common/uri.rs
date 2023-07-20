@@ -20,7 +20,7 @@ pub struct Uri {
 
 impl Uri {
     /// Create a new URI by parsing the given string
-    pub fn new_from_str(allocator: &Allocator, src: &OsStr) -> Result<Self, Error> {
+    pub fn new_from_str(allocator: &Allocator, src: impl AsRef<OsStr>) -> Result<Self, Error> {
         let mut inner: Box<aws_uri> = Default::default();
         // SAFETY: the parser copies the bytes it needs out of this string
         let uri_cursor = unsafe { src.as_aws_byte_cursor() };
