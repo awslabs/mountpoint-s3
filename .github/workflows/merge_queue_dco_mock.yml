@@ -1,0 +1,15 @@
+---
+# Workflow that always succeeds with name "DCO".
+# This is temporarily needed to ensure we can keep DCO requirement on PRs and allow merge queue to succeed.
+# It can be removed once DCO runs against `merge_group` events. See: https://github.com/dcoapp/app/issues/199
+name: DCO
+"on":
+  merge_group:
+
+jobs:
+  DCO:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    steps:
+      - run: echo "This workflow always succeeds to unlock GitHub's Merge Queue."
+      - run: echo "DCO should already be completed during PR workflows."
