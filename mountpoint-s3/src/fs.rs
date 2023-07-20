@@ -809,6 +809,7 @@ impl From<InodeError> for i32 {
             InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
+            InodeError::CorruptedMetadata(_, _) => libc::EIO,
         }
     }
 }

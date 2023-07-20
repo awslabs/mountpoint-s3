@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
+use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
@@ -82,22 +83,21 @@ impl Superblock {
     pub fn new(bucket: &str, prefix: &Prefix, cache_config: CacheConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
 
-        let root = InodeInner {
-            ino: ROOT_INODE_NO,
-            parent: ROOT_INODE_NO,
-            name: String::new(),
-            full_key: prefix.to_string(),
-            kind: InodeKind::Directory,
-            sync: RwLock::new(InodeState {
+        let root = Inode::new(
+            ROOT_INODE_NO,
+            ROOT_INODE_NO,
+            String::new(),
+            prefix.to_string(),
+            InodeKind::Directory,
+            InodeState {
                 // The root inode never expires because there's no remote to consult for its
                 // metadata, and it always exists.
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
                 lookup_count: 1,
-            }),
-        };
-        let root = Inode { inner: Arc::new(root) };
+            },
+        );
 
         let mut inodes = HashMap::new();
         inodes.insert(ROOT_INODE_NO, root);
@@ -425,12 +425,15 @@ impl Superblock {
 impl SuperblockInner {
     /// Retrieve the inode for the given number if it exists
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
-        self.inodes
+        let inode = self
+            .inodes
             .read()
             .unwrap()
             .get(&ino)
             .cloned()
-            .ok_or(InodeError::InodeDoesNotExist(ino))
+            .ok_or(InodeError::InodeDoesNotExist(ino))?;
+        inode.verify_inode(ino)?;
+        Ok(inode)
     }
 
     /// Increase the lookup count of the given inode and
@@ -467,7 +470,9 @@ impl SuperblockInner {
         // TODO use caches. if we already know about this name, we just need to revalidate the stat
         // cache and then read it.
         let remote = self.remote_lookup(client, parent_ino, name).await?;
-        self.update_from_remote(parent_ino, name, remote)
+        let lookup = self.update_from_remote(parent_ino, name, remote)?;
+        lookup.inode.verify_child(parent_ino, name.as_ref())?;
+        Ok(lookup)
     }
 
     /// Lookup an inode in the parent directory with the given name
@@ -798,15 +803,7 @@ impl SuperblockInner {
 
         trace!(parent=?parent.ino(), ?name, ?kind, new_ino=?next_ino, ?full_key, "creating new inode");
 
-        let inode = InodeInner {
-            ino: next_ino,
-            parent: parent.ino(),
-            name: name.to_owned(),
-            full_key,
-            kind,
-            sync: RwLock::new(state),
-        };
-        let inode = Inode { inner: Arc::new(inode) };
+        let inode = Inode::new(next_ino, parent.ino(), name.to_owned(), full_key, kind, state);
 
         match &mut parent_locked.kind_data {
             InodeKindData::File {} => {
@@ -955,6 +952,7 @@ struct InodeInner {
     // TODO deduplicate keys by string interning or something -- many keys will have common prefixes
     full_key: String,
     kind: InodeKind,
+    checksum: Crc32c,
 
     /// Mutable inode state. This lock should also be held to serialize operations on an inode (like
     /// creating a new child).
@@ -1052,6 +1050,46 @@ impl Inode {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
             _ => Ok(inode_state),
         }
+    }
+
+    fn new(ino: InodeNo, parent: InodeNo, name: String, full_key: String, kind: InodeKind, state: InodeState) -> Self {
+        let checksum = Self::compute_checksum(ino, &full_key);
+        let sync = RwLock::new(state);
+        let inner = InodeInner {
+            ino,
+            parent,
+            name,
+            full_key,
+            kind,
+            checksum,
+            sync,
+        };
+        Self { inner: inner.into() }
+    }
+
+    fn verify_inode(&self, expected_ino: InodeNo) -> Result<(), InodeError> {
+        let computed = Self::compute_checksum(self.ino(), self.full_key());
+        if computed == self.inner.checksum && self.ino() == expected_ino {
+            Ok(())
+        } else {
+            Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
+        }
+    }
+
+    fn verify_child(&self, expected_parent: InodeNo, expected_name: &str) -> Result<(), InodeError> {
+        let computed = Self::compute_checksum(self.ino(), self.full_key());
+        if computed == self.inner.checksum && self.parent() == expected_parent && self.name() == expected_name {
+            Ok(())
+        } else {
+            Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
+        }
+    }
+
+    fn compute_checksum(ino: InodeNo, full_key: &str) -> Crc32c {
+        let mut hasher = crc32c::Hasher::new();
+        hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(full_key.as_bytes());
+        hasher.finalize()
     }
 }
 
@@ -1210,6 +1248,8 @@ pub enum InodeError {
     DirectoryNotEmpty(InodeNo),
     #[error("inode {0} cannot be unlinked while being written")]
     UnlinkNotPermittedWhileWriting(InodeNo),
+    #[error("corrupted metadata for inode {0}, remote key {1:?}")]
+    CorruptedMetadata(InodeNo, String),
 }
 
 #[cfg(test)]
@@ -1353,21 +1393,19 @@ mod tests {
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
         let ino = 42;
         let inode_name = "made-up-inode";
-        let inode = Inode {
-            inner: Arc::new(InodeInner {
-                ino,
-                parent: ROOT_INODE_NO,
-                name: inode_name.to_owned(),
-                full_key: inode_name.to_owned(),
-                kind: InodeKind::File,
-                sync: RwLock::new(InodeState {
-                    write_status: WriteStatus::Remote,
-                    stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, Default::default()),
-                    kind_data: InodeKindData::File {},
-                    lookup_count: 5,
-                }),
-            }),
-        };
+        let inode = Inode::new(
+            ino,
+            ROOT_INODE_NO,
+            inode_name.to_owned(),
+            inode_name.to_owned(),
+            InodeKind::File,
+            InodeState {
+                write_status: WriteStatus::Remote,
+                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, Default::default()),
+                kind_data: InodeKindData::File {},
+                lookup_count: 5,
+            },
+        );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
 
         superblock.forget(ino, 3);
@@ -1841,6 +1879,58 @@ mod tests {
             .expect_err("lookup should no longer find deleted file")
             .into();
         assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
+    }
+
+    #[tokio::test]
+    async fn test_unlink_verify_checksum() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let file_name = "corrupted";
+        client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+
+        // Create an inode with "corrupted" metadata, i.e.
+        // checksum not matching ino + full key.
+        let parent_ino = FUSE_ROOT_INODE;
+        let bad_checksum = Crc32c::new(42);
+        let inode = Inode {
+            inner: Arc::new(InodeInner {
+                ino: 42,
+                parent: parent_ino,
+                name: file_name.into(),
+                full_key: file_name.into(),
+                kind: InodeKind::File,
+                checksum: bad_checksum,
+                sync: RwLock::new(InodeState {
+                    stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, NEVER_EXPIRE_TTL),
+                    write_status: WriteStatus::Remote,
+                    kind_data: InodeKindData::File {},
+                    lookup_count: 1,
+                }),
+            }),
+        };
+
+        // Manually add the corrupted inode to the superblock and root directory.
+        {
+            let mut inodes = superblock.inner.inodes.write().unwrap();
+            inodes.insert(inode.ino(), inode.clone());
+            let parent = inodes.get(&parent_ino).unwrap();
+            let mut parent_state = parent.get_mut_inode_state().unwrap();
+            match &mut parent_state.kind_data {
+                InodeKindData::File {} => panic!("root is always a directory"),
+                InodeKindData::Directory { children, .. } => _ = children.insert(file_name.into(), inode.clone()),
+            }
+        }
+
+        let err = superblock
+            .unlink(&client, parent_ino, file_name.as_ref())
+            .await
+            .expect_err("unlink of a corrupted inode should fail");
+        assert!(matches!(err, InodeError::CorruptedMetadata(_, _)));
     }
 
     #[tokio::test]
