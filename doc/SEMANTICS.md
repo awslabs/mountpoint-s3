@@ -77,7 +77,7 @@ further writes.
 
 Space allocation (`fallocate`, `posix_fallocate`) are not supported.
 
-Changing file last access and modification times (`utime`) are supported on files that are being written only.
+Changing last access and modification times (`utime`) is supported only on files that are being written.
 
 #### Deletes
 
