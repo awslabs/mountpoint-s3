@@ -30,7 +30,7 @@ impl<Client: ObjectClient> Uploader<Client> {
     pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
         let inner = UploaderInner {
             client,
-            storage_class: storage_class,
+            storage_class,
         };
         Self { inner: Arc::new(inner) }
     }
