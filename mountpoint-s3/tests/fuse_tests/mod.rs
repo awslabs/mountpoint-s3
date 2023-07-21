@@ -13,8 +13,6 @@ mod write_test;
 
 use std::ffi::OsStr;
 use std::fs::ReadDir;
-use std::thread::sleep;
-use std::time::Duration;
 
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
@@ -307,23 +305,4 @@ pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
             name.to_owned()
         })
         .collect::<Vec<_>>()
-}
-
-pub fn wait_for_success<F, E>(mut f: F, attempts: u64, err_msg: &str)
-where
-    F: FnMut() -> Result<bool, E>,
-{
-    for i in 0..attempts {
-        match f() {
-            Ok(result) => {
-                if result {
-                    break;
-                } else {
-                    sleep(Duration::from_millis(100 * i));
-                }
-            }
-            Err(_) => panic!("{err_msg} due to method failure"),
-        }
-        assert!(i < 5, "{err_msg} after {attempts} attempts");
-    }
 }

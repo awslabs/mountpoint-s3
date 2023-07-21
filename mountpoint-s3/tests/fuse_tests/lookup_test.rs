@@ -1,6 +1,5 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::thread::sleep;
 use std::{
     fs::{metadata, read_dir, read_to_string},
     time::Duration,
@@ -180,8 +179,6 @@ where
     f.write_all("hello world 4".as_bytes()).unwrap();
     f.sync_all().unwrap();
     drop(f);
-
-    sleep(Duration::from_secs(1));
 
     let f = read_to_string(mount_point.path().join(keys[0])).unwrap();
     assert_eq!(f, "hello world 0");
