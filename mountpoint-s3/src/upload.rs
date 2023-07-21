@@ -28,10 +28,7 @@ struct UploaderInner<Client> {
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
     pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
-        let inner = UploaderInner {
-            client,
-            storage_class,
-        };
+        let inner = UploaderInner { client, storage_class };
         Self { inner: Arc::new(inner) }
     }
 
