@@ -707,6 +707,7 @@ mod tests {
     #[test_case("test-123.buc_ket", true)]
     #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", true)]
     #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", true)]
+    #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", true)]
     #[test_case("s3://test-bucket", false)]
     #[test_case("~/mnt", false)]
     fn validate_bucket_name(bucket_name: &str, valid: bool) {

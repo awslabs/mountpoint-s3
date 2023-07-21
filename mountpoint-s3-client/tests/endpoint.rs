@@ -107,3 +107,37 @@ async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingSt
     })
     .await;
 }
+
+#[cfg(feature = "fips_tests")]
+#[tokio::test]
+async fn test_fips_mount_option() {
+    run_test(|region| {
+        EndpointConfig::new(region)
+        .use_fips(true)
+    })
+    .await;
+}
+
+#[test_case(AddressingStyle::Automatic)]
+#[test_case(AddressingStyle::Virtual)]
+#[test_case(AddressingStyle::Path)]
+#[tokio::test]
+async fn test_addressing_style_dualstack(addressing_style: AddressingStyle) {
+    run_test(|region| {
+        EndpointConfig::new(region)
+            .addressing_style(addressing_style)
+            .use_dual_stack(true)
+    })
+    .await;
+}
+
+#[cfg(feature = "fips_tests")]
+#[tokio::test]
+async fn test_fips_mount_option() {
+    run_test(|region| {
+        EndpointConfig::new(region)
+        .use_fips(true)
+        .use_dual_stack(true)
+    })
+    .await;
+}

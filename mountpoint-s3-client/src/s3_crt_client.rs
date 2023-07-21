@@ -196,8 +196,6 @@ impl EndpointConfig {
 pub enum EndpointError {
     #[error("invalid URI")]
     InvalidUri(#[from] InvalidUriError),
-    #[error("endpoint URI cannot include path or query string")]
-    InvalidEndpoint,
     #[error("endpoint could not be resolved")]
     UnresolvedEndpoint(#[from] ResolverError),
 }
@@ -206,10 +204,6 @@ pub enum EndpointError {
 pub enum InvalidUriError {
     #[error("URI could not be parsed")]
     CouldNotParse(#[from] mountpoint_s3_crt::common::error::Error),
-    #[error("URI cannot include path or query string")]
-    CannotContainPathOrQueryString,
-    #[error("URI is not valid UTF-8")]
-    InvalidUtf8,
 }
 
 #[derive(Debug, Clone)]
@@ -1090,4 +1084,6 @@ mod tests {
             .to_string_lossy()
             .starts_with(expected_bucket_owner));
     }
+
+    
 }
