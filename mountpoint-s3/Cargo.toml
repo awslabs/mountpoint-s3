@@ -61,7 +61,6 @@ fips_tests = []
 fuse_tests = []
 s3_tests = []
 shuttle = []
-delete = []
 
 [build-dependencies]
 built = { version = "0.6.0", features = ["git2"] }
