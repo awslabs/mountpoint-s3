@@ -198,13 +198,13 @@ struct CliArgs {
     #[clap(long, help = "Force path-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
     pub path_addressing: bool,
 
-    #[clap(long, help = "Use S3 Transfer Acceleration", help_heading = BUCKET_OPTIONS_HEADER)]
+    #[clap(long, help = "Use Transfer Acceleration for accessing S3, if it is enabled for the given S3 bucket", help_heading = BUCKET_OPTIONS_HEADER)]
     pub transfer_acceleration: bool,
 
-    #[clap(long, help = "Use dual stack endpoint", help_heading = BUCKET_OPTIONS_HEADER)]
+    #[clap(long, help = "Use dual-stack endpoints when accessing S3", help_heading = BUCKET_OPTIONS_HEADER)]
     pub dual_stack: bool,
 
-    #[clap(long, help = "Use FIPS endpoint", help_heading = BUCKET_OPTIONS_HEADER)]
+    #[clap(long, help = "Use FIPS-compliant endpoints when accessing S3", help_heading = BUCKET_OPTIONS_HEADER)]
     pub fips: bool,
 
     #[clap(long, help = "Set the 'x-amz-request-payer' to 'requester' on S3 requests", help_heading = BUCKET_OPTIONS_HEADER)]
@@ -703,13 +703,14 @@ mod tests {
         assert_eq!(actual, throughput);
     }
 
-    #[test_case("test-bucket", true)]
-    #[test_case("test-123.buc_ket", true)]
-    #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", true)]
-    #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", true)]
-    #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", true)]
-    #[test_case("s3://test-bucket", false)]
-    #[test_case("~/mnt", false)]
+    #[test_case("test-bucket", true; "simple bucket")]
+    #[test_case("test-123.buc_ket", true; "bucket name with .")]
+    #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", true; "access point alias")]
+    #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", true; "object lambda access point alias")]
+    #[test_case("s3://test-bucket", false; "not providing bare bucket name")]
+    #[test_case("~/mnt", false; "directory name in place of bucket")]
+    #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", true; "multiregion accesspoint ARN")]
+    #[test_case("arn:aws:s3:::doc-example-bucket", false; "incorrect bucket ARN")]
     fn validate_bucket_name(bucket_name: &str, valid: bool) {
         let parsed = parse_bucket_name(bucket_name);
         if valid {

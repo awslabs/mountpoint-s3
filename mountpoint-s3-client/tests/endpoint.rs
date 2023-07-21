@@ -61,53 +61,6 @@ async fn test_addressing_style_uri(addressing_style: AddressingStyle) {
     .await;
 }
 
-#[test_case(AddressingStyle::Automatic)]
-#[test_case(AddressingStyle::Virtual)]
-#[test_case(AddressingStyle::Path)]
-#[tokio::test]
-async fn test_addressing_style_uri_dualstack(addressing_style: AddressingStyle) {
-    run_test(|region| {
-        let domain = get_test_domain();
-        let uri = format!("https://s3.dualstack.{region}.{domain}");
-        let endpoint = Uri::new_from_str(&Allocator::default(), uri).expect("Uri Could not be parsed");
-        EndpointConfig::new(region)
-            .addressing_style(addressing_style)
-            .endpoint(endpoint)
-    })
-    .await;
-}
-
-// FIPS endpoints can only be used with virtual-hosted-style addressing
-#[cfg(feature = "fips_tests")]
-#[test_case(AddressingStyle::Virtual)]
-#[tokio::test]
-async fn test_addressing_style_uri_fips(addressing_style: AddressingStyle) {
-    run_test(|region| {
-        let domain = get_test_domain();
-        let uri = format!("https://s3-fips.{region}.{domain}");
-        let endpoint = Uri::new_from_str(&Allocator::default(), uri).expect("Uri Could not be parsed");
-        EndpointConfig::new(region)
-            .addressing_style(addressing_style)
-            .endpoint(endpoint)
-    })
-    .await;
-}
-// FIPS endpoints can only be used with virtual-hosted-style addressing
-#[cfg(feature = "fips_tests")]
-#[test_case(AddressingStyle::Virtual)]
-#[tokio::test]
-async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingStyle) {
-    run_test(|region| {
-        let domain = get_test_domain();
-        let uri = format!("https://s3-fips.dualstack.{region}.{domain}");
-        let endpoint = Uri::new_from_str(&Allocator::default(), uri).expect("Uri Could not be parsed");
-        EndpointConfig::new(region)
-            .addressing_style(addressing_style)
-            .endpoint(endpoint)
-    })
-    .await;
-}
-
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
 async fn test_fips_mount_option() {
@@ -118,7 +71,7 @@ async fn test_fips_mount_option() {
 #[test_case(AddressingStyle::Virtual)]
 #[test_case(AddressingStyle::Path)]
 #[tokio::test]
-async fn test_addressing_style_dualstack(addressing_style: AddressingStyle) {
+async fn test_addressing_style_dualstack_option(addressing_style: AddressingStyle) {
     run_test(|region| {
         EndpointConfig::new(region)
             .addressing_style(addressing_style)
@@ -129,6 +82,6 @@ async fn test_addressing_style_dualstack(addressing_style: AddressingStyle) {
 
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
-async fn test_fips_mount_option() {
+async fn test_fips_dual_stack_mount_option() {
     run_test(|region| EndpointConfig::new(region).use_fips(true).use_dual_stack(true)).await;
 }
