@@ -1084,6 +1084,4 @@ mod tests {
             .to_string_lossy()
             .starts_with(expected_bucket_owner));
     }
-
-    
 }

@@ -111,11 +111,7 @@ async fn test_addressing_style_uri_fips_dualstack(addressing_style: AddressingSt
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
 async fn test_fips_mount_option() {
-    run_test(|region| {
-        EndpointConfig::new(region)
-        .use_fips(true)
-    })
-    .await;
+    run_test(|region| EndpointConfig::new(region).use_fips(true)).await;
 }
 
 #[test_case(AddressingStyle::Automatic)]
@@ -134,10 +130,5 @@ async fn test_addressing_style_dualstack(addressing_style: AddressingStyle) {
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
 async fn test_fips_mount_option() {
-    run_test(|region| {
-        EndpointConfig::new(region)
-        .use_fips(true)
-        .use_dual_stack(true)
-    })
-    .await;
+    run_test(|region| EndpointConfig::new(region).use_fips(true).use_dual_stack(true)).await;
 }
