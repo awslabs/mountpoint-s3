@@ -81,16 +81,15 @@ Changing last access and modification times (`utime`) is supported only on files
 
 #### Deletes
 
-File deletion (`unlink`) is planned but not yet supported (see [#78](https://github.com/awslabs/mountpoint-s3/issues/78)).
-When `unlink` is implemented, the following semantics are proposed.
+File deletion (`unlink`) can be enabled by setting the `--allow-delete` option and is implemented with
+the following behavior:
 
-For files not yet committed to S3, the client will not permit `unlink` operations.
-The file should be closed and thus committed to S3, at which point an `unlink` can be performed on the remote file.
-
-For files already committed to S3, the client will _immediately_ delete the corresponding object from S3,
-and remove the file from its directory.
-If there are still open file handles to the file, future reads to them will fail.
-Because the object is immediately deleted from S3, future reads from other hosts will also fail.
+* For files not yet committed to S3, the client does not permit `unlink` operations.
+* The file should be closed and thus committed to S3, at which point an `unlink` can be performed on the remote file.
+* For files already committed to S3, the client _immediately_ deletes the corresponding object from S3,
+  and removes the file from its directory.
+* If there are still open file handles to the file, future reads to them will fail.
+* Because the object is immediately deleted from S3, future reads from other hosts will also fail.
 
 ### Directory operations
 

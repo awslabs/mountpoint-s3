@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use fuser::BackgroundSession;
+use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
@@ -12,7 +13,14 @@ fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let test_session_config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            allow_delete: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_config);
 
     // Add a file directly to the bucket
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -58,7 +66,14 @@ fn unlink_readhandle_test<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let test_session_config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            allow_delete: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_config);
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
@@ -107,7 +122,14 @@ fn unlink_writehandle_test<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let test_session_config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            allow_delete: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_config);
 
     // Add a file directly to the bucket
     test_client.put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
@@ -166,4 +188,37 @@ fn unlink_writehandle_test_s3() {
 #[test_case("unlink_writehandle_test"; "prefix")]
 fn unlink_writehandle_test_mock(prefix: &str) {
     unlink_writehandle_test(crate::fuse_tests::mock_session::new, prefix);
+}
+
+fn unlink_fail_on_delete_not_allowed_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let test_session_config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            allow_delete: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(Default::default(), test_session_config);
+
+    test_client.put_object("dir/file.txt", &[0u8; 4]).unwrap();
+
+    let main_dir = mount_point.path().join("dir");
+    let path = main_dir.join("file.txt");
+    let err = fs::remove_file(path).expect_err("file remove/unlink should fail when delete is not allowed");
+    let raw_os_err = err.raw_os_error().expect("err should be OS-level err");
+    assert_eq!(raw_os_err, libc::EPERM, "unlink should fail with OS err EPERM");
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn unlink_fail_on_delete_not_allowed_test_s3() {
+    unlink_fail_on_delete_not_allowed_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn unlink_fail_on_delete_not_allowed_test_mock() {
+    unlink_fail_on_delete_not_allowed_test(crate::fuse_tests::mock_session::new);
 }
