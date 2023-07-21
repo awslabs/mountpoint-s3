@@ -439,6 +439,7 @@ impl S3CrtClientInner {
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
         let uri = self.endpoint_config.resolve_for_bucket(bucket)?;
         let hostname = uri.host_name().to_str().unwrap();
+        let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();
         let hostname_header = if port > 0 {
             format!("{}:{}", hostname, port)
@@ -463,7 +464,7 @@ impl S3CrtClientInner {
         Ok(S3Message {
             inner: message,
             uri,
-            path_prefix: String::new(),
+            path_prefix,
             checksum_config: None,
         })
     }
