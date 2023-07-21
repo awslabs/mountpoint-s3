@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1689932778690,
+  "lastUpdate": 1689939525105,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d335a48ee2b2d2bb87408b557345af2166e7085d",
-          "message": "Remove the temporary checksum feature (#378)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2023-07-14T14:18:22Z",
-          "tree_id": "329e09fadd5876c558ae99a2fd8e3b0bf4325eff",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d335a48ee2b2d2bb87408b557345af2166e7085d"
-        },
-        "date": 1689344937718,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.068,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.17,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.135,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.156,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 76.132757,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 58.778100200000004,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 51.570943799999995,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb0f479c07bc5630115a4e2105b85a5ebcd88fad",
+          "message": "Introduce option to allow delete (#398)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-07-21T11:07:28Z",
+          "tree_id": "0e493c7a85839afb80dc790ec83a81b53a43cd0e",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/bb0f479c07bc5630115a4e2105b85a5ebcd88fad"
+        },
+        "date": 1689939524646,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.061,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.165,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.078,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.533,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 82.1572519,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 45.526025700000005,
             "unit": "milliseconds"
           }
         ]
