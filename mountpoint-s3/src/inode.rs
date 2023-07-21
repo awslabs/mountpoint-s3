@@ -189,6 +189,39 @@ impl Superblock {
         self.inner.lookup(client, inode.parent(), inode.name().as_ref()).await
     }
 
+    /// Set the attributes for an inode
+    pub async fn setattr<OC: ObjectClient>(
+        &self,
+        _client: &OC,
+        ino: InodeNo,
+        atime: Option<OffsetDateTime>,
+        mtime: Option<OffsetDateTime>,
+    ) -> Result<LookedUp, InodeError> {
+        let inode = self.inner.get(ino)?;
+        let mut sync = inode.get_mut_inode_state()?;
+
+        if sync.write_status == WriteStatus::Remote {
+            return Err(InodeError::SetAttrNotPermittedOnRemoteInode(ino));
+        }
+
+        // Should be impossible since local file stat never expire.
+        if !sync.stat.is_valid() {
+            warn!(?ino, "local inode stat already expired");
+            return Err(InodeError::SetAttrOnExpiredStat(ino));
+        }
+
+        if let Some(t) = atime {
+            sync.stat.atime = t;
+        }
+        if let Some(t) = mtime {
+            sync.stat.mtime = t;
+        };
+
+        let stat = sync.stat.clone();
+        drop(sync);
+        Ok(LookedUp { inode, stat })
+    }
+
     /// Create a new write handle to be used for state transition
     pub async fn write<OC: ObjectClient>(
         &self,
@@ -1250,6 +1283,10 @@ pub enum InodeError {
     UnlinkNotPermittedWhileWriting(InodeNo),
     #[error("corrupted metadata for inode {0}, remote key {1:?}")]
     CorruptedMetadata(InodeNo, String),
+    #[error("inode {0} is a remote inode and its attributes cannot be modified")]
+    SetAttrNotPermittedOnRemoteInode(InodeNo),
+    #[error("inode {0} stat is already expired")]
+    SetAttrOnExpiredStat(InodeNo),
 }
 
 #[cfg(test)]
@@ -2120,6 +2157,110 @@ mod tests {
                 .await;
             assert!(matches!(lookup, Err(InodeError::InvalidFileName(_))));
         }
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_setattr(prefix: &str) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+
+        // Create a new file
+        let filename = "newfile.txt";
+        let new_inode = superblock
+            .create(
+                &client,
+                FUSE_ROOT_INODE,
+                OsStr::from_bytes(filename.as_bytes()),
+                InodeKind::File,
+            )
+            .await
+            .unwrap();
+
+        let writehandle = superblock
+            .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+            .await
+            .unwrap();
+
+        let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
+        let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
+
+        // Call setattr and verify the stat
+        let lookup = superblock
+            .setattr(&client, new_inode.inode.ino(), Some(atime), Some(mtime))
+            .await
+            .expect("setattr should be successful");
+        let stat = lookup.stat;
+        assert_eq!(stat.atime, atime);
+        assert_eq!(stat.mtime, mtime);
+
+        let lookup = superblock
+            .getattr(&client, new_inode.inode.ino(), false)
+            .await
+            .expect("getattr should be successful");
+        let stat = lookup.stat;
+        assert_eq!(stat.atime, atime);
+        assert_eq!(stat.mtime, mtime);
+
+        // Invoke [finish_writing] to make the file remote
+        writehandle.finish_writing().unwrap();
+
+        // Should get an error back when calling setattr
+        let result = superblock
+            .setattr(&client, new_inode.inode.ino(), Some(atime), Some(mtime))
+            .await;
+        assert!(matches!(result, Err(InodeError::SetAttrNotPermittedOnRemoteInode(_))));
+    }
+
+    #[tokio::test]
+    async fn test_setattr_invalid_stat() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+
+        let ino: u64 = 42;
+        let inode_name = "made-up-inode";
+        let mut hasher = crc32c::Hasher::new();
+        hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(inode_name.as_bytes());
+        let checksum = hasher.finalize();
+        let inode = Inode {
+            inner: Arc::new(InodeInner {
+                ino,
+                parent: ROOT_INODE_NO,
+                name: inode_name.to_owned(),
+                full_key: inode_name.to_owned(),
+                kind: InodeKind::File,
+                checksum,
+                sync: RwLock::new(InodeState {
+                    write_status: WriteStatus::LocalOpen,
+                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, Default::default()),
+                    kind_data: InodeKindData::File {},
+                    lookup_count: 5,
+                }),
+            }),
+        };
+        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
+
+        // Verify that the stat is invalid
+        let inode = superblock.inner.get(ino).unwrap();
+        let stat = inode.get_inode_state().unwrap().stat.clone();
+        assert!(!stat.is_valid());
+
+        // Should get an error back when calling setattr
+        let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
+        let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
+        let result = superblock.setattr(&client, ino, Some(atime), Some(mtime)).await;
+        assert!(matches!(result, Err(InodeError::SetAttrOnExpiredStat(_))));
     }
 
     #[test]
