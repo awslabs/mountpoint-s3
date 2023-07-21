@@ -610,7 +610,7 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     // (-s3), so let's just naively check for invalid characters.
     let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
     // ARN can have `:` and `/` but the prefix is always `arn:`
-    let arn_regex = Regex::new(r#"^arn:aws(-[a-z]+)?:(.*?):([0-9]+):(.*?)(:(.*?))?$"#).unwrap();
+    let arn_regex = Regex::new(r#"^arn:aws(-[a-z]+)*:s3(.*):([0-9]+):(.*?)(:(.*?))?$"#).unwrap();
     if !bucket_regex.is_match(bucket_name) && !arn_regex.is_match(bucket_name) {
         return Err(anyhow!(
             "bucket names can be a valid ARN or only contain letters, numbers, . and -"
@@ -711,6 +711,11 @@ mod tests {
     #[test_case("~/mnt", false; "directory name in place of bucket")]
     #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", true; "multiregion accesspoint ARN")]
     #[test_case("arn:aws:s3:::doc-example-bucket", false; "incorrect bucket ARN")]
+    #[test_case("arn:aws:ec2:us-east-1:555555555555:instance/i-b188560f", false; "EC2 instance ARN")]
+    #[test_case("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap", true; "standard accesspoint ARN in China")]
+    #[test_case("arn:aws-us-gov:s3-object-lambda:us-gov-west-1:555555555555:accesspoint/example-olap", true; "S3 object lambda accesspoint in US Gov")]
+    #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/bucket/bucket-name", true; "S3 outpost bucket ARN")]
+    #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", true; "S3 outpost accesspoint ARN")]
     fn validate_bucket_name(bucket_name: &str, valid: bool) {
         let parsed = parse_bucket_name(bucket_name);
         if valid {
