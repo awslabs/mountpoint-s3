@@ -607,10 +607,14 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     }
 
     // Actual bucket names must start/end with a letter, but bucket aliases can end with numbers
-    // (-s3) and ARN can have : & \, so let's just naively check for invalid characters.
-    let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._:/]+$").unwrap();
-    if !bucket_regex.is_match(bucket_name) {
-        return Err(anyhow!("bucket names can only contain letters, numbers, . and -"));
+    // (-s3), so let's just naively check for invalid characters.
+    let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
+    // ARN can have `:` and `/` but the prefix is always `arn:`
+    let arn_regex = Regex::new(r#"^arn:aws(-[a-z]+)?:(.*?):([0-9]+):(.*?)(:(.*?))?$"#).unwrap();
+    if !bucket_regex.is_match(bucket_name) && !arn_regex.is_match(bucket_name) {
+        return Err(anyhow!(
+            "bucket names can be a valid ARN or only contain letters, numbers, . and -"
+        ));
     }
 
     Ok(bucket_name.to_owned())

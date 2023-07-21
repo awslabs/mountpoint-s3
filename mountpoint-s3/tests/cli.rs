@@ -140,7 +140,7 @@ fn bucket_name_and_directory_swapped() -> Result<(), Box<dyn std::error::Error>>
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     cmd.arg("test/dir").arg("my-bucket-name");
-    let error_message = "bucket names can only contain letters, numbers, . and -";
+    let error_message = "bucket names can be a valid ARN or only contain letters, numbers, . and -";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
