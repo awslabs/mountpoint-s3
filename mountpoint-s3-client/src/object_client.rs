@@ -331,8 +331,8 @@ pub struct ObjectInfo {
     /// The time this object was last modified.
     pub last_modified: OffsetDateTime,
 
-    /// Storage class for this object. Optional because head_object may not return
-    /// the storage class in its response. See examples here:
+    /// Storage class for this object. Optional because head_object does not return
+    /// the storage class in its response for Standard objects. See examples here:
     /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples
     pub storage_class: Option<String>,
 

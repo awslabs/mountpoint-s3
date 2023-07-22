@@ -2,9 +2,9 @@ mod consistency_test;
 mod fork_test;
 mod lookup_test;
 mod mkdir_test;
-mod mount_test;
 mod perm_test;
 mod prefetch_test;
+mod read_test;
 mod readdir_test;
 mod rmdir_test;
 mod semantics_doc_test;
@@ -19,10 +19,20 @@ use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3_client::PutObjectParams;
 use tempfile::TempDir;
 
 pub trait TestClient {
-    fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
+    fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        self.put_object_params(key, value, PutObjectParams::default())
+    }
+
+    fn put_object_params(
+        &mut self,
+        key: &str,
+        value: &[u8],
+        params: PutObjectParams,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 
     fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
 
@@ -57,7 +67,7 @@ mod mock_session {
     use std::sync::Arc;
 
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
@@ -116,9 +126,16 @@ mod mock_session {
     }
 
     impl TestClient for MockTestClient {
-        fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        fn put_object_params(
+            &mut self,
+            key: &str,
+            value: &[u8],
+            params: PutObjectParams,
+        ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            self.client.add_object(&full_key, value.into());
+            let mut mock_object = MockObject::from(value);
+            mock_object.set_storage_class(params.storage_class);
+            self.client.add_object(&full_key, mock_object);
             Ok(())
         }
 
@@ -161,6 +178,7 @@ mod s3_session {
     use std::future::Future;
 
     use aws_sdk_s3::error::HeadObjectErrorKind;
+    use aws_sdk_s3::model::ChecksumAlgorithm;
     use aws_sdk_s3::Region;
     use aws_sdk_s3::{error::HeadObjectError, types::ByteStream, Client};
     use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
@@ -230,18 +248,28 @@ mod s3_session {
     }
 
     impl TestClient for SDKTestClient {
-        fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        fn put_object_params(
+            &mut self,
+            key: &str,
+            value: &[u8],
+            params: PutObjectParams,
+        ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            tokio_block_on(
-                self.sdk_client
-                    .put_object()
-                    .bucket(&self.bucket)
-                    .key(full_key)
-                    .body(ByteStream::from(value.to_vec()))
-                    .send(),
-            )
-            .map(|_| ())
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            let mut request = self
+                .sdk_client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(full_key)
+                .body(ByteStream::from(value.to_vec()));
+            if let Some(storage_class) = params.storage_class {
+                request = request.set_storage_class(Some(storage_class.as_str().into()));
+            }
+            if params.trailing_checksums {
+                request = request.set_checksum_algorithm(Some(ChecksumAlgorithm::Crc32C));
+            }
+            tokio_block_on(request.send())
+                .map(|_| ())
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
         fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>> {

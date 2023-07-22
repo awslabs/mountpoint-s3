@@ -886,3 +886,71 @@ async fn test_readdir_vs_readdirplus() {
         assert_eq!(entry.ino, attr.attr.ino);
     }
 }
+
+#[tokio::test]
+async fn test_flexible_retrieval_objects() {
+    const NAMES: &[&str] = &["GLACIER", "GLACIER_IR", "DEEP_ARCHIVE"];
+
+    let (client, fs) = make_test_filesystem(
+        "test_flexible_retrieval_objects",
+        &Default::default(),
+        Default::default(),
+    );
+
+    for name in NAMES {
+        let mut object = MockObject::from(b"hello world");
+        object.set_storage_class(Some(name.to_string()));
+        client.add_object(name, object);
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let mut reply = Default::default();
+    let _reply = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        .await
+        .unwrap();
+    fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
+
+    // Skip . and ..
+    let iter = reply.entries.into_iter().skip(2);
+    for entry in iter {
+        let flexible_retrieval = entry.name == "GLACIER" || entry.name == "DEEP_ARCHIVE";
+        assert_eq!(flexible_retrieval, entry.attr.perm == 0);
+
+        let getattr = fs.getattr(entry.ino).await.unwrap();
+        assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
+
+        let open = fs.open(entry.ino, libc::O_RDONLY).await;
+        if flexible_retrieval {
+            let err = open.expect_err("can't open flexible retrieval objects");
+            assert_eq!(err.to_errno(), libc::EACCES);
+        } else {
+            let open = open.expect("instant retrieval files are readable");
+            fs.release(entry.ino, open.fh, 0, None, true).await.unwrap();
+        }
+    }
+
+    // Try via the non-readdir path
+    for name in NAMES {
+        let flexible_retrieval = *name == "GLACIER" || *name == "DEEP_ARCHIVE";
+
+        let file_name = format!("{name}2");
+        let mut object = MockObject::from(b"hello world");
+        object.set_storage_class(Some(name.to_string()));
+        client.add_object(&file_name, object);
+
+        let lookup = fs.lookup(FUSE_ROOT_INODE, file_name.as_ref()).await.unwrap();
+
+        let getattr = fs.getattr(lookup.attr.ino).await.unwrap();
+        assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
+
+        let open = fs.open(lookup.attr.ino, libc::O_RDONLY).await;
+        if flexible_retrieval {
+            let err = open.expect_err("can't open flexible retrieval objects");
+            assert_eq!(err.to_errno(), libc::EACCES);
+        } else {
+            let open = open.expect("instant retrieval files are readable");
+            fs.release(lookup.attr.ino, open.fh, 0, None, true).await.unwrap();
+        }
+    }
+}
