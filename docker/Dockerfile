@@ -1,13 +1,14 @@
 FROM amazonlinux:2023 as builder
 
 # Install build tools
-RUN dnf install -y \
-    fuse \
-    fuse-devel \
-    cmake3 \
-    clang \
-    git \
-    pkg-config && \
+RUN dnf upgrade -y && \
+    dnf install -y \
+        fuse \
+        fuse-devel \
+        cmake3 \
+        clang \
+        git \
+        pkg-config && \
     dnf clean all
 
 # Install rust
@@ -25,7 +26,7 @@ RUN git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git 
 FROM amazonlinux:2023 as release
 COPY --from=builder /mountpoint-s3/target/release/mount-s3 /mount-s3
 
-RUN dnf update -y && \
+RUN dnf upgrade -y && \
     dnf install -y \
     fuse-devel && \
     dnf clean all
