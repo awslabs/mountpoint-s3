@@ -24,9 +24,9 @@ fn main() {
     let matches = Command::new("list")
         .about("List an S3 bucket")
         .arg(Arg::new("bucket").required(true))
-        .arg(Arg::new("delimiter").long("--delimiter").default_value(""))
-        .arg(Arg::new("prefix").long("--prefix").default_value(""))
-        .arg(Arg::new("region").long("--region").default_value("us-east-1"))
+        .arg(Arg::new("delimiter").long("delimiter").default_value(""))
+        .arg(Arg::new("prefix").long("prefix").default_value(""))
+        .arg(Arg::new("region").long("region").default_value("us-east-1"))
         .get_matches();
 
     let bucket = matches.get_one::<String>("bucket").unwrap();

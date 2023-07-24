@@ -34,7 +34,6 @@ fn main() {
             Arg::new("range")
                 .long("range")
                 .help("byte range to download (inclusive)")
-                .takes_value(true)
                 .value_name("0-10"),
         )
         .get_matches();
