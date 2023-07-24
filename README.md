@@ -83,6 +83,8 @@ Mountpoint for Amazon S3 is designed for high-performance access to the Amazon S
 
 #### Mountpoint for Amazon S3 using Docker
 
+A sample [Dockerfile](docker/Dockerfile) is provided, using Amazon Linux 2023 as a base.
+
 First, build the container image:
 
     cd mountpoint-s3/docker
