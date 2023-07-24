@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
-use clap::{value_parser, ArgGroup, Parser};
+use clap::{value_parser, Parser};
 use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
@@ -155,7 +155,6 @@ const AWS_CREDENTIALS: &str = "AWS credentials options";
 
 #[derive(Parser)]
 #[clap(about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
-#[clap(group(ArgGroup::new("addressing-style").args(&["virtual_addressing", "path_addressing"])))]
 struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
     pub bucket_name: String,
@@ -437,7 +436,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     validate_mount_point(&args.mount_point)?;
 
     const DEFAULT_REGION: &str = "us-east-1";
-    let mut endpoint_config = EndpointConfig::new(DEFAULT_REGION)
+    let endpoint_config = EndpointConfig::new(DEFAULT_REGION)
         .addressing_style(args.addressing_style())
         .use_fips(args.fips)
         .use_accelerate(args.transfer_acceleration)

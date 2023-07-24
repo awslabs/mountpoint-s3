@@ -122,20 +122,6 @@ fn print_version_short() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn addressing_style_mutually_exclusive() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
-
-    cmd.arg("test-bucket")
-        .arg("test/dir")
-        .arg("--virtual-addressing")
-        .arg("--path-addressing");
-    let error_message = "the argument '--virtual-addressing' cannot be used with '--path-addressing'";
-    cmd.assert().failure().stderr(predicate::str::contains(error_message));
-
-    Ok(())
-}
-
-#[test]
 fn bucket_name_and_directory_swapped() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
