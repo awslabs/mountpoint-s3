@@ -149,7 +149,7 @@ impl EndpointConfig {
             .resolve(endpoint_request_context)
             .map_err(EndpointError::UnresolvedEndpoint)?;
         let endpoint_uri = resolved_endpoint.get_url();
-        Uri::new_from_str(&allocator, &endpoint_uri)
+        Uri::new_from_str(&allocator, endpoint_uri)
             .map_err(|e| EndpointError::InvalidUri(InvalidUriError::CouldNotParse(e)))
     }
 }
