@@ -192,11 +192,8 @@ struct CliArgs {
     )]
     pub endpoint_url: Option<String>,
 
-    #[clap(long, help = "Force virtual-host-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
-    pub virtual_addressing: bool,
-
     #[clap(long, help = "Force path-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
-    pub path_addressing: bool,
+    pub force_path_style: bool,
 
     #[clap(long, help = "Use Transfer Acceleration for accessing S3, if it is enabled for the given S3 bucket", help_heading = BUCKET_OPTIONS_HEADER)]
     pub transfer_acceleration: bool,
@@ -315,9 +312,7 @@ struct CliArgs {
 
 impl CliArgs {
     fn addressing_style(&self) -> AddressingStyle {
-        if self.virtual_addressing {
-            AddressingStyle::Virtual
-        } else if self.path_addressing {
+        if self.force_path_style {
             AddressingStyle::Path
         } else {
             AddressingStyle::Automatic
@@ -441,29 +436,12 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     validate_mount_point(&args.mount_point)?;
 
-    let supposed_region = &args.region;
     const DEFAULT_REGION: &str = "us-east-1";
-
-    let region_to_try = supposed_region.clone().unwrap_or_else(|| {
-        tracing::warn!("region unspecified. using {} as the signing region.", DEFAULT_REGION);
-        DEFAULT_REGION.to_owned()
-    });
-
-    let mut endpoint_config = EndpointConfig::new(&region_to_try)
+    let mut endpoint_config = EndpointConfig::new(DEFAULT_REGION)
         .addressing_style(args.addressing_style())
         .use_fips(args.fips)
         .use_accelerate(args.transfer_acceleration)
         .use_dual_stack(args.dual_stack);
-
-    let endpoint = args
-        .endpoint_url
-        .map(|uri| Uri::new_from_str(&Allocator::default(), uri))
-        .transpose()
-        .context("Failed to parse endpoint URL")?;
-
-    if let Some(endpoint_uri) = endpoint {
-        endpoint_config = endpoint_config.endpoint(endpoint_uri);
-    }
 
     let throughput_target_gbps =
         args.maximum_throughput_gbps
@@ -500,8 +478,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     let client = create_client_for_bucket(
         &args.bucket_name,
-        supposed_region.clone(),
-        &region_to_try,
+        args.region,
+        args.endpoint_url,
         endpoint_config,
         client_config,
     )
@@ -564,10 +542,28 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 fn create_client_for_bucket(
     bucket: &str,
     supposed_region: Option<String>,
-    region_to_try: &str,
-    endpoint_config: EndpointConfig,
+    endpoint_url: Option<String>,
+    mut endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
 ) -> Result<S3CrtClient, anyhow::Error> {
+    let region_to_try = supposed_region.clone().unwrap_or_else(|| {
+        if endpoint_url.is_some() {
+            tracing::warn!(
+                "endpoint specified but region unspecified. using {} as the signing region.",
+                endpoint_config.get_region()
+            );
+        }
+        endpoint_config.get_region().to_owned()
+    });
+
+    let endpoint = endpoint_url
+        .map(|uri| Uri::new_from_str(&Allocator::default(), uri))
+        .transpose()
+        .context("Failed to parse endpoint URL")?;
+
+    if let Some(endpoint_uri) = endpoint {
+        endpoint_config = endpoint_config.endpoint(endpoint_uri);
+    }
     let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
 
     let head_request = client.head_bucket(bucket);
@@ -609,8 +605,9 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     // Actual bucket names must start/end with a letter, but bucket aliases can end with numbers
     // (-s3), so let's just naively check for invalid characters.
     let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
-    // ARN can have `:` and `/` but the prefix is always `arn:`
-    let arn_regex = Regex::new(r#"^arn:aws(-[a-z]+)*:s3(.*):([0-9]+):(.*?)(:(.*?))?$"#).unwrap();
+    // A simple check for AWS ARN
+    let arn_regex = Regex::new(r#"^arn:aws(-[a-z]+)*:.*$"#).unwrap();
+    // bucket argument should be a valid bucket name(only letters, numbers, . and -) or a valid ARN
     if !bucket_regex.is_match(bucket_name) && !arn_regex.is_match(bucket_name) {
         return Err(anyhow!(
             "bucket names can be a valid ARN or only contain letters, numbers, . and -"
@@ -710,11 +707,9 @@ mod tests {
     #[test_case("s3://test-bucket", false; "not providing bare bucket name")]
     #[test_case("~/mnt", false; "directory name in place of bucket")]
     #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", true; "multiregion accesspoint ARN")]
-    #[test_case("arn:aws:s3:::doc-example-bucket", false; "incorrect bucket ARN")]
-    #[test_case("arn:aws:ec2:us-east-1:555555555555:instance/i-b188560f", false; "EC2 instance ARN")]
+    #[test_case("arn:non-aws:s3::bucket-name", false; "non aws ARN")]
     #[test_case("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap", true; "standard accesspoint ARN in China")]
     #[test_case("arn:aws-us-gov:s3-object-lambda:us-gov-west-1:555555555555:accesspoint/example-olap", true; "S3 object lambda accesspoint in US Gov")]
-    #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/bucket/bucket-name", true; "S3 outpost bucket ARN")]
     #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", true; "S3 outpost accesspoint ARN")]
     fn validate_bucket_name(bucket_name: &str, valid: bool) {
         let parsed = parse_bucket_name(bucket_name);

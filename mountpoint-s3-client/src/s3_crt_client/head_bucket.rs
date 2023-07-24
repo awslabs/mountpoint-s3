@@ -34,12 +34,13 @@ impl S3CrtClient {
                 .make_simple_http_request(message, MetaRequestType::Default, span, |request_result| {
                     match request_result.response_status {
                         // S3 returns 400 for invalid or expired STS tokens
-                        301 | 400 => try_parse_redirect(&request_result)
+                        // TODO: Multiregion accesspoints, transfer acceleration endpoints gives 400 for incorrect region which needs to be redirected.
+                        301 => try_parse_redirect(&request_result)
                             .map(ObjectClientError::ServiceError)
                             .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(
                                 request_result,
                             ))),
-                        403 => ObjectClientError::ServiceError(HeadBucketError::PermissionDenied(request_result)),
+                        400 | 403 => ObjectClientError::ServiceError(HeadBucketError::PermissionDenied(request_result)),
                         404 => ObjectClientError::ServiceError(HeadBucketError::NoSuchBucket),
                         _ => ObjectClientError::ClientError(S3RequestError::ResponseError(request_result)),
                     }

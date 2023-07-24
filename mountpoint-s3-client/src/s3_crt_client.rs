@@ -26,16 +26,16 @@ use mountpoint_s3_crt::s3::client::{
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
-use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, ResolverError, RuleEngine};
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{error, trace, Span};
 
-use crate::build_info;
+use crate::endpoint_config::EndpointError;
 use crate::object_client::*;
 use crate::s3_crt_client::get_object::S3GetObjectRequest;
 use crate::s3_crt_client::put_object::S3PutObjectRequest;
+use crate::{build_info, EndpointConfig};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -68,142 +68,6 @@ macro_rules! event {
             ::tracing::Level::TRACE => ::tracing::event!(::tracing::Level::TRACE, $($args)*),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AddressingStyle {
-    /// Use virtual addressing if possible, but fall back to path addressing if necessary
-    #[default]
-    Automatic,
-    /// Always use virtual addressing
-    Virtual,
-    /// Always use path addressing
-    Path,
-}
-
-#[derive(Debug, Clone)]
-pub struct EndpointConfig {
-    region: String,
-    use_fips: bool,
-    use_accelerate: bool,
-    use_dual_stack: bool,
-    endpoint: Option<Uri>,
-    addressing_style: AddressingStyle,
-}
-
-impl EndpointConfig {
-    /// Create a new endpoint configuration for a given region
-    pub fn new(region: &str) -> Self {
-        Self {
-            region: region.to_owned(),
-            use_fips: false,
-            use_accelerate: false,
-            use_dual_stack: false,
-            endpoint: None,
-            addressing_style: AddressingStyle::Automatic,
-        }
-    }
-
-    /// Set region for a given endpoint config
-    #[must_use = "EndpointConfig follows a builder pattern"]
-    pub fn region(mut self, region: &str) -> Self {
-        self.region = region.to_owned();
-        self
-    }
-
-    /// use FIPS config for S3
-    #[must_use = "EndpointConfig follows a builder pattern"]
-    pub fn use_fips(mut self, fips: bool) -> Self {
-        self.use_fips = fips;
-        self
-    }
-
-    /// use Transfer Acceleration config for S3
-    #[must_use = "EndpointConfig follows a builder pattern"]
-    pub fn use_accelerate(mut self, accelerate: bool) -> Self {
-        self.use_accelerate = accelerate;
-        self
-    }
-
-    /// use dual stack config for S3
-    #[must_use = "EndpointConfig follows a builder pattern"]
-    pub fn use_dual_stack(mut self, dual_stack: bool) -> Self {
-        self.use_dual_stack = dual_stack;
-        self
-    }
-
-    /// Set predefined url for endpoint configuration
-    #[must_use = "EndpointConfig follows a builder pattern"]
-    pub fn endpoint(mut self, endpoint: Uri) -> Self {
-        self.endpoint = Some(endpoint);
-        self
-    }
-
-    /// Set addressing style for endpoint configuration
-    #[must_use = "EndpointConfig follows a builder pattern"]
-    pub fn addressing_style(mut self, addressing_style: AddressingStyle) -> Self {
-        self.addressing_style = addressing_style;
-        self
-    }
-
-    pub fn resolve_for_bucket(&self, bucket: &str) -> Result<Uri, EndpointError> {
-        let allocator = Allocator::default();
-        let mut endpoint_request_context = RequestContext::new(&allocator).unwrap();
-        let endpoint_rule_engine = RuleEngine::new(&allocator).unwrap();
-
-        endpoint_request_context
-            .add_string(&allocator, "Region", &self.region)
-            .unwrap();
-        endpoint_request_context
-            .add_string(&allocator, "Bucket", bucket)
-            .unwrap();
-        if let Some(endpoint_uri) = &self.endpoint {
-            endpoint_request_context
-                .add_string(&allocator, "Endpoint", endpoint_uri.as_os_str())
-                .unwrap()
-        };
-        if self.use_fips {
-            endpoint_request_context
-                .add_boolean(&allocator, "UseFIPS", true)
-                .unwrap()
-        };
-        if self.use_dual_stack {
-            endpoint_request_context
-                .add_boolean(&allocator, "UseDualStack", true)
-                .unwrap()
-        };
-        if self.use_accelerate {
-            endpoint_request_context
-                .add_boolean(&allocator, "Accelerate", true)
-                .unwrap()
-        };
-        if self.addressing_style == AddressingStyle::Path {
-            endpoint_request_context
-                .add_boolean(&allocator, "ForcePathStyle", true)
-                .unwrap()
-        };
-
-        let resolved_endpoint = endpoint_rule_engine
-            .resolve(endpoint_request_context)
-            .map_err(EndpointError::UnresolvedEndpoint)?;
-        let endpoint_uri = resolved_endpoint.get_url();
-        Uri::new_from_str(&allocator, endpoint_uri)
-            .map_err(|e| EndpointError::InvalidUri(InvalidUriError::CouldNotParse(e)))
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum EndpointError {
-    #[error("invalid URI")]
-    InvalidUri(#[from] InvalidUriError),
-    #[error("endpoint could not be resolved")]
-    UnresolvedEndpoint(#[from] ResolverError),
-}
-
-#[derive(Debug, Error)]
-pub enum InvalidUriError {
-    #[error("URI could not be parsed")]
-    CouldNotParse(#[from] mountpoint_s3_crt::common::error::Error),
 }
 
 #[derive(Debug, Clone)]
@@ -388,7 +252,7 @@ impl S3CrtClientInner {
         let endpoint_config = config.endpoint_config;
 
         if let Some(credentials_provider) = credentials_provider {
-            let signing_config = init_default_signing_config(&endpoint_config.region, credentials_provider);
+            let signing_config = init_default_signing_config(endpoint_config.get_region(), credentials_provider);
             client_config.signing_config(signing_config);
         }
 

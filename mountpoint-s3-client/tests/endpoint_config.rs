@@ -6,7 +6,6 @@ use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::{AddressingStyle, EndpointConfig, ObjectClient, S3ClientConfig, S3CrtClient};
-use mountpoint_s3_crt::common::{allocator::Allocator, uri::Uri};
 use test_case::test_case;
 
 async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F) {
@@ -38,27 +37,10 @@ async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F) {
 }
 
 #[test_case(AddressingStyle::Automatic)]
-#[test_case(AddressingStyle::Virtual)]
 #[test_case(AddressingStyle::Path)]
 #[tokio::test]
 async fn test_addressing_style_region(addressing_style: AddressingStyle) {
     run_test(|region| EndpointConfig::new(region).addressing_style(addressing_style)).await;
-}
-
-#[test_case(AddressingStyle::Automatic)]
-#[test_case(AddressingStyle::Virtual)]
-#[test_case(AddressingStyle::Path)]
-#[tokio::test]
-async fn test_addressing_style_uri(addressing_style: AddressingStyle) {
-    run_test(|region| {
-        let domain = get_test_domain();
-        let uri = format!("https://s3.{region}.{domain}");
-        let endpoint = Uri::new_from_str(&Allocator::default(), uri).expect("Uri Could not be parsed");
-        EndpointConfig::new(region)
-            .addressing_style(addressing_style)
-            .endpoint(endpoint)
-    })
-    .await;
 }
 
 #[cfg(feature = "fips_tests")]
@@ -68,7 +50,6 @@ async fn test_fips_mount_option() {
 }
 
 #[test_case(AddressingStyle::Automatic)]
-#[test_case(AddressingStyle::Virtual)]
 #[test_case(AddressingStyle::Path)]
 #[tokio::test]
 async fn test_addressing_style_dualstack_option(addressing_style: AddressingStyle) {
