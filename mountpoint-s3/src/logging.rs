@@ -3,7 +3,7 @@ use std::fs::{DirBuilder, OpenOptions};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicInfo};
-use std::path::Path;
+use std::path::PathBuf;
 use std::thread;
 
 use crate::metrics::metrics_tracing_span_layer;
@@ -20,14 +20,26 @@ use tracing_subscriber::{Layer, Registry};
 mod syslog;
 use self::syslog::SyslogLayer;
 
+/// Configuration for Mountpoint logging
+#[derive(Debug)]
+pub struct LoggingConfig {
+    /// A directory to create log files in. If unspecified, logs will be routed to syslog.
+    pub log_directory: Option<PathBuf>,
+    /// Whether to duplicate logs to stdout in addition to syslog or the log directory.
+    pub log_to_stdout: bool,
+    /// The default filter directive (in the sense of [tracing_subscriber::filter::EnvFilter]) to
+    /// use for logs. Will be overridden by the `MOUNTPOINT_LOG` environment variable if set.
+    pub default_filter: String,
+}
+
 /// Set up all our logging infrastructure.
 ///
 /// This method:
 /// - initializes the `tracing` subscriber for capturing log output
 /// - sets up the logging adapters for the CRT and for metrics
 /// - installs a panic hook to capture panics and log them with `tracing`
-pub fn init_logging(is_foreground: bool, log_directory: Option<&Path>) -> anyhow::Result<()> {
-    init_tracing_subscriber(is_foreground, log_directory)?;
+pub fn init_logging(config: LoggingConfig) -> anyhow::Result<()> {
+    init_tracing_subscriber(config)?;
     install_panic_hook();
     Ok(())
 }
@@ -63,15 +75,15 @@ fn install_panic_hook() {
     }))
 }
 
-fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) -> anyhow::Result<()> {
-    /// Create the logging config from the RUST_LOG environment variable or the default config if
-    /// that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
-    /// need a second copy of it in the foreground case to replicate logs to stdout.
-    fn create_env_filter() -> EnvFilter {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,awscrt=off,fuser=error"))
+fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
+    /// Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
+    /// if that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
+    /// need a copy of the filter for each [Layer].
+    fn create_env_filter(filter: &str) -> EnvFilter {
+        EnvFilter::try_from_env("MOUNTPOINT_LOG").unwrap_or_else(|_| EnvFilter::new(filter))
     }
-    let env_filter = create_env_filter();
 
+    let env_filter = create_env_filter(&config.default_filter);
     // Don't create the files or subscribers if we'll never emit any logs
     if env_filter.max_level_hint() == Some(LevelFilter::OFF) {
         return Ok(());
@@ -79,7 +91,7 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
 
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
-    let file_layer = if let Some(path) = log_directory {
+    let file_layer = if let Some(path) = &config.log_directory {
         const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
             macros::format_description!("mountpoint-s3-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
         let filename = OffsetDateTime::now_utc()
@@ -106,9 +118,9 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
         None
     };
 
-    let syslog_layer: Option<Filtered<_, _, Registry>> = if log_directory.is_none() {
+    let syslog_layer: Option<Filtered<_, _, Registry>> = if config.log_directory.is_none() {
         // TODO decide how to configure the filter for syslog
-        let env_filter = EnvFilter::new("warn,awscrt=off");
+        let env_filter = create_env_filter(&config.default_filter);
         // Don't fail if syslog isn't available on the system, since it's a default
         let syslog_layer = SyslogLayer::new().ok();
         syslog_layer.map(|l| l.with_filter(env_filter))
@@ -116,10 +128,10 @@ fn init_tracing_subscriber(is_foreground: bool, log_directory: Option<&Path>) ->
         None
     };
 
-    let console_layer = if is_foreground {
+    let console_layer = if config.log_to_stdout {
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
-            .with_filter(create_env_filter());
+            .with_filter(create_env_filter(&config.default_filter));
         Some(fmt_layer)
     } else {
         None

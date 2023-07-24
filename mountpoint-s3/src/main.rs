@@ -11,14 +11,15 @@ use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
-use mountpoint_s3::logging::init_logging;
-use mountpoint_s3::metrics::MetricsSink;
+use mountpoint_s3::logging::{init_logging, LoggingConfig};
+use mountpoint_s3::metrics::{MetricsSink, METRICS_TARGET_NAME};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
     AddressingStyle, EndpointConfig, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
 };
 use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
+use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
@@ -29,7 +30,8 @@ mod build_info;
 const CLIENT_OPTIONS_HEADER: &str = "Client options";
 const MOUNT_OPTIONS_HEADER: &str = "Mount options";
 const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
-const AWS_CREDENTIALS: &str = "AWS credentials options";
+const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
+const LOGGING_OPTIONS_HEADER: &str = "Logging options";
 
 #[derive(Parser)]
 #[clap(about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
@@ -39,14 +41,6 @@ struct CliArgs {
 
     #[clap(help = "Directory to mount the bucket at", value_name = "DIRECTORY")]
     pub mount_point: PathBuf,
-
-    #[clap(
-        short,
-        long,
-        help = "Configure a directory for logs to be written to. [default: no logs written to a file]",
-        value_name = "DIRECTORY"
-    )]
-    pub log_directory: Option<PathBuf>,
 
     #[clap(
         long,
@@ -87,11 +81,11 @@ struct CliArgs {
     #[clap(
         long,
         help = "Do not sign requests. Credentials will not be loaded if this argument is provided.",
-        help_heading = AWS_CREDENTIALS
+        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
     )]
     pub no_sign_request: bool,
 
-    #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS)]
+    #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS_OPTIONS_HEADER)]
     pub profile: Option<String>,
 
     #[clap(
@@ -192,6 +186,32 @@ struct CliArgs {
         value_name = "AWS_ACCOUNT_ID"
     )]
     pub expected_bucket_owner: Option<String>,
+
+    #[clap(
+        short,
+        long,
+        help = "Write log files to a directory [default: logs written to syslog]",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "DIRECTORY",
+    )]
+    pub log_directory: Option<PathBuf>,
+
+    #[clap(long, help = "Enable logging of summarized performance metrics", help_heading = LOGGING_OPTIONS_HEADER)]
+    pub log_metrics: bool,
+
+    #[clap(short, long, help = "Enable debug logging for Mountpoint", help_heading = LOGGING_OPTIONS_HEADER)]
+    pub debug: bool,
+
+    #[clap(long, help = "Enable debug logging for AWS Common Runtime", help_heading = LOGGING_OPTIONS_HEADER)]
+    pub debug_crt: bool,
+
+    #[clap(
+        long,
+        help = "Disable all logging",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
+    )]
+    pub no_log: bool,
 }
 
 impl CliArgs {
@@ -202,13 +222,37 @@ impl CliArgs {
             AddressingStyle::Automatic
         }
     }
+
+    fn logging_config(&self) -> LoggingConfig {
+        let default_filter = if self.no_log {
+            String::from("off")
+        } else {
+            let mut filter = if self.debug {
+                String::from("debug")
+            } else {
+                String::from("warn")
+            };
+            let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
+            filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
+            if self.log_metrics {
+                filter.push_str(&format!(",{}=info", METRICS_TARGET_NAME));
+            }
+            filter
+        };
+
+        LoggingConfig {
+            log_directory: self.log_directory.clone(),
+            log_to_stdout: self.foreground,
+            default_filter,
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     if args.foreground {
-        init_logging(args.foreground, args.log_directory.as_deref()).context("failed to initialize logging")?;
+        init_logging(args.logging_config()).context("failed to initialize logging")?;
 
         let _metrics = MetricsSink::init();
 
@@ -229,8 +273,7 @@ fn main() -> anyhow::Result<()> {
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let child_args = CliArgs::parse();
-                init_logging(child_args.foreground, child_args.log_directory.as_deref())
-                    .context("failed to initialize logging")?;
+                init_logging(args.logging_config()).context("failed to initialize logging")?;
 
                 let _metrics = MetricsSink::init();
 
@@ -263,7 +306,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             ForkResult::Parent { child } => {
-                init_logging(args.foreground, args.log_directory.as_deref()).context("failed to initialize logging")?;
+                init_logging(args.logging_config()).context("failed to initialize logging")?;
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
 

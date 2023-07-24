@@ -1,30 +1,32 @@
 # Logging
 
-Mountpoint for Amazon S3 uses the [tracing](https://docs.rs/tracing/latest/tracing/) ecosystem for logging. This makes it easy to configure the verbosity and target of log output.
-The logging level is minimal by default, but for reporting issues or debugging application problems, you may want to customize this logging behavior.
+By default, Mountpoint for Amazon S3 emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
 
-## Log outputs
+    journalctl -e SYSLOG_IDENTIFIER=mount-s3
 
-By default, Mountpoint for Amazon S3 will not emit any logs to disk.
+On other systems, syslog entries are likely written to a file such as `/var/log/syslog`.
 
-You can enable logging to disk by providing a destination directory using the `-l, --log-directory` command-line argument.
+When running in foreground mode (the `-f, --foreground` command-line argument), Mountpoint will emit logs to stdout in addition to syslog or any configured log directory (see below).
+
+## Logging to a file
+
+You can direct logs to a file instead of syslog by providing a destination directory using the `-l, --log-directory` command-line argument.
 The directory will be created if it doesn't exist.
 A new log file will be created for each execution of `mount-s3`.
-Both the directory and log files are created with permissions such that the process owner has read/write access and the group has read access.
-Log files are not rotated or cleaned up.
+Both the directory and log files are created with read/write access for the process owner and read access for the process owner's group.
+Log files are not automatically rotated or cleaned up.
 
-When running in foreground mode (`-f, --foreground`), `mount-s3` will emit logs to stdout in addition to any configured log directory.
+## Disabling logging
 
-## Log details
+If you do not want to record any logs, use the `--no-log` command-line argument. This argument cannot be combined with other logging-related command-line arguments.
 
-By default, the logging level is minimal. For reporting issues or debugging application problems, it can be helpful to increase this verbosity. We use the common `RUST_LOG` environment variable for controlling log verbosity and subjects.
+## Verbose logging
 
-To control the log verbosity, set the `RUST_LOG` environment variable. If unset, it defaults to `error` to enable only error-level log messages. Verbosity can be increased by instead setting `RUST_LOG` to `warn`, `info`, `debug`, or `trace`.
+By default, Mountpoint only logs high-severity events. For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
+You can enable more verbose logging with the `--debug` command-line argument. We recommend logging to a file (the `-l, --log-directory` argument above) when using this option.
 
-`RUST_LOG` can also control the subjects that are included in the log output. By default, all subjects are included, but verbosity can be configured on a per-subject basis. For example, setting `RUST_LOG` to `trace,awscrt=off` turns on trace-level logging for all subjects except `awscrt`. See the [tracing documentation](https://docs.rs/tracing-subscriber/0.3.16/tracing_subscriber/struct.EnvFilter.html) for more details on how to configure `RUST_LOG`.
+### Advanced logging verbosity options
 
-### Logging suggestions
+To enable more verbose logging for the AWS Common Runtime that Mountpoint uses to communicate with S3, use the `--debug-crt` command-line argument. These logs are very verbose, and should be combined with the `-l, --log-directory` and `--debug` arguments described above.
 
-For interactive debugging, we often set `RUST_LOG=debug,awscrt=off` to enable debug-level errors for everything except the AWS Common Runtime (the `awscrt` subject). The Common Runtime logging is more verbose, so it's helpful to filter those messages out interactively.
-
-For reporting issues, we suggest `RUST_LOG=trace,awscrt=debug` as a good default choice.
+For finer-grained control over log verbosity, Mountpoint uses the `MOUNTPOINT_LOG` environment variable, which overrides the verbosity options above. The `MOUNTPOINT_LOG` environment variable uses the [`tracing-subscriber` directive syntax](https://docs.rs/tracing-subscriber/0.3.17/tracing_subscriber/filter/struct.EnvFilter.html), and can be used to control log verbosity on a per-subject basis. For example, setting `MOUNTPOINT_LOG` to `trace` enables all trace-level logs, while `trace,awscrt=warn` enables trace-level logs for all log subjects except `awscrt`, which has only warning-level logging enabled.

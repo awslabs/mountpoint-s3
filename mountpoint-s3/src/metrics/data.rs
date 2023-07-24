@@ -4,6 +4,8 @@ use std::fmt::{self, Display, Formatter};
 use metrics::Key;
 use tracing::info;
 
+pub const METRICS_TARGET_NAME: &str = "mountpoint_s3::metrics";
+
 /// A map of metrics data
 #[derive(Debug, Default)]
 pub struct Metrics(HashMap<Key, Metric>);
@@ -49,7 +51,7 @@ impl Metrics {
                 )
             };
             info!(
-                target: "mountpoint_s3::aggregate_metrics",
+                target: METRICS_TARGET_NAME,
                 "{}{}: {}",
                 key.name(),
                 labels,

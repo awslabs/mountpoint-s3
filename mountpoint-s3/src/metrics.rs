@@ -14,6 +14,7 @@ use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::{Arc, Mutex};
 
 mod data;
+pub use data::METRICS_TARGET_NAME;
 use data::*;
 
 mod recorder;

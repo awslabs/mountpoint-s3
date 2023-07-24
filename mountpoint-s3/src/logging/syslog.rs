@@ -10,6 +10,7 @@ use syslog::{Facility, Formatter3164, Logger, LoggerBackend};
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Record};
 use tracing::{Event, Id, Level, Subscriber};
+use tracing_log::NormalizeEvent;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
@@ -105,7 +106,12 @@ where
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         // No need to do any filtering -- we assume this layer is paired with a filter. So just
         // build the message and ship it.
-        let metadata = event.metadata();
+
+        // Normalize the metadata if it came from a `log` event rather than `tracing`. For us that
+        // should always mean it came from the RustLogAdapter for the CRT.
+        let normalized_meta = event.normalized_metadata();
+        let metadata = normalized_meta.as_ref().unwrap_or_else(|| event.metadata());
+
         let mut message = format!("[{}] ", metadata.level());
         // First deal with any spans by walking up the span tree and adding each span's formatted
         // representation to the message
@@ -163,24 +169,34 @@ impl<'a> FormatFields<'a> {
 
 impl Visit for FormatFields<'_> {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            let _ = write!(self.buf, "{:?}", value);
-        } else {
-            if !self.buf.is_empty() {
-                let _ = write!(self.buf, " ");
+        match field.name() {
+            // Skip fields added by `tracing-log` that are handled by normalized_metadata above
+            name if name.starts_with("log.") => (),
+            "message" => {
+                let _ = write!(self.buf, "{:?}", value);
             }
-            let _ = write!(self.buf, "{}={:?}", field.name(), value);
+            _ => {
+                if !self.buf.is_empty() {
+                    let _ = write!(self.buf, " ");
+                }
+                let _ = write!(self.buf, "{}={:?}", field.name(), value);
+            }
         }
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "message" {
-            let _ = write!(self.buf, "{}", value);
-        } else {
-            if !self.buf.is_empty() {
-                let _ = write!(self.buf, " ");
+        match field.name() {
+            // Skip fields added by `tracing-log` that are handled by normalized_metadata above
+            name if name.starts_with("log.") => (),
+            "message" => {
+                let _ = write!(self.buf, "{}", value);
             }
-            let _ = write!(self.buf, "{}={}", field.name(), value);
+            _ => {
+                if !self.buf.is_empty() {
+                    let _ = write!(self.buf, " ");
+                }
+                let _ = write!(self.buf, "{}={}", field.name(), value);
+            }
         }
     }
 }
