@@ -104,7 +104,7 @@ where
                 assert_eq!(reader_buf[0..n], dest_buf[0..n]);
             }
             Err(err) => {
-                assert_eq!(err.raw_os_error(), Some(libc::EIO));
+                assert_eq!(err.raw_os_error(), Some(libc::ESTALE));
                 break;
             }
         };

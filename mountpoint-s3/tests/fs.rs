@@ -303,9 +303,17 @@ async fn test_sequential_write(write_size: usize) {
     let actual = get.collect().await.unwrap();
     assert_eq!(&actual[..], &body[..]);
 
-    // And now check that we can read it out of the file system too. The inode is still valid, so
-    // the kernel is allowed to just send us a `getattr` immediately, so let's make sure that works.
-    let stat = fs.getattr(file_ino).await.unwrap();
+    // And now check that we can read it out of the file system too. We need to emulate the kernel's
+    // handling of ESTALE, which will retry after re-looking-up.
+    let stat = match fs.getattr(file_ino).await {
+        Ok(stat) => stat,
+        Err(libc::ESTALE) => {
+            let entry = fs.lookup(dir_ino, "file2.bin".as_ref()).await.unwrap();
+            assert_ne!(entry.attr.ino, file_ino);
+            fs.getattr(entry.attr.ino).await.unwrap()
+        }
+        Err(e) => panic!("unexpected getattr failure: {e:?}"),
+    };
     assert_eq!(stat.attr.size, body.len() as u64);
 
     let dentry = fs.lookup(dir_ino, "file2.bin".as_ref()).await.unwrap();

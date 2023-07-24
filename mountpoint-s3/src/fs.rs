@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::{ETag, ObjectClient};
+use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::checksummed_bytes::IntegrityError;
@@ -535,6 +535,9 @@ where
                 Ok(bytes) => reply.data(&bytes),
                 Err(IntegrityError::ChecksumMismatch(_, _)) => reply.error(libc::EIO),
             },
+            Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
+                GetObjectError::PreconditionFailed,
+            ))) => reply.error(libc::ESTALE),
             Err(PrefetchReadError::GetRequestFailed(_))
             | Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)
             | Err(PrefetchReadError::Integrity) => reply.error(libc::EIO),
@@ -850,6 +853,7 @@ impl From<InodeError> for i32 {
             InodeError::CorruptedMetadata(_, _) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::SetAttrOnExpiredStat(_) => libc::EINVAL,
+            InodeError::StaleInode { .. } => libc::ESTALE,
         }
     }
 }
