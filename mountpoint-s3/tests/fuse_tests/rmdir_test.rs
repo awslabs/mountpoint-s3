@@ -1,4 +1,4 @@
-use crate::fuse_tests::{read_dir_to_entry_names, wait_for_success, TestSessionConfig};
+use crate::fuse_tests::{read_dir_to_entry_names, TestSessionConfig};
 use fuser::BackgroundSession;
 use std::fs::{self, DirBuilder, File};
 use std::io::Write;
@@ -11,7 +11,7 @@ fn rmdir_local_dir_test<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    let (mount_point, _session, test_client) = creator_fn(prefix, Default::default());
+    let (mount_point, _session, _test_client) = creator_fn(prefix, Default::default());
 
     // Create local directory
     let main_dirname = "test_dir";
@@ -41,14 +41,9 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
 
     file.write_all(b"Hello World").unwrap();
+    file.sync_all().unwrap();
     drop(file);
-    // `release` operation triggered by `drop(File)` is asynchronous.
-    // Add sleep to ensure condition is checked after `release` completes.
-    wait_for_success(
-        || test_client.contains_key(&format!("{non_empty_dirname}/{filename}")),
-        5,
-        "could not upload the object on S3 bucket",
-    );
+
     let err =
         fs::remove_dir(&non_empty_dirpath).expect_err("removing non-empty directory should fail even after closing");
     assert_eq!(

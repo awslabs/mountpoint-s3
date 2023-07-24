@@ -56,10 +56,7 @@ enum FileHandleType<Client: ObjectClient, Runtime> {
         request: AsyncMutex<Option<PrefetchGetObject<Client, Runtime>>>,
         etag: ETag,
     },
-    Write {
-        request: AsyncMutex<UploadState<Client>>,
-        handle: WriteHandle,
-    },
+    Write(AsyncMutex<UploadState<Client>>),
 }
 
 impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
@@ -89,10 +86,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
                 error!(key, "put failed to start: {e:?}");
                 return Err(libc::EIO);
             }
-            Ok(request) => FileHandleType::Write {
-                request: UploadState::InProgress(request).into(),
-                handle,
-            },
+            Ok(request) => FileHandleType::Write(UploadState::InProgress { request, handle }.into()),
         };
         Ok(handle)
     }
@@ -112,7 +106,10 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
 
 #[derive(Debug)]
 enum UploadState<Client: ObjectClient> {
-    InProgress(UploadRequest<Client>),
+    InProgress {
+        request: UploadRequest<Client>,
+        handle: WriteHandle,
+    },
     Completed,
     // Remember the failure reason to respond to retries
     Failed(libc::c_int),
@@ -127,7 +124,15 @@ impl<Client: ObjectClient> UploadState<Client> {
                 error!("write failed: {e}");
                 // Abort the request.
                 let ret: libc::c_int = e.into();
-                *self = Self::Failed(ret);
+                match std::mem::replace(self, Self::Failed(ret)) {
+                    UploadState::InProgress { handle, .. } => {
+                        if let Err(err) = handle.finish_writing() {
+                            // Log the issue but still return the write error.
+                            error!(?err, "error updating the inode status");
+                        }
+                    }
+                    Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
+                };
                 Err(ret)
             }
         }
@@ -136,11 +141,11 @@ impl<Client: ObjectClient> UploadState<Client> {
     async fn complete(&mut self, key: &str) -> Result<(), libc::c_int> {
         // Check that the upload is still in progress.
         _ = self.get_upload_in_progress(key)?;
-        let upload = match std::mem::replace(self, Self::Completed) {
-            Self::InProgress(upload) => upload,
+        let (upload, handle) = match std::mem::replace(self, Self::Completed) {
+            Self::InProgress { request, handle } => (request, handle),
             Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
         };
-        let result = Self::complete_upload(upload, key).await;
+        let result = Self::complete_upload(upload, key, handle).await;
         if let Err(e) = result {
             *self = Self::Failed(e);
         }
@@ -149,14 +154,14 @@ impl<Client: ObjectClient> UploadState<Client> {
 
     async fn complete_if_in_progress(self, key: &str) -> Result<(), libc::c_int> {
         match self {
-            Self::InProgress(upload) => Self::complete_upload(upload, key).await,
+            Self::InProgress { request, handle } => Self::complete_upload(request, key, handle).await,
             Self::Failed(_) | Self::Completed => Ok(()),
         }
     }
 
-    async fn complete_upload(upload: UploadRequest<Client>, key: &str) -> Result<(), libc::c_int> {
+    async fn complete_upload(upload: UploadRequest<Client>, key: &str, handle: WriteHandle) -> Result<(), libc::c_int> {
         let size = upload.size();
-        match upload.complete().await {
+        let put_result = match upload.complete().await {
             Ok(_) => {
                 debug!(key, size, "put succeeded");
                 Ok(())
@@ -165,12 +170,17 @@ impl<Client: ObjectClient> UploadState<Client> {
                 error!(key, size, "put failed: {e:?}");
                 Err(libc::EIO)
             }
+        };
+        if let Err(err) = handle.finish_writing() {
+            // Log the issue but still return put_result.
+            error!(?err, "error updating the inode status");
         }
+        put_result
     }
 
     fn get_upload_in_progress(&mut self, key: &str) -> Result<&mut UploadRequest<Client>, libc::c_int> {
         match self {
-            Self::InProgress(upload) => Ok(upload),
+            Self::InProgress { request, .. } => Ok(request),
             Self::Completed => {
                 warn!(key, "upload already completed");
                 Err(libc::EIO)
@@ -610,7 +620,7 @@ where
 
         let len = {
             let mut request = match &handle.typ {
-                FileHandleType::Write { request, .. } => request.lock().await,
+                FileHandleType::Write(request) => request.lock().await,
                 FileHandleType::Read { .. } => return Err(libc::EBADF),
             };
             request.write(offset, data, &handle.full_key).await?
@@ -742,7 +752,7 @@ where
             }
         };
         let mut request = match &file_handle.typ {
-            FileHandleType::Write { request, .. } => request.lock().await,
+            FileHandleType::Write(request) => request.lock().await,
             FileHandleType::Read { .. } => return Ok(()),
         };
         match request.complete(&file_handle.full_key).await {
@@ -780,15 +790,13 @@ where
         };
 
         match file_handle.typ {
-            FileHandleType::Write { request, handle } => {
-                let result = request
-                    .into_inner()
-                    .complete_if_in_progress(&file_handle.full_key)
-                    .await;
-                handle.finish_writing()?;
+            FileHandleType::Write(request) => {
                 // Errors won't actually be seen by the user because `release` is async,
                 // but it's the right thing to do.
-                result
+                request
+                    .into_inner()
+                    .complete_if_in_progress(&file_handle.full_key)
+                    .await
             }
             FileHandleType::Read { request: _, etag: _ } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?

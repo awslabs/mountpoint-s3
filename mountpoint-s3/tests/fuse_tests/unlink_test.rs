@@ -6,7 +6,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, wait_for_success, TestClientBox, TestSessionConfig};
+use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)
@@ -163,14 +163,9 @@ where
         "file should be present in readdir"
     );
 
-    drop(f); // close file
-             // `release` operation triggered by `drop(File)` is asynchronous.
-             // Add sleep to ensure condition is checked after `release` completes.
-    wait_for_success(
-        || test_client.contains_key("dir/writing.txt"),
-        5,
-        "could not upload the object on S3 bucket",
-    );
+    f.sync_all().unwrap();
+    drop(f);
+
     fs::remove_file(&path).expect("file can be deleted after being persisted remotely");
 
     let read_dir_iter = fs::read_dir(&main_dir).unwrap();

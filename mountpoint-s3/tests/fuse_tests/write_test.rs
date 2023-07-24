@@ -2,7 +2,6 @@ use std::fs::{metadata, read, read_dir, File};
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::OpenOptionsExt;
 use std::path::Path;
-use std::time::Duration;
 
 use fuser::BackgroundSession;
 use rand::{Rng, SeedableRng};
@@ -63,14 +62,8 @@ where
     let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
+    f.sync_all().unwrap();
     drop(f);
-
-    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
-    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
-    // the file will fail.
-    // TODO we can remove this when we implement fsync, or change it when we make files visible
-    // during writes
-    std::thread::sleep(Duration::from_secs(5));
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -115,14 +108,8 @@ where
     let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
+    f.sync_all().unwrap();
     drop(f);
-
-    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
-    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
-    // the file will fail.
-    // TODO we can remove this when we implement fsync, or change it when we make files visible
-    // during writes
-    std::thread::sleep(Duration::from_secs(5));
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -249,14 +236,8 @@ where
         assert!(test_client.is_upload_in_progress(KEY).unwrap());
     }
 
+    f.sync_all().unwrap();
     drop(f);
-
-    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
-    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
-    // the file will fail.
-    // TODO we can remove this when we implement fsync, or change it when we make files visible
-    // during writes
-    std::thread::sleep(Duration::from_secs(5));
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -374,9 +355,6 @@ where
 
     drop(f);
 
-    // Wait a bit for `release` to be sure
-    std::thread::sleep(Duration::from_secs(5));
-
     let err = metadata(&path).expect_err("upload shouldn't have succeeded");
     assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
 }
@@ -424,13 +402,6 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
 
     drop(f);
-
-    // The kernel doesn't guarantee to flush the data as soon as the file is closed. Currently,
-    // the file won't be visible on the file system until it's flushed to S3, and so trying to stat
-    // the file will fail.
-    // TODO we can remove this when we implement fsync, or change it when we make files visible
-    // during writes
-    std::thread::sleep(Duration::from_secs(5));
 
     let err = metadata(&path).expect_err("upload shouldn't have succeeded");
     assert_eq!(err.raw_os_error(), Some(libc::ENOENT));

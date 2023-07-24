@@ -54,7 +54,6 @@ where
     // Complete the upload and wait for the write status to be WriteStatus::Remote
     f.sync_all().unwrap();
     drop(f);
-    std::thread::sleep(Duration::from_secs(5));
 
     // Verify that we get an error when setting time attributes for remote files
     let err = filetime::set_file_atime(&path, FileTime::from_system_time(expected_atime))

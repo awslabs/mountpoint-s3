@@ -1,7 +1,4 @@
-use std::{
-    fs::{self, metadata, DirBuilder},
-    time::Duration,
-};
+use std::fs::{self, metadata, DirBuilder, File};
 
 use fuser::BackgroundSession;
 use tempfile::TempDir;
@@ -28,13 +25,11 @@ where
 
     // Write an object into the directory
     let filename = "nested_file";
-    let filepath = dirpath.join(filename);
-    fs::write(filepath, "").unwrap();
-
-    // The kernel doesn't guarantee to flush the data as soon as the file is closed, so we
-    // need to wait to be sure it is committed to the client, or the remove will fail.
-    // TODO we can remove this when we implement fsync
-    std::thread::sleep(Duration::from_secs(5));
+    {
+        let filepath = dirpath.join(filename);
+        let f = File::options().write(true).create(true).open(filepath).unwrap();
+        f.sync_all().unwrap();
+    }
 
     // Remove the new object from the client
     test_client.remove_object(&format!("{dirname}/{filename}")).unwrap();
