@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::{ETag, ObjectClient};
+use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::checksummed_bytes::IntegrityError;
@@ -443,6 +443,16 @@ where
         trace!("fs:open with ino {:?} flags {:?}", ino, flags);
 
         let lookup = self.superblock.getattr(&self.client, ino, true).await?;
+        // If the remote object has changed, this lookup is stale and we need to force a re-lookup
+        // so that this new file handle gets attached to the new inode
+        if lookup.inode.ino() != ino {
+            trace!(
+                old = ino,
+                new = lookup.inode.ino(),
+                "forcing revalidation because object has changed"
+            );
+            return Err(libc::ESTALE);
+        }
 
         match lookup.inode.kind() {
             InodeKind::Directory => return Err(libc::EISDIR),
@@ -525,6 +535,9 @@ where
                 Ok(bytes) => reply.data(&bytes),
                 Err(IntegrityError::ChecksumMismatch(_, _)) => reply.error(libc::EIO),
             },
+            Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
+                GetObjectError::PreconditionFailed,
+            ))) => reply.error(libc::ESTALE),
             Err(PrefetchReadError::GetRequestFailed(_))
             | Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)
             | Err(PrefetchReadError::Integrity) => reply.error(libc::EIO),

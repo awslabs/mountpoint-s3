@@ -208,6 +208,9 @@ where
                     // cancel inflight tasks
                     self.current_task = None;
                     self.future_tasks.write().unwrap().drain(..);
+                    self.next_request_size = self.inner.config.first_request_size;
+                    self.next_sequential_read_offset = offset;
+                    self.next_request_offset = offset;
                     return Err(e);
                 }
                 Ok(part) => part,

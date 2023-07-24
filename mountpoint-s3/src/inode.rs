@@ -12,8 +12,9 @@
 //!
 //! We allocate a new [Inode] the first time we find out about a new file/directory. Each [Inode]
 //! has an [InodeNo], and knows its parent [InodeNo], its own name, and its kind (currently only
-//! file or directory). We assume that [Inode]s never change their kind; if this happens, we
-//! reallocate the inode.
+//! file or directory). [Inode]s always refer to a unique object; if the object changes (either
+//! because the object itself was mutated, or it changed types between file and directory), the
+//! inode must be recreated.
 //!
 //! In addition to this "permanent" state, an [Inode] also has some cached state called [InodeStat].
 //! Cached state is subject to an expiry time, and must be refreshed before use if it has expired.
@@ -676,7 +677,10 @@ impl SuperblockInner {
             (Some(remote), Some(existing_inode)) => {
                 let mut existing_state = existing_inode.get_mut_inode_state()?;
                 let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
-                if remote.kind == existing_inode.kind() && existing_is_remote {
+                if remote.kind == existing_inode.kind()
+                    && existing_is_remote
+                    && existing_state.stat.etag == remote.stat.etag
+                {
                     trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place");
                     existing_state.stat = remote.stat.clone();
                     Ok(Some(LookedUp {
@@ -758,7 +762,10 @@ impl SuperblockInner {
                 // Try to update in place if we can. The fast path does this too, but here we can
                 // also handle the case of a local directory becoming remote, which requires
                 // updating the parent.
-                if remote.kind == existing_inode.kind() && (existing_is_remote || remote.kind == InodeKind::Directory) {
+                if remote.kind == existing_inode.kind()
+                    && (existing_is_remote || remote.kind == InodeKind::Directory)
+                    && existing_state.stat.etag == remote.stat.etag
+                {
                     trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place (slow path)");
                     existing_state.stat = remote.stat.clone();
                     if remote.kind == InodeKind::Directory && !existing_is_remote {
@@ -778,13 +785,11 @@ impl SuperblockInner {
                 // Otherwise, create a fresh inode, possibly merging the existing contents. Note
                 // that [create_inode_locked] takes care of unlinking the existing inode from its
                 // parent if necessary.
-                warn!(
+                debug!(
                     parent=?existing_inode.parent(),
                     name=?existing_inode.name(),
                     ino=?existing_inode.ino(),
-                    "inode changed from {:?} to {:?}, will recreate it",
-                    existing_inode.kind(),
-                    remote.kind,
+                    "inode needs to be recreated",
                 );
                 let state = InodeState {
                     stat: remote.stat.clone(),
@@ -1943,7 +1948,12 @@ mod tests {
                 kind: InodeKind::File,
                 checksum: bad_checksum,
                 sync: RwLock::new(InodeState {
-                    stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, NEVER_EXPIRE_TTL),
+                    stat: InodeStat::for_file(
+                        0,
+                        OffsetDateTime::now_utc(),
+                        Some(ETag::for_tests().as_str().to_owned()),
+                        NEVER_EXPIRE_TTL,
+                    ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
                     lookup_count: 1,
