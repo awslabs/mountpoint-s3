@@ -187,7 +187,16 @@ impl Superblock {
             }
         }
 
-        self.inner.lookup(client, inode.parent(), inode.name().as_ref()).await
+        let lookup = self.inner.lookup(client, inode.parent(), inode.name().as_ref()).await?;
+        if lookup.inode.ino() != ino {
+            Err(InodeError::StaleInode {
+                remote_key: lookup.inode.full_key().to_owned(),
+                old_inode: ino,
+                new_inode: lookup.inode.ino(),
+            })
+        } else {
+            Ok(lookup)
+        }
     }
 
     /// Set the attributes for an inode
@@ -1292,6 +1301,12 @@ pub enum InodeError {
     SetAttrNotPermittedOnRemoteInode(InodeNo),
     #[error("inode {0} stat is already expired")]
     SetAttrOnExpiredStat(InodeNo),
+    #[error("inode {old_inode} for remote key {remote_key:?} is stale, replaced by inode {new_inode}")]
+    StaleInode {
+        remote_key: String,
+        old_inode: InodeNo,
+        new_inode: InodeNo,
+    },
 }
 
 #[cfg(test)]

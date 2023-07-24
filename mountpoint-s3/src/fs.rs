@@ -443,16 +443,6 @@ where
         trace!("fs:open with ino {:?} flags {:?}", ino, flags);
 
         let lookup = self.superblock.getattr(&self.client, ino, true).await?;
-        // If the remote object has changed, this lookup is stale and we need to force a re-lookup
-        // so that this new file handle gets attached to the new inode
-        if lookup.inode.ino() != ino {
-            trace!(
-                old = ino,
-                new = lookup.inode.ino(),
-                "forcing revalidation because object has changed"
-            );
-            return Err(libc::ESTALE);
-        }
 
         match lookup.inode.kind() {
             InodeKind::Directory => return Err(libc::EISDIR),
@@ -855,6 +845,7 @@ impl From<InodeError> for i32 {
             InodeError::CorruptedMetadata(_, _) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::SetAttrOnExpiredStat(_) => libc::EINVAL,
+            InodeError::StaleInode { .. } => libc::ESTALE,
         }
     }
 }
