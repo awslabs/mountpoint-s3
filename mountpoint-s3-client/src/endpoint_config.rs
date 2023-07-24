@@ -183,11 +183,82 @@ mod test {
     }
 
     #[test]
-    fn test_endpoint_arg() {
+    fn test_path_addr_endpoint_arg() {
         let endpoint_config = EndpointConfig::new("eu-west-1")
             .addressing_style(AddressingStyle::Path)
             .endpoint(Uri::new_from_str(&Allocator::default(), "https://example.com").unwrap());
         let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
         assert_eq!("https://example.com/doc-example-bucket", endpoint_uri.as_os_str());
+    }
+
+    #[test]
+    fn test_fips_dual_stack() {
+        let endpoint_config = EndpointConfig::new("eu-west-1").use_fips(true).use_dual_stack(true);
+        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        assert_eq!(
+            "https://doc-example-bucket.s3-fips.dualstack.eu-west-1.amazonaws.com",
+            endpoint_uri.as_os_str()
+        );
+    }
+
+    #[test]
+    fn test_dual_stack_accelerate() {
+        let endpoint_config = EndpointConfig::new("eu-west-1")
+            .use_accelerate(true)
+            .use_dual_stack(true);
+        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        assert_eq!(
+            "https://doc-example-bucket.s3-accelerate.dualstack.amazonaws.com",
+            endpoint_uri.as_os_str()
+        );
+    }
+
+    #[test]
+    fn test_dual_stack_path_addr() {
+        let endpoint_config = EndpointConfig::new("eu-west-1")
+            .use_dual_stack(true)
+            .addressing_style(AddressingStyle::Path);
+        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        assert_eq!(
+            "https://s3.dualstack.eu-west-1.amazonaws.com/doc-example-bucket",
+            endpoint_uri.as_os_str()
+        );
+    }
+
+    #[test]
+    fn test_arn_as_bucket() {
+        let endpoint_config = EndpointConfig::new("eu-west-1");
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap")
+            .unwrap();
+        assert_eq!(
+            "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com",
+            endpoint_uri.as_os_str()
+        );
+    }
+
+    #[test]
+    fn test_arn_override_region() {
+        let endpoint_config = EndpointConfig::new("cn-north-1");
+        // Also a test for China region
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap")
+            .unwrap();
+        assert_eq!(
+            "https://china-region-ap-555555555555.s3-accesspoint.cn-north-2.amazonaws.com.cn",
+            endpoint_uri.as_os_str()
+        );
+    }
+
+    #[test]
+    fn test_outpost() {
+        let endpoint_config = EndpointConfig::new("us-gov-west-1");
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3")
+            .unwrap();
+        assert_eq!(
+            "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-gov-west-1.amazonaws.com",
+            endpoint_uri.as_os_str()
+        );
     }
 }
