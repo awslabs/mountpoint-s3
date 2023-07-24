@@ -287,3 +287,37 @@ async fn check_get_object<Client: ObjectClient>(
     result.next().await.unwrap()?;
     Ok(())
 }
+
+#[test_case("INTELLIGENT_TIERING")]
+#[test_case("GLACIER")]
+#[tokio::test]
+async fn test_put_object_storage_class(storage_class: &str) {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectParams::new().storage_class(storage_class.to_owned());
+    let mut request = client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+    request.complete().await.unwrap();
+
+    let sdk_client = get_test_sdk_client().await;
+    let attributes = sdk_client
+        .get_object_attributes()
+        .bucket(bucket)
+        .key(key)
+        .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
+}

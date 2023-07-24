@@ -105,8 +105,7 @@ impl MockClient {
 pub struct MockObject {
     generator: Arc<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
     size: usize,
-    // TODO Set storage class from [MockClient::put_object]
-    storage_class: String,
+    storage_class: Option<String>,
     last_modified: OffsetDateTime,
     etag: ETag,
 }
@@ -122,7 +121,7 @@ impl MockObject {
         Self {
             size: bytes.len(),
             generator: Arc::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
-            storage_class: "STANDARD".to_owned(),
+            storage_class: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
         }
@@ -132,7 +131,7 @@ impl MockObject {
         Self {
             generator: Arc::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
-            storage_class: "STANDARD".to_owned(),
+            storage_class: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
         }
@@ -152,7 +151,7 @@ impl MockObject {
                 vec.into_boxed_slice()
             }),
             size,
-            storage_class: "STANDARD".to_owned(),
+            storage_class: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
         }
@@ -160,6 +159,10 @@ impl MockObject {
 
     pub fn set_last_modified(&mut self, last_modified: OffsetDateTime) {
         self.last_modified = last_modified;
+    }
+
+    pub fn set_storage_class(&mut self, storage_class: Option<String>) {
+        self.storage_class = storage_class;
     }
 
     pub fn len(&self) -> usize {
@@ -334,7 +337,7 @@ impl ObjectClient for MockClient {
                     size: object.size as u64,
                     last_modified: object.last_modified,
                     etag: object.etag.as_str().to_string(),
-                    storage_class: None,
+                    storage_class: object.storage_class.clone(),
                 },
             })
         } else {
@@ -429,7 +432,7 @@ impl ObjectClient for MockClient {
                     size: object.len() as u64,
                     last_modified: object.last_modified,
                     etag: object.etag.as_str().to_string(),
-                    storage_class: None,
+                    storage_class: object.storage_class.clone(),
                 });
             }
         }
@@ -459,7 +462,7 @@ impl ObjectClient for MockClient {
         let put_request = MockPutObjectRequest::new(
             key,
             self.config.part_size,
-            params.trailing_checksums,
+            params,
             &self.objects,
             &self.in_progress_uploads,
         );
@@ -495,7 +498,7 @@ impl ObjectClient for MockClient {
                         })
                     }
                     ObjectAttribute::ObjectParts => todo!("Support multipart mock object"),
-                    ObjectAttribute::StorageClass => result.storage_class = Some(object.storage_class.clone()),
+                    ObjectAttribute::StorageClass => result.storage_class = object.storage_class.clone(),
                     ObjectAttribute::ObjectSize => result.object_size = Some(object.size as u64),
                 }
             }
@@ -511,7 +514,7 @@ pub struct MockPutObjectRequest {
     key: String,
     buffer: Vec<u8>,
     part_size: usize,
-    compute_checksum: bool,
+    params: PutObjectParams,
     objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
@@ -520,7 +523,7 @@ impl MockPutObjectRequest {
     fn new(
         key: &str,
         part_size: usize,
-        compute_checksum: bool,
+        params: &PutObjectParams,
         objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
         in_progress_uploads: &Arc<RwLock<BTreeSet<String>>>,
     ) -> Self {
@@ -529,7 +532,7 @@ impl MockPutObjectRequest {
             key: key.to_owned(),
             buffer: vec![],
             part_size,
-            compute_checksum,
+            params: params.clone(),
             objects: objects.clone(),
             in_progress_uploads: in_progress_uploads.clone(),
         }
@@ -553,7 +556,9 @@ impl PutObjectRequest for MockPutObjectRequest {
 
     async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         let buffer = std::mem::take(&mut self.buffer);
-        add_object(&self.objects, &self.key, buffer.into());
+        let mut object: MockObject = buffer.into();
+        object.set_storage_class(self.params.storage_class.clone());
+        add_object(&self.objects, &self.key, object);
         Ok(PutObjectResult {})
     }
 
@@ -561,7 +566,7 @@ impl PutObjectRequest for MockPutObjectRequest {
         self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let checksum_algorithm = if self.compute_checksum {
+        let checksum_algorithm = if self.params.trailing_checksums {
             Some(ChecksumAlgorithm::Crc32c)
         } else {
             None
@@ -571,7 +576,7 @@ impl PutObjectRequest for MockPutObjectRequest {
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len() as u64;
-                let checksum = if self.compute_checksum {
+                let checksum = if self.params.trailing_checksums {
                     let checksum = crc32c::checksum(part);
                     Some(crc32c_to_base64(&checksum))
                 } else {
@@ -596,6 +601,7 @@ mod tests {
     use futures::StreamExt;
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
+    use test_case::test_case;
 
     use super::*;
 
@@ -876,5 +882,37 @@ mod tests {
             let expected = ramp_bytes(0xaa + offset, expected_len);
             assert_eq!(&r[..], &expected[..]);
         }
+    }
+
+    #[test_case(None)]
+    #[test_case(Some("GLACIER"))]
+    #[tokio::test]
+    async fn test_storage_class(storage_class: Option<&str>) {
+        let body = vec![0u8; 16];
+
+        let bucket = "test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            part_size: 1024,
+        });
+
+        let key = "key1";
+        let put_params = PutObjectParams {
+            storage_class: storage_class.map(String::from),
+            ..Default::default()
+        };
+        let mut put_request = client.put_object(bucket, key, &put_params).await.unwrap();
+        put_request.write(&body).await.unwrap();
+        put_request.complete().await.unwrap();
+
+        // head_object returns storage class
+        let head_result = client.head_object(bucket, key).await.unwrap();
+        assert_eq!(head_result.object.storage_class.as_deref(), storage_class);
+
+        // list_objects returns storage class
+        let list_result = client.list_objects(bucket, None, "/", 1, "").await.unwrap();
+        assert!(
+            matches!(&list_result.objects[..], [object] if object.key == key && object.storage_class.as_deref() == storage_class )
+        );
     }
 }
