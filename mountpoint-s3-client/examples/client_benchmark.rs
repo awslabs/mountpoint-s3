@@ -32,20 +32,17 @@ fn main() {
         .arg(
             Arg::new("throughput-target-gbps")
                 .long("throughput-target-gbps")
-                .help("Desired throughput in Gbps")
-                .takes_value(true),
+                .help("Desired throughput in Gbps"),
         )
         .arg(
             Arg::new("part-size")
                 .long("part-size")
-                .help("Part size for multi-part GET and PUT")
-                .takes_value(true),
+                .help("Part size for multi-part GET and PUT"),
         )
         .arg(
             Arg::new("iterations")
                 .long("iterations")
-                .help("Number of times to download")
-                .takes_value(true),
+                .help("Number of times to download"),
         )
         .arg(Arg::new("region").long("region").default_value("us-east-1"))
         .get_matches();
