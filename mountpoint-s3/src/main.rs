@@ -606,10 +606,9 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
     // A simple check for AWS ARN
     let arn_regex = Regex::new(r#"^arn:aws(-[a-z]+)*:.*$"#).unwrap();
-    // bucket argument should be a valid bucket name(only letters, numbers, . and -) or a valid ARN
     if !bucket_regex.is_match(bucket_name) && !arn_regex.is_match(bucket_name) {
         return Err(anyhow!(
-            "bucket names can be a valid ARN or only contain letters, numbers, . and -"
+            "bucket argument should be a valid bucket name(only letters, numbers, . and -) or a valid ARN"
         ));
     }
 
