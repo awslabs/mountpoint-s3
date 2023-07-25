@@ -435,7 +435,7 @@ fn create_client_for_bucket(
         if endpoint_url.is_some() {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
-                endpoint_config.get_region()
+                DEFAULT_REGION
             );
         }
         DEFAULT_REGION
