@@ -99,6 +99,18 @@ impl MockClient {
     pub fn is_upload_in_progress(&self, key: &str) -> bool {
         self.in_progress_uploads.read().unwrap().contains(key)
     }
+
+    /// Returns the objects storage class
+    pub fn get_object_storage_class(&self, key: &str) -> String {
+        self.objects
+            .read()
+            .unwrap()
+            .get(key)
+            .unwrap()
+            .storage_class
+            .clone()
+            .unwrap()
+    }
 }
 
 #[derive(Clone)]

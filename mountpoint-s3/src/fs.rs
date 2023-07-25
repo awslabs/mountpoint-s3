@@ -236,7 +236,7 @@ pub struct S3FilesystemConfig {
     pub prefetcher_config: PrefetcherConfig,
     /// Allow delete
     pub allow_delete: bool,
-    /// Storage class to be used
+    /// Storage class to be used for new object uploads
     pub storage_class: Option<String>,
 }
 

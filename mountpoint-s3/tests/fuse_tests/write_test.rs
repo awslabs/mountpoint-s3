@@ -425,7 +425,7 @@ fn out_of_order_write_test_mock(offset: i64) {
     out_of_order_write_test(crate::fuse_tests::mock_session::new, offset);
 }
 
-async fn write_with_storage_class_test<F>(creator_fn: F, storage_class: &str)
+fn write_with_storage_class_test<F>(creator_fn: F, storage_class: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
@@ -438,24 +438,14 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, _test_client) = creator_fn("write_with_storage_class_test", config);
+    let (mount_point, _session, test_client) = creator_fn("write_with_storage_class_test", config);
 
     let path = mount_point.path().join(KEY);
 
     write_file(path).unwrap();
-    let region = get_test_region();
-    let sdk_client = get_test_sdk_client(&region).await;
-    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_storage_class_test");
-    let attributes = sdk_client
-        .get_object_attributes()
-        .bucket(bucket)
-        .key(KEY)
-        .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
-        .send()
-        .await
-        .unwrap();
+    let s3_storage_class = test_client.get_object_storage_class(KEY).unwrap();
 
-    assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
+    assert_eq!(storage_class, s3_storage_class);
 }
 
 #[cfg(feature = "s3_tests")]
@@ -463,6 +453,13 @@ where
 #[test_case("GLACIER")]
 fn write_with_storage_class_test_s3(storage_class: &str) {
     write_with_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
+    write_with_storage_class_test(crate::fuse_tests::mock_session::new, storage_class);
+}
+
+#[test_case("INTELLIGENT_TIERING")]
+#[test_case("GLACIER")]
+fn write_with_storage_class_test_s3_mock(storage_class: &str) {
+    write_with_storage_class_test(crate::fuse_tests::mock_session::new, storage_class);
 }
 
 fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
