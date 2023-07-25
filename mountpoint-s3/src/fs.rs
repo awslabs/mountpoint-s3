@@ -7,20 +7,23 @@ use std::ffi::OsStr;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use time::OffsetDateTime;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
-use crate::prefetch::checksummed_bytes::IntegrityError;
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::{UploadRequest, UploadWriteError, Uploader};
+use crate::upload::{UploadRequest, Uploader};
 
 pub use crate::inode::InodeNo;
+
+#[macro_use]
+mod error;
+pub use error::{Error, ToErrno};
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
@@ -65,38 +68,35 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
         ino: InodeNo,
         flags: i32,
         fs: &S3Filesystem<Client, Runtime>,
-    ) -> Result<FileHandleType<Client, Runtime>, libc::c_int> {
+    ) -> Result<FileHandleType<Client, Runtime>, Error> {
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
         if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
-            error!("O_SYNC and O_DSYNC are unsupported");
-            return Err(libc::EINVAL);
+            return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
         let handle = match fs.superblock.write(&fs.client, ino, lookup.inode.parent()).await {
             Ok(handle) => handle,
             Err(e) => {
-                error!("open failed: {e:?}");
                 return Err(e.into());
             }
         };
         let key = lookup.inode.full_key();
         let handle = match fs.uploader.put(&fs.bucket, key).await {
             Err(e) => {
-                error!(key, "put failed to start: {e:?}");
-                return Err(libc::EIO);
+                return Err(err!(libc::EIO, source:e, "put failed to start"));
             }
             Ok(request) => FileHandleType::Write(UploadState::InProgress { request, handle }.into()),
         };
         Ok(handle)
     }
 
-    async fn new_read_handle(lookup: &LookedUp) -> Result<FileHandleType<Client, Runtime>, libc::c_int> {
+    async fn new_read_handle(lookup: &LookedUp) -> Result<FileHandleType<Client, Runtime>, Error> {
         lookup.inode.start_reading()?;
         let handle = FileHandleType::Read {
             request: Default::default(),
             etag: match &lookup.stat.etag {
-                None => return Err(libc::EBADF),
+                None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
                 Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
             },
         };
@@ -116,15 +116,13 @@ enum UploadState<Client: ObjectClient> {
 }
 
 impl<Client: ObjectClient> UploadState<Client> {
-    async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, libc::c_int> {
+    async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, Error> {
         let upload = self.get_upload_in_progress(key)?;
         match upload.write(offset, data).await {
             Ok(len) => Ok(len as u32),
             Err(e) => {
-                error!("write failed: {e}");
                 // Abort the request.
-                let ret: libc::c_int = e.into();
-                match std::mem::replace(self, Self::Failed(ret)) {
+                match std::mem::replace(self, Self::Failed(e.to_errno())) {
                     UploadState::InProgress { handle, .. } => {
                         if let Err(err) = handle.finish_writing() {
                             // Log the issue but still return the write error.
@@ -133,12 +131,12 @@ impl<Client: ObjectClient> UploadState<Client> {
                     }
                     Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
                 };
-                Err(ret)
+                Err(e.into())
             }
         }
     }
 
-    async fn complete(&mut self, key: &str) -> Result<(), libc::c_int> {
+    async fn complete(&mut self, key: &str) -> Result<(), Error> {
         // Check that the upload is still in progress.
         _ = self.get_upload_in_progress(key)?;
         let (upload, handle) = match std::mem::replace(self, Self::Completed) {
@@ -146,30 +144,27 @@ impl<Client: ObjectClient> UploadState<Client> {
             Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
         };
         let result = Self::complete_upload(upload, key, handle).await;
-        if let Err(e) = result {
-            *self = Self::Failed(e);
+        if let Err(e) = &result {
+            *self = Self::Failed(e.to_errno());
         }
         result
     }
 
-    async fn complete_if_in_progress(self, key: &str) -> Result<(), libc::c_int> {
+    async fn complete_if_in_progress(self, key: &str) -> Result<(), Error> {
         match self {
             Self::InProgress { request, handle } => Self::complete_upload(request, key, handle).await,
             Self::Failed(_) | Self::Completed => Ok(()),
         }
     }
 
-    async fn complete_upload(upload: UploadRequest<Client>, key: &str, handle: WriteHandle) -> Result<(), libc::c_int> {
+    async fn complete_upload(upload: UploadRequest<Client>, key: &str, handle: WriteHandle) -> Result<(), Error> {
         let size = upload.size();
         let put_result = match upload.complete().await {
             Ok(_) => {
                 debug!(key, size, "put succeeded");
                 Ok(())
             }
-            Err(e) => {
-                error!(key, size, "put failed: {e:?}");
-                Err(libc::EIO)
-            }
+            Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
         };
         if let Err(err) = handle.finish_writing() {
             // Log the issue but still return put_result.
@@ -178,17 +173,11 @@ impl<Client: ObjectClient> UploadState<Client> {
         put_result
     }
 
-    fn get_upload_in_progress(&mut self, key: &str) -> Result<&mut UploadRequest<Client>, libc::c_int> {
+    fn get_upload_in_progress(&mut self, key: &str) -> Result<&mut UploadRequest<Client>, Error> {
         match self {
             Self::InProgress { request, .. } => Ok(request),
-            Self::Completed => {
-                warn!(key, "upload already completed");
-                Err(libc::EIO)
-            }
-            Self::Failed(e) => {
-                warn!(key, "upload already aborted");
-                Err(*e)
-            }
+            Self::Completed => Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
+            Self::Failed(e) => Err(err!(*e, "upload already aborted for key {:?}", key)),
         }
     }
 }
@@ -349,7 +338,7 @@ pub trait ReadReplier {
     /// Reply with a data payload
     fn data(self, data: &[u8]) -> Self::Replied;
     /// Reply with an error
-    fn error(self, error: libc::c_int) -> Self::Replied;
+    fn error(self, error: Error) -> Self::Replied;
 }
 
 impl<Client, Runtime> S3Filesystem<Client, Runtime>
@@ -397,7 +386,7 @@ where
         }
     }
 
-    pub async fn lookup(&self, parent: InodeNo, name: &OsStr) -> Result<Entry, libc::c_int> {
+    pub async fn lookup(&self, parent: InodeNo, name: &OsStr) -> Result<Entry, Error> {
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
         let lookup = self.superblock.lookup(&self.client, parent, name).await?;
@@ -409,7 +398,7 @@ where
         })
     }
 
-    pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, libc::c_int> {
+    pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, Error> {
         trace!("fs:getattr with ino {:?}", ino);
 
         let lookup = self.superblock.getattr(&self.client, ino, false).await?;
@@ -427,7 +416,7 @@ where
         atime: Option<OffsetDateTime>,
         mtime: Option<OffsetDateTime>,
         _flags: Option<u32>,
-    ) -> Result<Attr, libc::c_int> {
+    ) -> Result<Attr, Error> {
         tracing::info!(
             "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?}",
             ino,
@@ -449,13 +438,13 @@ where
         self.superblock.forget(ino, n);
     }
 
-    pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, libc::c_int> {
+    pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, Error> {
         trace!("fs:open with ino {:?} flags {:?}", ino, flags);
 
         let lookup = self.superblock.getattr(&self.client, ino, true).await?;
 
         match lookup.inode.kind() {
-            InodeKind::Directory => return Err(libc::EISDIR),
+            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.ino()).into()),
             InodeKind::File => (),
         }
 
@@ -511,12 +500,12 @@ where
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return reply.error(libc::EBADF),
+                None => return reply.error(err!(libc::EBADF, "invalid file handle")),
             }
         };
         let file_etag: ETag;
         let mut request = match &handle.typ {
-            FileHandleType::Write { .. } => return reply.error(libc::EBADF),
+            FileHandleType::Write { .. } => return reply.error(err!(libc::EBADF, "file handle is not open for reads")),
             FileHandleType::Read { request, etag } => {
                 file_etag = etag.clone();
                 request.lock().await
@@ -533,14 +522,16 @@ where
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
             Ok(checksummed_bytes) => match checksummed_bytes.into_bytes() {
                 Ok(bytes) => reply.data(&bytes),
-                Err(IntegrityError::ChecksumMismatch(_, _)) => reply.error(libc::EIO),
+                Err(e) => reply.error(err!(libc::EIO, source:e, "integrity error")),
             },
             Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
                 GetObjectError::PreconditionFailed,
-            ))) => reply.error(libc::ESTALE),
-            Err(PrefetchReadError::GetRequestFailed(_))
-            | Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)
-            | Err(PrefetchReadError::Integrity) => reply.error(libc::EIO),
+            ))) => reply.error(err!(libc::ESTALE, "object was mutated remotely")),
+            Err(PrefetchReadError::Integrity(e)) => reply.error(err!(libc::EIO, source:e, "integrity error")),
+            Err(e @ PrefetchReadError::GetRequestFailed(_))
+            | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly) => {
+                reply.error(err!(libc::EIO, source:e, "get request failed"))
+            }
         }
     }
 
@@ -551,15 +542,13 @@ where
         mode: libc::mode_t,
         _umask: u32,
         _rdev: u32,
-    ) -> Result<Entry, libc::c_int> {
+    ) -> Result<Entry, Error> {
         if mode & libc::S_IFMT != libc::S_IFREG {
-            error!(
-                ?parent,
-                ?name,
+            return Err(err!(
+                libc::EINVAL,
                 "invalid mknod type {}; only regular files are supported",
                 mode & libc::S_IFMT
-            );
-            return Err(libc::EINVAL);
+            ));
         }
 
         let lookup = self
@@ -574,13 +563,7 @@ where
         })
     }
 
-    pub async fn mkdir(
-        &self,
-        parent: InodeNo,
-        name: &OsStr,
-        _mode: libc::mode_t,
-        _umask: u32,
-    ) -> Result<Entry, libc::c_int> {
+    pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
         let lookup = self
             .superblock
             .create(&self.client, parent, name, InodeKind::Directory)
@@ -603,7 +586,7 @@ where
         _write_flags: u32,
         _flags: i32,
         _lock_owner: Option<u64>,
-    ) -> Result<u32, libc::c_int> {
+    ) -> Result<u32, Error> {
         let len = data.len();
         trace!(
             "fs:write with ino {:?} fh {:?} offset {:?} size {:?}",
@@ -617,14 +600,14 @@ where
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return Err(libc::EBADF),
+                None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
 
         let len = {
             let mut request = match &handle.typ {
                 FileHandleType::Write(request) => request.lock().await,
-                FileHandleType::Read { .. } => return Err(libc::EBADF),
+                FileHandleType::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
             };
             request.write(offset, data, &handle.full_key).await?
         };
@@ -632,7 +615,7 @@ where
         Ok(len)
     }
 
-    pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, libc::c_int> {
+    pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
         trace!("fs:opendir with parent {:?} flags {:?}", parent, _flags);
 
         let inode_handle = self.superblock.readdir(&self.client, parent, 1000).await?;
@@ -656,7 +639,7 @@ where
         fh: u64,
         offset: i64,
         reply: R,
-    ) -> Result<R, libc::c_int> {
+    ) -> Result<R, Error> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         self.readdir_impl(parent, fh, offset, false, reply).await
     }
@@ -667,7 +650,7 @@ where
         fh: u64,
         offset: i64,
         reply: R,
-    ) -> Result<R, libc::c_int> {
+    ) -> Result<R, Error> {
         trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         self.readdir_impl(parent, fh, offset, true, reply).await
     }
@@ -679,19 +662,22 @@ where
         offset: i64,
         is_readdirplus: bool,
         mut reply: R,
-    ) -> Result<R, libc::c_int> {
+    ) -> Result<R, Error> {
         let dir_handle = {
             let dir_handles = self.dir_handles.read().await;
-            dir_handles.get(&fh).cloned().ok_or(libc::EBADF)?
+            dir_handles
+                .get(&fh)
+                .cloned()
+                .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
         };
 
         if offset != dir_handle.offset() {
-            error!(
-                expected = dir_handle.offset(),
-                actual = offset,
-                "fs:readdir: offset mismatch"
-            );
-            return Err(libc::EINVAL);
+            return Err(err!(
+                libc::EINVAL,
+                "offset mismatch, expected={}, actual={}",
+                dir_handle.offset(),
+                offset
+            ));
         }
 
         if dir_handle.offset() < 1 {
@@ -746,12 +732,12 @@ where
         }
     }
 
-    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), libc::c_int> {
+    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return Err(libc::EBADF),
+                None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
         let mut request = match &file_handle.typ {
@@ -761,7 +747,7 @@ where
         match request.complete(&file_handle.full_key).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
-            Err(libc::EFBIG) => Err(libc::ENOSPC),
+            Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
             ret => ret,
         }
     }
@@ -773,11 +759,13 @@ where
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
-    ) -> Result<(), libc::c_int> {
+    ) -> Result<(), Error> {
         trace!("fs:release with ino {:?} fh {:?}", ino, fh);
         let file_handle = {
             let mut file_handles = self.file_handles.write().await;
-            file_handles.remove(&fh).ok_or(libc::EBADF)?
+            file_handles
+                .remove(&fh)
+                .ok_or_else(|| err!(libc::EBADF, "invalid file handle"))?
         };
 
         // Unwrap the atomic reference to have full ownership.
@@ -786,9 +774,8 @@ where
         let file_handle = match Arc::try_unwrap(file_handle) {
             Ok(handle) => handle,
             Err(handle) => {
-                error!(fh, "release failed, unable to unwrap file handle reference");
                 self.file_handles.write().await.insert(fh, handle);
-                return Err(libc::EINVAL);
+                return Err(err!(libc::EINVAL, "unable to unwrap file handle reference"));
             }
         };
 
@@ -809,61 +796,23 @@ where
         }
     }
 
-    pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
+    pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
         self.superblock.rmdir(&self.client, parent_ino, name).await?;
         Ok(())
     }
 
-    pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), libc::c_int> {
+    pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
         let mut dir_handles = self.dir_handles.write().await;
-        dir_handles.remove(&fh).map(|_| ()).ok_or(libc::EBADF)
+        dir_handles
+            .remove(&fh)
+            .map(|_| ())
+            .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))
     }
 
-    pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), libc::c_int> {
+    pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
         if !self.config.allow_delete {
-            return Err(libc::EPERM);
+            return Err(err!(libc::EPERM, "deletes are disabled"));
         }
-        match self.superblock.unlink(&self.client, parent_ino, name).await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                error!(parent=?parent_ino, ?name, "unlink failed: {e:?}");
-                Err(e.into())
-            }
-        }
-    }
-}
-
-impl From<InodeError> for i32 {
-    fn from(err: InodeError) -> Self {
-        match err {
-            InodeError::ClientError(_) => libc::EIO,
-            InodeError::FileDoesNotExist => libc::ENOENT,
-            InodeError::InodeDoesNotExist(_) => libc::ENOENT,
-            InodeError::InvalidFileName(_) => libc::EINVAL,
-            InodeError::NotADirectory(_) => libc::ENOTDIR,
-            InodeError::IsDirectory(_) => libc::EISDIR,
-            InodeError::FileAlreadyExists(_) => libc::EEXIST,
-            // Not obvious what InodeNotWritable, InodeNotReadableWhileWriting should be.
-            // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files for now.
-            InodeError::InodeNotWritable(_) => libc::EPERM,
-            InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
-            InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
-            InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
-            InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
-            InodeError::CorruptedMetadata(_, _) => libc::EIO,
-            InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
-            InodeError::SetAttrOnExpiredStat(_) => libc::EINVAL,
-            InodeError::StaleInode { .. } => libc::ESTALE,
-        }
-    }
-}
-
-impl<E: std::error::Error> From<UploadWriteError<E>> for i32 {
-    fn from(err: UploadWriteError<E>) -> Self {
-        match err {
-            UploadWriteError::PutRequestFailed(_) => libc::EIO,
-            UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
-            UploadWriteError::ObjectTooBig { .. } => libc::EFBIG,
-        }
+        Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
     }
 }

@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
 use tracing::{instrument, Instrument};
 
-use crate::fs::{DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig};
+use crate::fs::{self, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno};
 use crate::prefix::Prefix;
 use fuser::{
     FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyData, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, Request,
@@ -49,7 +49,7 @@ where
     fn lookup(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEntry) {
         match block_on(self.fs.lookup(parent, name).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -57,7 +57,7 @@ where
     fn getattr(&self, _req: &Request<'_>, ino: InodeNo, reply: ReplyAttr) {
         match block_on(self.fs.getattr(ino).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -70,7 +70,7 @@ where
     fn open(&self, _req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.open(ino, flags).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -104,8 +104,8 @@ where
                 Replied(())
             }
 
-            fn error(self, error: libc::c_int) -> Replied {
-                self.inner.error(error);
+            fn error(self, error: fs::Error) -> Replied {
+                self.inner.error(error.to_errno());
                 Replied(())
             }
         }
@@ -128,7 +128,7 @@ where
     fn opendir(&self, _req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.opendir(parent, flags).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -156,7 +156,7 @@ where
 
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -191,7 +191,7 @@ where
 
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -199,7 +199,7 @@ where
     fn fsync(&self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -216,7 +216,7 @@ where
     ) {
         match block_on(self.fs.release(ino, fh, flags, lock_owner, flush).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -224,7 +224,7 @@ where
     fn releasedir(&self, _req: &Request<'_>, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
         match block_on(self.fs.releasedir(ino, fh, flags).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -244,7 +244,7 @@ where
 
         match block_on(self.fs.mknod(parent, name, mode, umask, rdev).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -255,7 +255,7 @@ where
 
         match block_on(self.fs.mkdir(parent, name, mode, umask).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -278,7 +278,7 @@ where
                 .in_current_span(),
         ) {
             Ok(bytes_written) => reply.written(bytes_written),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -286,7 +286,7 @@ where
     fn rmdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.rmdir(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -294,7 +294,7 @@ where
     fn unlink(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.unlink(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 
@@ -326,7 +326,7 @@ where
         });
         match block_on(self.fs.setattr(ino, atime, mtime, flags).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
-            Err(e) => reply.error(e),
+            Err(e) => reply.error(e.to_errno()),
         }
     }
 }
