@@ -2,7 +2,6 @@ use std::fs::{metadata, read, read_dir, File};
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::OpenOptionsExt;
 use std::path::Path;
-use std::time::Duration;
 
 use fuser::BackgroundSession;
 use rand::{Rng, SeedableRng};
@@ -12,8 +11,6 @@ use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
 
-use crate::common::{get_test_bucket_and_prefix, get_test_region};
-use crate::fuse_tests::s3_session::get_test_sdk_client;
 use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {

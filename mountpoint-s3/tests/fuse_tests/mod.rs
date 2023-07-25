@@ -202,7 +202,7 @@ mod s3_session {
         (mount_dir, session, Box::new(test_client))
     }
 
-    pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
+    async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
         let config = aws_config::from_env()
             .region(Region::new(region.to_string()))
             .load()
