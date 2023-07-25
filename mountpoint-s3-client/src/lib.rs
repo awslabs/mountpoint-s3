@@ -13,6 +13,7 @@ pub use imds_crt_client::ImdsCrtClient;
 pub use object_client::*;
 pub use s3_crt_client::head_bucket::HeadBucketError;
 pub use s3_crt_client::{S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError};
+#[macro_use] extern crate assert_matches;
 
 #[cfg(test)]
 mod tests {
