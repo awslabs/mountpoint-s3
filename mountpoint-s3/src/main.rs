@@ -318,8 +318,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     validate_mount_point(&args.mount_point)?;
 
-    const DEFAULT_REGION: &str = "us-east-1";
-    let endpoint_config = EndpointConfig::new(DEFAULT_REGION)
+    // Placeholder region will be filled in by [create_client_for_bucket]
+    let endpoint_config = EndpointConfig::new("PLACEHOLDER")
         .addressing_style(args.addressing_style())
         .use_fips(args.fips)
         .use_accelerate(args.transfer_acceleration)
@@ -429,24 +429,27 @@ fn create_client_for_bucket(
     mut endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
 ) -> Result<S3CrtClient, anyhow::Error> {
-    let region_to_try = supposed_region.clone().unwrap_or_else(|| {
+    const DEFAULT_REGION: &str = "us-east-1";
+
+    let region_to_try = supposed_region.as_deref().unwrap_or_else(|| {
         if endpoint_url.is_some() {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
                 endpoint_config.get_region()
             );
         }
-        endpoint_config.get_region().to_owned()
+        DEFAULT_REGION
     });
+    endpoint_config = endpoint_config.region(region_to_try);
 
     let endpoint = endpoint_url
         .map(|uri| Uri::new_from_str(&Allocator::default(), uri))
         .transpose()
         .context("Failed to parse endpoint URL")?;
-
     if let Some(endpoint_uri) = endpoint {
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
+
     let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
 
     let head_request = client.head_bucket(bucket);
