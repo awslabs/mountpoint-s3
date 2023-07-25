@@ -15,7 +15,7 @@ The CRT submodules can be updated by following these steps:
 2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
 
    ```sh
-   git diff --submodule mountpoint-s3-crt-sys/crt/aws-c-s3 
+   git diff --submodule
    ```
 
 3. Build and test `mountpoint-s3`.
