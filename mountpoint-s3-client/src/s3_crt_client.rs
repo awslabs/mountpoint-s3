@@ -31,11 +31,11 @@ use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{error, trace, Span};
 
-use crate::build_info;
-use crate::endpoint::{AddressingStyle, Endpoint, EndpointError};
+use crate::endpoint_config::EndpointError;
 use crate::object_client::*;
 use crate::s3_crt_client::get_object::S3GetObjectRequest;
 use crate::s3_crt_client::put_object::S3PutObjectRequest;
+use crate::{build_info, EndpointConfig};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -75,7 +75,7 @@ pub struct S3ClientConfig {
     auth_config: S3ClientAuthConfig,
     throughput_target_gbps: f64,
     part_size: usize,
-    endpoint: Option<Endpoint>,
+    endpoint_config: EndpointConfig,
     user_agent_prefix: Option<String>,
     request_payer: Option<String>,
     bucket_owner: Option<String>,
@@ -87,7 +87,7 @@ impl Default for S3ClientConfig {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
             part_size: 8 * 1024 * 1024,
-            endpoint: None,
+            endpoint_config: EndpointConfig::new("us-east-1"),
             user_agent_prefix: None,
             request_payer: None,
             bucket_owner: None,
@@ -121,10 +121,10 @@ impl S3ClientConfig {
         self
     }
 
-    /// Set the S3 endpoint to connect to
+    /// Set the endpoint configuration for endpoint resolution
     #[must_use = "S3ClientConfig follows a builder pattern"]
-    pub fn endpoint(mut self, endpoint: Endpoint) -> Self {
-        self.endpoint = Some(endpoint);
+    pub fn endpoint_config(mut self, endpoint_config: EndpointConfig) -> Self {
+        self.endpoint_config = endpoint_config;
         self
     }
 
@@ -169,9 +169,9 @@ pub struct S3CrtClient {
 }
 
 impl S3CrtClient {
-    pub fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
+    pub fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         Ok(Self {
-            inner: Arc::new(S3CrtClientInner::new(region, config)?),
+            inner: Arc::new(S3CrtClientInner::new(config)?),
         })
     }
 
@@ -184,7 +184,7 @@ impl S3CrtClient {
 struct S3CrtClientInner {
     s3_client: Client,
     event_loop_group: EventLoopGroup,
-    endpoint: Endpoint,
+    endpoint_config: EndpointConfig,
     allocator: Allocator,
     next_request_counter: AtomicU64,
     /// user_agent_header will be passed into CRT which add additional information "CRTS3NativeClient/0.1.x".
@@ -196,7 +196,7 @@ struct S3CrtClientInner {
 }
 
 impl S3CrtClientInner {
-    fn new(region: &str, config: S3ClientConfig) -> Result<Self, NewClientError> {
+    fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
         let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
@@ -249,8 +249,10 @@ impl S3CrtClientInner {
             S3ClientAuthConfig::Provider(provider) => Some(provider),
         };
 
+        let endpoint_config = config.endpoint_config;
+
         if let Some(credentials_provider) = credentials_provider {
-            let signing_config = init_default_signing_config(region, credentials_provider);
+            let signing_config = init_default_signing_config(endpoint_config.get_region(), credentials_provider);
             client_config.signing_config(signing_config);
         }
 
@@ -275,17 +277,11 @@ impl S3CrtClientInner {
 
         let s3_client = Client::new(&allocator, client_config).unwrap();
 
-        let endpoint = if let Some(endpoint) = config.endpoint {
-            endpoint
-        } else {
-            Endpoint::from_region(region, AddressingStyle::Automatic)?
-        };
-
         Ok(Self {
             allocator,
             s3_client,
             event_loop_group,
-            endpoint,
+            endpoint_config,
             next_request_counter: AtomicU64::new(0),
             user_agent_header,
             request_payer: config.request_payer,
@@ -299,8 +295,9 @@ impl S3CrtClientInner {
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
-        let (uri, path_prefix) = self.endpoint.for_bucket(bucket)?;
+        let uri = self.endpoint_config.resolve_for_bucket(bucket)?;
         let hostname = uri.host_name().to_str().unwrap();
+        let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();
         let hostname_header = if port > 0 {
             format!("{}:{}", hostname, port)
@@ -869,11 +866,11 @@ mod tests {
             ..Default::default()
         };
 
-        let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
+        let client = S3CrtClient::new(config).expect("Create test client");
 
         let mut message = client
             .inner
-            .new_request_template("GET", "plutotestankit")
+            .new_request_template("GET", "doc-example-bucket")
             .expect("new request template expected");
 
         let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
@@ -895,11 +892,11 @@ mod tests {
 
         let config: S3ClientConfig = Default::default();
 
-        let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
+        let client = S3CrtClient::new(config).expect("Create test client");
 
         let mut message = client
             .inner
-            .new_request_template("GET", "plutotestankit")
+            .new_request_template("GET", "doc-example-bucket")
             .expect("new request template expected");
 
         let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
@@ -933,7 +930,7 @@ mod tests {
 
         let config: S3ClientConfig = S3ClientConfig::new().bucket_owner("111122223333");
 
-        let client = S3CrtClient::new("eu-west-1", config).expect("Create test client");
+        let client = S3CrtClient::new(config).expect("Create test client");
 
         let mut message = client
             .inner

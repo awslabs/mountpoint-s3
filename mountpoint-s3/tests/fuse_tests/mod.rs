@@ -154,7 +154,7 @@ mod s3_session {
     use aws_sdk_s3::error::HeadObjectErrorKind;
     use aws_sdk_s3::Region;
     use aws_sdk_s3::{error::HeadObjectError, types::ByteStream, Client};
-    use mountpoint_s3_client::{S3ClientConfig, S3CrtClient};
+    use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
@@ -163,8 +163,10 @@ mod s3_session {
         let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
         let region = get_test_region();
 
-        let client_config = S3ClientConfig::default().part_size(test_config.part_size);
-        let client = S3CrtClient::new(&region, client_config).unwrap();
+        let client_config = S3ClientConfig::default()
+            .part_size(test_config.part_size)
+            .endpoint_config(EndpointConfig::new(&region));
+        let client = S3CrtClient::new(client_config).unwrap();
         let runtime = client.event_loop_group();
 
         let options = vec![
