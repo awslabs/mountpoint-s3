@@ -126,7 +126,7 @@ impl ToErrno for InodeError {
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
             InodeError::CorruptedMetadata(_, _) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
-            InodeError::SetAttrOnExpiredStat(_) => libc::EINVAL,
+            InodeError::SetAttrOnExpiredStat(_) => libc::EIO,
             InodeError::StaleInode { .. } => libc::ESTALE,
         }
     }
