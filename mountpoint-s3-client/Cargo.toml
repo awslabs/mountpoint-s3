@@ -33,7 +33,6 @@ thiserror = "1.0.34"
 time = { version = "0.3.17", features = ["formatting", "parsing"] }
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 xmltree = "0.10.3"
-assert_matches = "1.5"
 
 [dev-dependencies]
 anyhow = { version = "1.0.64", features = ["backtrace"] }
