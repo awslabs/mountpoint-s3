@@ -254,6 +254,8 @@ pub enum GetObjectAttributesError {
 pub struct PutObjectParams {
     /// Enable Crc32c trailing checksums.
     pub trailing_checksums: bool,
+    /// Storage class to be used when creating new S3 object
+    pub storage_class: Option<String>,
 }
 
 impl PutObjectParams {
@@ -265,6 +267,12 @@ impl PutObjectParams {
     /// Set Crc32c trailing checksums.
     pub fn trailing_checksums(mut self, value: bool) -> Self {
         self.trailing_checksums = value;
+        self
+    }
+
+    /// Set the storage class.
+    pub fn storage_class(mut self, value: String) -> Self {
+        self.storage_class = Some(value);
         self
     }
 }
@@ -323,7 +331,7 @@ pub struct ObjectInfo {
     /// The time this object was last modified.
     pub last_modified: OffsetDateTime,
 
-    /// Storage class for this object. Optional because head_object does not return
+    /// Storage class for this object. Optional because head_object may not return
     /// the storage class in its response. See examples here:
     /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples
     pub storage_class: Option<String>,

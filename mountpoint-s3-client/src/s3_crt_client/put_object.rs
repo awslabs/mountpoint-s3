@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams};
 use crate::{ObjectClientError, PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
+use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
 use tracing::error;
@@ -37,6 +38,12 @@ impl S3CrtClient {
 
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
+
+        if let Some(storage_class) = params.storage_class.to_owned() {
+            message
+                .add_header(&Header::new("x-amz-storage-class", storage_class))
+                .map_err(S3RequestError::construction_failure)?;
+        }
 
         let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
         options.on_upload_review(move |review| callback.invoke(review));

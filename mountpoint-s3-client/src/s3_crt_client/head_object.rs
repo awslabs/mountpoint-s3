@@ -39,6 +39,14 @@ fn get_field(headers: &Headers, name: &str) -> Result<String, ParseError> {
     }
 }
 
+fn get_optional_field(headers: &Headers, name: &str) -> Result<Option<String>, ParseError> {
+    Ok(if headers.has_header(name) {
+        Some(get_field(headers, name)?)
+    } else {
+        None
+    })
+}
+
 impl HeadObjectResult {
     fn parse_from_hdr(bucket: String, key: String, headers: &Headers) -> Result<Self, ParseError> {
         let last_modified = OffsetDateTime::parse(&get_field(headers, "Last-Modified")?, &Rfc2822)
@@ -46,11 +54,12 @@ impl HeadObjectResult {
         let size = u64::from_str(&get_field(headers, "Content-Length")?)
             .map_err(|e| ParseError::Int(e, "ContentLength".into()))?;
         let etag = get_field(headers, "Etag")?;
+        let storage_class = get_optional_field(headers, "x-amz-storage-class")?;
         let object = ObjectInfo {
             key,
             size,
             last_modified,
-            storage_class: None, // head_object responses do not contain storage class
+            storage_class,
             etag,
         };
         Ok(HeadObjectResult { bucket, object })
