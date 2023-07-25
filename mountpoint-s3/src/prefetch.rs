@@ -231,11 +231,11 @@ where
             let result = response.extend(part_bytes);
             match result {
                 Ok(()) => {}
-                Err(IntegrityError::ChecksumMismatch(_, _)) => {
+                Err(e @ IntegrityError::ChecksumMismatch(_, _)) => {
                     // cancel inflight tasks
                     self.current_task = None;
                     self.future_tasks.write().unwrap().drain(..);
-                    return Err(PrefetchReadError::Integrity);
+                    return Err(e.into());
                 }
             }
             to_read -= part_len;
@@ -398,13 +398,13 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
 #[derive(Debug, Error)]
 pub enum PrefetchReadError<E: std::error::Error> {
     #[error("get request failed")]
-    GetRequestFailed(#[from] E),
+    GetRequestFailed(#[source] E),
 
     #[error("get request terminated unexpectedly")]
     GetRequestTerminatedUnexpectedly,
 
     #[error("integrity check failed")]
-    Integrity,
+    Integrity(#[from] IntegrityError),
 }
 
 #[cfg(test)]

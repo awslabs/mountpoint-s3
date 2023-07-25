@@ -1320,7 +1320,7 @@ mod tests {
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
-    use crate::fs::FUSE_ROOT_INODE;
+    use crate::fs::{ToErrno, FUSE_ROOT_INODE};
 
     use super::*;
 
@@ -1934,7 +1934,7 @@ mod tests {
             .lookup(&client, parent_ino, file_name.as_ref())
             .await
             .expect_err("lookup should no longer find deleted file")
-            .into();
+            .to_errno();
         assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
     }
 

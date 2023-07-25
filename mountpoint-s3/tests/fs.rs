@@ -1,7 +1,7 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-use mountpoint_s3::fs::FUSE_ROOT_INODE;
+use mountpoint_s3::fs::{ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
@@ -247,7 +247,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     // Explicitly looking up the shadowed file should fail
     let entry = fs.lookup(FUSE_ROOT_INODE, "dir1/".as_ref()).await;
-    assert!(matches!(entry, Err(libc::EINVAL)));
+    assert!(matches!(entry, Err(e) if e.to_errno() == libc::EINVAL));
 
     // TODO test removing the directory, removing the file
 
@@ -307,7 +307,7 @@ async fn test_sequential_write(write_size: usize) {
     // handling of ESTALE, which will retry after re-looking-up.
     let stat = match fs.getattr(file_ino).await {
         Ok(stat) => stat,
-        Err(libc::ESTALE) => {
+        Err(e) if e.to_errno() == libc::ESTALE => {
             let entry = fs.lookup(dir_ino, "file2.bin".as_ref()).await.unwrap();
             assert_ne!(entry.attr.ino, file_ino);
             fs.getattr(entry.attr.ino).await.unwrap()
@@ -325,7 +325,8 @@ async fn test_sequential_write(write_size: usize) {
     let result = fs
         .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
         .await
-        .expect_err("file should not be overwritable");
+        .expect_err("file should not be overwritable")
+        .to_errno();
     assert_eq!(result, libc::EPERM);
 
     // But read-only should work
@@ -387,13 +388,15 @@ async fn test_unordered_write_fails(offset: i64) {
     let err = fs
         .write(file_ino, fh, written as i64 + offset, slice, 0, 0, None)
         .await
-        .expect_err("writes to out-of-order offsets should fail");
+        .expect_err("writes to out-of-order offsets should fail")
+        .to_errno();
     assert_eq!(err, libc::EINVAL);
 
     let err = fs
         .write(file_ino, fh, written as i64, slice, 0, 0, None)
         .await
-        .expect_err("any write after an error should fail");
+        .expect_err("any write after an error should fail")
+        .to_errno();
     assert_eq!(err, libc::EINVAL);
 }
 
@@ -417,7 +420,8 @@ async fn test_duplicate_write_fails() {
     let err = fs
         .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
         .await
-        .expect_err("should not be able to write twice");
+        .expect_err("should not be able to write twice")
+        .to_errno();
     assert_eq!(err, libc::EPERM);
 }
 
@@ -465,13 +469,16 @@ async fn test_upload_aborted_on_write_failure() {
     let write_error = fs
         .write(file_ino, fh, written as i64, &[0xaa; 27], 0, 0, None)
         .await
-        .expect_err("second write should fail");
+        .expect_err("second write should fail")
+        .to_errno();
     assert_eq!(write_error, libc::EIO);
 
     let err = fs
         .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
         .await
-        .expect_err("subsequent writes should fail");
+        .expect_err("subsequent writes should fail")
+        .to_errno();
+
     assert_eq!(err, libc::EIO);
 
     assert!(!client.is_upload_in_progress(FILE_NAME));
@@ -480,7 +487,8 @@ async fn test_upload_aborted_on_write_failure() {
     let err = fs
         .fsync(file_ino, fh, true)
         .await
-        .expect_err("subsequent fsync should fail");
+        .expect_err("subsequent fsync should fail")
+        .to_errno();
     assert_eq!(err, libc::EIO);
 
     fs.release(file_ino, fh, 0, None, true)
@@ -532,7 +540,8 @@ async fn test_upload_aborted_on_fsync_failure() {
     let err = fs
         .fsync(file_ino, fh, true)
         .await
-        .expect_err("subsequent fsync should fail");
+        .expect_err("subsequent fsync should fail")
+        .to_errno();
     assert_eq!(err, libc::EIO);
 
     assert!(!client.is_upload_in_progress(FILE_NAME));
@@ -587,7 +596,8 @@ async fn test_upload_aborted_on_release_failure() {
     let err = fs
         .release(file_ino, fh, 0, None, true)
         .await
-        .expect_err("subsequent release should fail");
+        .expect_err("subsequent release should fail")
+        .to_errno();
     assert_eq!(err, libc::EIO);
 
     assert!(!client.is_upload_in_progress(FILE_NAME));
@@ -707,7 +717,7 @@ async fn test_local_dir(prefix: &str) {
 
     // Verify that the directory disappeared
     let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
-    assert!(matches!(lookup, Err(libc::ENOENT)));
+    assert!(matches!(lookup, Err(e) if e.to_errno() == libc::ENOENT));
 }
 
 #[tokio::test]
@@ -845,7 +855,8 @@ async fn test_readdir_vs_readdirplus() {
         let err = fs
             .getattr(entry.ino)
             .await
-            .expect_err("readdir should not add inodes to the superblock");
+            .expect_err("readdir should not add inodes to the superblock")
+            .to_errno();
         assert!(matches!(err, libc::ENOENT));
     }
 

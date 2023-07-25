@@ -55,14 +55,14 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         } else {
             // Do `try_recv` first so we can track whether the read is starved or not
             if let Ok(part) = self.receiver.try_recv() {
-                part.map_err(|e| e.into())
+                part.map_err(|e| PrefetchReadError::GetRequestFailed(e))
             } else {
                 let start = Instant::now();
                 let part = self.receiver.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
                 match part {
                     Err(RecvError) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
-                    Ok(part) => part.map_err(|e| e.into()),
+                    Ok(part) => part.map_err(|e| PrefetchReadError::GetRequestFailed(e)),
                 }
             }
         };

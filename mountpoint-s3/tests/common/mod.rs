@@ -2,7 +2,7 @@ use aws_sdk_s3::types::ByteStream;
 use aws_sdk_s3::Region;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
-use mountpoint_s3::fs::{DirectoryReplier, ReadReplier};
+use mountpoint_s3::fs::{self, DirectoryReplier, ReadReplier, ToErrno};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
@@ -156,8 +156,8 @@ impl<'a> ReadReplier for ReadReply<'a> {
         *self.0 = Ok(data.into());
     }
 
-    fn error(self, error: libc::c_int) -> Self::Replied {
-        *self.0 = Err(error);
+    fn error(self, error: fs::Error) -> Self::Replied {
+        *self.0 = Err(error.to_errno());
     }
 }
 

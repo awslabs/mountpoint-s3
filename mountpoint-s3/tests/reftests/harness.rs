@@ -6,7 +6,7 @@ use std::sync::Arc;
 use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
-use mountpoint_s3::fs::{InodeNo, ReadReplier, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{self, InodeNo, ReadReplier, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
@@ -288,7 +288,7 @@ impl Harness {
         let mut inode = FUSE_ROOT_INODE;
         for component in components {
             if let Component::Normal(folder) = component {
-                inode = self.fs.lookup(inode, folder).await?.attr.ino;
+                inode = self.fs.lookup(inode, folder).await.map_err(|e| e.to_errno())?.attr.ino;
             } else {
                 panic!("unexpected path component {component:?}");
             }
@@ -319,7 +319,7 @@ impl Harness {
         let mknod = self.fs.mknod(dir_inode, name.as_ref(), libc::S_IFREG, 0, 0).await;
         if reference_lookup.is_some() {
             assert!(
-                matches!(mknod, Err(libc::EEXIST)),
+                matches!(mknod, Err(e) if e.to_errno() == libc::EEXIST),
                 "can't overwrite existing file/directory"
             );
             None
@@ -349,7 +349,7 @@ impl Harness {
         let open = self.fs.open(inflight_write.inode, libc::O_WRONLY).await;
         if inflight_write.file_handle.is_some() {
             // Shouldn't be able to reopen a file that's already open for writing
-            assert!(matches!(open, Err(libc::EPERM)));
+            assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
         } else {
             let open = open.expect("open should succeed");
             let inflight_write = self.inflight_writes.get_mut(index).unwrap();
@@ -456,13 +456,19 @@ impl Harness {
         let unlink = self.fs.unlink(parent_ino, name.as_ref()).await;
         match node {
             Node::Directory { .. } => {
-                assert_eq!(unlink, Err(libc::EISDIR), "unlink of directory should fail");
+                assert!(
+                    matches!(unlink, Err(e) if e.to_errno() == libc::EISDIR),
+                    "unlink of directory should fail"
+                );
             }
             Node::File(File::Local) => {
-                assert_eq!(unlink, Err(libc::EPERM), "unlink of local files not supported");
+                assert!(
+                    matches!(unlink, Err(e) if e.to_errno() == libc::EPERM),
+                    "unlink of local files not supported"
+                );
             }
             Node::File(File::Remote(_)) => {
-                assert_eq!(unlink, Ok(()));
+                unlink.expect("should be able to unlink remote file");
                 self.reference.remove_remote_file(full_path);
             }
         }
@@ -485,7 +491,7 @@ impl Harness {
         let mkdir = self.fs.mkdir(dir_inode, name.as_ref(), libc::S_IFDIR, 0).await;
         if reference_lookup.is_some() {
             assert!(
-                matches!(mkdir, Err(libc::EEXIST)),
+                matches!(mkdir, Err(e) if e.to_errno() == libc::EEXIST),
                 "can't overwrite existing file/directory"
             );
         } else {
@@ -516,7 +522,7 @@ impl Harness {
         let dir_name = full_path.file_name().expect("directory must have a name");
         let rmdir = self.fs.rmdir(parent_inode, dir_name).await;
         if *is_local && children.is_empty() {
-            assert_eq!(rmdir, Ok(()), "should be able to remove empty local directory");
+            rmdir.expect("should be able to remove empty local directory");
             self.reference.remove_local_directory(&full_path);
         } else {
             rmdir.expect_err("rmdir should fail");
@@ -679,7 +685,7 @@ impl Harness {
                 assert_eq!(&self.0[..], data, "read bytes don't match");
             }
 
-            fn error(self, error: libc::c_int) -> Self::Replied {
+            fn error(self, error: fs::Error) -> Self::Replied {
                 panic!("read failed: {error}");
             }
         }
@@ -708,7 +714,7 @@ impl Harness {
     async fn check_local_file(&self, inode: InodeNo) {
         let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
         let open = self.fs.open(inode, libc::O_RDONLY).await;
-        assert!(matches!(open, Err(libc::EPERM)));
+        assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
     }
 }
 
