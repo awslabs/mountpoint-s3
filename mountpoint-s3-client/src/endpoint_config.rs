@@ -268,11 +268,13 @@ mod test {
         let endpoint_err = endpoint_config
             .resolve_for_bucket("arn:aws:s3:::testbucket")
             .unwrap_err();
-        let err_str = "Invalid ARN: Unrecognized format: arn:aws:s3:::testbucket (type: testbucket)".to_owned();
-        assert_matches!(endpoint_err, EndpointError::UnresolvedEndpoint(ResolverError::EndpointNotResolved(_)));
-        match endpoint_err {
-            EndpointError::UnresolvedEndpoint(ResolverError::EndpointNotResolved(str)) => assert_eq!(str, err_str),
-            _ => unreachable!("Error type previously checked"),
+        assert_matches!(
+            endpoint_err,
+            EndpointError::UnresolvedEndpoint(ResolverError::EndpointNotResolved(_))
+        );
+        if let EndpointError::UnresolvedEndpoint(ResolverError::EndpointNotResolved(str)) = endpoint_err {
+            let err_str = "Invalid ARN: Unrecognized format: arn:aws:s3:::testbucket (type: testbucket)".to_owned();
+            assert_eq!(str, err_str);
         }
     }
 }

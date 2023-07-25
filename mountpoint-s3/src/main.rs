@@ -194,7 +194,7 @@ struct CliArgs {
     #[clap(long, help = "Force path-style addressing", help_heading = BUCKET_OPTIONS_HEADER)]
     pub force_path_style: bool,
 
-    #[clap(long, help = "Use Transfer Acceleration for accessing S3, if it is enabled for the given S3 bucket", help_heading = BUCKET_OPTIONS_HEADER)]
+    #[clap(long, help = "Use S3 Transfer Acceleration when accessing S3. This must be enabled on the bucket.", help_heading = BUCKET_OPTIONS_HEADER)]
     pub transfer_acceleration: bool,
 
     #[clap(long, help = "Use dual-stack endpoints when accessing S3", help_heading = BUCKET_OPTIONS_HEADER)]
@@ -704,7 +704,7 @@ mod tests {
     #[test_case("s3://test-bucket", false; "not providing bare bucket name")]
     #[test_case("~/mnt", false; "directory name in place of bucket")]
     #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", true; "multiregion accesspoint ARN")]
-    #[test_case("arn:aws:s3:::doc-example-bucket", true; "bucket ARN")]
+    #[test_case("arn:aws:s3:::doc-example-bucket", true; "bucket ARN(maybe rejected by endpoint resolver with error message)")]
     #[test_case("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap", true; "standard accesspoint ARN in China")]
     #[test_case("arn:aws-us-gov:s3-object-lambda:us-gov-west-1:555555555555:accesspoint/example-olap", true; "S3 object lambda accesspoint in US Gov")]
     #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", true; "S3 outpost accesspoint ARN")]
