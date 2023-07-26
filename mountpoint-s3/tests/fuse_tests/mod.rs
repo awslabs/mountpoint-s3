@@ -145,7 +145,9 @@ mod mock_session {
 
         fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.get_object_storage_class(&full_key))
+            self.client
+                .get_object_storage_class(&full_key)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
     }
 }

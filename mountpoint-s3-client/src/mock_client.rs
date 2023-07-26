@@ -101,8 +101,12 @@ impl MockClient {
     }
 
     /// Returns the objects storage class
-    pub fn get_object_storage_class(&self, key: &str) -> Option<String> {
-        self.objects.read().unwrap().get(key).unwrap().storage_class.to_owned()
+    pub fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, MockClientError> {
+        if let Some(mock_object) = self.objects.read().unwrap().get(key) {
+            Ok(mock_object.storage_class.to_owned())
+        } else {
+            Err(MockClientError("object not found".into()))
+        }
     }
 }
 

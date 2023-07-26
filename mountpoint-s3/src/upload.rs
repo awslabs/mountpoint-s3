@@ -74,8 +74,8 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
         let mut params = PutObjectParams::new().trailing_checksums(true);
 
-        if let Some(storage_class) = inner.storage_class.to_owned() {
-            params = params.storage_class(storage_class);
+        if let Some(storage_class) = &inner.storage_class {
+            params = params.storage_class(storage_class.clone());
         }
 
         let request = inner.client.put_object(bucket, key, &params).await?;
