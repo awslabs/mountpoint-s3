@@ -72,9 +72,12 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
-        let params = PutObjectParams::new()
-            .trailing_checksums(true)
-            .storage_class(inner.storage_class.to_owned().unwrap());
+        let mut params = PutObjectParams::new().trailing_checksums(true);
+
+        if let Some(storage_class) = inner.storage_class.to_owned() {
+            params = params.storage_class(storage_class);
+        }
+
         let request = inner.client.put_object(bucket, key, &params).await?;
         let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
 

@@ -101,15 +101,8 @@ impl MockClient {
     }
 
     /// Returns the objects storage class
-    pub fn get_object_storage_class(&self, key: &str) -> String {
-        self.objects
-            .read()
-            .unwrap()
-            .get(key)
-            .unwrap()
-            .storage_class
-            .clone()
-            .unwrap()
+    pub fn get_object_storage_class(&self, key: &str) -> Option<String> {
+        self.objects.read().unwrap().get(key).unwrap().storage_class.to_owned()
     }
 }
 
