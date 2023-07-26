@@ -1,0 +1,15 @@
+Package: mount-s3
+Maintainer: Amazon Web Services <mountpoint-s3@amazon.com>
+Version: __VERSION__
+Section: utils
+Priority: optional
+Architecture: __ARCH__
+Depends: ca-certificates, fuse, libfuse2, libc6 (>= 2.26)
+Description: Mountpoint for Amazon S3
+ Mountpoint for Amazon S3 is a simple, high-throughput file client for
+ mounting an Amazon S3 bucket as a local file system. With Mountpoint for Amazon
+ S3, your applications can access objects stored in Amazon S3 through file
+ operations like open and read. Mountpoint for Amazon S3 automatically
+ translates these operations into S3 object API calls, giving your applications
+ access to the elastic storage and throughput of Amazon S3 through a file
+ interface.

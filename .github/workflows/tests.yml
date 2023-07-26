@@ -269,3 +269,41 @@ jobs:
           override: true
       - name: Run cargo deny
         uses: EmbarkStudios/cargo-deny-action@v1
+
+  packages:
+    name: Packages (${{ matrix.runner.name }})
+    runs-on: ${{ matrix.runner.tags }}
+
+    strategy:
+      matrix:
+        runner:
+        - name: x86_64
+          tags: [ubuntu-22.04] # GitHub-hosted
+        - name: aarch64
+          tags: [self-hosted, linux, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Install operating system dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          fuseVersion: 2
+      - name: Build Docker image
+        uses: docker/build-push-action@v4
+        with:
+          tags: mountpoint-builder
+          context: ./release
+      - name: Package an unofficial release
+        run: docker run --mount type=bind,source=$(pwd),target=/mountpoint mountpoint-builder --unofficial
+      - name: Check release binary
+        run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
+      - name: Upload unofficial packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: packages-${{ matrix.runner.name }}
+          path:  ./out/*
+          retention-days: 3
+          if-no-files-found: error

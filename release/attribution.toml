@@ -1,0 +1,34 @@
+accepted = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "OpenSSL",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+]
+
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+no-clearly-defined = true
+
+workarounds = ["ring"]
+
+[zerocopy.clarify]
+license = "BSD-2-Clause"
+[[zerocopy.clarify.files]]
+path = "LICENSE"
+checksum = "83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32"
+
+[zerocopy-derive.clarify]
+license = "BSD-2-Clause"
+[[zerocopy-derive.clarify.files]]
+path = "LICENSE"
+checksum = "83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32"
