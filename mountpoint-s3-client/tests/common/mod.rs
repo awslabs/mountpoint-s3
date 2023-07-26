@@ -53,6 +53,10 @@ pub fn get_test_domain() -> String {
     std::env::var("S3_DOMAIN").unwrap_or(String::from("amazonaws.com"))
 }
 
+pub fn get_subsession_iam_role() -> String {
+    std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
+}
+
 pub async fn get_test_sdk_client() -> s3::Client {
     let config = aws_config::from_env()
         .region(Region::new(get_test_region()))

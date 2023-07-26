@@ -12,8 +12,9 @@ use aws_sdk_s3::Region;
 use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
-use mountpoint_s3_client::{EndpointConfig, ObjectClient, S3CrtClient};
-use mountpoint_s3_client::{S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::{
+    EndpointConfig, ObjectClient, ObjectClientError, S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError,
+};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use rusty_fork::rusty_fork_test;
@@ -192,5 +193,95 @@ rusty_fork_test! {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(test_profile_provider_async());
+    }
+}
+
+/// Test using a client with scoped-down credentials
+#[tokio::test]
+async fn test_scoped_credentials() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_scoped_credentials");
+    let subsession_role = get_subsession_iam_role();
+
+    for key in ["foo/foo.txt", "bar/bar.txt", "baz.txt"] {
+        sdk_client
+            .put_object()
+            .bucket(&bucket)
+            .key(&format!("{prefix}{key}"))
+            .body(ByteStream::from(Bytes::from_static(b"hello world")))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    let config = aws_config::from_env()
+        .region(Region::new(get_test_region()))
+        .load()
+        .await;
+    let sts_client = aws_sdk_sts::Client::new(&config);
+
+    // Scope down to the `foo` prefix
+    let policy = r#"{"Statement": [
+    {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::__BUCKET__/__PREFIX__/*"},
+    {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__", "Condition": {"StringLike": {"s3:prefix": "__PREFIX__/*"}}}
+]}"#;
+    let policy = policy
+        .replace("__BUCKET__", &bucket)
+        .replace("__PREFIX__", &format!("{prefix}foo"));
+    let credentials = sts_client
+        .assume_role()
+        .role_arn(subsession_role)
+        .role_session_name("test_scoped_credentials")
+        .policy(policy)
+        .send()
+        .await
+        .unwrap();
+    let credentials = credentials.credentials().unwrap();
+
+    // Build a S3CrtClient that uses a static credentials provider with the creds we just got
+    let config = CredentialsProviderStaticOptions {
+        access_key_id: credentials.access_key_id().unwrap(),
+        secret_access_key: credentials.secret_access_key().unwrap(),
+        session_token: credentials.session_token(),
+    };
+    let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
+
+    // Inside the prefix, things should be fine
+    let _result = client
+        .get_object(&bucket, &format!("{prefix}foo/foo.txt"), None, None)
+        .await
+        .expect("get_object should succeed");
+    let _result = client
+        .list_objects(&bucket, None, "/", 10, &format!("{prefix}foo/"))
+        .await
+        .expect("list_objects_should_succeed");
+
+    // Outside the prefix, requests should fail with permissions errors
+    let mut request = client
+        .get_object(&bucket, &format!("{prefix}baz.txt"), None, None)
+        .await
+        .expect("request should be sent");
+    let err = request
+        .next()
+        .await
+        .unwrap()
+        .expect_err("should fail in different prefix");
+    if let ObjectClientError::ClientError(S3RequestError::ResponseError(err)) = &err {
+        assert!(err.response_status == 403, "should get a permissions error");
+    } else {
+        panic!("Unexpected result, expected a ResponseError with 403 if there's no permission");
+    }
+    let err = client
+        .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
+        .await
+        .expect_err("should fail in different prefix");
+    if let ObjectClientError::ClientError(S3RequestError::ResponseError(err)) = &err {
+        assert!(err.response_status == 403, "should get a permissions error");
+    } else {
+        panic!("Unexpected result, expected a ResponseError with 403 if there's no permission");
     }
 }
