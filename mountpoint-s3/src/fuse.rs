@@ -17,6 +17,17 @@ use mountpoint_s3_client::ObjectClient;
 
 pub mod session;
 
+/// Handle an error in a FUSE handler. This logs the appropriate error message and then calls
+/// `reply` on the given replier with the error's corresponding errno.
+macro_rules! fuse_error {
+    ($name:literal, $reply:expr, $err:expr) => {{
+        let err = $err;
+        ::tracing::warn!("{} failed: {:#}", $name, err);
+        ::metrics::counter!("fuse.op_failures", 1, "op" => $name);
+        $reply.error(err.to_errno());
+    }};
+}
+
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
 /// so that we can test our actual filesystem implementation without having actual FUSE in the loop.
 pub struct S3FuseFilesystem<Client: ObjectClient, Runtime> {
@@ -40,41 +51,41 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Runtime: Spawn + Send + Sync,
 {
-    #[instrument(level = "debug", skip_all)]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique()))]
     fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         block_on(self.fs.init(config).in_current_span())
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, name=?name))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, name=?name))]
     fn lookup(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEntry) {
         match block_on(self.fs.lookup(parent, name).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("lookup", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
     fn getattr(&self, _req: &Request<'_>, ino: InodeNo, reply: ReplyAttr) {
         match block_on(self.fs.getattr(ino).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("getattr", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino, nlookup))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino, nlookup))]
     fn forget(&self, _req: &Request<'_>, ino: u64, nlookup: u64) {
         block_on(self.fs.forget(ino, nlookup));
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
     fn open(&self, _req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.open(ino, flags).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("open", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size))]
     fn read(
         &self,
         _req: &Request<'_>,
@@ -105,7 +116,7 @@ where
             }
 
             fn error(self, error: fs::Error) -> Replied {
-                self.inner.error(error.to_errno());
+                fuse_error!("read", self.inner, error);
                 Replied(())
             }
         }
@@ -124,15 +135,15 @@ where
         metrics::counter!("fuse.bytes_read", bytes_sent as u64);
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent))]
     fn opendir(&self, _req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.opendir(parent, flags).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("opendir", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
     fn readdir(&self, _req: &Request<'_>, parent: InodeNo, fh: u64, offset: i64, mut reply: fuser::ReplyDirectory) {
         struct ReplyDirectory<'a> {
             inner: &'a mut fuser::ReplyDirectory,
@@ -156,11 +167,11 @@ where
 
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("readdir", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
     fn readdirplus(
         &self,
         _req: &Request<'_>,
@@ -191,19 +202,19 @@ where
 
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("readdirplus", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync))]
     fn fsync(&self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("fsync", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
     fn release(
         &self,
         _req: &Request<'_>,
@@ -216,19 +227,19 @@ where
     ) {
         match block_on(self.fs.release(ino, fh, flags, lock_owner, flush).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("release", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
     fn releasedir(&self, _req: &Request<'_>, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
         match block_on(self.fs.releasedir(ino, fh, flags).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("releasedir", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
     fn mknod(
         &self,
         _req: &Request<'_>,
@@ -244,22 +255,22 @@ where
 
         match block_on(self.fs.mknod(parent, name, mode, umask, rdev).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("mknod", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
     fn mkdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, mode: u32, umask: u32, reply: ReplyEntry) {
         // mode_t is u32 on Linux but u16 on macOS, so cast it here
         let mode = mode as libc::mode_t;
 
         match block_on(self.fs.mkdir(parent, name, mode, umask).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("mkdir", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len()))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len()))]
     fn write(
         &self,
         _req: &Request<'_>,
@@ -278,26 +289,27 @@ where
                 .in_current_span(),
         ) {
             Ok(bytes_written) => reply.written(bytes_written),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("write", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
     fn rmdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.rmdir(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("rmdir", reply, e),
         }
     }
 
-    #[instrument(level="debug", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
     fn unlink(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.unlink(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("unlink", reply, e),
         }
     }
 
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
     fn setattr(
         &self,
         _req: &Request<'_>,
@@ -326,7 +338,7 @@ where
         });
         match block_on(self.fs.setattr(ino, atime, mtime, flags).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
-            Err(e) => reply.error(e.to_errno()),
+            Err(e) => fuse_error!("setattr", reply, e),
         }
     }
 }
