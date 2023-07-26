@@ -55,7 +55,10 @@ impl<'a> RequestWithSender<'a> {
     /// Dispatch request to the given filesystem.
     /// This calls the appropriate filesystem operation method for the
     /// request and sends back the returned reply to the kernel
-    pub(crate) fn dispatch<FS: Filesystem>(&self, se: &SessionEventLoop<FS>) {
+    pub(crate) fn dispatch<FS: Filesystem, F>(&self, se: &SessionEventLoop<FS, F>)
+    where
+        F: std::ops::Deref<Target = crate::session::FilesystemHolder<FS>>,
+    {
         debug!("{} thread={}", self.request, se.thread_name);
         match self.dispatch_req(se) {
             Ok(Some(resp)) => self.reply::<ReplyRaw>().send_ll(&resp),
@@ -64,10 +67,13 @@ impl<'a> RequestWithSender<'a> {
         }
     }
 
-    fn dispatch_req<FS: Filesystem>(
+    fn dispatch_req<FS: Filesystem, F>(
         &self,
-        se: &SessionEventLoop<FS>,
-    ) -> Result<Option<ResponseData>, Errno> {
+        se: &SessionEventLoop<FS, F>,
+    ) -> Result<Option<ResponseData>, Errno>
+    where
+        F: std::ops::Deref<Target = crate::session::FilesystemHolder<FS>>,
+    {
         let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
         // Implement allow_root & access check for auto_unmount
         if (se.allowed == SessionACL::RootAndOwner

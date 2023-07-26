@@ -329,6 +329,42 @@ impl<FS: Filesystem> Session<FS> {
         reply
     }
 
+    /// Run the session loop that receives kernel requests and dispatches them to method
+    /// calls into the filesystem.
+    /// This version also notifies callers of kernel requests before and after they
+    /// are dispatched to the filesystem.
+    pub fn run_with_callbacks<FB, FA>(
+        &self,
+        before_dispatch: FB,
+        after_dispatch: FA,
+    ) -> io::Result<()>
+    where
+        FB: FnMut(&Request),
+        FA: FnMut(&Request),
+    {
+        let ch = if self.config.clone_fd {
+            #[cfg(target_os = "linux")]
+            {
+                self.ch.clone_fd()?
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                return Err(io::Error::other("clone_fd is only supported on Linux"));
+            }
+        } else {
+            self.ch.clone()
+        };
+
+        let event_loop: SessionEventLoop<FS, &FilesystemHolder<FS>> = SessionEventLoop {
+            thread_name: thread::current().name().unwrap_or("fuser").to_string(),
+            ch,
+            filesystem: &self.filesystem,
+            allowed: self.allowed,
+            session_owner: self.session_owner,
+        };
+        event_loop.event_loop_with_callbacks(before_dispatch, after_dispatch)
+    }
+
     fn handshake(&mut self) -> io::Result<()> {
         let mut buf = FuseReadBuf::new();
         let buf = buf.as_mut();
@@ -508,17 +544,31 @@ impl SessionUnmounter {
     }
 }
 
-pub(crate) struct SessionEventLoop<FS: Filesystem> {
+pub(crate) struct SessionEventLoop<FS: Filesystem, F = Arc<FilesystemHolder<FS>>>
+where
+    F: std::ops::Deref<Target = FilesystemHolder<FS>>,
+{
     /// Cache thread name for faster `debug!`.
     pub(crate) thread_name: String,
     pub(crate) ch: Channel,
-    pub(crate) filesystem: Arc<FilesystemHolder<FS>>,
+    pub(crate) filesystem: F,
     pub(crate) allowed: SessionACL,
     pub(crate) session_owner: Uid,
 }
 
-impl<FS: Filesystem> SessionEventLoop<FS> {
+impl<FS: Filesystem, F> SessionEventLoop<FS, F>
+where
+    F: std::ops::Deref<Target = FilesystemHolder<FS>>,
+{
     fn event_loop(&self) -> io::Result<()> {
+        self.event_loop_with_callbacks(|_| {}, |_| {})
+    }
+
+    fn event_loop_with_callbacks<FB, FA>(&self, mut before: FB, mut after: FA) -> io::Result<()>
+    where
+        FB: FnMut(&crate::Request),
+        FA: FnMut(&crate::Request),
+    {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
         let mut buf = FuseReadBuf::new();
@@ -534,7 +584,10 @@ impl<FS: Filesystem> SessionEventLoop<FS> {
                             req.reply::<ReplyEmpty>().ok();
                             return Ok(());
                         } else {
-                            req.dispatch(self)
+                            let param = crate::Request::ref_cast(req.request.header());
+                            before(param);
+                            req.dispatch(self);
+                            after(param);
                         }
                     }
                     // Quit loop on illegal request
