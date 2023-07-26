@@ -38,4 +38,13 @@ impl Request {
     pub fn pid(&self) -> u32 {
         self.header.pid
     }
+
+    /// Returns whether this is a forget request
+    pub fn is_forget(&self) -> bool {
+        use crate::ll::fuse_abi::fuse_opcode;
+        matches!(
+            fuse_opcode::try_from(self.header.opcode),
+            Ok(fuse_opcode::FUSE_FORGET) | Ok(fuse_opcode::FUSE_BATCH_FORGET)
+        )
+    }
 }
