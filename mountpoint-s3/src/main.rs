@@ -101,6 +101,9 @@ struct CliArgs {
     )]
     pub read_only: bool,
 
+    #[clap(long, help = "Set the storage class for new objects", help_heading = BUCKET_OPTIONS_HEADER)]
+    pub storage_class: Option<String>,
+
     #[clap(
         long,
         help = "Allow delete operations on file system",
@@ -381,6 +384,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     if let Some(file_mode) = args.file_mode {
         filesystem_config.file_mode = file_mode;
     }
+    filesystem_config.storage_class = args.storage_class;
     filesystem_config.prefetcher_config.part_alignment = args.part_size as usize;
     filesystem_config.allow_delete = args.allow_delete;
 

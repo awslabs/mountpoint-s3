@@ -22,12 +22,13 @@ pub struct Uploader<Client> {
 #[derive(Debug)]
 struct UploaderInner<Client> {
     client: Arc<Client>,
+    storage_class: Option<String>,
 }
 
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Arc<Client>) -> Self {
-        let inner = UploaderInner { client };
+    pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
+        let inner = UploaderInner { client, storage_class };
         Self { inner: Arc::new(inner) }
     }
 
@@ -71,7 +72,12 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
-        let params = PutObjectParams::new().trailing_checksums(true);
+        let mut params = PutObjectParams::new().trailing_checksums(true);
+
+        if let Some(storage_class) = &inner.storage_class {
+            params = params.storage_class(storage_class.clone());
+        }
+
         let request = inner.client.put_object(bucket, key, &params).await?;
         let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
 
@@ -203,7 +209,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 32,
         }));
-        let uploader = Uploader::new(client.clone());
+        let uploader = Uploader::new(client.clone(), None);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -220,12 +226,13 @@ mod tests {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
+        let storage_class = "INTELLIGENT_TIERING";
 
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 32,
         }));
-        let uploader = Uploader::new(client.clone());
+        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()));
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
@@ -273,7 +280,7 @@ mod tests {
             put_failures,
         ));
 
-        let uploader = Uploader::new(failure_client.clone());
+        let uploader = Uploader::new(failure_client.clone(), None);
 
         // First request fails on first write.
         {
@@ -313,7 +320,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: PART_SIZE,
         }));
-        let uploader = Uploader::new(client.clone());
+        let uploader = Uploader::new(client.clone(), None);
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;

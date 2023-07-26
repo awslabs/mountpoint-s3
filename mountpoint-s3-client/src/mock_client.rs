@@ -99,6 +99,15 @@ impl MockClient {
     pub fn is_upload_in_progress(&self, key: &str) -> bool {
         self.in_progress_uploads.read().unwrap().contains(key)
     }
+
+    /// Returns the objects storage class
+    pub fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, MockClientError> {
+        if let Some(mock_object) = self.objects.read().unwrap().get(key) {
+            Ok(mock_object.storage_class.to_owned())
+        } else {
+            Err(MockClientError("object not found".into()))
+        }
+    }
 }
 
 #[derive(Clone)]
