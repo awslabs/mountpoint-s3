@@ -1022,11 +1022,14 @@ impl Filesystem for SimpleFS {
         &mut self,
         req: &Request,
         parent: u64,
-        name: &OsStr,
-        link: &Path,
+        link_name: &OsStr,
+        target: &Path,
         reply: ReplyEntry,
     ) {
-        debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
+        debug!(
+            "symlink() called with {:?} {:?} {:?}",
+            parent, link_name, target
+        );
         let mut parent_attrs = match self.get_inode(parent) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1054,7 +1057,7 @@ impl Filesystem for SimpleFS {
         let attrs = InodeAttributes {
             inode,
             open_file_handles: 0,
-            size: link.as_os_str().as_bytes().len() as u64,
+            size: target.as_os_str().as_bytes().len() as u64,
             last_accessed: time_now(),
             last_modified: time_now(),
             last_metadata_changed: time_now(),
@@ -1066,7 +1069,8 @@ impl Filesystem for SimpleFS {
             xattrs: Default::default(),
         };
 
-        if let Err(error_code) = self.insert_link(req, parent, name, inode, FileKind::Symlink) {
+        if let Err(error_code) = self.insert_link(req, parent, link_name, inode, FileKind::Symlink)
+        {
             reply.error(error_code);
             return;
         }
@@ -1079,7 +1083,7 @@ impl Filesystem for SimpleFS {
             .truncate(true)
             .open(path)
             .unwrap();
-        file.write_all(link.as_os_str().as_bytes()).unwrap();
+        file.write_all(target.as_os_str().as_bytes()).unwrap();
 
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
