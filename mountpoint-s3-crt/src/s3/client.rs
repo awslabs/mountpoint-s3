@@ -868,7 +868,7 @@ impl RequestMetrics {
         unsafe { Some(Headers::from_crt(NonNull::new_unchecked(out))) }
     }
 
-    /// Get the IP address the request connected to
+    /// Get the path and query fragment of the request URL
     pub fn request_path_query(&self) -> Option<String> {
         let mut out: *const aws_string = std::ptr::null();
         // SAFETY: `inner` is a valid aws_s3_request_metrics

@@ -1,14 +1,18 @@
 // These tests all run the main binary and so expect to be able to reach S3
 #![cfg(feature = "s3_tests")]
 
-use assert_cmd::prelude::*; // Add methods on commands
+use assert_cmd::prelude::*;
+use aws_sdk_sts::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
-use std::{path::PathBuf, process::Command}; // Run programs
+use std::{path::PathBuf, process::Command};
 use test_case::test_case;
 
-use crate::common::{create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region};
+use crate::common::{
+    create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
+    tokio_block_on,
+};
 use crate::fuse_tests::read_dir_to_entry_names;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -341,6 +345,96 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
     } else {
         result.expect_err("remove file should fail when --allow_delete is not set");
     }
+
+    Ok(())
+}
+
+#[test]
+fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("mount_allow_delete");
+    let subprefix = format!("{prefix}sub/");
+    let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
+    let subsession_role = get_subsession_iam_role();
+
+    // Get scoped down credentials to the subprefix
+    let policy = r#"{"Statement": [
+        {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], "Resource": "arn:aws:s3:::__BUCKET__/__PREFIX__*"},
+        {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__", "Condition": {"StringLike": {"s3:prefix": "__PREFIX__*"}}}
+    ]}"#;
+    let policy = policy.replace("__BUCKET__", &bucket).replace("__PREFIX__", &subprefix);
+    let config = tokio_block_on(aws_config::from_env().region(Region::new(get_test_region())).load());
+    let sts_client = aws_sdk_sts::Client::new(&config);
+    let credentials = tokio_block_on(
+        sts_client
+            .assume_role()
+            .role_arn(subsession_role)
+            .role_session_name("test_scoped_credentials")
+            .policy(policy)
+            .send(),
+    )
+    .unwrap();
+    let credentials = credentials.credentials().unwrap();
+
+    // First try without the subprefix -- mount should fail as we don't have permissions on it
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
+        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id().unwrap())
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key().unwrap())
+        .env("AWS_SESSION_TOKEN", credentials.session_token().unwrap())
+        .spawn()
+        .expect("unable to spawn child");
+
+    let st = std::time::Instant::now();
+    let exit_status = loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        match child.try_wait().expect("unable to wait for result") {
+            Some(result) => break result,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+
+    // verify mount status and mount entry
+    assert!(!exit_status.success());
+    assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    // Now try with the subprefix -- mount should work since we have the right permissions
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={subprefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
+        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id().unwrap())
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key().unwrap())
+        .env("AWS_SESSION_TOKEN", credentials.session_token().unwrap())
+        .spawn()
+        .expect("unable to spawn child");
+
+    let st = std::time::Instant::now();
+    let exit_status = loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        match child.try_wait().expect("unable to wait for result") {
+            Some(result) => break result,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &subprefix, &region, &mount_point.to_path_buf());
 
     Ok(())
 }

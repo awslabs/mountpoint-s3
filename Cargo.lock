@@ -1928,6 +1928,7 @@ dependencies = [
  "async-lock",
  "aws-config",
  "aws-sdk-s3",
+ "aws-sdk-sts",
  "base16ct",
  "built",
  "bytes",

@@ -19,8 +19,8 @@ use super::s3_library_init;
 /// Errors returned on operations from `resolve()`.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ResolverError {
-    /// The header was not found
-    #[error("endpoint not resolved: {0}")]
+    /// Pass through an error from the resolver rules
+    #[error("{0}")]
     EndpointNotResolved(String),
 
     /// Internal CRT error

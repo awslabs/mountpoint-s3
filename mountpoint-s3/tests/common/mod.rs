@@ -12,6 +12,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,25 +67,33 @@ pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
 }
 
-pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .unwrap();
+pub fn get_subsession_iam_role() -> String {
+    std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
+}
 
-    let config = runtime.block_on(aws_config::from_env().region(Region::new(region.to_string())).load());
+pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
+    let config = tokio_block_on(aws_config::from_env().region(Region::new(region.to_string())).load());
     let sdk_client = aws_sdk_s3::Client::new(&config);
-    // runtime.block_on(client.list_buckets());
     let full_key = format!("{prefix}{key}");
-    let _ = runtime.block_on(
+    tokio_block_on(async move {
         sdk_client
             .put_object()
             .bucket(bucket)
             .key(full_key)
             .body(ByteStream::from(value.to_vec()))
-            .send(),
-    );
+            .send()
+            .await
+            .unwrap()
+    });
+}
+
+pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .unwrap();
+    runtime.block_on(future)
 }
 
 #[track_caller]
