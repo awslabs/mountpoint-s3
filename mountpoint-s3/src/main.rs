@@ -15,7 +15,7 @@ use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics::{MetricsSink, METRICS_TARGET_NAME};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
-    AddressingStyle, EndpointConfig, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
+    AddressingStyle, EndpointConfig, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient, S3RequestError,
 };
 use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
@@ -503,7 +503,7 @@ fn create_client_for_bucket(
     match futures::executor::block_on(head_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
+        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
             let head_request = new_client.head_bucket(bucket);

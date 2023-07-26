@@ -72,6 +72,11 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
+        // We use this header to stash the response from the head_object during the on_headers
+        // callback, and send it back on the oneshot when we finish.
+        let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
+        let header1 = header.clone();
+
         let request = {
             let mut message = self
                 .inner
@@ -84,11 +89,6 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             let bucket = bucket.to_owned();
-
-            // We use this header to stash the response from the head_object during the on_headers
-            // callback, and send it back on the oneshot when we finish.
-            let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
-            let header1 = header.clone();
 
             let span = request_span!(self.inner, "head_object", bucket, key);
 
@@ -107,23 +107,18 @@ impl S3CrtClient {
                 |_, _| (),
                 move |result| {
                     if result.is_err() {
-                        let parsed = parse_head_object_error(&result);
-                        Err(parsed
-                            .map(ObjectClientError::ServiceError)
-                            .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result))))
+                        Err(parse_head_object_error(result).map(ObjectClientError::ServiceError))
                     } else {
-                        header
-                            .lock()
-                            .unwrap()
-                            .take()
-                            .unwrap()
-                            .map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+                        Ok(())
                     }
                 },
             )?
         };
 
-        request.await
+        request.await?;
+
+        let headers = header.lock().unwrap().take().unwrap();
+        headers.map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
     }
 }
 
@@ -154,12 +149,5 @@ mod tests {
         let result = make_result(404, "");
         let result = parse_head_object_error(&result);
         assert_eq!(result, Some(HeadObjectError::NotFound));
-    }
-
-    #[test]
-    fn parse_403() {
-        let result = make_result(403, "");
-        let result = parse_head_object_error(&result);
-        assert_eq!(result, None);
     }
 }

@@ -85,10 +85,7 @@ impl S3CrtClient {
             },
             move |result| {
                 if result.is_err() {
-                    let parsed = parse_get_object_error(&result);
-                    Err(parsed
-                        .map(ObjectClientError::ServiceError)
-                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result))))
+                    Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
                 } else {
                     Ok(())
                 }

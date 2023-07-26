@@ -170,12 +170,7 @@ impl S3CrtClient {
             );
 
             self.inner
-                .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
-                    let parsed = parse_list_objects_error(&result);
-                    parsed
-                        .map(ObjectClientError::ServiceError)
-                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
-                })?
+                .make_simple_http_request(message, MetaRequestType::Default, span, parse_list_objects_error)?
         };
 
         let body = body.await?;
@@ -222,15 +217,5 @@ mod tests {
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_list_objects_error(&result);
         assert_eq!(result, Some(ListObjectsError::NoSuchBucket));
-    }
-
-    #[test]
-    fn parse_403_glacier_storage_class() {
-        // ListObjectsV2 can't actually fail with this XML, it's just a convenient body to use for
-        // the test
-        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidObjectState</Code><Message>The action is not valid for the object's storage class</Message><RequestId>9FEFFF118E15B86F</RequestId><HostId>WVQ5kzhiT+oiUfDCOiOYv8W4Tk9eNcxWi/MK+hTS/av34Xy4rBU3zsavf0aaaaa</HostId></Error>"#;
-        let result = make_result(403, OsStr::from_bytes(&body[..]));
-        let result = parse_list_objects_error(&result);
-        assert_eq!(result, None);
     }
 }

@@ -1,5 +1,6 @@
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
+use std::ops::Deref;
 use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
@@ -29,7 +30,7 @@ use futures::channel::oneshot;
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pin_project::pin_project;
 use thiserror::Error;
-use tracing::{error, trace, Span};
+use tracing::{debug, error, trace, Span};
 
 use crate::endpoint_config::EndpointError;
 use crate::object_client::*;
@@ -299,6 +300,7 @@ impl S3CrtClientInner {
     /// object data.
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
         let uri = self.endpoint_config.resolve_for_bucket(bucket)?;
+        trace!(?uri, "resolved endpoint");
         let hostname = uri.host_name().to_str().unwrap();
         let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();
@@ -343,34 +345,40 @@ impl S3CrtClientInner {
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
-    /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
-    /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
-    /// succeeded.
-    fn make_meta_request<T: Send + 'static, E: Send + 'static>(
+    /// makes progress.
+    ///
+    /// The `on_finish` callback is invoked on both successful and failed requests; it should call
+    /// `.is_err()` on the [MetaRequestResult] to decide whether the underlying meta request
+    /// succeeded. This callback should return `Err(None)` if it considers the request to have
+    /// failed but doesn't have a request-specific failure reason. The client will apply some
+    /// generic error parsing in this case (e.g. for permissions errors).
+    fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
         message: S3Message,
         meta_request_type: MetaRequestType,
         request_span: Span,
         on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_finish: impl FnOnce(MetaRequestResult) -> ObjectClientResult<T, E, S3RequestError> + Send + 'static,
+        on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
+            + Send
+            + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, meta_request_type);
         self.make_meta_request_from_options(options, request_span, on_headers, on_body, on_finish)
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
-    /// makes progress. The `on_finish` callback is invoked on both successful and failed requests;
-    /// it should call `.is_err()` on the [MetaRequestResult] to decide whether the request
-    /// succeeded.
+    /// makes progress. See [make_meta_request] for arguments.
     #[allow(clippy::too_many_arguments)] // TODO: review
-    fn make_meta_request_from_options<T: Send + 'static, E: Send + 'static>(
+    fn make_meta_request_from_options<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
         mut options: MetaRequestOptions,
         request_span: Span,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_finish: impl FnOnce(MetaRequestResult) -> ObjectClientResult<T, E, S3RequestError> + Send + 'static,
+        on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
+            + Send
+            + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
         let (tx, rx) = oneshot::channel::<ObjectClientResult<T, E, S3RequestError>>();
 
@@ -444,9 +452,27 @@ impl S3CrtClientInner {
                     metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
                 }
 
+                // Let the `on_finish` callback decide whether the request failed or not. If it did,
+                // the callback can decide whether it wants to parse the error, or return
+                // `Err(None)` if it wants to fall back to generic error handling.
+                let parsed_result = on_finish(&request_result);
+                let parsed_result = match parsed_result {
+                    Ok(t) => Ok(t),
+                    Err(Some(e)) => Err(Some(e)),
+                    // If `try_parse_generic_error` fails we'll eventually generate a
+                    // [S3RequestError::ResponseError], but can't do that until we're finished using
+                    // `request_result`, so keep the None error for now.
+                    Err(None) => Err(try_parse_generic_error(&request_result).map(ObjectClientError::ClientError)),
+                };
+
                 let log_level = status_code_to_log_level(request_result.response_status);
-                if request_result.is_err() {
-                    event!(log_level, ?duration, ?request_result, "meta request failed");
+                if parsed_result.is_err() {
+                    if let Err(Some(error)) = &parsed_result {
+                        event!(log_level, ?duration, ?error, "meta request failed");
+                        debug!("failed meta request result: {:?}", request_result);
+                    } else {
+                        event!(log_level, ?duration, ?request_result, "meta request failed");
+                    }
 
                     // If it's not a real HTTP status, encode the CRT error in the metric instead
                     let error_status = if request_result.response_status >= 100 {
@@ -459,7 +485,8 @@ impl S3CrtClientInner {
                     event!(log_level, ?duration, "meta request finished");
                 }
 
-                let result = on_finish(request_result);
+                // Now we can finally fill in the generic error if we didn't already parse one
+                let result = parsed_result.map_err(|e| e.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))));
 
                 let _ = tx.send(result);
             });
@@ -474,31 +501,30 @@ impl S3CrtClientInner {
     }
 
     /// Make an HTTP request using this S3 client that returns the body on success or invokes the
-    /// given callback on failure.
+    /// given callback to generate an error on failure.
     ///
     /// The `on_error` callback can assume that `result.is_err()` is true for the result it
-    /// receives.
-    fn make_simple_http_request<E: Send + 'static>(
+    /// receives. It can return `None` if it considers the request to have failed but doesn't
+    /// have a request-specific failure reason; the client will apply some generic error parsing in
+    /// this case (e.g. for permissions errors).
+    fn make_simple_http_request<E: std::error::Error + Send + 'static>(
         &self,
         message: S3Message,
         request_type: MetaRequestType,
         request_span: Span,
-        on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
+        on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, request_type);
         self.make_simple_http_request_from_options(options, request_span, on_error)
     }
 
     /// Make an HTTP request using this S3 client that returns the body on success or invokes the
-    /// given callback on failure.
-    ///
-    /// The `on_error` callback can assume that `result.is_err()` is true for the result it
-    /// receives.
-    fn make_simple_http_request_from_options<E: Send + 'static>(
+    /// given callback on failure. See [make_simple_http_request] for arguments.
+    fn make_simple_http_request_from_options<E: std::error::Error + Send + 'static>(
         &self,
         options: MetaRequestOptions,
         request_span: Span,
-        on_error: impl FnOnce(MetaRequestResult) -> ObjectClientError<E, S3RequestError> + Send + 'static,
+        on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
@@ -515,7 +541,7 @@ impl S3CrtClientInner {
             },
             move |result| {
                 if result.is_err() {
-                    Err(on_error(result))
+                    Err(on_error(result).map(ObjectClientError::ServiceError))
                 } else {
                     Ok(std::mem::take(&mut *body.lock().unwrap()))
                 }
@@ -712,6 +738,14 @@ pub enum S3RequestError {
     /// The request was sent but an unknown or unhandled failure occurred while processing it.
     #[error("Unknown response error: {0:?}")]
     ResponseError(MetaRequestResult),
+
+    /// The request was made to the wrong region
+    #[error("Wrong region (expecting {0})")]
+    IncorrectRegion(String),
+
+    /// Permission denied
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
 }
 
 impl S3RequestError {
@@ -723,11 +757,11 @@ impl S3RequestError {
 #[derive(Error, Debug)]
 pub enum ConstructionError {
     /// CRT error while constructing the request
-    #[error("Unknown CRT error: {0}")]
+    #[error("Unknown CRT error")]
     CrtError(#[from] mountpoint_s3_crt::common::error::Error),
 
     /// The S3 endpoint was invalid
-    #[error("Invalid S3 endpoint: {0}")]
+    #[error("Invalid S3 endpoint")]
     InvalidEndpoint(#[from] EndpointError),
 }
 
@@ -774,6 +808,47 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
 
     // Rust ranges are exclusive at the end, but Content-Range is inclusive
     Some(start..end + 1)
+}
+
+/// Try to parse a modeled error out of a failing meta request
+fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+    /// Look for a redirect header pointing to a different region for the bucket
+    fn try_parse_redirect(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        let headers = request_result.error_response_headers.as_ref()?;
+        let region_header = headers.get("x-amz-bucket-region").ok()?;
+        let region = region_header.value().to_owned().into_string().ok()?;
+        Some(S3RequestError::IncorrectRegion(region))
+    }
+
+    /// Look for permissions-related errors
+    fn try_parse_permission_denied(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        let Some(body) = request_result.error_response_body.as_ref() else {
+            // Header-only requests like HeadObject and HeadBucket can't give us a more detailed
+            // error, so just trust the response code
+            return Some(S3RequestError::PermissionDenied("<no message>".to_owned()));
+        };
+        let error_elem = xmltree::Element::parse(body.as_bytes()).ok()?;
+        let error_code = error_elem.get_child("Code")?;
+        let error_code_str = error_code.get_text()?;
+        match error_code_str.deref() {
+            "AccessDenied" | "InvalidToken" | "ExpiredToken" => {
+                let message = error_elem
+                    .get_child("Message")
+                    .and_then(|e| e.get_text())
+                    .unwrap_or("<no message>".into());
+                Some(S3RequestError::PermissionDenied(message.into_owned()))
+            }
+            _ => None,
+        }
+    }
+
+    match request_result.response_status {
+        301 => try_parse_redirect(request_result),
+        // 400 is overloaded, it can be a permission denied or (for MRAP) a bucket redirect
+        400 => try_parse_permission_denied(request_result).or_else(|| try_parse_redirect(request_result)),
+        403 => try_parse_permission_denied(request_result),
+        _ => None,
+    }
 }
 
 #[async_trait]
@@ -950,5 +1025,88 @@ mod tests {
         assert!(expected_bucket_owner_value
             .to_string_lossy()
             .starts_with(expected_bucket_owner));
+    }
+
+    fn make_result(
+        response_status: i32,
+        body: impl Into<OsString>,
+        bucket_region_header: Option<&str>,
+    ) -> MetaRequestResult {
+        let error_response_headers = bucket_region_header.map(|h| {
+            let mut headers = Headers::new(&Allocator::default()).unwrap();
+            headers.add_header(&Header::new("x-amz-bucket-region", h)).unwrap();
+            headers
+        });
+        MetaRequestResult {
+            response_status,
+            crt_error: 1i32.into(),
+            error_response_headers,
+            error_response_body: Some(body.into()),
+        }
+    }
+
+    #[test]
+    fn parse_301_redirect() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>PermanentRedirect</Code><Message>The bucket you are attempting to access must be addressed using the specified endpoint. Please send all future requests to this endpoint.</Message><Endpoint>DOC-EXAMPLE-BUCKET.s3-us-west-2.amazonaws.com</Endpoint><Bucket>DOC-EXAMPLE-BUCKET</Bucket><RequestId>CM0Z9YFABRVSWXDJ</RequestId><HostId>HHmbUixasrJ02DlkOSCvJId897Jm0ERHuE2XMkSn2Oax1J/ad2+AU9nFrODN1ay13cWFgIAYBnI=</HostId></Error>"#;
+        let result = make_result(301, OsStr::from_bytes(&body[..]), Some("us-west-2"));
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::IncorrectRegion(region)) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+        assert_eq!(region, "us-west-2");
+    }
+
+    #[test]
+    fn parse_403_access_denied() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message><RequestId>CM0R497NB0WAQ977</RequestId><HostId>w1TqUKGaIuNAIgzqm/L2azuzgEBINxTngWPbV1iH2IvpLsVCCTKHJTh4HsGp4JnggHqVkA+KN1MGqHDw1+WEuA==</HostId></Error>"#;
+        let result = make_result(403, OsStr::from_bytes(&body[..]), None);
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::PermissionDenied(message)) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+        assert_eq!(message, "Access Denied");
+    }
+
+    #[test]
+    fn parse_400_invalid_token() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidToken</Code><Message>The provided token is malformed or otherwise invalid.</Message><Token-0>THEREALTOKENGOESHERE</Token-0><RequestId>CBFNVADDAZ8661HK</RequestId><HostId>rb5dpgYeIFxi8p5BzVK8s8wG/nQ4a7C5kMBp/KWIT4bvOUihugpssMTy7xS0mispbz6IIaX8W1g=</HostId></Error>"#;
+        let result = make_result(400, OsStr::from_bytes(&body[..]), None);
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::PermissionDenied(message)) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+        assert_eq!(message, "The provided token is malformed or otherwise invalid.");
+    }
+
+    #[test]
+    fn parse_400_expired_token() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>ExpiredToken</Code><Message>The provided token has expired.</Message><Token-0>THEREALTOKENGOESHERE</Token-0><RequestId>RFXW0E15XSRPJYSW</RequestId><HostId>djitP7S+g43JSzR4pMOJpOO3RYpQUOUsmD4AqhRe3v24+JB/c+vwOEZgI8A35KDUe1cqQ5yKHwg=</HostId></Error>"#;
+        let result = make_result(400, OsStr::from_bytes(&body[..]), None);
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::PermissionDenied(message)) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+        assert_eq!(message, "The provided token has expired.");
+    }
+
+    #[test]
+    fn parse_400_redirect() {
+        // From an s3-accelerate endpoint with the wrong region set for signing
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>AuthorizationHeaderMalformed</Code><Message>The authorization header is malformed; the region \'us-east-1\' is wrong; expecting \'us-west-2\'</Message><Region>us-west-2</Region><RequestId>VR3NH4JF5F39GB66</RequestId><HostId>ZDzYFC1w0E5K34+ZCAnvh9ZiGaAhvx5COyZVYTUnKvSP/694xCiXmJ2AEGZd5T1Epy9vB4EOOjk=</HostId></Error>"#;
+        let result = make_result(400, OsStr::from_bytes(&body[..]), Some("us-west-2"));
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::IncorrectRegion(region)) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+        assert_eq!(region, "us-west-2");
+    }
+
+    // A 403 that shouldn't be parsed by the generic code
+    #[test]
+    fn parse_403_glacier_storage_class() {
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidObjectState</Code><Message>The action is not valid for the object's storage class</Message><RequestId>9FEFFF118E15B86F</RequestId><HostId>WVQ5kzhiT+oiUfDCOiOYv8W4Tk9eNcxWi/MK+hTS/av34Xy4rBU3zsavf0aaaaa</HostId></Error>"#;
+        let result = make_result(403, OsStr::from_bytes(&body[..]), None);
+        let result = try_parse_generic_error(&result);
+        assert!(result.is_none(), "error should not be handled, but got {:?}", result);
     }
 }

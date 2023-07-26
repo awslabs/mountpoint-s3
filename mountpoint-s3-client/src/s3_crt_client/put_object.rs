@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams};
-use crate::{ObjectClientError, PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
+use crate::{PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
@@ -49,9 +49,7 @@ impl S3CrtClient {
         options.on_upload_review(move |review| callback.invoke(review));
         let body = self
             .inner
-            .make_simple_http_request_from_options(options, span, |result| {
-                ObjectClientError::ClientError(S3RequestError::ResponseError(result))
-            })?;
+            .make_simple_http_request_from_options(options, span, |_| None)?;
 
         Ok(S3PutObjectRequest {
             body,
