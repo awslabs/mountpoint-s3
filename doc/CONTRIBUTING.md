@@ -17,7 +17,7 @@ reported the issue. Please try to include as much information as you can. Detail
 * Any modifications you've made relevant to the bug
 * Anything unusual about your environment or deployment
 
-Logs are also valuable for bug reports. Please read the [logging documentation](LOGGING.md) for details on how to capture logs.
+Logs are also valuable for bug reports. Please read the [logging documentation](LOGGING.md) for details on how to capture verbose logs.
 
 ## Contributing via Pull Requests
 

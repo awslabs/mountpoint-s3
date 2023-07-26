@@ -40,7 +40,10 @@ use crate::{build_info, EndpointConfig};
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
         let counter = $self.next_request_counter();
-        let span = tracing::debug_span!($method, id = counter, $($field)*);
+        // I have confused myself at least 4 times about how to choose the level for tracing spans.
+        // We want this span to be constructed whenever events at WARN or lower severity (INFO,
+        // DEBUG, TRACE) are emitted. So we set its severity to WARN too.
+        let span = tracing::warn_span!($method, id = counter, $($field)*);
         span.in_scope(|| tracing::debug!("new request"));
         span
     }};

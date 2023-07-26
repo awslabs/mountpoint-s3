@@ -7,10 +7,14 @@ use smallstr::SmallString;
 use crate::common::allocator::Allocator;
 use crate::common::logging::{Level, Logger, LoggerImpl, LoggerInitError, Subject};
 
+/// The log target name for metrics emitted by the CRT
+pub const AWSCRT_LOG_TARGET: &str = "awscrt";
+
 /// This is an implementation of `LoggerImpl` that can be used to pipe CRT log messages into the
 /// Rust `log` facade. To install it, call `RustLogAdapter::try_init()`, and then CRT log messages
 /// will be sent to the `log` facade. These messages will follow that facade's logic for when to
-/// emit log messages. All CRT log messages will have a target that starts with "awscrt::".
+/// emit log messages. All CRT log messages will have a target that starts with the value of
+/// [AWSCRT_LOG_TARGET].
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct RustLogAdapter;
@@ -28,7 +32,7 @@ impl RustLogAdapter {
 impl LoggerImpl for RustLogAdapter {
     fn log(&self, log_level: Level, subject: Subject, message: &str) {
         let mut target = SmallString::<[u8; 64]>::new();
-        let _ = write!(target, "awscrt::{}", subject.name());
+        let _ = write!(target, "{}::{}", AWSCRT_LOG_TARGET, subject.name());
         log::log!(target: target.as_str(), log_level.into(), "{}", message);
     }
     fn get_log_level(&self, _subject: Subject) -> Level {
