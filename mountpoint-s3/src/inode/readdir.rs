@@ -69,7 +69,7 @@ impl ReaddirHandle {
             let inode = inner.get(dir_ino)?;
             let kind_data = &inode.get_inode_state()?.kind_data;
             let local_files = match kind_data {
-                InodeKindData::File { .. } => return Err(InodeError::NotADirectory(dir_ino)),
+                InodeKindData::File { .. } => return Err(InodeError::NotADirectory(inode.err())),
                 InodeKindData::Directory { writing_children, .. } => writing_children.iter().map(|ino| {
                     let inode = inner.get(*ino)?;
                     let stat = inode.get_inode_state()?.stat.clone();

@@ -447,7 +447,7 @@ where
         let lookup = self.superblock.getattr(&self.client, ino, true).await?;
 
         match lookup.inode.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.ino()).into()),
+            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
             InodeKind::File => (),
         }
 
