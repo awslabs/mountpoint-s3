@@ -461,6 +461,7 @@ fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {
     write_with_storage_class_test(crate::fuse_tests::mock_session::new, storage_class);
 }
 
+#[cfg_attr(not(feature = "s3_tests"), allow(unused))] // Mock client doesn't validate storage classes
 fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),

@@ -168,6 +168,7 @@ impl ReaddirHandle {
                     object_info.size as usize,
                     object_info.last_modified,
                     Some(object_info.etag.clone()),
+                    object_info.storage_class.clone(),
                     self.inner.cache_config.file_ttl,
                 );
                 Some(RemoteLookup {

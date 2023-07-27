@@ -28,6 +28,8 @@ use std::time::{Duration, Instant};
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
+use lasso::{Key, MiniSpur, ThreadedRodeo};
+use lazy_static::lazy_static;
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
@@ -50,6 +52,28 @@ pub const ROOT_INODE_NO: InodeNo = 1;
 
 // 200 years seems long enough
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
+
+lazy_static! {
+    /// There's a small number of possible storage classes, so avoid allocating a string for every
+    /// inode by interning their string representations.
+    static ref STORAGE_CLASS_INTERN: ThreadedRodeo<StorageClass> = ThreadedRodeo::new();
+}
+
+/// Key for an interned storage class
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+struct StorageClass(MiniSpur);
+
+// SAFETY: just delegating to the underlying impl
+unsafe impl Key for StorageClass {
+    fn into_usize(self) -> usize {
+        self.0.into_usize()
+    }
+
+    fn try_from_usize(int: usize) -> Option<Self> {
+        MiniSpur::try_from_usize(int).map(Self)
+    }
+}
 
 pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
     let name = name.as_ref();
@@ -305,7 +329,7 @@ impl Superblock {
         // Local inode stats never expire, because they can't be looked up remotely
         let stat = match kind {
             // Objects don't have an ETag until they are uploaded to S3
-            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), None, NEVER_EXPIRE_TTL),
+            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, NEVER_EXPIRE_TTL),
             InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, NEVER_EXPIRE_TTL),
         };
 
@@ -573,7 +597,7 @@ impl SuperblockInner {
                 result = file_lookup => {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
-                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), self.cache_config.file_ttl);
+                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), object.storage_class, self.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -1214,6 +1238,8 @@ pub struct InodeStat {
     pub atime: OffsetDateTime,
     /// Etag for the file (object)
     pub etag: Option<String>,
+    /// Storage class for the file (object), if known
+    storage_class: Option<StorageClass>,
 }
 
 /// Inode write status (local vs remote)
@@ -1233,10 +1259,17 @@ impl InodeStat {
     }
 
     /// Initialize an [InodeStat] for a file, given some metadata.
-    fn for_file(size: usize, datetime: OffsetDateTime, etag: Option<String>, validity: Duration) -> InodeStat {
+    fn for_file(
+        size: usize,
+        datetime: OffsetDateTime,
+        etag: Option<String>,
+        storage_class: Option<String>,
+        validity: Duration,
+    ) -> InodeStat {
         let expiry = Instant::now()
             .checked_add(validity)
             .expect("64-bit time shouldn't overflow");
+        let storage_class = storage_class.map(|sc| STORAGE_CLASS_INTERN.get_or_intern(sc));
         InodeStat {
             expiry,
             size,
@@ -1244,6 +1277,7 @@ impl InodeStat {
             ctime: datetime,
             mtime: datetime,
             etag,
+            storage_class,
         }
     }
 
@@ -1259,6 +1293,7 @@ impl InodeStat {
             ctime: datetime,
             mtime: datetime,
             etag: None,
+            storage_class: None,
         }
     }
 
@@ -1266,6 +1301,10 @@ impl InodeStat {
         self.expiry = Instant::now()
             .checked_add(validity)
             .expect("64-bit time shouldn't overflow");
+    }
+
+    pub fn storage_class(&self) -> Option<&str> {
+        self.storage_class.map(|sc| STORAGE_CLASS_INTERN.resolve(&sc))
     }
 }
 
@@ -1458,7 +1497,7 @@ mod tests {
             InodeKind::File,
             InodeState {
                 write_status: WriteStatus::Remote,
-                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, Default::default()),
+                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, Default::default()),
                 kind_data: InodeKindData::File {},
                 lookup_count: 5,
             },
@@ -1967,6 +2006,7 @@ mod tests {
                         0,
                         OffsetDateTime::now_utc(),
                         Some(ETag::for_tests().as_str().to_owned()),
+                        None,
                         NEVER_EXPIRE_TTL,
                     ),
                     write_status: WriteStatus::Remote,
@@ -2268,7 +2308,7 @@ mod tests {
                 checksum,
                 sync: RwLock::new(InodeState {
                     write_status: WriteStatus::LocalOpen,
-                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, Default::default()),
+                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
                     lookup_count: 5,
                 }),
@@ -2291,7 +2331,7 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, None, Default::default());
+        let file_inodestat = InodeStat::for_file(128, ts, None, None, Default::default());
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
