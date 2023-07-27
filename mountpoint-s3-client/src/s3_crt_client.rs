@@ -369,7 +369,6 @@ impl S3CrtClientInner {
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
     /// makes progress. See [make_meta_request] for arguments.
-    #[allow(clippy::too_many_arguments)] // TODO: review
     fn make_meta_request_from_options<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
         mut options: MetaRequestOptions,
@@ -452,41 +451,38 @@ impl S3CrtClientInner {
                     metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
                 }
 
-                // Let the `on_finish` callback decide whether the request failed or not. If it did,
-                // the callback can decide whether it wants to parse the error, or return
-                // `Err(None)` if it wants to fall back to generic error handling.
-                let parsed_result = on_finish(&request_result);
-                let parsed_result = match parsed_result {
-                    Ok(t) => Ok(t),
-                    Err(Some(e)) => Err(Some(e)),
-                    // If `try_parse_generic_error` fails we'll eventually generate a
-                    // [S3RequestError::ResponseError], but can't do that until we're finished using
-                    // `request_result`, so keep the None error for now.
-                    Err(None) => Err(try_parse_generic_error(&request_result).map(ObjectClientError::ClientError)),
-                };
-
                 let log_level = status_code_to_log_level(request_result.response_status);
-                if parsed_result.is_err() {
-                    if let Err(Some(error)) = &parsed_result {
-                        event!(log_level, ?duration, ?error, "meta request failed");
-                        debug!("failed meta request result: {:?}", request_result);
-                    } else {
-                        event!(log_level, ?duration, ?request_result, "meta request failed");
+
+                // The `on_finish` callback has a choice of whether to give us an error or not. If
+                // not, fall back to generic error parsing (e.g. for permissions errors), or just no
+                // error if that fails too.
+                let result = on_finish(&request_result);
+                let result = result.map_err(|e| e.or_else(|| try_parse_generic_error(&request_result).map(ObjectClientError::ClientError)));
+                let result = match result {
+                    Ok(t) => {
+                        event!(log_level, ?duration, "meta request finished");
+                        Ok(t)
                     }
+                    Err(maybe_err) => {
+                        if let Some(error) = &maybe_err {
+                            event!(log_level, ?duration, ?error, "meta request failed");
+                            debug!("failed meta request result: {:?}", request_result);
+                        } else {
+                            event!(log_level, ?duration, ?request_result, "meta request failed");
+                        }
 
-                    // If it's not a real HTTP status, encode the CRT error in the metric instead
-                    let error_status = if request_result.response_status >= 100 {
-                        request_result.response_status
-                    } else {
-                        -request_result.crt_error.raw_error()
-                    };
-                    metrics::counter!("s3.meta_requests.failures", 1, "op" => op, "status" => format!("{error_status}"));
-                } else {
-                    event!(log_level, ?duration, "meta request finished");
-                }
+                        // If it's not a real HTTP status, encode the CRT error in the metric instead
+                        let error_status = if request_result.response_status >= 100 {
+                            request_result.response_status
+                        } else {
+                            -request_result.crt_error.raw_error()
+                        };
+                        metrics::counter!("s3.meta_requests.failures", 1, "op" => op, "status" => format!("{error_status}"));
 
-                // Now we can finally fill in the generic error if we didn't already parse one
-                let result = parsed_result.map_err(|e| e.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))));
+                        // Fill in a generic error if we weren't able to parse one
+                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
+                    }
+                };
 
                 let _ = tx.send(result);
             });
@@ -494,7 +490,6 @@ impl S3CrtClientInner {
         // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
         // the resulting meta request, as it's a reference-counted object.
         self.s3_client.make_meta_request(options)?;
-
         Self::poll_client_metrics(&self.s3_client);
 
         Ok(S3HttpRequest { receiver: rx })

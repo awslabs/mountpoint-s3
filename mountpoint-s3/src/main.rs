@@ -509,8 +509,8 @@ fn create_client_for_bucket(
         Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
-            let head_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
-            futures::executor::block_on(head_request)
+            let list_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
+            futures::executor::block_on(list_request)
                 .map(|_| new_client)
                 .with_context(|| format!("initial ListObjectsV2 failed for bucket {bucket} in region {region}"))
         }

@@ -72,8 +72,8 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
-        // We use this header to stash the response from the head_object during the on_headers
-        // callback, and send it back on the oneshot when we finish.
+        // Stash the response from the head_object in this lock during the on_headers
+        // callback, and pull them out once the request is done.
         let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
         let header1 = header.clone();
 
