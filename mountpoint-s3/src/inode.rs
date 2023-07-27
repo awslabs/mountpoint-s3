@@ -28,6 +28,8 @@ use std::time::{Duration, Instant};
 
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
+use lasso::{Key, MiniSpur, ThreadedRodeo};
+use lazy_static::lazy_static;
 use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError};
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
@@ -50,6 +52,28 @@ pub const ROOT_INODE_NO: InodeNo = 1;
 
 // 200 years seems long enough
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
+
+lazy_static! {
+    /// There's a small number of possible storage classes, so avoid allocating a string for every
+    /// inode by interning their string representations.
+    static ref STORAGE_CLASS_INTERN: ThreadedRodeo<StorageClass> = ThreadedRodeo::new();
+}
+
+/// Key for an interned storage class
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+struct StorageClass(MiniSpur);
+
+// SAFETY: just delegating to the underlying impl
+unsafe impl Key for StorageClass {
+    fn into_usize(self) -> usize {
+        self.0.into_usize()
+    }
+
+    fn try_from_usize(int: usize) -> Option<Self> {
+        MiniSpur::try_from_usize(int).map(Self)
+    }
+}
 
 pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
     let name = name.as_ref();
@@ -1215,7 +1239,7 @@ pub struct InodeStat {
     /// Etag for the file (object)
     pub etag: Option<String>,
     /// Storage class for the file (object), if known
-    pub storage_class: Option<String>,
+    storage_class: Option<StorageClass>,
 }
 
 /// Inode write status (local vs remote)
@@ -1245,6 +1269,7 @@ impl InodeStat {
         let expiry = Instant::now()
             .checked_add(validity)
             .expect("64-bit time shouldn't overflow");
+        let storage_class = storage_class.map(|sc| STORAGE_CLASS_INTERN.get_or_intern(sc));
         InodeStat {
             expiry,
             size,
@@ -1276,6 +1301,10 @@ impl InodeStat {
         self.expiry = Instant::now()
             .checked_add(validity)
             .expect("64-bit time shouldn't overflow");
+    }
+
+    pub fn storage_class(&self) -> Option<&str> {
+        self.storage_class.map(|sc| STORAGE_CLASS_INTERN.resolve(&sc))
     }
 }
 

@@ -356,7 +356,7 @@ pub trait ReadReplier {
 /// see an attempted `open` call.
 fn is_flexible_retrieval_storage_class(lookup: &LookedUp) -> bool {
     static HAS_SENT_WARNING: AtomicBool = AtomicBool::new(false);
-    match lookup.stat.storage_class.as_deref() {
+    match lookup.stat.storage_class() {
         Some("GLACIER") | Some("DEEP_ARCHIVE") => {
             if !HAS_SENT_WARNING.swap(true, Ordering::SeqCst) {
                 tracing::warn!(
