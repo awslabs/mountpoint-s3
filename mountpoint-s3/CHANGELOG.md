@@ -13,6 +13,9 @@
 
 * New bucket options of `--transfer-acceleration`, `--dual-stack` and `--fips` has been added.
 * ARN is now also supported as <BUCKET_NAME> to mount the corresponding resource using Mountpoint.
+* Option `--profile <AWS_PROFILE>` no longer replaces the entire default credential chain.
+  Instead, the provided name will be used with AWS config file entries when evaluating the default credential chain,
+  alike the AWS CLI and AWS SDKs.
 
 ## v0.4.0 (August 2, 2023)
 

@@ -154,17 +154,25 @@ impl S3ClientConfig {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub enum S3ClientAuthConfig {
     /// The default AWS credentials resolution chain, similar to the AWS CLI
-    #[default]
-    Default,
+    DefaultChain {
+        /// Optional profile override to be used when evaluating credential chain
+        profile_name_override: Option<String>,
+    },
     /// Do not sign requests at all
     NoSigning,
-    /// Explicitly load the given profile name from the AWS CLI configuration file
-    Profile(String),
     /// Use a custom credentials provider
     Provider(CredentialsProvider),
+}
+
+impl Default for S3ClientAuthConfig {
+    fn default() -> Self {
+        S3ClientAuthConfig::DefaultChain {
+            profile_name_override: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -230,9 +238,10 @@ impl S3CrtClientInner {
 
         trace!("constructing client with auth config {:?}", config.auth_config);
         let credentials_provider = match config.auth_config {
-            S3ClientAuthConfig::Default => {
+            S3ClientAuthConfig::DefaultChain { profile_name_override } => {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
+                    profile_name_override: profile_name_override.as_deref(),
                 };
                 Some(
                     CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
@@ -240,16 +249,6 @@ impl S3CrtClientInner {
                 )
             }
             S3ClientAuthConfig::NoSigning => None,
-            S3ClientAuthConfig::Profile(profile_name) => {
-                let credentials_profile_options = CredentialsProviderProfileOptions {
-                    bootstrap: &mut client_bootstrap,
-                    profile_name_override: &profile_name,
-                };
-                Some(
-                    CredentialsProvider::new_profile(&allocator, credentials_profile_options)
-                        .map_err(NewClientError::ProviderFailure)?,
-                )
-            }
             S3ClientAuthConfig::Provider(provider) => Some(provider),
         };
 

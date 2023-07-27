@@ -1,6 +1,10 @@
 #![cfg(feature = "s3_tests")]
 
+use aws_config::default_provider::credentials::DefaultCredentialsChain;
+use aws_credential_types::provider::ProvideCredentials;
+use aws_credential_types::Credentials;
 use aws_sdk_s3 as s3;
+use aws_sdk_sts as sts;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
@@ -53,6 +57,9 @@ pub fn get_test_domain() -> String {
     std::env::var("S3_DOMAIN").unwrap_or(String::from("amazonaws.com"))
 }
 
+/// AWS IAM Role that can be assumed by individual tests to scope down permissions.
+///
+/// It does this by making an AWS Security Token Service (STS) AssumeRole call providing the policy request field.
 pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
@@ -63,6 +70,53 @@ pub async fn get_test_sdk_client() -> s3::Client {
         .load()
         .await;
     s3::Client::new(&config)
+}
+
+pub async fn get_test_sdk_sts_client() -> sts::Client {
+    let config = aws_config::from_env()
+        .region(Region::new(get_test_region()))
+        .load()
+        .await;
+    sts::Client::new(&config)
+}
+
+/// Grab a set of SDK [Credentials] from the default credential provider chain.
+pub async fn get_sdk_default_chain_creds() -> Credentials {
+    let sdk_provider = DefaultCredentialsChain::builder()
+        .region(Region::new(get_test_region()))
+        .build()
+        .await;
+    sdk_provider
+        .provide_credentials()
+        .await
+        .expect("default chain credentials should be available")
+}
+
+/// Takes the provided IAM Policy and assumes the configured subsession role,
+/// applying the given policy to scope down the permissions available.
+///
+/// Note, the subsession role must already have any permissions you wish to use -
+/// this will only reduce the scope of permissions.
+pub async fn get_scoped_down_credentials(policy: String) -> Credentials {
+    let sts_client = get_test_sdk_sts_client().await;
+    let assume_role_response = sts_client
+        .assume_role()
+        .role_arn(get_subsession_iam_role())
+        .policy(policy)
+        .send()
+        .await
+        .expect("assume_role with valid ARN and policy should succeed");
+    let credentials = assume_role_response
+        .credentials()
+        .expect("credentials should be present if assume_role succeeded")
+        .to_owned();
+    Credentials::new(
+        credentials.access_key_id().unwrap(),
+        credentials.secret_access_key().unwrap(),
+        credentials.session_token().map(|s| s.to_owned()),
+        None,
+        "scoped_down_sts_creds",
+    )
 }
 
 /// Create some objects in a prefix for testing.

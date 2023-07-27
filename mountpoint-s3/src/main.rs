@@ -385,10 +385,10 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     let auth_config = if args.no_sign_request {
         S3ClientAuthConfig::NoSigning
-    } else if let Some(profile_name) = args.profile {
-        S3ClientAuthConfig::Profile(profile_name)
     } else {
-        S3ClientAuthConfig::Default
+        S3ClientAuthConfig::DefaultChain {
+            profile_name_override: args.profile,
+        }
     };
 
     let mut client_config = S3ClientConfig::new()
