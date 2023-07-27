@@ -149,13 +149,12 @@ impl S3CrtClient {
                 ?object_attributes
             );
 
-            self.inner
-                .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
-                    let parsed = parse_get_object_attributes_error(&result);
-                    parsed
-                        .map(ObjectClientError::ServiceError)
-                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
-                })?
+            self.inner.make_simple_http_request(
+                message,
+                MetaRequestType::Default,
+                span,
+                parse_get_object_attributes_error,
+            )?
         };
 
         let body = body.await?;
@@ -243,13 +242,6 @@ mod tests {
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_get_object_attributes_error(&result);
         assert_eq!(result, Some(GetObjectAttributesError::NoSuchBucket));
-    }
-
-    #[test]
-    fn parse_403() {
-        let result = make_result(403, "");
-        let result = parse_get_object_attributes_error(&result);
-        assert_eq!(result, None);
     }
 
     #[test]

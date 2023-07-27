@@ -15,7 +15,7 @@ use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics::{MetricsSink, METRICS_TARGET_NAME};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
-    AddressingStyle, EndpointConfig, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient,
+    AddressingStyle, EndpointConfig, ObjectClientError, S3ClientConfig, S3CrtClient, S3RequestError,
 };
 use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
@@ -404,8 +404,11 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         client_config = client_config.bucket_owner(&owner);
     }
 
+    let prefix = args.prefix.unwrap_or_default();
+
     let client = create_client_for_bucket(
         &args.bucket_name,
+        &prefix,
         args.region,
         args.endpoint_url,
         endpoint_config,
@@ -431,7 +434,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.prefetcher_config.part_alignment = args.part_size as usize;
     filesystem_config.allow_delete = args.allow_delete;
 
-    let prefix = args.prefix.unwrap_or_default();
     let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &prefix, filesystem_config);
 
     let fs_name = String::from("mountpoint-s3");
@@ -463,14 +465,15 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     Ok(session)
 }
 
-/// Create a client for a bucket in the given region and send a HeadBucket request to validate it's
-/// accessible. If no region is provided, attempt to infer it by first sending a HeadBucket to the
-/// default region.
+/// Create a client for a bucket in the given region and send a ListObjectsV2 request to validate
+/// that it's accessible. If no region is provided, attempt to infer it by first sending a
+/// ListObjectsV2 to the default region.
 ///
 /// This also has the nice side effect of triggering the CRT's DNS resolver to start pooling
 /// responses, which means we don't have to wait for the first file read to start the rampup period.
 fn create_client_for_bucket(
     bucket: &str,
+    prefix: &Prefix,
     supposed_region: Option<String>,
     endpoint_url: Option<String>,
     mut endpoint_config: EndpointConfig,
@@ -499,19 +502,20 @@ fn create_client_for_bucket(
 
     let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
 
-    let head_request = client.head_bucket(bucket);
-    match futures::executor::block_on(head_request) {
+    let list_request = client.list_objects(bucket, None, "", 0, prefix.as_str());
+    match futures::executor::block_on(list_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(ObjectClientError::ServiceError(HeadBucketError::IncorrectRegion(region))) if supposed_region.is_none() => {
+        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if supposed_region.is_none() => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
-            let head_request = new_client.head_bucket(bucket);
-            futures::executor::block_on(head_request)
+            let list_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
+            futures::executor::block_on(list_request)
                 .map(|_| new_client)
-                .with_context(|| format!("HeadBucket failed for bucket {bucket} in region {region}"))
+                .with_context(|| format!("initial ListObjectsV2 failed for bucket {bucket} in region {region}"))
         }
-        Err(e) => Err(e).with_context(|| format!("HeadBucket failed for bucket {bucket} in region {region_to_try}")),
+        Err(e) => Err(e)
+            .with_context(|| format!("initial ListObjectsV2 failed for bucket {bucket} in region {region_to_try}")),
     }
 }
 

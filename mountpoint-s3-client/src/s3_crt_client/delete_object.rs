@@ -3,7 +3,7 @@ use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 
-use crate::object_client::{DeleteObjectError, DeleteObjectResult, ObjectClientError};
+use crate::object_client::{DeleteObjectError, DeleteObjectResult};
 use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
 
 impl S3CrtClient {
@@ -26,12 +26,7 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             self.inner
-                .make_simple_http_request(message, MetaRequestType::Default, span, |result| {
-                    let parsed = parse_delete_object_error(&result);
-                    parsed
-                        .map(ObjectClientError::ServiceError)
-                        .unwrap_or(ObjectClientError::ClientError(S3RequestError::ResponseError(result)))
-                })?
+                .make_simple_http_request(message, MetaRequestType::Default, span, parse_delete_object_error)?
         };
 
         let _body = request.await?;
@@ -79,13 +74,5 @@ mod tests {
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_delete_object_error(&result);
         assert_eq!(result, Some(DeleteObjectError::NoSuchBucket));
-    }
-
-    #[test]
-    fn parse_403() {
-        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message><RequestId>3N6HSCDYNRC0NEW0</RequestId><HostId>fUFmlaKqFCuGq7oCfnAyFSjBVt/P7+pvmKGcPbdnrHDY9MRB+P7qhHHiyQ2XpWI3OloKtJZWb0U=</HostId></Error>"#;
-        let result = make_result(403, OsStr::from_bytes(&body[..]));
-        let result = parse_delete_object_error(&result);
-        assert_eq!(result, None);
     }
 }

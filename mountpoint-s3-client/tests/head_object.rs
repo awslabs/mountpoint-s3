@@ -5,7 +5,7 @@ pub mod common;
 use aws_sdk_s3::types::ByteStream;
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::{HeadObjectError, ObjectClientError, S3CrtClient};
+use mountpoint_s3_client::{HeadObjectError, ObjectClientError, S3CrtClient, S3RequestError};
 use test_case::test_case;
 
 #[tokio::test]
@@ -87,5 +87,21 @@ async fn test_head_object_404_bucket() {
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
+    ));
+}
+
+#[tokio::test]
+async fn test_head_object_no_perm() {
+    let (_bucket, prefix) = get_test_bucket_and_prefix("test_head_object_no_perm");
+    let bucket = get_test_bucket_without_permissions();
+
+    let key = format!("{prefix}/nonexistent_key");
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client.head_object(&bucket, &key).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ClientError(S3RequestError::PermissionDenied(_)))
     ));
 }

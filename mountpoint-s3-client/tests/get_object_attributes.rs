@@ -472,9 +472,8 @@ async fn test_get_attributes_no_perm() {
         .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
         .await;
 
-    if let Err(ObjectClientError::ClientError(S3RequestError::ResponseError(err))) = &result {
-        assert!(err.response_status == 403);
-    } else {
-        panic!("Unexpected result, expected a ResponseError with 403 if there's no permission");
-    }
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ClientError(S3RequestError::PermissionDenied(_)))
+    ));
 }

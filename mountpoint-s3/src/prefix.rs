@@ -25,6 +25,10 @@ impl Prefix {
             })
         }
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.path
+    }
 }
 
 impl Display for Prefix {

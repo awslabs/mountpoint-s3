@@ -270,18 +270,16 @@ async fn test_scoped_credentials() {
         .await
         .unwrap()
         .expect_err("should fail in different prefix");
-    if let ObjectClientError::ClientError(S3RequestError::ResponseError(err)) = &err {
-        assert!(err.response_status == 403, "should get a permissions error");
-    } else {
-        panic!("Unexpected result, expected a ResponseError with 403 if there's no permission");
-    }
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::PermissionDenied(_))
+    ));
     let err = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
         .await
         .expect_err("should fail in different prefix");
-    if let ObjectClientError::ClientError(S3RequestError::ResponseError(err)) = &err {
-        assert!(err.response_status == 403, "should get a permissions error");
-    } else {
-        panic!("Unexpected result, expected a ResponseError with 403 if there's no permission");
-    }
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::PermissionDenied(_))
+    ));
 }
