@@ -42,7 +42,7 @@ async fn test_head_bucket_forbidden() {
 
     assert!(matches!(
         result,
-        Err(ObjectClientError::ClientError(S3RequestError::PermissionDenied(_)))
+        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_)))
     ));
 }
 

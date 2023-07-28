@@ -474,6 +474,6 @@ async fn test_get_attributes_no_perm() {
 
     assert!(matches!(
         result,
-        Err(ObjectClientError::ClientError(S3RequestError::PermissionDenied(_)))
+        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_)))
     ));
 }

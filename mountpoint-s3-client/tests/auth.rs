@@ -272,7 +272,7 @@ async fn test_scoped_credentials() {
         .expect_err("should fail in different prefix");
     assert!(matches!(
         err,
-        ObjectClientError::ClientError(S3RequestError::PermissionDenied(_))
+        ObjectClientError::ClientError(S3RequestError::Forbidden(_))
     ));
     let err = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
@@ -280,6 +280,6 @@ async fn test_scoped_credentials() {
         .expect_err("should fail in different prefix");
     assert!(matches!(
         err,
-        ObjectClientError::ClientError(S3RequestError::PermissionDenied(_))
+        ObjectClientError::ClientError(S3RequestError::Forbidden(_))
     ));
 }
