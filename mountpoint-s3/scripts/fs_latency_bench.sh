@@ -30,7 +30,7 @@ project_dir="${base_dir}/../.."
 cd ${project_dir}
 
 results_dir=results
-thread_count=4
+max_threads=4
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
@@ -51,7 +51,7 @@ do
     cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
         --allow-delete \
         --prefix=${S3_BUCKET_TEST_PREFIX} \
-        --thread-count=${thread_count}
+        --max-threads=${max_threads}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
         echo "Failed to mount file system"
@@ -113,7 +113,7 @@ for job_file in "${jobs_dir}"/*.fio; do
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
     --allow-delete \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
-    --thread-count=${thread_count}
+    --max-threads=${max_threads}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then
     echo "Failed to mount file system"

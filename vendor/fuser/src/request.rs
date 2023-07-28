@@ -651,4 +651,14 @@ impl<'a> Request<'a> {
     pub fn pid(&self) -> u32 {
         self.request.pid()
     }
+
+    /// Returns whether this is a forget request
+    pub fn is_forget(&self) -> bool {
+        match self.request.opcode() {
+            Ok(abi::fuse_opcode::FUSE_FORGET) => true,
+            #[cfg(feature = "abi-7-16")]
+            Ok(abi::fuse_opcode::FUSE_BATCH_FORGET) => true,
+            _ => false,
+        }
+    }
 }

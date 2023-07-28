@@ -6,6 +6,8 @@ Breaking changes:
   Logs will no longer be written to `$HOME/.mountpoint-s3/` and should be configured using `--log-directory <DIRECTORY>`.
 * Bucket options of `--virtual-addressing` is now removed and `--path-addressing` is changed to `--force-path-style`.
   If `--force-path-style` is not provided, addressing style of endpoint will be resolved automatically.
+* The `--thread-count` option has been removed and replaced with `--max-threads` which sets the maximum
+  number of threads the FUSE daemon will dynamically spawn to handle requests.
 
 Other changes:
 

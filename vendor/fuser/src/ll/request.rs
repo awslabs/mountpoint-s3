@@ -2114,10 +2114,14 @@ impl_request!(AnyRequest<'_>);
 impl<'a> AnyRequest<'a> {
     pub fn operation(&self) -> Result<Operation<'a>, RequestError> {
         // Parse/check opcode
-        let opcode = fuse_opcode::try_from(self.header.opcode)
+        let opcode = self.opcode()
             .map_err(|_: InvalidOpcodeError| RequestError::UnknownOperation(self.header.opcode))?;
         // Parse/check operation arguments
         op::parse(self.header, &opcode, self.data).ok_or(RequestError::InsufficientData)
+    }
+
+    pub fn opcode(&self) -> Result<fuse_opcode, InvalidOpcodeError> {
+        fuse_opcode::try_from(self.header.opcode)
     }
 }
 
