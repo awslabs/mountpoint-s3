@@ -299,7 +299,8 @@ impl S3CrtClientInner {
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
-        let uri = self.endpoint_config.resolve_for_bucket(bucket)?;
+        let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
+        let uri = endpoint.uri()?;
         trace!(?uri, "resolved endpoint");
         let hostname = uri.host_name().to_str().unwrap();
         let path_prefix = uri.path().to_os_string().into_string().unwrap();
