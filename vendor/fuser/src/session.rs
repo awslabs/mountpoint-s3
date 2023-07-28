@@ -116,6 +116,18 @@ impl<FS: Filesystem> Session<FS> {
     /// Run the session loop that receives kernel requests and dispatches them to method
     /// calls into the filesystem.
     pub fn run(&self) -> io::Result<()> {
+        self.run_with_callbacks(|_| {}, |_| {})
+    }
+
+    /// Run the session loop that receives kernel requests and dispatches them to method
+    /// calls into the filesystem.
+    /// This version also notifies callers of kernel requests before and after they
+    /// are dispatched to the filesystem.
+    pub fn run_with_callbacks<FA, FB>(&self, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()> 
+    where 
+        FB: FnMut(&Request<'_>),
+        FA: FnMut(&Request<'_>),
+    {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
         let mut buffer = vec![0; BUFFER_SIZE];
@@ -129,7 +141,11 @@ impl<FS: Filesystem> Session<FS> {
             match self.ch.receive(buf) {
                 Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
                     // Dispatch request
-                    Some(req) => req.dispatch(self),
+                    Some(req) => {
+                        before_dispatch(&req);
+                        req.dispatch(self);
+                        after_dispatch(&req);
+                    },
                     // Quit loop on illegal request
                     None => break,
                 },
