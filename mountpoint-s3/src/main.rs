@@ -129,13 +129,13 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Number of FUSE daemon threads",
+        help = "Maximum number of FUSE daemon threads",
         value_name = "N",
-        default_value = "1",
+        default_value = "16",
         value_parser = value_parser!(u64).range(1..),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub thread_count: Option<u64>,
+    pub max_threads: u64,
 
     #[clap(
         long,
@@ -457,8 +457,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
 
-    let thread_count = args.thread_count.unwrap_or(1) as usize;
-    let session = FuseSession::new(session, thread_count).context("Failed to start FUSE session")?;
+    let max_threads = args.max_threads as usize;
+    let session = FuseSession::new(session, max_threads).context("Failed to start FUSE session")?;
 
     tracing::info!("successfully mounted {:?}", args.mount_point);
 
