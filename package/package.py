@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Build script for compiling a new Mountpoint release.
+Build script for compiling a new Mountpoint release package.
 
 This script builds RPM and DEB packages and an archive. It places the outputs in a new `out`
 directory in the root of the Mountpoint repository.
@@ -156,8 +156,8 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
 def build_attribution(metadata: BuildMetadata) -> str:
     """Build the attribution document for third-party open-source code."""
 
-    template_path = os.path.join(metadata.cargoroot, "release/attribution.hbs")
-    config_path = os.path.join(metadata.cargoroot, "release/attribution.toml")
+    template_path = os.path.join(metadata.cargoroot, "package/attribution.hbs")
+    config_path = os.path.join(metadata.cargoroot, "package/attribution.toml")
     attribution_path = os.path.join(metadata.buildroot, "THIRD_PARTY_LICENSES")
 
     log(f"Building attribution document to {attribution_path}")
@@ -210,7 +210,7 @@ def build_rpm(metadata: BuildMetadata, package_dir: str) -> str:
     run(["tar", "czvf", source_tar_path, "-C", rpm_package_dir, "opt"])
 
     # Build the RPM
-    spec_file = os.path.join(metadata.cargoroot, "release/mount-s3.spec")
+    spec_file = os.path.join(metadata.cargoroot, "package/mount-s3.spec")
     cmd = [
         "rpmbuild",
         "-bb",
@@ -251,7 +251,7 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
 
     # Construct the package control file (the package metadata). We need to fill in the version
     # number ourselves, unlike RPM.
-    control_file_template = os.path.join(metadata.cargoroot, "release/mount-s3.debian-control")
+    control_file_template = os.path.join(metadata.cargoroot, "package/mount-s3.debian-control")
     with open(control_file_template) as f:
         control_file = f.read()
     control_file = control_file.replace("__VERSION__", metadata.version_string)

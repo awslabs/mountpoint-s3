@@ -29,4 +29,4 @@ RUN wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.5.
     rm -rf cargo-about-* checksum.sha256
 
 WORKDIR /mountpoint
-ENTRYPOINT ["/mountpoint/release/release.py"]
+ENTRYPOINT ["/mountpoint/package/package.py"]

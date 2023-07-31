@@ -1,4 +1,4 @@
-# Building a Mountpoint release
+# Building Mountpoint packages
 
 This directory contains the infrastructure to compile new Mountpoint release packages. It compiles three artifacts:
 * An RPM package for Amazon Linux, RHEL, CentOS, etc.
@@ -43,7 +43,7 @@ You'll also need Rust, and the [cargo-about] tool to generate third-party attrib
 
 Now run the build script:
 
-    python3 release.py --expected-version 0.3.0
+    python3 package.py --expected-version 0.3.0
 
 By default, the script will discover the Cargo workspace by walking up the directory hierarchy starting from the current working directory. You can manually specify the workspace root with the `--root-dir` argument.
 
