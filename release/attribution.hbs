@@ -1,13 +1,13 @@
 Mountpoint for Amazon S3 includes the following third-party software:
 
 {{#each licenses}}
-## {{name}}
+## {{{name}}}
 
 Used by:
 {{#each used_by}}
-* {{crate.name}} {{crate.version}} - {{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}
+* {{{crate.name}}} {{{crate.version}}} - {{#if crate.repository}}{{{crate.repository}}}{{else}}https://crates.io/crates/{{{crate.name}}}{{/if}}
 {{/each}}
 
-{{text}}
+{{{text}}}
 
 {{/each}}

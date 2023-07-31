@@ -89,7 +89,7 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
         if args.expected_version != version:
             raise Exception(f"version mismatch: expected {args.expected_version} but found {version} in Cargo metadata")
     version_string = version
-    if args.unofficial:
+    if not args.official:
         version_string += "+unofficial"
 
     # Use a temp directory for all our build's intermediate state
@@ -124,7 +124,7 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     }
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir
-    if not args.unofficial:
+    if args.official:
         # Remove the commit from the User-agent version number
         env["MOUNTPOINT_S3_AWS_RELEASE"] = "true"
 
@@ -140,12 +140,12 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     log(f"Validating binary at {binary_path}")
     output = run([binary_path, "-V"])
     output = output.decode("ascii").strip()
-    if args.unofficial:
-        # Might not have a known Git hash available, so just check for the 'unofficial' part
-        if not output.startswith(f"mount-s3 {metadata.version}-unofficial"):
+    if args.official:
+        if output != f"mount-s3 {metadata.version}":
             raise Exception(f"unexpected compiled version {output}")
     else:
-        if output != f"mount-s3 {metadata.version}":
+        # Might not have a known Git hash available, so just check for the 'unofficial' part
+        if not output.startswith(f"mount-s3 {metadata.version}-unofficial"):
             raise Exception(f"unexpected compiled version {output}")
 
     log(f"Built binary for {output} at {binary_path}")
@@ -323,7 +323,7 @@ if __name__ == "__main__":
     p.add_argument("--expected-version", help="expected version number for the Mountpoint binary")
     p.add_argument("--no-rpm", action="store_true", help="do not build an RPM")
     p.add_argument("--no-deb", action="store_true", help="do not build a DEB")
-    p.add_argument("--unofficial", action="store_true", help="tag the release as unofficial (for CI use)")
+    p.add_argument("--official", action="store_true", help="build as an official release")
 
     args = p.parse_args()
 

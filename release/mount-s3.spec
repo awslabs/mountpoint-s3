@@ -7,6 +7,7 @@ License:        Apache-2.0
 URL:            https://github.com/awslabs/mountpoint-s3
 Source0:        mount-s3.tar.gz
 
+Requires:       ca-certificates
 Requires:       fuse
 Requires:       fuse-libs
 
