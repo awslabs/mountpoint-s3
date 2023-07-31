@@ -100,7 +100,7 @@ where
 
         let metadata = file.metadata().unwrap();
         if file_name == "GLACIER.txt" || file_name == "DEEP_ARCHIVE.txt" {
-            assert_eq!(metadata.permissions().mode() & !libc::S_IFMT, 0o000);
+            assert_eq!(metadata.permissions().mode() as libc::mode_t & !libc::S_IFMT, 0o000);
             let err = File::open(file.path()).expect_err("read of flexible retrieval object should fail");
             assert_eq!(err.raw_os_error(), Some(libc::EACCES));
         } else {
