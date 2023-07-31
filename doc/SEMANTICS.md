@@ -1,17 +1,89 @@
-# Mountpoint for Amazon S3 file system semantics
+# Mountpoint for Amazon S3 file system behavior
 
-Mountpoint for Amazon S3 is optimized for workloads that need high-throughput read and write access to data stored in S3 through a file system interface, but otherwise do not rely on file system features. It intentionally does not implement the full POSIX specification for file systems. As an approximation, Mountpoint for Amazon S3 is much closer to a [HDFS](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html) distributed file system, focused on high-performance access to large data sets, than to NFS or other file systems that offer rich POSIX semantics. Customers that need richer file system semantics should consider other AWS file services such as [Amazon Elastic File System](https://aws.amazon.com/efs/) or [Amazon FSx](https://aws.amazon.com/fsx/).
+Mountpoint for Amazon S3 allows your applications to access objects stored in Amazon S3 through file operations like `open` and `read`. This file access is optimized for applications that need high read throughput to large objects, potentially from many clients at once, and to write new objects sequentially from a single client at a time. While this model suits a wide range of applications, Mountpoint does not implement all the features of a POSIX file system, and there are some differences that may affect compatibility with your application. If you need support for richer file system semantics that Mountpoint does not provide, you should consider other AWS file services such as [Amazon Elastic File System](https://aws.amazon.com/efs/) or [Amazon FSx](https://aws.amazon.com/fsx/).
 
-## Semantics tenets
+## Behavior tenets
 
-When thinking about the semantics Mountpoint for Amazon S3 will support, we have three tenets in mind:
-1. We will not support semantics that cannot be implemented efficiently against S3's object APIs. We do not try to emulate operations like `rename` that would require many API calls to S3 to perform.
-2. We present a common view of S3 object data through both file and object APIs. We eschew special emulations of POSIX file features (such as ownership and permissions) that have no close analog in S3's object APIs.
-3. When these tenets cause us to diverge from POSIX semantics, we prefer to fail early and explicitly. We would rather cause applications to fail with IO errors than silently accept operations like `setxattr` that we will never successfully persist.
+While the rest of this document gives details on specific file system behaviors, we can summarize the Mountpoint approach in three high-level tenets:
+1. Mountpoint does not support file behaviors that cannot be implemented efficiently against S3's object APIs. It does not emulate operations like `rename` that would require many API calls to S3 to perform.
+2. Mountpoint presents a common view of S3 object data through both file and object APIs. It does not emulate POSIX file features that have no close analog in S3's object APIs, such as ownership and permissions.
+3. When these tenets conflict with POSIX requirements, Mountpoint fails early and explicitly. We would rather cause applications to fail with IO errors than silently accept operations that Mountpoint will never successfully persist, such as extended attributes.
 
-## Mapping S3 object keys to files and directories
+## Reading and writing files
 
-Mountpoint for Amazon S3 interprets keys in your S3 bucket as file system paths by splitting them on the `/` character. For example, if your bucket contains the following object keys:
+Mountpoint supports opening and reading existing objects from your S3 bucket. It is optimized for reading large files sequentially, and will automatically make multiple concurrent requests to S3 to improve throughput when reads are sequential. Mountpoint also supports random reads from an existing object, including seeking in an open file.
+
+Mountpoint supports writing only to new files, and writes to new files must be made sequentially. If you try to open an existing file with write access, the open operation will fail with a permissions error. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`.
+
+By default, Mountpoint does not allow deleting existing objects with commands like `rm`. To enable deletion, pass the `--allow-delete` flag to Mountpoint at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. We recommend that you enable [Bucket Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) to help protect against unintentionally deleting objects. You cannot delete a file while it is being written.
+
+You cannot rename an existing file using Mountpoint.
+
+Objects in the Glacier Flexible Retrieval and Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are not accessible with Mountpoint even if they have been restored. To access these objects with Mountpoint, copy them to another storage class first.
+
+## Directories
+
+The S3 data model is a flat structure, with no hierarchy of subdirectories. However, Mountpoint automatically infers a directory structure for your bucket by treating the `/` separator in your object keys as a delimiter between directories. For example, if your bucket contains the following object keys:
+
+* `colors/blue/cat.jpg`
+* `colors/red/dog.jpg`
+* `colors/list.txt`
+
+then mounting your bucket with Mountpoint gives the following file system structure:
+
+* `colors` (directory)
+    * `blue` (directory)
+        * `cat.jpg` (file)
+    * `red` (directory)
+        * `dog.jpg` (file)
+    * `list.txt` (file)
+
+Not all S3 object keys correspond to valid file names, and these objects will not be accessible with Mountpoint. For example, a file system directory cannot contain both a file and a directory of the same name. If your bucket's directory structure would result in this state, only the directory will be accessible. This means that if your bucket contains the following object keys:
+
+* `blue`
+* `blue/image.jpg`
+
+then mounting your bucket with Mountpoint will show only the `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. See the [detailed semantics](#mapping-s3-object-keys-to-files-and-directories) below for more information about invalid object keys.
+
+### Modifying directories
+
+Mountpoint allows creating new directories with commands like `mkdir`. Creating a new directory is a local operation and no changes are made to your S3 bucket. A new directory will only be visible to other clients once a file has been written and uploaded inside it. If you restart Mountpoint or your instance before writing any files into the new directory, it will not be preserved.
+
+You cannot remove or rename an existing directory with Mountpoint. However, you can remove a new directory created locally if no files have been written inside it.
+
+Mountpoint does not support hard or symbolic links.
+
+## Permissions and metadata
+
+By default, files and directories in your bucket will be readable only by the local user that mounted the bucket. If you want to allow other users on the system to read or write the bucket, pass the `--allow-other` flag to Mountpoint at startup time. Mountpoint assigns default permissions (modes) and owners to all files and directories, and these cannot be changed with commands like `chmod` and `chown` once the bucket is mounted. You can use the `--uid`, `--gid`, `--file-mode`, and `--dir-mode` flags at startup time to override these defaults.
+
+Mountpoint respects all Amazon S3 [identity and access management options](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-access-control.html), including bucket policies and access control lists (ACLs). At startup time, you provide IAM credentials for Mountpoint to use. Files and directories will only be accessible with Mountpoint if these credentials have the required access. If your credentials only have access to a prefix (a subdirectory) of an S3 bucket, you can use the `--prefix` argument at startup time to mount only that prefix instead of the entire bucket.
+
+Mountpoint has limited support for other file and directory metadata, including file modification times and sizes, and you cannot modify this metadata.
+
+## Consistency and concurrency
+
+Amazon S3 provides [strong read-after-write consistency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel) for PUT and DELETE requests of objects in your S3 bucket. Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. Mountpoint also ensures that new file uploads to a single key are atomic. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
+
+However, Mountpoint may return stale metadata for an existing object within 1 second of the object being modified or deleted in your S3 bucket by another client. This occurs only if the object was accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
+
+Mountpoint allows multiple readers to access the same object at the same time. However, a new file can only be written to sequentially and by one writer at a time. New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3. If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object. We recommend that your application does not write to the same object from multiple instances at the same time.
+
+## Durability
+
+Mountpoint translates file operations like `read` and `write` into API calls to Amazon S3, which uses a combination of Content-MD5 checksums, secure hash algorithms (SHAs), and cyclic redundancy checks (CRCs) to verify data integrity. S3 performs these checksums on data at rest and repairs any disparity using redundant data. In addition, S3 calculates checksums on all internal network traffic to detect alterations of data packets when storing or retrieving data. However, POSIX file operations like `read` and `write` do not offer a built-in integrity mechanism. Like any file system operation, it is possible for data integrity to be lost in transit between your application and Mountpoint. If your application needs to verify data integrity, we recommend you use an AWS SDK instead of Mountpoint, and use [end-to-end checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/) for all object read and write operations.
+
+## Error handling
+
+Unlike local file systems, operations against files and directories with Mountpoint can experience transient failures such as network timeouts or temporary unavailability. Mountpoint uses [best practices for S3 requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html#optimizing-performance-timeouts-retries), including retries, exponential backoff, and horizontal scaling. When a file operation fails despite these efforts, it might return a timeout or input/output error to your application. If your application needs to ensure that newly written files have been successfully uploaded to S3, use the `fsync` operation before closing the file. If the `fsync` operation returns an error, the file may not have been uploaded.
+
+## Detailed semantics
+
+This section gives a detailed description of Mountpoint's semantics for individual operations.
+
+### Mapping S3 object keys to files and directories
+
+Mountpoint interprets keys in your S3 bucket as file system paths by splitting them on the `/` character. For example, if your bucket contains the following object keys:
 
 * `colors/blue/image.jpg`
 * `colors/red/image.jpg`
@@ -26,7 +98,7 @@ then mounting your bucket would give the following file system structure:
         * `image.jpg` (file)
     * `list.txt` (file)
 
-S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html) than POSIX does for valid file and directory names. As a result, some object keys in your S3 bucket may not be visible when mounting the bucket using Mountpoint for Amazon S3:
+S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html) than POSIX does for valid file and directory names. As a result, some object keys in your S3 bucket may not be visible when mounting the bucket using Mountpoint:
 
 * Object keys that contain null bytes (`\0`) will not be accessible.
 * Object keys that would result in files or directories named `.` or `..` will not be accessible. This includes the object keys `.` or `..`, any key that ends in `/.` or `/..`, and any key that contains `/./` or `/../`. The `.` and `..` names are instead reserved for use by the usual relative directories (`.` for the current directory, and `..` for the parent).
@@ -45,37 +117,33 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
   
   then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
-We test Mountpoint for Amazon S3 against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/0ca2c771237032040bd1ec9405f5ed0ffa5d2eb9/s3-file-connector/tests/reftests/reference.rs#L121) that programmatically encodes the expected mapping between S3 objects and file system structure.
+We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
 
 Windows-style path delimiters (`\`) are not supported.
-
-## Operations on files and directories
-
-Mountpoint for Amazon S3 intentionally does not support all POSIX file system operations. This section describes the intended behavior of file operations against Mountpoint for Amazon S3 mounts.
 
 ### File operations
 
 #### Reads
 
 Basic read-only operations are fully supported, including both sequential and random reads:
-* `open`, `openat`, a file can be opened in read-write mode (`O_RDWR`) but you can't both read and write to the same file descriptor
+* `open`, `openat`. A file can be opened in read-write mode (`O_RDWR`), but you cannot both read and write to the same file descriptor even in this mode.
 * `read`, `readv`, `pread`, `preadv`
 * `lseek`
 * `close`
 
 #### Writes
 
-Mountpoint for Amazon S3 supports sequential write operations (through `write`, `writev`, `pwrite`, `pwritev`),
+Mountpoint supports sequential write operations (through `write`, `writev`, `pwrite`, `pwritev`),
 but with some limitations:
 
-* Writes will only be supported to new files, and must be done sequentially.
-* Modifying existing files will not be supported.
-* Truncation will not be supported.
+* Writes are only supported to new files, and must be done sequentially.
+* Modifying existing files is not supported.
+* Truncation is not supported.
 
 Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow
 further writes.
 
-Space allocation (`fallocate`, `posix_fallocate`) are not supported.
+Space allocation operations (`fallocate`, `posix_fallocate`) are not supported.
 
 Changing last access and modification times (`utime`) is supported only on files that are being written.
 
@@ -99,11 +167,11 @@ Creating directories (`mkdir`) is supported, with the following behavior:
 
 * `mkdir` will create a new empty directory in the file system, but not affect the S3 bucket.
 * Note that this is different from e.g. the S3 Console, which creates "directory markers" (i.e. zero-byte objects with `<directory-name>/` key) in the bucket.
-* If a file is created under the new (or a nested) directory and committed to S3, Mountpoint for Amazon S3 will revert to using the default mapping of S3 object keys. This implies that the directory will be visible as long as there are keys which contain it as a prefix.
+* If a file is created under the new (or a nested) directory and committed to S3, Mountpoint will revert to using the default mapping of S3 object keys. This implies that the directory will be visible as long as there are keys which contain it as a prefix.
 
 Renaming files and directories (`rename`, `renameat`) is not currently supported.
 
-File deletion (`unlink`) semantics are described in the [Deletes](#deletes) section.
+File deletion (`unlink`) semantics are described in the [Deletes](#deletes) section above.
 
 Empty directory removal (`rmdir`) is supported, with the following semantics:
 
@@ -135,14 +203,14 @@ POSIX file locks (`lockf`) are not supported.
 
 Hard links and symbolic links are both unsupported.
 
-## Error handling
+### Consistency
 
-Unlike local file systems, operations against Mountpoint for Amazon S3 mounts can experience transient failures such as network timeouts or temporary unavailability. Mountpoint for Amazon S3 implements [best practices for S3 use](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html#optimizing-performance-timeouts-retries), including retries, exponential backoff, and horizontal scaling. When a request fails despite these efforts, operations might return `EIO` or `ETIMEDOUT` errors to the application.
+Mountpoint provides strong read-after-write consistency for new object creation and writes of existing objects. However, it can return stale metadata for up to 1 second when an existing object is modified concurrently by another client. The [consistency and concurrency](#consistency-and-concurrency) section above describes this behavior, but here are some examples:
+* A process replaces an existing object in your S3 bucket using another client (e.g., the AWS SDK), and then opens the same object with Mountpoint and reads from it. The process will read the new data.
+* A process opens a file with Mountpoint, then replaces the object in your S3 bucket using another client, and then reads from the open file. The process will either read the old data or the read will fail. The process can see the new data by opening the file again.
+* A process replaces an existing object in your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat` system call. The returned metadata could reflect either the old or new object for up to 1 second after the PutObject request.
+* A process writes a new object to your S3 bucket, using either Mountpoint or another client, and then lists the directory the object is in with Mountpoint. The new object will appear in the list.
+* A process deletes an existing object from your S3 bucket using another client, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
+* A process deletes an existing object from your S3 bucket, using either Mountpoint or another client, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
+* A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
 
-## Concurrent mutations
-
-Mountpoint for Amazon S3 does not currently make any guarantees about the effects of a bucket being mutated remotely while being accessed through the file client. We recommend using Mountpoint for Amazon S3 only with buckets that are not concurrently mutated, or where mutations can be isolated to separate objects from those being read.
-
-When Mountpoint for Amazon S3 detects that an object has been mutated in S3 while being read by the file client, it will cause future reads to the same file descriptor to return `EIO`. To read the new contents of the object, re-open the file.
-
-We have not yet [nailed down the exact semantics](https://github.com/awslabs/mountpoint-s3/issues/128) of concurrent mutations that affect the directory hierarchy (like creating a `foo/` key when `foo` already exists).
