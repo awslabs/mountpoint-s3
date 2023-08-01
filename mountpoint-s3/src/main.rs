@@ -17,12 +17,13 @@ use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
     AddressingStyle, EndpointConfig, ObjectClientError, S3ClientConfig, S3CrtClient, S3RequestError,
 };
-use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
+use mountpoint_s3_client::{IdentityDocument, ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
+use once_cell::unsync::Lazy;
 use regex::Regex;
 
 mod build_info;
@@ -379,16 +380,17 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         region
     });
 
-    let throughput_target_gbps =
-        args.maximum_throughput_gbps
-            .map(|t| t as f64)
-            .unwrap_or_else(|| match calculate_network_throughput() {
-                Ok(throughput) => throughput,
-                Err(e) => {
-                    tracing::warn!("failed to detect network throughput: {:?}", e);
-                    DEFAULT_TARGET_THROUGHPUT
-                }
-            });
+    let instance_info = InstanceInfo::new();
+    let throughput_target_gbps = args
+        .maximum_throughput_gbps
+        .map(|t| t as f64)
+        .unwrap_or_else(|| match instance_info.calculate_network_throughput() {
+            Ok(throughput) => throughput,
+            Err(e) => {
+                tracing::warn!("failed to detect network throughput: {:?}", e);
+                DEFAULT_TARGET_THROUGHPUT
+            }
+        });
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
     let auth_config = if args.no_sign_request {
@@ -421,6 +423,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         args.endpoint_url,
         endpoint_config,
         client_config,
+        &instance_info,
     )
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
@@ -486,8 +489,9 @@ fn create_client_for_bucket(
     endpoint_url: Option<String>,
     mut endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
+    instance_info: &InstanceInfo,
 ) -> Result<S3CrtClient, anyhow::Error> {
-    let region_to_try = get_region(supposed_region.as_deref());
+    let region_to_try = get_region(supposed_region.as_deref(), instance_info);
     endpoint_config = endpoint_config.region(&region_to_try);
 
     if let Some(uri) = endpoint_url {
@@ -558,11 +562,17 @@ fn env_region() -> Option<String> {
     env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
 }
 
-fn get_region(provided_region: Option<&str>) -> String {
+fn get_region(provided_region: Option<&str>, instance_info: &InstanceInfo) -> String {
     const DEFAULT_REGION: &str = "us-east-1";
 
     // User-provided region (--region or AWS_REGION)
     if let Some(region) = provided_region {
+        return region.to_owned();
+    }
+
+    // Use instance region, if available.
+    if let Some(region) = instance_info.retrieve_region() {
+        tracing::debug!("using instance region {}", region);
         return region.to_owned();
     }
 
@@ -571,44 +581,83 @@ fn get_region(provided_region: Option<&str>) -> String {
     DEFAULT_REGION.to_owned()
 }
 
-fn calculate_network_throughput() -> anyhow::Result<f64> {
-    if !imds_disabled() {
-        let instance_type = retrieve_instance_type().context("failed to retrieve instance type")?;
-        let throughput = get_maximum_network_throughput(&instance_type).context("failed to get network throughput")?;
+/// Information on the EC2 instance from the Imds client.
+/// The client is queried lazily and only if AWS_EC2_METADATA_DISABLED
+/// is not set.
+struct InstanceInfo {
+    document: Lazy<Option<IdentityDocument>>,
+}
+
+impl InstanceInfo {
+    fn new() -> Self {
+        Self {
+            document: Lazy::new(|| {
+                if !Self::imds_disabled() {
+                    match Self::retrieve_instance_identity_document() {
+                        Ok(identity_document) => {
+                            tracing::debug!(
+                                "detected EC2 instance type {} in region {}",
+                                identity_document.instance_type,
+                                identity_document.region
+                            );
+                            Some(identity_document)
+                        }
+                        Err(err) => {
+                            tracing::warn!("EC2 instance info not retrieved: {err:?}");
+                            None
+                        }
+                    }
+                } else {
+                    tracing::warn!("EC2 instance info not retrieved: IMDS was disabled");
+                    None
+                }
+            }),
+        }
+    }
+
+    fn retrieve_instance_identity_document() -> anyhow::Result<IdentityDocument> {
+        let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
+
+        let identity_document =
+            futures::executor::block_on(imds_crt_client.get_identity_document()).context("IMDS query failed")?;
+        Ok(identity_document)
+    }
+
+    fn imds_disabled() -> bool {
+        match env::var_os("AWS_EC2_METADATA_DISABLED") {
+            Some(val) => val.to_ascii_lowercase() != "false",
+            None => false,
+        }
+    }
+
+    fn retrieve_region(&self) -> Option<&str> {
+        self.document.as_ref().map(|d| d.region.as_str())
+    }
+
+    fn calculate_network_throughput(&self) -> anyhow::Result<f64> {
+        let instance_type = self
+            .document
+            .as_ref()
+            .map(|d| &d.instance_type)
+            .context("failed to retrieve instance type")?;
+        let throughput =
+            Self::get_maximum_network_throughput(instance_type).context("failed to get network throughput")?;
         Ok(throughput)
-    } else {
-        Err(anyhow!("IMDS was disabled"))
     }
-}
 
-fn imds_disabled() -> bool {
-    match env::var_os("AWS_EC2_METADATA_DISABLED") {
-        Some(val) => val.to_ascii_lowercase() != "false",
-        None => false,
+    fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
+        const INSTANCE_THROUGHPUT: &str = "instance_throughput";
+        let file = include_str!("../scripts/network_performance.json");
+
+        let data: serde_json::Value = serde_json::from_str(file).context("failed to parse network_performance.json")?;
+        let instance_throughput = data
+            .get(INSTANCE_THROUGHPUT)
+            .context("instance throughput missing from json")?;
+        instance_throughput
+            .get(ec2_instance_type)
+            .and_then(|t| t.as_f64())
+            .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
     }
-}
-
-fn retrieve_instance_type() -> anyhow::Result<String> {
-    let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
-
-    let instance_type =
-        futures::executor::block_on(imds_crt_client.get_instance_type()).context("IMDS query failed")?;
-    tracing::debug!("detected EC2 instance type {instance_type}");
-    Ok(instance_type)
-}
-
-fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
-    const INSTANCE_THROUGHPUT: &str = "instance_throughput";
-    let file = include_str!("../scripts/network_performance.json");
-
-    let data: serde_json::Value = serde_json::from_str(file).context("failed to parse network_performance.json")?;
-    let instance_throughput = data
-        .get(INSTANCE_THROUGHPUT)
-        .context("instance throughput missing from json")?;
-    instance_throughput
-        .get(ec2_instance_type)
-        .and_then(|t| t.as_f64())
-        .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
 }
 
 fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -658,7 +707,7 @@ mod tests {
     #[test_case("trn1.32xlarge", Some(800.0))] // 8x 100 Gigabit
     #[test_case("dl1.24xlarge", Some(400.0))] // 4x 100 Gigabit
     fn test_get_maximum_network_throughput(instance_type: &str, throughput: Option<f64>) {
-        let actual = get_maximum_network_throughput(instance_type).ok();
+        let actual = InstanceInfo::get_maximum_network_throughput(instance_type).ok();
         assert_eq!(actual, throughput);
     }
 
