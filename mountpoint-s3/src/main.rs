@@ -371,6 +371,14 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .use_accelerate(args.transfer_acceleration)
         .use_dual_stack(args.dual_stack);
 
+    let region = args.region.or_else(|| {
+        let region = env_region();
+        if let Some(region) = &region {
+            tracing::debug!("using AWS_REGION: {region}");
+        };
+        region
+    });
+
     let throughput_target_gbps =
         args.maximum_throughput_gbps
             .map(|t| t as f64)
@@ -409,7 +417,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let client = create_client_for_bucket(
         &args.bucket_name,
         &prefix,
-        args.region,
+        region,
         args.endpoint_url,
         endpoint_config,
         client_config,
@@ -479,24 +487,18 @@ fn create_client_for_bucket(
     mut endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
 ) -> Result<S3CrtClient, anyhow::Error> {
-    const DEFAULT_REGION: &str = "us-east-1";
+    let region_to_try = get_region(supposed_region.as_deref());
+    endpoint_config = endpoint_config.region(&region_to_try);
 
-    let region_to_try = supposed_region.as_deref().unwrap_or_else(|| {
-        if endpoint_url.is_some() {
+    if let Some(uri) = endpoint_url {
+        if supposed_region.is_none() {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
-                DEFAULT_REGION
+                region_to_try
             );
         }
-        DEFAULT_REGION
-    });
-    endpoint_config = endpoint_config.region(region_to_try);
 
-    let endpoint = endpoint_url
-        .map(|uri| Uri::new_from_str(&Allocator::default(), uri))
-        .transpose()
-        .context("Failed to parse endpoint URL")?;
-    if let Some(endpoint_uri) = endpoint {
+        let endpoint_uri = Uri::new_from_str(&Allocator::default(), uri).context("Failed to parse endpoint URL")?;
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
 
@@ -550,6 +552,23 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     }
 
     Ok(bucket_name.to_owned())
+}
+
+fn env_region() -> Option<String> {
+    env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
+}
+
+fn get_region(provided_region: Option<&str>) -> String {
+    const DEFAULT_REGION: &str = "us-east-1";
+
+    // User-provided region (--region or AWS_REGION)
+    if let Some(region) = provided_region {
+        return region.to_owned();
+    }
+
+    // Use default region.
+    tracing::debug!("using default region {}", DEFAULT_REGION);
+    DEFAULT_REGION.to_owned()
 }
 
 fn calculate_network_throughput() -> anyhow::Result<f64> {
