@@ -9,7 +9,7 @@ mod s3_crt_client;
 mod util;
 
 pub use endpoint_config::{AddressingStyle, EndpointConfig};
-pub use imds_crt_client::ImdsCrtClient;
+pub use imds_crt_client::{IdentityDocument, ImdsCrtClient};
 pub use object_client::*;
 pub use s3_crt_client::head_bucket::HeadBucketError;
 pub use s3_crt_client::{S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError};

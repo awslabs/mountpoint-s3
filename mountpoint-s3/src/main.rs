@@ -591,13 +591,10 @@ fn imds_disabled() -> bool {
 fn retrieve_instance_type() -> anyhow::Result<String> {
     let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
 
-    let query = imds_crt_client
-        .make_instance_type_query()
-        .context("failed to send IMDS query")?;
-
-    let result = futures::executor::block_on(query).context("IMDS query failed")?;
-    tracing::debug!("detected EC2 instance type {result}");
-    Ok(result)
+    let instance_type =
+        futures::executor::block_on(imds_crt_client.get_instance_type()).context("IMDS query failed")?;
+    tracing::debug!("detected EC2 instance type {instance_type}");
+    Ok(instance_type)
 }
 
 fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
