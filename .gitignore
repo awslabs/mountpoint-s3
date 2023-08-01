@@ -2,3 +2,5 @@
 .cargo/
 # We prefer to manually commit regression tests
 *.proptest-regressions
+# Don't commit releases
+out/

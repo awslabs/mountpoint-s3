@@ -34,7 +34,7 @@ const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
 const LOGGING_OPTIONS_HEADER: &str = "Logging options";
 
 #[derive(Parser)]
-#[clap(about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
+#[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
 struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
     pub bucket_name: String,

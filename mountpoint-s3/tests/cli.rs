@@ -4,8 +4,7 @@ use std::{fs, os::unix::prelude::PermissionsExt, process::Command}; // Run progr
 
 /// Regular expression for something that looks mostly like a SemVer version.
 /// Don't use this outside of this test - SemVer is both more restrictive and flexible.
-const VALID_VERSION_OUTPUT_PATTERN: &str =
-    "^mountpoint-s3 \\d+\\.\\d+\\.\\d+(?:-\\w+(?:\\.\\w+)*)*(?:\\+[\\w\\.]+)*\n$";
+const VALID_VERSION_OUTPUT_PATTERN: &str = "^mount-s3 \\d+\\.\\d+\\.\\d+(?:-\\w+(?:\\.\\w+)*)*(?:\\+[\\w\\.]+)*\n$";
 
 #[test]
 fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {

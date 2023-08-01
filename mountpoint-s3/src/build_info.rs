@@ -9,16 +9,20 @@ mod built {
 
 /// Valid SemVer version constructed using declared Cargo version and short commit hash if needed.
 pub const FULL_VERSION: &str = {
-    // A little hacky so we can pull out the hash as a const
-    if built::GIT_COMMIT_HASH_SHORT.is_some() && !is_official_aws_release() {
+    if is_official_aws_release() {
+        built::PKG_VERSION
+    } else {
+        // A little hacky so we can pull out the hash as a const
         const COMMIT_HASH_STR: &str = match built::GIT_COMMIT_HASH_SHORT {
             Some(hash) => hash,
-            // Evaluated at compile time, but never used
-            None => "unreachable",
+            None => "",
         };
-        const_format::concatcp!(built::PKG_VERSION, "-", COMMIT_HASH_STR)
-    } else {
-        built::PKG_VERSION
+        const UNOFFICIAL_SUFFIX: &str = if COMMIT_HASH_STR.is_empty() {
+            "-unofficial"
+        } else {
+            const_format::concatcp!("-unofficial+", COMMIT_HASH_STR)
+        };
+        const_format::concatcp!(built::PKG_VERSION, UNOFFICIAL_SUFFIX)
     }
 };
 
