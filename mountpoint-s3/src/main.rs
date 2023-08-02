@@ -11,19 +11,18 @@ use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
+use mountpoint_s3::instance::InstanceInfo;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics::{MetricsSink, METRICS_TARGET_NAME};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
-    AddressingStyle, EndpointConfig, ObjectClientError, S3ClientConfig, S3CrtClient, S3RequestError,
+    AddressingStyle, EndpointConfig, ObjectClientError, S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError,
 };
-use mountpoint_s3_client::{IdentityDocument, ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
-use once_cell::unsync::Lazy;
 use regex::Regex;
 
 mod build_info;
@@ -384,7 +383,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let throughput_target_gbps = args
         .maximum_throughput_gbps
         .map(|t| t as f64)
-        .unwrap_or_else(|| match instance_info.calculate_network_throughput() {
+        .unwrap_or_else(|| match instance_info.network_throughput() {
             Ok(throughput) => throughput,
             Err(e) => {
                 tracing::warn!("failed to detect network throughput: {:?}", e);
@@ -571,7 +570,7 @@ fn get_region(provided_region: Option<&str>, instance_info: &InstanceInfo) -> St
     }
 
     // Use instance region, if available.
-    if let Some(region) = instance_info.retrieve_region() {
+    if let Some(region) = instance_info.region() {
         tracing::debug!("using instance region {}", region);
         return region.to_owned();
     }
@@ -579,85 +578,6 @@ fn get_region(provided_region: Option<&str>, instance_info: &InstanceInfo) -> St
     // Use default region.
     tracing::debug!("using default region {}", DEFAULT_REGION);
     DEFAULT_REGION.to_owned()
-}
-
-/// Information on the EC2 instance from the Imds client.
-/// The client is queried lazily and only if AWS_EC2_METADATA_DISABLED
-/// is not set.
-struct InstanceInfo {
-    document: Lazy<Option<IdentityDocument>>,
-}
-
-impl InstanceInfo {
-    fn new() -> Self {
-        Self {
-            document: Lazy::new(|| {
-                if !Self::imds_disabled() {
-                    match Self::retrieve_instance_identity_document() {
-                        Ok(identity_document) => {
-                            tracing::debug!(
-                                "detected EC2 instance type {} in region {}",
-                                identity_document.instance_type,
-                                identity_document.region
-                            );
-                            Some(identity_document)
-                        }
-                        Err(err) => {
-                            tracing::warn!("EC2 instance info not retrieved: {err:?}");
-                            None
-                        }
-                    }
-                } else {
-                    tracing::warn!("EC2 instance info not retrieved: IMDS was disabled");
-                    None
-                }
-            }),
-        }
-    }
-
-    fn retrieve_instance_identity_document() -> anyhow::Result<IdentityDocument> {
-        let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
-
-        let identity_document =
-            futures::executor::block_on(imds_crt_client.get_identity_document()).context("IMDS query failed")?;
-        Ok(identity_document)
-    }
-
-    fn imds_disabled() -> bool {
-        match env::var_os("AWS_EC2_METADATA_DISABLED") {
-            Some(val) => val.to_ascii_lowercase() != "false",
-            None => false,
-        }
-    }
-
-    fn retrieve_region(&self) -> Option<&str> {
-        self.document.as_ref().map(|d| d.region.as_str())
-    }
-
-    fn calculate_network_throughput(&self) -> anyhow::Result<f64> {
-        let instance_type = self
-            .document
-            .as_ref()
-            .map(|d| &d.instance_type)
-            .context("failed to retrieve instance type")?;
-        let throughput =
-            Self::get_maximum_network_throughput(instance_type).context("failed to get network throughput")?;
-        Ok(throughput)
-    }
-
-    fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
-        const INSTANCE_THROUGHPUT: &str = "instance_throughput";
-        let file = include_str!("../scripts/network_performance.json");
-
-        let data: serde_json::Value = serde_json::from_str(file).context("failed to parse network_performance.json")?;
-        let instance_throughput = data
-            .get(INSTANCE_THROUGHPUT)
-            .context("instance throughput missing from json")?;
-        instance_throughput
-            .get(ec2_instance_type)
-            .and_then(|t| t.as_f64())
-            .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
-    }
 }
 
 fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -697,19 +617,6 @@ fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use test_case::test_case;
-
-    #[test_case("c4.large", None)] // We let "Moderate" fall through to default
-    #[test_case("c5.large", Some(10.0))]
-    #[test_case("c5n.large", Some(25.0))]
-    #[test_case("c5n.18xlarge", Some(100.0))]
-    #[test_case("c6i.large", Some(12.5))]
-    #[test_case("p4d.24xlarge", Some(400.0))] // 4x 100 Gigabit
-    #[test_case("trn1.32xlarge", Some(800.0))] // 8x 100 Gigabit
-    #[test_case("dl1.24xlarge", Some(400.0))] // 4x 100 Gigabit
-    fn test_get_maximum_network_throughput(instance_type: &str, throughput: Option<f64>) {
-        let actual = InstanceInfo::get_maximum_network_throughput(instance_type).ok();
-        assert_eq!(actual, throughput);
-    }
 
     #[test_case("test-bucket", true; "simple bucket")]
     #[test_case("test-123.buc_ket", true; "bucket name with .")]
