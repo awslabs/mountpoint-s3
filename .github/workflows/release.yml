@@ -1,64 +1,27 @@
 name: Release
 
-permissions:
-  contents: write
-
 on:
   push:
     tags:
       - mountpoint-s3-[0-9]+.*
-      - mountpoint-s3-[a-z]+-[0-9]+.*
+
+permissions:
+  contents: write
+
 
 jobs:
-  create-release:
+  create-github-release:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - uses: taiki-e/create-gh-release-action@v1
       with:
-        prefix: mountpoint-s3(-[a-z]+)?
+        title: "Mountpoint for Amazon S3 v$version"
+        # Strip this prefix off the tag to discover the version number
+        prefix: mountpoint-s3
         draft: true
-        # TODO: set it true after we have changlog template reviewed.
-        changelog: false
-        # TODO: set it false after we have changlog template reviewed.
+        changelog: mountpoint-s3/CHANGELOG.md
+        # TODO: make this mandatory once we have the format nailed down
         allow-missing-changelog: true
         branch: main
-        title: "Mountpoint for Amazon S3 v$version"
         token: ${{ secrets.GITHUB_TOKEN }}
-
-  upload-assets:
-    name: Build and release on target ${{ matrix.runner.target}}
-    runs-on: ${{ matrix.runner.tags }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-        - tags: [ubuntu-20.04] # GitHub-hosted
-          target: x86_64-unknown-linux-gnu
-        - tags: [self-hosted, linux, arm64] 
-          target: aarch64-unknown-linux-gnu
-
-    steps:
-    - name: Checkout source code
-      uses: actions/checkout@v3
-      with:
-        submodules: true
-    - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Install operating system dependencies
-      uses: ./.github/actions/install-dependencies
-      with:
-        fuseVersion: 2 
-    - name: Release mount-s3 binary
-      uses: taiki-e/upload-rust-binary-action@v1
-      with:
-        bin: mount-s3
-        token: ${{ secrets.GITHUB_TOKEN }}
-        checksum: sha512
-        asset: LICENSE
-
-
