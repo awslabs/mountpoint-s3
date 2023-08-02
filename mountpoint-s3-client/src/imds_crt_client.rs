@@ -50,33 +50,6 @@ impl ImdsCrtClient {
         })
     }
 
-    /// Query the type of the EC2 instance this code is executed on.
-    pub async fn get_instance_type(&self) -> Result<String, ImdsQueryRequestError> {
-        let (tx, rx) = oneshot::channel();
-        self.imds_client.get_instance_type(move |result| {
-            let _ = tx.send(result);
-        })?;
-
-        match rx.await {
-            Ok(result) => result.map_err(ImdsQueryRequestError::CrtError),
-            Err(err) => Err(ImdsQueryRequestError::InternalError(Box::new(err))),
-        }
-    }
-
-    /// Query the region of the EC2 instance this code is executed on.
-    pub async fn get_region(&self) -> Result<String, ImdsQueryRequestError> {
-        const REGION_PATH: &str = "/latest/meta-data/placement/region";
-        let (tx, rx) = oneshot::channel();
-        self.imds_client.get_resource(REGION_PATH, move |result| {
-            let _ = tx.send(result);
-        })?;
-
-        match rx.await {
-            Ok(result) => result.map_err(ImdsQueryRequestError::CrtError),
-            Err(err) => Err(ImdsQueryRequestError::InternalError(Box::new(err))),
-        }
-    }
-
     /// Query the identity document of the EC2 instance this code is executed on.
     pub async fn get_identity_document(&self) -> Result<IdentityDocument, ImdsQueryRequestError> {
         const IDENTITY_DOCUMENT_PATH: &str = "/latest/dynamic/instance-identity/document";

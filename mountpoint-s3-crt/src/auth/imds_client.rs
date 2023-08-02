@@ -7,8 +7,8 @@ use crate::io::retry_strategy::RetryStrategy;
 use crate::CrtError;
 use crate::{auth::auth_library_init, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::{
-    aws_byte_buf, aws_imds_client, aws_imds_client_get_instance_type, aws_imds_client_get_resource_async,
-    aws_imds_client_new, aws_imds_client_options, aws_imds_client_release,
+    aws_byte_buf, aws_imds_client, aws_imds_client_get_resource_async, aws_imds_client_new, aws_imds_client_options,
+    aws_imds_client_release,
 };
 use std::ptr::NonNull;
 
@@ -64,24 +64,6 @@ impl ImdsClient {
         // a reference and to drop it after this method completes.
         let inner = unsafe { aws_imds_client_new(allocator.inner.as_ptr(), &config.inner).ok_or_last_error()? };
         Ok(Self { inner })
-    }
-
-    /// Get the EC2 instance type.
-    pub fn get_instance_type<F>(&self, callback: F) -> Result<(), Error>
-    where
-        F: FnOnce(Result<String, Error>) + 'static,
-    {
-        let callback_wrapper = Box::new(ImdsClientGetResourceCallback(Box::new(callback)));
-        let callback_raw_ptr = Box::into_raw(callback_wrapper) as *mut libc::c_void;
-        let get_resource_callback_fn_ptr: Option<unsafe extern "C" fn(*const aws_byte_buf, i32, *mut libc::c_void)> =
-            Some(imds_client_get_resource_callback);
-
-        // SAFETY: `self.inner` is a valid `aws_imds_client`. `get_resource_callback_fn_ptr` is leaked by [Box::into_raw]
-        // and so will live until the `imds_client_get_resource_callback` function is invoked.
-        unsafe {
-            aws_imds_client_get_instance_type(self.inner.as_ptr(), get_resource_callback_fn_ptr, callback_raw_ptr)
-                .ok_or_last_error()
-        }
     }
 
     /// Get the value for the given resource path.
