@@ -371,14 +371,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .use_accelerate(args.transfer_acceleration)
         .use_dual_stack(args.dual_stack);
 
-    let region = args.region.or_else(|| {
-        let region = env_region();
-        if let Some(region) = &region {
-            tracing::debug!("using AWS_REGION: {region}");
-        };
-        region
-    });
-
     let instance_info = InstanceInfo::new();
     let throughput_target_gbps = args
         .maximum_throughput_gbps
@@ -418,7 +410,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let client = create_client_for_bucket(
         &args.bucket_name,
         &prefix,
-        region,
+        args.region,
         args.endpoint_url,
         endpoint_config,
         client_config,
@@ -484,17 +476,17 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 fn create_client_for_bucket(
     bucket: &str,
     prefix: &Prefix,
-    supposed_region: Option<String>,
+    args_region: Option<String>,
     endpoint_url: Option<String>,
     mut endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
     instance_info: &InstanceInfo,
 ) -> Result<S3CrtClient, anyhow::Error> {
-    let region_to_try = get_region(supposed_region.as_deref(), instance_info);
+    let (region_to_try, user_provided_region) = get_region(args_region, instance_info);
     endpoint_config = endpoint_config.region(&region_to_try);
 
     if let Some(uri) = endpoint_url {
-        if supposed_region.is_none() {
+        if user_provided_region {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
                 region_to_try
@@ -511,7 +503,7 @@ fn create_client_for_bucket(
     match futures::executor::block_on(list_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if supposed_region.is_none() => {
+        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if !user_provided_region => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
             let list_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
@@ -561,23 +553,37 @@ fn env_region() -> Option<String> {
     env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
 }
 
-fn get_region(provided_region: Option<&str>, instance_info: &InstanceInfo) -> String {
+/// Determine the region using the following sources (in order):
+///  * `--region` flag (user-provided),
+///  * `AWS_REGION` environment variable (user-provided),
+///  * EC2 instance region (using the IMDS client),
+///  * default region (us-east-1).
+///
+/// Returns the region name and a bool specifying whether
+/// the region was provided by the user.
+fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (String, bool) {
     const DEFAULT_REGION: &str = "us-east-1";
 
-    // User-provided region (--region or AWS_REGION)
-    if let Some(region) = provided_region {
-        return region.to_owned();
+    // Use --region (user-provided).
+    if let Some(region) = args_region {
+        return (region, true);
+    }
+
+    // Use AWS_REGION (user-provided).
+    if let Some(region) = env_region() {
+        tracing::debug!("using AWS_REGION: {region}");
+        return (region, true);
     }
 
     // Use instance region, if available.
     if let Some(region) = instance_info.region() {
         tracing::debug!("using instance region {}", region);
-        return region.to_owned();
+        return (region.to_owned(), false);
     }
 
     // Use default region.
     tracing::debug!("using default region {}", DEFAULT_REGION);
-    DEFAULT_REGION.to_owned()
+    (DEFAULT_REGION.to_owned(), false)
 }
 
 fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
