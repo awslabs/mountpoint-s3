@@ -300,9 +300,20 @@ impl S3CrtClientInner {
         let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
         let uri = endpoint.uri()?;
         trace!(?uri, "resolved endpoint");
-        let signing_config = self.credentials_provider.clone().map(|credentials_provider| {
-            init_default_signing_config(self.endpoint_config.get_region(), credentials_provider)
-        });
+
+        let signing_config = if let Some(credentials_provider) = &self.credentials_provider {
+            let auth_scheme = endpoint.auth_scheme()?;
+            Some(init_default_signing_config(
+                auth_scheme.signing_region(),
+                auth_scheme.scheme_name(),
+                auth_scheme.signing_name(),
+                !auth_scheme.disable_double_encoding(),
+                credentials_provider.clone(),
+            ))
+        } else {
+            None
+        };
+
         let hostname = uri.host_name().to_str().unwrap();
         let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();

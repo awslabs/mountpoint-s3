@@ -1,7 +1,7 @@
 //! A client for high-throughput access to Amazon S3
 
 use crate::auth::credentials::CredentialsProvider;
-use crate::auth::signing_config::{SigningConfig, SigningConfigInner};
+use crate::auth::signing_config::{SigningAlgorithm, SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::thread::ThreadId;
@@ -1038,24 +1038,38 @@ impl From<aws_s3_request_type> for RequestType {
 
 /// Create a new [SigningConfig] with the default configuration for signing S3 requests to a region
 /// using the given [CredentialsProvider]
-pub fn init_default_signing_config(region: &str, credentials_provider: CredentialsProvider) -> SigningConfig {
+pub fn init_default_signing_config(
+    region: &str,
+    algorithm: SigningAlgorithm,
+    service: &str,
+    use_double_uri_encode: bool,
+    credentials_provider: CredentialsProvider,
+) -> SigningConfig {
     let mut signing_config = Box::new(SigningConfigInner {
         inner: Default::default(),
         region: region.to_owned().into(),
         credentials_provider,
+        service: service.to_owned().into(),
         _pinned: Default::default(),
     });
 
     let credentials_provider = signing_config.credentials_provider.inner.as_ptr();
-    // SAFETY: we copied the region into the signing_config (`region.to_owned()` above), so the byte
-    // cursor we create here will point to bytes that are valid as long as this SigningConfig is.
+    // SAFETY: `region` and `service` are owned by signing_config (see e.g. `region.to_owned()` above),
+    // so the byte cursors we create here will point to bytes that are valid as long as this SigningConfig is.
     // singing_config owns `credential_provider` that is valid as long as this SingingConfig is.
     unsafe {
         let region_cursor = signing_config.region.as_aws_byte_cursor();
-
         aws_s3_init_default_signing_config(&mut signing_config.inner, region_cursor, credentials_provider);
+
+        let service_cursor = signing_config.service.as_aws_byte_cursor();
+        signing_config.inner.service = service_cursor;
     }
-    signing_config.inner.flags.set_use_double_uri_encode(false as u32);
+
+    signing_config
+        .inner
+        .flags
+        .set_use_double_uri_encode(use_double_uri_encode as u32);
+    signing_config.inner.algorithm = algorithm.into();
 
     SigningConfig(Arc::new(Box::into_pin(signing_config)))
 }
