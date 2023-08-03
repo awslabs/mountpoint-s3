@@ -1,13 +1,13 @@
 pub mod fs;
 pub mod fuse;
 mod inode;
+pub mod instance;
 pub mod logging;
 pub mod metrics;
 pub mod prefetch;
 pub mod prefix;
 mod sync;
 mod upload;
-
 pub use fs::{S3Filesystem, S3FilesystemConfig};
 
 /// Enable tracing and CRT logging when running unit tests.

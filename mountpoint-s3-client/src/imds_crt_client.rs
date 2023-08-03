@@ -1,16 +1,11 @@
-use std::pin::Pin;
-use std::task::Context;
-use std::task::Poll;
-
 use futures::channel::oneshot;
-use futures::Future;
 use mountpoint_s3_crt::auth::imds_client::{ImdsClient, ImdsClientConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::error;
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
-use pin_project::pin_project;
+use serde_json::Value;
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -55,34 +50,47 @@ impl ImdsCrtClient {
         })
     }
 
-    /// Query the type of the EC2 instance this code is executed on.
-    pub fn make_instance_type_query(&self) -> Result<ImdsQueryRequest, ImdsQueryRequestError> {
+    /// Query the identity document of the EC2 instance this code is executed on.
+    pub async fn get_identity_document(&self) -> Result<IdentityDocument, ImdsQueryRequestError> {
+        const IDENTITY_DOCUMENT_PATH: &str = "/latest/dynamic/instance-identity/document";
+
         let (tx, rx) = oneshot::channel();
-        self.imds_client.get_instance_type(move |result| {
-            let _ = tx.send(result.map_err(ImdsQueryRequestError::CrtError));
+        self.imds_client.get_resource(IDENTITY_DOCUMENT_PATH, move |result| {
+            let _ = tx.send(result);
         })?;
 
-        Ok(ImdsQueryRequest { receiver: rx })
+        let json = match rx.await {
+            Ok(Ok(json)) => json,
+            Ok(Err(err)) => return Err(ImdsQueryRequestError::CrtError(err)),
+            Err(err) => return Err(ImdsQueryRequestError::InternalError(Box::new(err))),
+        };
+
+        let json = &json;
+        let parsed: Value =
+            serde_json::from_str(json).map_err(|_| ImdsQueryRequestError::InvalidResponse(json.to_owned()))?;
+        let instance_type = parsed
+            .get("instanceType")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ImdsQueryRequestError::InvalidResponse(json.to_owned()))?
+            .to_owned();
+        let region = parsed
+            .get("region")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ImdsQueryRequestError::InvalidResponse(json.to_owned()))?
+            .to_owned();
+
+        Ok(IdentityDocument { instance_type, region })
     }
 }
 
+/// Information about an EC2 instance.
 #[derive(Debug)]
-#[pin_project]
-/// ImdsQueryRequest is a data encapsulation wrapper for asnychronous instance metadata query.
-pub struct ImdsQueryRequest {
-    #[pin]
-    receiver: oneshot::Receiver<Result<String, ImdsQueryRequestError>>,
-}
-
-impl Future for ImdsQueryRequest {
-    type Output = Result<String, ImdsQueryRequestError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        this.receiver
-            .poll(cx)
-            .map(|result| result.unwrap_or_else(|err| Err(ImdsQueryRequestError::InternalError(Box::new(err)))))
-    }
+pub struct IdentityDocument {
+    // TODO: Add more fields as required.
+    /// The instance type of the instance.
+    pub instance_type: String,
+    /// The Region in which the instance is running.
+    pub region: String,
 }
 
 /// ImdsQueryRequestError is returned by an asynchronous query.
@@ -95,4 +103,8 @@ pub enum ImdsQueryRequestError {
     /// An internal error from within the AWS Common Runtime. The request may have been sent.
     #[error("Unknown CRT error")]
     CrtError(#[from] error::Error),
+
+    /// The response from Imds was not valid.
+    #[error("Invalid response from Imds: {0}")]
+    InvalidResponse(String),
 }

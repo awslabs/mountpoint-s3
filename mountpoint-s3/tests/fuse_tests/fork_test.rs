@@ -55,8 +55,45 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background_region_from_env");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .env("AWS_REGION", region.clone())
+        .spawn()
+        .expect("unable to spawn child");
+
+    let st = std::time::Instant::now();
+
+    let exit_status = loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        match child.try_wait().expect("unable to wait for result") {
+            Some(result) => break result,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    Ok(())
+}
+
+#[test]
 fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::error::Error>> {
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background");
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background_automatic_region_resolution");
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 

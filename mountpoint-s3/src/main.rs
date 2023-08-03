@@ -11,13 +11,13 @@ use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
+use mountpoint_s3::instance::InstanceInfo;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics::{MetricsSink, METRICS_TARGET_NAME};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
-    AddressingStyle, EndpointConfig, ObjectClientError, S3ClientConfig, S3CrtClient, S3RequestError,
+    AddressingStyle, EndpointConfig, ObjectClientError, S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError,
 };
-use mountpoint_s3_client::{ImdsCrtClient, S3ClientAuthConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;
@@ -371,16 +371,17 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .use_accelerate(args.transfer_acceleration)
         .use_dual_stack(args.dual_stack);
 
-    let throughput_target_gbps =
-        args.maximum_throughput_gbps
-            .map(|t| t as f64)
-            .unwrap_or_else(|| match calculate_network_throughput() {
-                Ok(throughput) => throughput,
-                Err(e) => {
-                    tracing::warn!("failed to detect network throughput: {:?}", e);
-                    DEFAULT_TARGET_THROUGHPUT
-                }
-            });
+    let instance_info = InstanceInfo::new();
+    let throughput_target_gbps = args
+        .maximum_throughput_gbps
+        .map(|t| t as f64)
+        .unwrap_or_else(|| match instance_info.network_throughput() {
+            Ok(throughput) => throughput,
+            Err(e) => {
+                tracing::warn!("failed to detect network throughput: {:?}", e);
+                DEFAULT_TARGET_THROUGHPUT
+            }
+        });
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
     let auth_config = if args.no_sign_request {
@@ -413,6 +414,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         args.endpoint_url,
         endpoint_config,
         client_config,
+        &instance_info,
     )
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
@@ -474,29 +476,24 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 fn create_client_for_bucket(
     bucket: &str,
     prefix: &Prefix,
-    supposed_region: Option<String>,
+    args_region: Option<String>,
     endpoint_url: Option<String>,
     mut endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
+    instance_info: &InstanceInfo,
 ) -> Result<S3CrtClient, anyhow::Error> {
-    const DEFAULT_REGION: &str = "us-east-1";
+    let (region_to_try, user_provided_region) = get_region(args_region, instance_info);
+    endpoint_config = endpoint_config.region(&region_to_try);
 
-    let region_to_try = supposed_region.as_deref().unwrap_or_else(|| {
-        if endpoint_url.is_some() {
+    if let Some(uri) = endpoint_url {
+        if user_provided_region {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
-                DEFAULT_REGION
+                region_to_try
             );
         }
-        DEFAULT_REGION
-    });
-    endpoint_config = endpoint_config.region(region_to_try);
 
-    let endpoint = endpoint_url
-        .map(|uri| Uri::new_from_str(&Allocator::default(), uri))
-        .transpose()
-        .context("Failed to parse endpoint URL")?;
-    if let Some(endpoint_uri) = endpoint {
+        let endpoint_uri = Uri::new_from_str(&Allocator::default(), uri).context("Failed to parse endpoint URL")?;
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
 
@@ -506,7 +503,7 @@ fn create_client_for_bucket(
     match futures::executor::block_on(list_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if supposed_region.is_none() => {
+        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if !user_provided_region => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
             let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
             let list_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
@@ -552,47 +549,41 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     Ok(bucket_name.to_owned())
 }
 
-fn calculate_network_throughput() -> anyhow::Result<f64> {
-    if !imds_disabled() {
-        let instance_type = retrieve_instance_type().context("failed to retrieve instance type")?;
-        let throughput = get_maximum_network_throughput(&instance_type).context("failed to get network throughput")?;
-        Ok(throughput)
-    } else {
-        Err(anyhow!("IMDS was disabled"))
+fn env_region() -> Option<String> {
+    env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
+}
+
+/// Determine the region using the following sources (in order):
+///  * `--region` flag (user-provided),
+///  * `AWS_REGION` environment variable (user-provided),
+///  * EC2 instance region (using the IMDS client),
+///  * default region (us-east-1).
+///
+/// Returns the region name and a bool specifying whether
+/// the region was provided by the user.
+fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (String, bool) {
+    const DEFAULT_REGION: &str = "us-east-1";
+
+    // Use --region (user-provided).
+    if let Some(region) = args_region {
+        return (region, true);
     }
-}
 
-fn imds_disabled() -> bool {
-    match env::var_os("AWS_EC2_METADATA_DISABLED") {
-        Some(val) => val.to_ascii_lowercase() != "false",
-        None => false,
+    // Use AWS_REGION (user-provided).
+    if let Some(region) = env_region() {
+        tracing::debug!("using AWS_REGION: {region}");
+        return (region, true);
     }
-}
 
-fn retrieve_instance_type() -> anyhow::Result<String> {
-    let imds_crt_client = ImdsCrtClient::new().context("failed to create IMDS client")?;
+    // Use instance region, if available.
+    if let Some(region) = instance_info.region() {
+        tracing::debug!("using instance region {}", region);
+        return (region.to_owned(), false);
+    }
 
-    let query = imds_crt_client
-        .make_instance_type_query()
-        .context("failed to send IMDS query")?;
-
-    let result = futures::executor::block_on(query).context("IMDS query failed")?;
-    tracing::debug!("detected EC2 instance type {result}");
-    Ok(result)
-}
-
-fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
-    const INSTANCE_THROUGHPUT: &str = "instance_throughput";
-    let file = include_str!("../scripts/network_performance.json");
-
-    let data: serde_json::Value = serde_json::from_str(file).context("failed to parse network_performance.json")?;
-    let instance_throughput = data
-        .get(INSTANCE_THROUGHPUT)
-        .context("instance throughput missing from json")?;
-    instance_throughput
-        .get(ec2_instance_type)
-        .and_then(|t| t.as_f64())
-        .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
+    // Use default region.
+    tracing::debug!("using default region {}", DEFAULT_REGION);
+    (DEFAULT_REGION.to_owned(), false)
 }
 
 fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -632,19 +623,6 @@ fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use test_case::test_case;
-
-    #[test_case("c4.large", None)] // We let "Moderate" fall through to default
-    #[test_case("c5.large", Some(10.0))]
-    #[test_case("c5n.large", Some(25.0))]
-    #[test_case("c5n.18xlarge", Some(100.0))]
-    #[test_case("c6i.large", Some(12.5))]
-    #[test_case("p4d.24xlarge", Some(400.0))] // 4x 100 Gigabit
-    #[test_case("trn1.32xlarge", Some(800.0))] // 8x 100 Gigabit
-    #[test_case("dl1.24xlarge", Some(400.0))] // 4x 100 Gigabit
-    fn test_get_maximum_network_throughput(instance_type: &str, throughput: Option<f64>) {
-        let actual = get_maximum_network_throughput(instance_type).ok();
-        assert_eq!(actual, throughput);
-    }
 
     #[test_case("test-bucket", true; "simple bucket")]
     #[test_case("test-123.buc_ket", true; "bucket name with .")]
