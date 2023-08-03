@@ -293,7 +293,7 @@ fn main() -> anyhow::Result<()> {
 
                 let _metrics = MetricsSink::init();
 
-                let session = mount(child_args);
+                let session = mount(args);
 
                 // close unused file descriptor, we only write from this end.
                 nix::unistd::close(read_fd).context("Failed to close unused file descriptor")?;
