@@ -5,7 +5,6 @@
 
 set -euo pipefail
 
-version=v0.0.1 # release version
 result_file=network_performance.json
 temp_file=/tmp/temporary
 timestamp="$(date --utc +%FT%TZ)"
