@@ -117,14 +117,15 @@ impl ToErrno for InodeError {
             InodeError::NotADirectory(_) => libc::ENOTDIR,
             InodeError::IsDirectory(_) => libc::EISDIR,
             InodeError::FileAlreadyExists(_) => libc::EEXIST,
-            // Not obvious what InodeNotWritable, InodeNotReadableWhileWriting should be.
-            // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files for now.
+            // Not obvious what InodeNotWritable, InodeAlreadyWriting, InodeNotReadableWhileWriting should be.
+            // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files.
             InodeError::InodeNotWritable(_) => libc::EPERM,
+            InodeError::InodeAlreadyWriting(_) => libc::EPERM,
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
             InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
-            InodeError::CorruptedMetadata(_, _) => libc::EIO,
+            InodeError::CorruptedMetadata(_) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::SetAttrOnExpiredStat(_) => libc::EIO,
             InodeError::StaleInode { .. } => libc::ESTALE,

@@ -23,9 +23,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
+use std::fmt::{Debug, Display};
 use std::os::unix::prelude::OsStrExt;
 use std::time::{Duration, Instant};
 
+use anyhow::anyhow;
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
 use lasso::{Key, MiniSpur, ThreadedRodeo};
@@ -215,8 +217,8 @@ impl Superblock {
         if lookup.inode.ino() != ino {
             Err(InodeError::StaleInode {
                 remote_key: lookup.inode.full_key().to_owned(),
-                old_inode: ino,
-                new_inode: lookup.inode.ino(),
+                old_inode: inode.err(),
+                new_inode: lookup.inode.err(),
             })
         } else {
             Ok(lookup)
@@ -235,13 +237,13 @@ impl Superblock {
         let mut sync = inode.get_mut_inode_state()?;
 
         if sync.write_status == WriteStatus::Remote {
-            return Err(InodeError::SetAttrNotPermittedOnRemoteInode(ino));
+            return Err(InodeError::SetAttrNotPermittedOnRemoteInode(inode.err()));
         }
 
         // Should be impossible since local file stat never expire.
         if !sync.stat.is_valid() {
-            warn!(?ino, "local inode stat already expired");
-            return Err(InodeError::SetAttrOnExpiredStat(ino));
+            error!(?ino, "local inode stat already expired");
+            return Err(InodeError::SetAttrOnExpiredStat(inode.err()));
         }
 
         if let Some(t) = atime {
@@ -281,7 +283,7 @@ impl Superblock {
 
         let dir = self.inner.get(dir_ino)?;
         if dir.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(dir_ino));
+            return Err(InodeError::NotADirectory(dir.err()));
         }
         let parent_ino = dir.parent();
 
@@ -303,7 +305,7 @@ impl Superblock {
 
         let existing = self.inner.lookup(client, dir, name).await;
         match existing {
-            Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.ino())),
+            Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
             Err(InodeError::FileDoesNotExist) => (),
             Err(e) => return Err(e),
         }
@@ -320,10 +322,10 @@ impl Superblock {
         // racing lookup. (It would be nice to lock the parent and *then* lookup, but we'd have to
         // hold that lock across the remote API calls).
         let InodeKindData::Directory { children, .. } = &mut parent_state.kind_data else {
-            return Err(InodeError::NotADirectory(dir));
+            return Err(InodeError::NotADirectory(parent_inode.err()));
         };
         if let Some(inode) = children.get(name) {
-            return Err(InodeError::FileAlreadyExists(inode.ino()));
+            return Err(InodeError::FileAlreadyExists(inode.err()));
         }
 
         // Local inode stats never expire, because they can't be looked up remotely
@@ -358,7 +360,7 @@ impl Superblock {
         let LookedUp { inode, .. } = self.inner.lookup(client, parent_ino, name).await?;
 
         if inode.kind() == InodeKind::File {
-            return Err(InodeError::NotADirectory(inode.ino()));
+            return Err(InodeError::NotADirectory(inode.err()));
         }
 
         let parent = self.inner.get(parent_ino)?;
@@ -368,7 +370,7 @@ impl Superblock {
         match &inode_state.write_status {
             WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
             WriteStatus::Remote => {
-                return Err(InodeError::CannotRemoveRemoteDirectory(inode.ino()));
+                return Err(InodeError::CannotRemoveRemoteDirectory(inode.err()));
             }
             WriteStatus::LocalUnopened => match &mut inode_state.kind_data {
                 InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
@@ -378,7 +380,7 @@ impl Superblock {
                     ..
                 } => {
                     if !writing_children.is_empty() {
-                        return Err(InodeError::DirectoryNotEmpty(inode.ino()));
+                        return Err(InodeError::DirectoryNotEmpty(inode.err()));
                     }
                     *deleted = true;
                 }
@@ -388,7 +390,7 @@ impl Superblock {
         match &mut parent_state.kind_data {
             InodeKindData::File {} => {
                 debug_assert!(false, "inodes never change kind");
-                return Err(InodeError::NotADirectory(parent.ino()));
+                return Err(InodeError::NotADirectory(parent.err()));
             }
             InodeKindData::Directory {
                 children,
@@ -424,7 +426,7 @@ impl Superblock {
         let LookedUp { inode, .. } = self.inner.lookup(client, parent_ino, name).await?;
 
         if inode.kind() == InodeKind::Directory {
-            return Err(InodeError::IsDirectory(inode.ino()));
+            return Err(InodeError::IsDirectory(inode.err()));
         }
 
         let write_status = {
@@ -438,9 +440,9 @@ impl Superblock {
                 warn!(
                     parent = parent_ino,
                     ?name,
-                    "unlink called on local file, unlink not supported until write is complete",
+                    "unlink on local file not allowed until write is complete",
                 );
-                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.ino()));
+                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
             }
             WriteStatus::Remote => {
                 let (bucket, s3_key) = (self.inner.bucket.as_str(), inode.full_key());
@@ -451,13 +453,11 @@ impl Superblock {
                     Ok(_res) => (),
                     Err(e) => {
                         error!(
-                            parent=parent_ino,
-                            ?name,
-                            s3_key,
+                            inode=%inode.err(),
                             error=?e,
-                            "unlink failed when trying to perform S3 DeleteObject call, not unlinking from parent inode",
+                            "DeleteObject failed for unlink",
                         );
-                        Err(InodeError::ClientError(e.into()))?;
+                        Err(InodeError::ClientError(anyhow!(e).context("DeleteObject failed")))?;
                     }
                 };
             }
@@ -467,7 +467,7 @@ impl Superblock {
         match &mut parent_state.kind_data {
             InodeKindData::File { .. } => {
                 debug_assert!(false, "inodes never change kind");
-                return Err(InodeError::NotADirectory(parent.ino()));
+                return Err(InodeError::NotADirectory(parent.err()));
             }
             InodeKindData::Directory { children, .. } => {
                 // We want to remove the original child.
@@ -552,7 +552,7 @@ impl SuperblockInner {
     ) -> Result<Option<RemoteLookup>, InodeError> {
         let parent = self.get(parent_ino)?;
         if parent.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(parent_ino));
+            return Err(InodeError::NotADirectory(parent.err()));
         }
         let mut full_path = parent.full_key().to_owned();
         assert!(full_path.is_empty() || full_path.ends_with('/'));
@@ -602,12 +602,12 @@ impl SuperblockInner {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::ClientError(e.into())),
+                        Err(e) => return Err(InodeError::ClientError(anyhow!(e).context("HeadObject failed"))),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::ClientError(e.into()))?;
+                    let result = result.map_err(|e| InodeError::ClientError(anyhow!(e).context("ListObjectsV2 failed")))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -682,7 +682,7 @@ impl SuperblockInner {
 
         // Should be impossible since all callers check this already, but let's be safe
         if parent.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(parent_ino));
+            return Err(InodeError::NotADirectory(parent.err()));
         }
 
         // Fast path: try with only a read lock on the directory first.
@@ -879,7 +879,7 @@ impl SuperblockInner {
         match &mut parent_locked.kind_data {
             InodeKindData::File {} => {
                 debug_assert!(false, "inodes never change kind");
-                return Err(InodeError::NotADirectory(parent.ino()));
+                return Err(InodeError::NotADirectory(parent.err()));
             }
             InodeKindData::Directory {
                 children,
@@ -941,14 +941,8 @@ impl WriteHandle {
                 state.write_status = WriteStatus::LocalOpen;
                 Ok(Self { inner, ino, parent_ino })
             }
-            WriteStatus::LocalOpen => {
-                warn!(inode=?ino, "inode is already being written");
-                Err(InodeError::InodeNotWritable(ino))
-            }
-            WriteStatus::Remote => {
-                warn!(inode=?ino, "inode already exists");
-                Err(InodeError::InodeNotWritable(ino))
-            }
+            WriteStatus::LocalOpen => Err(InodeError::InodeAlreadyWriting(inode.err())),
+            WriteStatus::Remote => Err(InodeError::InodeNotWritable(inode.err())),
         }
     }
 
@@ -1004,7 +998,7 @@ impl WriteHandle {
 
                 Ok(())
             }
-            _ => Err(InodeError::InodeNotWritable(inode.ino())),
+            _ => Err(InodeError::InodeNotWritable(inode.err())),
         }
     }
 }
@@ -1096,7 +1090,7 @@ impl Inode {
         let state = self.get_inode_state()?;
         match state.write_status {
             WriteStatus::Remote => Ok(()),
-            _ => Err(InodeError::InodeNotReadableWhileWriting(self.ino())),
+            _ => Err(InodeError::InodeNotReadableWhileWriting(self.err())),
         }
     }
 
@@ -1143,7 +1137,7 @@ impl Inode {
         if computed == self.inner.checksum && self.ino() == expected_ino {
             Ok(())
         } else {
-            Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
+            Err(InodeError::CorruptedMetadata(self.err()))
         }
     }
 
@@ -1152,7 +1146,7 @@ impl Inode {
         if computed == self.inner.checksum && self.parent() == expected_parent && self.name() == expected_name {
             Ok(())
         } else {
-            Err(InodeError::CorruptedMetadata(self.ino(), self.full_key().to_owned()))
+            Err(InodeError::CorruptedMetadata(self.err()))
         }
     }
 
@@ -1161,6 +1155,27 @@ impl Inode {
         hasher.update(ino.to_be_bytes().as_ref());
         hasher.update(full_key.as_bytes());
         hasher.finalize()
+    }
+
+    /// Produce a description of this Inode for use in errors
+    pub fn err(&self) -> InodeErrorInfo {
+        InodeErrorInfo(self.clone())
+    }
+}
+
+/// A wrapper that prints useful customer-facing error messages for inodes by including the object
+/// key rather than just the inode number.
+pub struct InodeErrorInfo(pub Inode);
+
+impl Display for InodeErrorInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (full key {:?})", self.0.ino(), self.0.full_key())
+    }
+}
+
+impl Debug for InodeErrorInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -1319,32 +1334,34 @@ pub enum InodeError {
     #[error("invalid file name {0:?}")]
     InvalidFileName(OsString),
     #[error("inode {0} is not a directory")]
-    NotADirectory(InodeNo),
+    NotADirectory(InodeErrorInfo),
     #[error("inode {0} is a directory")]
-    IsDirectory(InodeNo),
+    IsDirectory(InodeErrorInfo),
     #[error("file already exists at inode {0}")]
-    FileAlreadyExists(InodeNo),
+    FileAlreadyExists(InodeErrorInfo),
     #[error("inode {0} is not writable")]
-    InodeNotWritable(InodeNo),
+    InodeNotWritable(InodeErrorInfo),
+    #[error("inode {0} is already being written")]
+    InodeAlreadyWriting(InodeErrorInfo),
     #[error("inode {0} is not readable while being written")]
-    InodeNotReadableWhileWriting(InodeNo),
+    InodeNotReadableWhileWriting(InodeErrorInfo),
     #[error("remote directory cannot be removed at inode {0}")]
-    CannotRemoveRemoteDirectory(InodeNo),
+    CannotRemoveRemoteDirectory(InodeErrorInfo),
     #[error("non-empty directory cannot be removed at inode {0}")]
-    DirectoryNotEmpty(InodeNo),
+    DirectoryNotEmpty(InodeErrorInfo),
     #[error("inode {0} cannot be unlinked while being written")]
-    UnlinkNotPermittedWhileWriting(InodeNo),
-    #[error("corrupted metadata for inode {0}, remote key {1:?}")]
-    CorruptedMetadata(InodeNo, String),
+    UnlinkNotPermittedWhileWriting(InodeErrorInfo),
+    #[error("corrupted metadata for inode {0}")]
+    CorruptedMetadata(InodeErrorInfo),
     #[error("inode {0} is a remote inode and its attributes cannot be modified")]
-    SetAttrNotPermittedOnRemoteInode(InodeNo),
+    SetAttrNotPermittedOnRemoteInode(InodeErrorInfo),
     #[error("inode {0} stat is already expired")]
-    SetAttrOnExpiredStat(InodeNo),
+    SetAttrOnExpiredStat(InodeErrorInfo),
     #[error("inode {old_inode} for remote key {remote_key:?} is stale, replaced by inode {new_inode}")]
     StaleInode {
         remote_key: String,
-        old_inode: InodeNo,
-        new_inode: InodeNo,
+        old_inode: InodeErrorInfo,
+        new_inode: InodeErrorInfo,
     },
 }
 
@@ -2032,7 +2049,7 @@ mod tests {
             .unlink(&client, parent_ino, file_name.as_ref())
             .await
             .expect_err("unlink of a corrupted inode should fail");
-        assert!(matches!(err, InodeError::CorruptedMetadata(_, _)));
+        assert!(matches!(err, InodeError::CorruptedMetadata(_)));
     }
 
     #[tokio::test]
