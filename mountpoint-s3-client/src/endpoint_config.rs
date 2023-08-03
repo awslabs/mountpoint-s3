@@ -243,7 +243,7 @@ pub enum EndpointError {
     InvalidUri(#[from] InvalidUriError),
     #[error("endpoint could not be resolved")]
     UnresolvedEndpoint(#[from] ResolverError),
-    #[error("Endpoint properties not resolved")]
+    #[error("Endpoint properties could not be parsed")]
     ParseError(#[from] serde_json::Error),
     #[error("AuthScheme field missing: {0}")]
     InvalidAuthScheme(String),
