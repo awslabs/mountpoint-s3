@@ -249,6 +249,15 @@ impl CliArgs {
             default_filter,
         }
     }
+
+    /// Human-readable description of the bucket being mounted
+    fn bucket_description(&self) -> String {
+        if let Some(prefix) = self.prefix.as_ref() {
+            format!("prefix {} of bucket {}", prefix, self.bucket_name)
+        } else {
+            format!("bucket {}", self.bucket_name)
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -270,17 +279,21 @@ fn main() -> anyhow::Result<()> {
         // child process will report its status via this pipe.
         let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
 
+        // Don't share args across the fork. It should just be plain data, so probably fine to be
+        // copy-on-write, but just in case we ever add something more fancy to the struct.
+        drop(args);
+
         // SAFETY: Child process has full ownership of its resources.
         // There is no shared data between parent and child processes.
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                let child_args = CliArgs::parse();
+                let args = CliArgs::parse();
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
 
                 let _metrics = MetricsSink::init();
 
-                let session = mount(child_args);
+                let session = mount(args);
 
                 // close unused file descriptor, we only write from this end.
                 nix::unistd::close(read_fd).context("Failed to close unused file descriptor")?;
@@ -309,6 +322,8 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             ForkResult::Parent { child } => {
+                let args = CliArgs::parse();
+
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
@@ -336,7 +351,14 @@ fn main() -> anyhow::Result<()> {
                 let timeout = Duration::from_secs(30);
                 let status = receiver.recv_timeout(timeout);
                 match status {
-                    Ok('0') => tracing::debug!("success status flag received from child process"),
+                    Ok('0') => {
+                        println!(
+                            "{} is mounted at {}",
+                            args.bucket_description(),
+                            args.mount_point.display()
+                        );
+                        tracing::debug!("success status flag received from child process")
+                    }
                     Ok(_) => {
                         nix::sys::wait::waitpid(child, None).context("Failed to wait for child process to exit")?;
                         return Err(anyhow!("Failed to create mount process"));
@@ -363,6 +385,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
 
     validate_mount_point(&args.mount_point)?;
+
+    let bucket_description = args.bucket_description();
 
     // Placeholder region will be filled in by [create_client_for_bucket]
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
@@ -462,7 +486,11 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let max_threads = args.max_threads as usize;
     let session = FuseSession::new(session, max_threads).context("Failed to start FUSE session")?;
 
-    tracing::info!("successfully mounted {:?}", args.mount_point);
+    tracing::info!(
+        "successfully mounted {} at {}",
+        bucket_description,
+        args.mount_point.display()
+    );
 
     Ok(session)
 }
