@@ -3,12 +3,13 @@
 # Please ensure 'jq' and AWS CLI v2 are installed before executing this script.
 # The purpose of this script is to generate a json file contains network throughput numbers of each EC2 instance types.
 
-version=v0.0.1 # release version
+set -euo pipefail
+
 result_file=network_performance.json
 temp_file=/tmp/temporary
 timestamp="$(date --utc +%FT%TZ)"
 region=us-east-1
-version_number=0.0.1
+version_number=0.0.2
 
 # Network throughput query
 query_ec2_instance_network_throughput="aws ec2 describe-instance-types
@@ -26,7 +27,9 @@ query_ec2_instance_network_throughput="aws ec2 describe-instance-types
 declare -r -A THROUGHPUT_OVERRIDE=(
     ["dl1.24xlarge"]=400
     ["p4d.24xlarge"]=400
+    ["p4de.24xlarge"]=400
     ["trn1.32xlarge"]=800
+    ["trn1n.32xlarge"]=1600
 )
 
 (> ${temp_file})
@@ -36,7 +39,7 @@ generate_json_entry() {
     echo "\"version\":{\"region\":\"${region}\",\"timestamp\":\"${timestamp}\",\"version_number\":\"${version_number}\"},"
     echo "\"instance_throughput\": {"
     eval $query_ec2_instance_network_throughput | \
-        jq -c '.[]' | \
+        jq -c 'sort_by(.[0]) | .[]' | \
         while read line;do
             # extract instance type as a string. eg: "m5dn.12xlarge"
             instance_type=`echo $line | cut -d ',' -f1 | sed 's/\[//' | sed 's/\"//g'`
