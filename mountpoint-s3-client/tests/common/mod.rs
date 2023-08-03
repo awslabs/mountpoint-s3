@@ -102,6 +102,7 @@ pub async fn get_scoped_down_credentials(policy: String) -> Credentials {
     let assume_role_response = sts_client
         .assume_role()
         .role_arn(get_subsession_iam_role())
+        .role_session_name("mountpoint-s3-client_tests")
         .policy(policy)
         .send()
         .await
