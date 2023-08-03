@@ -279,12 +279,16 @@ fn main() -> anyhow::Result<()> {
         // child process will report its status via this pipe.
         let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
 
+        // Don't share args across the fork. It should just be plain data, so probably fine to be
+        // copy-on-write, but just in case we ever add something more fancy to the struct.
+        drop(args);
+
         // SAFETY: Child process has full ownership of its resources.
         // There is no shared data between parent and child processes.
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                let child_args = CliArgs::parse();
+                let args = CliArgs::parse();
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
 
                 let _metrics = MetricsSink::init();
@@ -318,7 +322,6 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             ForkResult::Parent { child } => {
-                // Re-parse CLI args in parent process because the child might move them
                 let args = CliArgs::parse();
 
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
