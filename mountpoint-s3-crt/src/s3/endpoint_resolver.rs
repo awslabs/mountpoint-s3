@@ -167,6 +167,21 @@ impl ResolvedEndpoint {
             OsStr::from_bytes(uri).to_os_string()
         }
     }
+
+    /// Get properties like `authSchemes` from the [ResolvedEndpoint]
+    pub fn get_properties(&self) -> OsString {
+        let mut properties: aws_byte_cursor = Default::default();
+        // SAFETY: self.inner is valid pointer to resolved endpoint as it is supposed to be used after Resolve(). url is passed as valid mutable pointer.
+        //`aws_endpoint_resolved_enpoint_get_properties` ensures to return an initialized aws_byte_cursor for properties in such case.
+        unsafe {
+            aws_endpoints_resolved_endpoint_get_properties(self.inner.as_ptr(), &mut properties);
+        }
+        // SAFETY: `endpoint_properties` does not outlive the aws_byte_cursor `properties` as an owned OsString is returned rather than reference to a slice.
+        unsafe {
+            let endpoint_properties = aws_byte_cursor_as_slice(&properties);
+            OsStr::from_bytes(endpoint_properties).to_os_string()
+        }
+    }
 }
 
 impl Drop for ResolvedEndpoint {
@@ -306,5 +321,31 @@ mod test {
             err,
             ResolverError::EndpointNotResolved("A region must be set when sending requests to S3.".to_owned())
         );
+    }
+
+    #[test_case("arn:aws:s3-object-lambda:eu-west-1:AccountID:accesspoint/olap-bucket-test", "{\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3-object-lambda\",\"signingRegion\":\"eu-west-1\"}]}"; "OLAP ARN")]
+    #[test_case("arn:aws:s3:us-east-2:AccountID:accesspoint/access-point-test", "{\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3\",\"signingRegion\":\"us-east-2\"}]}"; "Access Point ARN")]
+    #[test_case("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap", "{\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4a\",\"signingName\":\"s3\",\"signingRegionSet\":[\"*\"]}]}"; "MRAP")]
+    fn test_endpoint_properties_for_arn(arn: &str, endpoint_property: &str) {
+        let new_allocator = Allocator::default();
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
+        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
+        test_endpoint_resolver_init(arn, "us-east-1", &new_allocator, &mut endpoint_request_context);
+        let resolved_endpoint = endpoint_rule_engine.resolve(endpoint_request_context).unwrap();
+        let property = resolved_endpoint.get_properties();
+        assert_eq!(property, endpoint_property);
+    }
+
+    #[test_case("my-access-point-random-s3alias", "{\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3\",\"signingRegion\":\"us-east-2\"}]}"; "AccessPoint Alias")]
+    #[test_case("my-object-lambda-acc-random-alias--ol-s3", "{\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3\",\"signingRegion\":\"us-east-2\"}]}"; "ObjectLambda Alias")]
+    #[test_case("test-bucket", "{\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3\",\"signingRegion\":\"us-east-2\"}]}"; "Normal bucket")]
+    fn test_endpoint_properties_for_bucket_alias(bucket: &str, endpoint_property: &str) {
+        let new_allocator = Allocator::default();
+        let endpoint_rule_engine = RuleEngine::new(&new_allocator).unwrap();
+        let mut endpoint_request_context = RequestContext::new(&new_allocator).unwrap();
+        test_endpoint_resolver_init(bucket, "us-east-2", &new_allocator, &mut endpoint_request_context);
+        let resolved_endpoint = endpoint_rule_engine.resolve(endpoint_request_context).unwrap();
+        let property = resolved_endpoint.get_properties();
+        assert_eq!(property, endpoint_property);
     }
 }

@@ -1,6 +1,8 @@
+use std::os::unix::prelude::OsStrExt;
+
 use mountpoint_s3_crt::{
     common::{allocator::Allocator, uri::Uri},
-    s3::endpoint_resolver::{RequestContext, ResolverError, RuleEngine},
+    s3::endpoint_resolver::{RequestContext, ResolvedEndpoint, ResolverError, RuleEngine},
 };
 use thiserror::Error;
 
@@ -13,6 +15,37 @@ pub enum AddressingStyle {
     Path,
 }
 
+#[derive(Debug, Clone)]
+pub struct AuthScheme {
+    disable_double_encoding: bool,
+    scheme_name: String,
+    signing_name: String,
+    signing_region: String,
+}
+
+impl AuthScheme {
+    /// Get the siging name from [AuthScheme]
+    pub fn signing_name(&self) -> &str {
+        &self.signing_name
+    }
+
+    /// Get the signing region from [AuthScheme]
+    pub fn signing_region(&self) -> &str {
+        &self.signing_region
+    }
+
+    /// Get Disable double encoding value for [AuthScheme]
+    pub fn disable_double_encoding(&self) -> bool {
+        self.disable_double_encoding
+    }
+
+    /// Get the name of [AuthScheme]
+    pub fn scheme_name(&self) -> &str {
+        &self.scheme_name
+    }
+}
+
+/// Configuration for resolution of Endpoint
 #[derive(Debug, Clone)]
 pub struct EndpointConfig {
     region: String,
@@ -92,6 +125,7 @@ impl EndpointConfig {
     pub fn get_accelerate(&self) -> bool {
         self.use_accelerate
     }
+
     /// get the dual stack config from the [EndpointConfig]
     pub fn get_dual_stack(&self) -> bool {
         self.use_dual_stack
@@ -108,7 +142,7 @@ impl EndpointConfig {
     }
 
     /// resolve the endpoint from the [EndpointConfig] and the bucket name
-    pub fn resolve_for_bucket(&self, bucket: &str) -> Result<Uri, EndpointError> {
+    pub fn resolve_for_bucket(&self, bucket: &str) -> Result<ResolvedEndpointInfo, EndpointError> {
         let allocator = Allocator::default();
         let mut endpoint_request_context: RequestContext = RequestContext::new(&allocator).unwrap();
         let endpoint_rule_engine = RuleEngine::new(&allocator).unwrap();
@@ -148,9 +182,58 @@ impl EndpointConfig {
         let resolved_endpoint = endpoint_rule_engine
             .resolve(endpoint_request_context)
             .map_err(EndpointError::UnresolvedEndpoint)?;
-        let endpoint_uri = resolved_endpoint.get_url();
-        Uri::new_from_str(&allocator, endpoint_uri)
+
+        Ok(ResolvedEndpointInfo(resolved_endpoint))
+    }
+}
+
+/// Wrapper for [ResolvedEndpoint] from CRT to get [Uri] and [AuthScheme]
+#[derive(Debug)]
+pub struct ResolvedEndpointInfo(ResolvedEndpoint);
+
+impl ResolvedEndpointInfo {
+    /// Get the [Uri] from [ResolvedEndpointInfo]
+    pub fn uri(&self) -> Result<Uri, EndpointError> {
+        let allocator = Allocator::default();
+        let endpoint_url = self.0.get_url();
+        Uri::new_from_str(&allocator, endpoint_url)
             .map_err(|e| EndpointError::InvalidUri(InvalidUriError::CouldNotParse(e)))
+    }
+
+    /// Get the [AuthScheme] from [ResolvedEndpointInfo] for the signing config
+    pub fn auth_scheme(&self) -> Result<AuthScheme, EndpointError> {
+        // ResolvedEndpoint is wrapper for aws_endpoints_resolved_endpoint which has url, properties and header for the endpoint.
+        // Property if in json format containing the AuthScheme. Egs. -
+        // {\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3\",\"signingRegion\":\"us-east-2\"}]}
+        let endpoint_properties = self.0.get_properties();
+        let auth_scheme_data: serde_json::Value = serde_json::from_slice(endpoint_properties.as_bytes())?;
+        let auth_scheme_value = auth_scheme_data
+            .get("authSchemes")
+            .ok_or_else(|| EndpointError::InvalidAuthScheme("AuthScheme".to_owned()))?;
+        let auth_scheme_value = &auth_scheme_value[0];
+        let disable_double_encoding = auth_scheme_value
+            .get("disableDoubleEncoding")
+            .and_then(|t| t.as_bool())
+            .ok_or_else(|| EndpointError::InvalidAuthScheme("disableDoubleEncoding".to_owned()))?;
+        let scheme_name = auth_scheme_value
+            .get("name")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| EndpointError::InvalidAuthScheme("name".to_owned()))?;
+        let signing_name = auth_scheme_value
+            .get("signingName")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| EndpointError::InvalidAuthScheme("signingName".to_owned()))?;
+        let signing_region = auth_scheme_value
+            .get("signingRegion")
+            .and_then(|t| t.as_str())
+            .unwrap_or("*");
+
+        Ok(AuthScheme {
+            disable_double_encoding,
+            scheme_name: scheme_name.to_owned(),
+            signing_name: signing_name.to_owned(),
+            signing_region: signing_region.to_owned(),
+        })
     }
 }
 
@@ -160,6 +243,10 @@ pub enum EndpointError {
     InvalidUri(#[from] InvalidUriError),
     #[error("endpoint could not be resolved")]
     UnresolvedEndpoint(#[from] ResolverError),
+    #[error("Endpoint properties could not be parsed")]
+    ParseError(#[from] serde_json::Error),
+    #[error("AuthScheme field missing: {0}")]
+    InvalidAuthScheme(String),
 }
 
 #[derive(Debug, Error)]
@@ -175,7 +262,11 @@ mod test {
     #[test]
     fn test_virtual_addr() {
         let endpoint_config = EndpointConfig::new("eu-west-1").addressing_style(AddressingStyle::Automatic);
-        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("doc-example-bucket")
+            .unwrap()
+            .uri()
+            .unwrap();
         assert_eq!(
             "https://doc-example-bucket.s3.eu-west-1.amazonaws.com",
             endpoint_uri.as_os_str()
@@ -187,14 +278,22 @@ mod test {
         let endpoint_config = EndpointConfig::new("eu-west-1")
             .addressing_style(AddressingStyle::Path)
             .endpoint(Uri::new_from_str(&Allocator::default(), "https://example.com").unwrap());
-        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("doc-example-bucket")
+            .unwrap()
+            .uri()
+            .unwrap();
         assert_eq!("https://example.com/doc-example-bucket", endpoint_uri.as_os_str());
     }
 
     #[test]
     fn test_fips_dual_stack() {
         let endpoint_config = EndpointConfig::new("eu-west-1").use_fips(true).use_dual_stack(true);
-        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("doc-example-bucket")
+            .unwrap()
+            .uri()
+            .unwrap();
         assert_eq!(
             "https://doc-example-bucket.s3-fips.dualstack.eu-west-1.amazonaws.com",
             endpoint_uri.as_os_str()
@@ -206,7 +305,11 @@ mod test {
         let endpoint_config = EndpointConfig::new("eu-west-1")
             .use_accelerate(true)
             .use_dual_stack(true);
-        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("doc-example-bucket")
+            .unwrap()
+            .uri()
+            .unwrap();
         assert_eq!(
             "https://doc-example-bucket.s3-accelerate.dualstack.amazonaws.com",
             endpoint_uri.as_os_str()
@@ -218,7 +321,11 @@ mod test {
         let endpoint_config = EndpointConfig::new("eu-west-1")
             .use_dual_stack(true)
             .addressing_style(AddressingStyle::Path);
-        let endpoint_uri = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let endpoint_uri = endpoint_config
+            .resolve_for_bucket("doc-example-bucket")
+            .unwrap()
+            .uri()
+            .unwrap();
         assert_eq!(
             "https://s3.dualstack.eu-west-1.amazonaws.com/doc-example-bucket",
             endpoint_uri.as_os_str()
@@ -230,6 +337,8 @@ mod test {
         let endpoint_config = EndpointConfig::new("eu-west-1");
         let endpoint_uri = endpoint_config
             .resolve_for_bucket("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap")
+            .unwrap()
+            .uri()
             .unwrap();
         assert_eq!(
             "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com",
@@ -243,6 +352,8 @@ mod test {
         // Also a test for China region
         let endpoint_uri = endpoint_config
             .resolve_for_bucket("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap")
+            .unwrap()
+            .uri()
             .unwrap();
         assert_eq!(
             "https://china-region-ap-555555555555.s3-accesspoint.cn-north-2.amazonaws.com.cn",
@@ -255,6 +366,8 @@ mod test {
         let endpoint_config = EndpointConfig::new("us-gov-west-1");
         let endpoint_uri = endpoint_config
             .resolve_for_bucket("mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3")
+            .unwrap()
+            .uri()
             .unwrap();
         assert_eq!(
             "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-gov-west-1.amazonaws.com",
@@ -276,5 +389,35 @@ mod test {
             let err_str = "Invalid ARN: Unrecognized format: arn:aws:s3:::testbucket (type: testbucket)".to_owned();
             assert_eq!(str, err_str);
         }
+    }
+
+    #[test]
+    fn test_auth_scheme_for_arn() {
+        let endpoint_config = EndpointConfig::new("eu-west-1");
+        let endpoint_auth_scheme = endpoint_config
+            .resolve_for_bucket("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap")
+            .unwrap()
+            .auth_scheme()
+            .unwrap();
+
+        let signing_region = endpoint_auth_scheme.signing_region();
+        assert_eq!(signing_region, "*");
+        let signing_name = endpoint_auth_scheme.signing_name();
+        assert_eq!(signing_name, "s3");
+    }
+
+    #[test]
+    fn test_auth_scheme_for_bucket() {
+        let endpoint_config = EndpointConfig::new("eu-west-1");
+        let endpoint_auth_scheme = endpoint_config
+            .resolve_for_bucket("test-bucket")
+            .unwrap()
+            .auth_scheme()
+            .unwrap();
+
+        let signing_region = endpoint_auth_scheme.signing_region();
+        assert_eq!(signing_region, "eu-west-1");
+        let signing_name = endpoint_auth_scheme.signing_name();
+        assert_eq!(signing_name, "s3");
     }
 }
