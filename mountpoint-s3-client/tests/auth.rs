@@ -7,7 +7,6 @@ use std::option::Option::None;
 
 use aws_credential_types::Credentials;
 use aws_sdk_s3::types::ByteStream;
-use aws_sdk_s3::Region;
 use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
@@ -375,12 +374,6 @@ async fn test_scoped_credentials() {
             .await
             .unwrap();
     }
-
-    let config = aws_config::from_env()
-        .region(Region::new(get_test_region()))
-        .load()
-        .await;
-    let sts_client = aws_sdk_sts::Client::new(&config);
 
     // Scope down to the `foo` prefix
     let policy = r#"{"Statement": [
