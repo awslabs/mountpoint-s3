@@ -288,19 +288,15 @@ async fn test_profile_only_provider_async() {
         .expect_err("first GET for profile with no permissions should not work");
 
     // Try it again with a bogus profile name. The profile provider alone should not return any credentials.
-    // It shouldn't be possible to even construct the client.
-    let profile_provider = CredentialsProvider::new_profile(
+    // It shouldn't be possible to even construct the credential provider.
+    CredentialsProvider::new_profile(
         &Allocator::default(),
         CredentialsProviderProfileOptions {
             bootstrap: &mut client_bootstrap,
             profile_name_override: "not-the-right-profile-name",
         },
     )
-    .unwrap();
-    let config = S3ClientConfig::new()
-        .auth_config(S3ClientAuthConfig::Provider(profile_provider))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
-    let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
+    .expect_err("cannot create provider if profile doesn't exist");
 }
 
 fn setup_crt_bootstrap() -> channel_bootstrap::ClientBootstrap {
