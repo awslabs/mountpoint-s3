@@ -150,7 +150,6 @@ async fn test_default_chain_custom_profile_provider_async() {
         "Statement": [
             {
                 "Effect": "Deny",
-                "Principal": { "AWS": "*" },
                 "Action": [ "s3:GetObject" ],
                 "Resource": "*"
             }
@@ -266,7 +265,6 @@ async fn test_profile_only_provider_async() {
         "Statement": [
             {
                 "Effect": "Deny",
-                "Principal": { "AWS": "*" },
                 "Action": [ "s3:GetObject" ],
                 "Resource": "*"
             }
