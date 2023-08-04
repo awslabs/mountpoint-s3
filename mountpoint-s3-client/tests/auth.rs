@@ -91,7 +91,7 @@ async fn test_static_provider() {
 /// Test creating a client with the default credentials provider with a profile name override
 ///
 /// This is complicated because CLI profiles are inherently global state, but we want to isolate the
-/// test. So the [test_default_chain_with_profile_override] test below is forked into its own process, where it can set
+/// test. So the [test_default_chain_with_profile_override_async] test below is forked into its own process, where it can set
 /// the environment variables it needs to point to an isolated CLI configuration file without
 /// affecting the rest of the real test runner.
 ///
@@ -99,7 +99,7 @@ async fn test_static_provider() {
 /// * Default chain with valid AWS profile credential configuration
 /// * Default chain with invalid AWS profile credential configuration
 /// * Default chain with existing profile but no credential configuration, falling back on the rest of credential chain
-async fn test_default_chain_custom_profile_provider_async() {
+async fn test_default_chain_with_profile_override_async() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_custom_profile_provider");
 
@@ -122,10 +122,21 @@ async fn test_default_chain_custom_profile_provider_async() {
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
-    // Get some static credentials using the SDK's default provider chain
-    let credentials = get_sdk_default_chain_creds().await;
+    let policy = r#"{
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [ "s3:GetObject" ],
+                "Resource": [ "arn:aws:s3:::__BUCKET__/*" ]
+            }
+        ]
+    }"#
+    .replace("__BUCKET__", &bucket);
+
+    let scoped_down_creds = get_scoped_down_credentials(policy.to_owned()).await;
     let profile_name = "mountpoint-profile";
-    write_credentials_to_named_profile(&mut config_file, profile_name, credentials).await;
+    write_credentials_to_named_profile(&mut config_file, profile_name, scoped_down_creds).await;
 
     // Build a S3CrtClient that uses the new profile
     let config = S3ClientConfig::new()
@@ -350,7 +361,7 @@ rusty_fork_test! {
     fn test_default_chain_with_profile_override() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(test_default_chain_custom_profile_provider_async());
+        runtime.block_on(test_default_chain_with_profile_override_async());
     }
 }
 
