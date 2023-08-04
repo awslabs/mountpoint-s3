@@ -37,9 +37,10 @@ class BuildMetadata:
     version_string: str
     buildroot: str
     arch: str
+    arch_name: str
 
     def artifact_name(self, extension: str):
-        return f"mount-s3-{self.version_string}-{self.arch}.{extension}"
+        return f"mount-s3-{self.version_string}-{self.arch_name}.{extension}"
 
 
 OPT_PATH = "opt/aws/mountpoint-s3"
@@ -97,6 +98,10 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
 
     # Discover the architecture of this host
     arch = run(["uname", "-p"]).decode("ascii").strip()
+    arch_name = arch
+    if arch == "aarch64":
+        # We want to use arm64 in the artifact names
+        arch_name = "arm64"
 
     # Fully resolve output dir
     output_dir = os.path.join(root_dir, "out")
@@ -109,6 +114,7 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
         version_string=version_string,
         buildroot=buildroot,
         arch=arch,
+        arch_name=arch_name
     )
     return metadata
 
