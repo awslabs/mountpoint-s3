@@ -47,9 +47,6 @@ pub struct ClientConfig {
     /// The [ClientBootstrap] to use to create connections to S3
     client_bootstrap: Option<ClientBootstrap>,
 
-    /// The [SigningConfig] configuration for signing API requests to S3
-    signing_config: Option<SigningConfig>,
-
     /// The [RetryStrategy] to use to reschedule failed requests to S3. This is reference counted,
     /// so we only need to hold onto it until this [ClientConfig] is consumed, at which point the
     /// client will take ownership.
@@ -60,14 +57,6 @@ impl ClientConfig {
     /// Create a new [ClientConfig] with default options.
     pub fn new() -> Self {
         Default::default()
-    }
-
-    /// Signing options to be used for each request. Leave out to not sign requests.
-    pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
-        // Safety: Cast the signing config to mut pointer since we know creating the client won't modify it.
-        self.inner.signing_config = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;
-        self.signing_config = Some(signing_config);
-        self
     }
 
     /// Client bootstrap used for common staples such as event loop group, host resolver, etc.
@@ -280,7 +269,7 @@ impl MetaRequestOptions {
 
     /// Set the signing config used for this message. Not public because we copy it from the client
     /// when making a request.
-    fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
+    pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.signing_config = Some(signing_config);
@@ -570,16 +559,11 @@ impl Client {
 
     /// Make a meta request to S3 using this [Client]. A meta request is an HTTP request that
     /// the CRT might internally split up into multiple requests for performance.
-    pub fn make_meta_request(&self, mut options: MetaRequestOptions) -> Result<MetaRequest, Error> {
+    pub fn make_meta_request(&self, options: MetaRequestOptions) -> Result<MetaRequest, Error> {
         // SAFETY: The inner struct pointed to by MetaRequestOptions will live as long as the
         // request does, since we only drop it in the shutdown callback. That struct owns everything
         // related to the request, like the message, signing config, etc.
         unsafe {
-            // The client holds a copy of the signing config, copy it again for this request.
-            if let Some(signing_config) = self.config.signing_config.as_ref() {
-                options.signing_config(signing_config.clone());
-            }
-
             // Unpin the options (we won't move out of it, nor will the callbacks).
             let options = Pin::into_inner_unchecked(options.0);
 

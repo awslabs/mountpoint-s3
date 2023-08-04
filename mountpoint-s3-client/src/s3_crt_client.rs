@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
+use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
@@ -197,6 +198,7 @@ struct S3CrtClientInner {
     request_payer: Option<String>,
     part_size: usize,
     bucket_owner: Option<String>,
+    credentials_provider: Option<CredentialsProvider>,
 }
 
 impl S3CrtClientInner {
@@ -255,11 +257,6 @@ impl S3CrtClientInner {
 
         let endpoint_config = config.endpoint_config;
 
-        if let Some(credentials_provider) = credentials_provider {
-            let signing_config = init_default_signing_config(endpoint_config.get_region(), credentials_provider);
-            client_config.signing_config(signing_config);
-        }
-
         client_config
             .client_bootstrap(client_bootstrap)
             .retry_strategy(retry_strategy);
@@ -291,6 +288,7 @@ impl S3CrtClientInner {
             request_payer: config.request_payer,
             part_size: config.part_size,
             bucket_owner: config.bucket_owner,
+            credentials_provider,
         })
     }
 
@@ -302,6 +300,9 @@ impl S3CrtClientInner {
         let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
         let uri = endpoint.uri()?;
         trace!(?uri, "resolved endpoint");
+        let signing_config = self.credentials_provider.clone().map(|credentials_provider| {
+            init_default_signing_config(self.endpoint_config.get_region(), credentials_provider)
+        });
         let hostname = uri.host_name().to_str().unwrap();
         let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();
@@ -330,6 +331,7 @@ impl S3CrtClientInner {
             uri,
             path_prefix,
             checksum_config: None,
+            signing_config,
         })
     }
 
@@ -337,6 +339,9 @@ impl S3CrtClientInner {
         let mut options = MetaRequestOptions::new();
         if let Some(checksum_config) = message.checksum_config {
             options.checksum_config(checksum_config);
+        }
+        if let Some(signing_config) = message.signing_config {
+            options.signing_config(signing_config);
         }
         options
             .message(message.inner)
@@ -601,6 +606,7 @@ struct S3Message {
     uri: Uri,
     path_prefix: String,
     checksum_config: Option<ChecksumConfig>,
+    signing_config: Option<SigningConfig>,
 }
 
 impl S3Message {
