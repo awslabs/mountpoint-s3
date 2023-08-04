@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1691161925614,
+  "lastUpdate": 1691162510974,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "47d06c127d482212b89291ffc62a3604169c5db6",
-          "message": "Fix region detection with specified region (#409)\n\n* Fix region detection with specified region\n\nWe weren't setting the region in the endpoint config if it was specified\nmanually. This passed our tests because it was defaulting to us-east-1\nand that's where our CI is. Instead, let's start with an obviously wrong\nplaceholder region and fill it in when creating the client.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n* Fix warning message\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n---------\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-07-26T10:32:22Z",
-          "tree_id": "1f8f7ef8166bb0826a3dfe764d766c116237b52b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/47d06c127d482212b89291ffc62a3604169c5db6"
-        },
-        "date": 1690369868089,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.08,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.179,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.17,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.186,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 95.6899559,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 61.968576799999994,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 56.6311277,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "00ecc60e7171a0cb9b40c695d96967b3ecbf82b5",
+          "message": "Bump version of mountpoint-s3 to v0.4.1 (#432)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2023-08-04T16:11:10+01:00",
+          "tree_id": "b5b697a1245dc25fcb26f9c79083b28f36646702",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/00ecc60e7171a0cb9b40c695d96967b3ecbf82b5"
+        },
+        "date": 1691162510378,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.074,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.184,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.161,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.984,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 78.6096619,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 65.3196707,
             "unit": "milliseconds"
           }
         ]
