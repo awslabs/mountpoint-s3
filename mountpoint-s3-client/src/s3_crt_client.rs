@@ -302,7 +302,14 @@ impl S3CrtClientInner {
         trace!(?uri, "resolved endpoint");
 
         let signing_config = if let Some(credentials_provider) = &self.credentials_provider {
-            let auth_scheme = endpoint.auth_scheme()?;
+            let auth_scheme = match endpoint.auth_scheme() {
+                Ok(auth_scheme) => auth_scheme,
+                Err(e) => {
+                    error!(error=?e, "no auth scheme for endpoint");
+                    return Err(e.into());
+                }
+            };
+            trace!(?auth_scheme, "resolved auth scheme");
             Some(init_default_signing_config(
                 auth_scheme.signing_region(),
                 auth_scheme.scheme_name(),
