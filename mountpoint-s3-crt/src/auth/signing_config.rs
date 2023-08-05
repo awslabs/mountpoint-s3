@@ -6,7 +6,6 @@ use std::ffi::OsString;
 use std::fmt::Debug;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
-use std::sync::Arc;
 
 pub(crate) struct SigningConfigInner {
     /// The raw `aws_signing_config` for this config
@@ -33,16 +32,14 @@ impl Debug for SigningConfigInner {
     }
 }
 
-/// Wrap the SigningConfigInner struct into a Pin<Box<_>>, so that it cannot be moved. Then wrap
-/// in an Arc so that we can make copies. If there were a way to convert Pin<Box<_>> into Pin<Arc<_>>
-/// then we could avoid needing both.
-#[derive(Debug, Clone)]
-pub struct SigningConfig(pub(crate) Arc<Pin<Box<SigningConfigInner>>>);
+/// Wrap the SigningConfigInner struct into a Pin<Box<_>>, so that it cannot be moved.
+#[derive(Debug)]
+pub struct SigningConfig(pub(crate) Pin<Box<SigningConfigInner>>);
 
 impl SigningConfig {
     /// Get out the inner pointer to the signing config
     pub(crate) fn to_inner_ptr(&self) -> *const aws_signing_config_aws {
-        &Pin::as_ref(&self.0).get_ref().inner
+        &self.0.as_ref().get_ref().inner
     }
 }
 

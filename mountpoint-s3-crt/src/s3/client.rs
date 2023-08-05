@@ -18,7 +18,6 @@ use std::marker::PhantomPinned;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// A client for high-throughput access to Amazon S3
@@ -1071,7 +1070,7 @@ pub fn init_default_signing_config(
         .set_use_double_uri_encode(use_double_uri_encode as u32);
     signing_config.inner.algorithm = algorithm.into();
 
-    SigningConfig(Arc::new(Box::into_pin(signing_config)))
+    SigningConfig(Box::into_pin(signing_config))
 }
 
 /// The checksum configuration.
