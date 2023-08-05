@@ -220,9 +220,7 @@ impl ResolvedEndpointInfo {
         let scheme_name = match scheme_name {
             "sigv4" => SigningAlgorithm::SigV4,
             "sigv4a" => SigningAlgorithm::SigV4A,
-            _ => {
-                return Err(EndpointError::InvalidAuthSchemeField("name", scheme_name.to_owned()));
-            }
+            _ => return Err(EndpointError::InvalidAuthSchemeField("name", scheme_name.to_owned())),
         };
 
         let signing_name = auth_scheme_value["signingName"]
@@ -253,7 +251,7 @@ pub enum EndpointError {
     ParseError(#[from] serde_json::Error),
     #[error("AuthScheme field missing: {0}")]
     MissingAuthSchemeField(&'static str),
-    #[error("invalid value {0} for AuthScheme field: {1}")]
+    #[error("invalid value {1} for AuthScheme field {0}")]
     InvalidAuthSchemeField(&'static str, String),
 }
 
