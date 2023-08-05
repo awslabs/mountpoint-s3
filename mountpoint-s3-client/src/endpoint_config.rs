@@ -1,6 +1,7 @@
 use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt::{
+    auth::signing_config::SigningAlgorithm,
     common::{allocator::Allocator, uri::Uri},
     s3::endpoint_resolver::{RequestContext, ResolvedEndpoint, ResolverError, RuleEngine},
 };
@@ -18,7 +19,7 @@ pub enum AddressingStyle {
 #[derive(Debug, Clone)]
 pub struct AuthScheme {
     disable_double_encoding: bool,
-    scheme_name: String,
+    scheme_name: SigningAlgorithm,
     signing_name: String,
     signing_region: String,
 }
@@ -40,8 +41,8 @@ impl AuthScheme {
     }
 
     /// Get the name of [AuthScheme]
-    pub fn scheme_name(&self) -> &str {
-        &self.scheme_name
+    pub fn scheme_name(&self) -> SigningAlgorithm {
+        self.scheme_name
     }
 }
 
@@ -207,30 +208,33 @@ impl ResolvedEndpointInfo {
         // {\"authSchemes\":[{\"disableDoubleEncoding\":true,\"name\":\"sigv4\",\"signingName\":\"s3\",\"signingRegion\":\"us-east-2\"}]}
         let endpoint_properties = self.0.get_properties();
         let auth_scheme_data: serde_json::Value = serde_json::from_slice(endpoint_properties.as_bytes())?;
-        let auth_scheme_value = auth_scheme_data
-            .get("authSchemes")
-            .ok_or_else(|| EndpointError::InvalidAuthScheme("AuthScheme".to_owned()))?;
-        let auth_scheme_value = &auth_scheme_value[0];
-        let disable_double_encoding = auth_scheme_value
-            .get("disableDoubleEncoding")
-            .and_then(|t| t.as_bool())
-            .ok_or_else(|| EndpointError::InvalidAuthScheme("disableDoubleEncoding".to_owned()))?;
-        let scheme_name = auth_scheme_value
-            .get("name")
-            .and_then(|t| t.as_str())
-            .ok_or_else(|| EndpointError::InvalidAuthScheme("name".to_owned()))?;
-        let signing_name = auth_scheme_value
-            .get("signingName")
-            .and_then(|t| t.as_str())
-            .ok_or_else(|| EndpointError::InvalidAuthScheme("signingName".to_owned()))?;
+        let auth_scheme_value = auth_scheme_data["authSchemes"]
+            .get(0)
+            .ok_or_else(|| EndpointError::MissingAuthSchemeField("authSchemes"))?;
+        let disable_double_encoding = auth_scheme_value["disableDoubleEncoding"]
+            .as_bool()
+            .ok_or_else(|| EndpointError::MissingAuthSchemeField("disableDoubleEncoding"))?;
+        let scheme_name = auth_scheme_value["name"]
+            .as_str()
+            .ok_or_else(|| EndpointError::MissingAuthSchemeField("name"))?;
+        let scheme_name = match scheme_name {
+            "sigv4" => SigningAlgorithm::SigV4,
+            "sigv4a" => SigningAlgorithm::SigV4A,
+            _ => return Err(EndpointError::InvalidAuthSchemeField("name", scheme_name.to_owned())),
+        };
+
+        let signing_name = auth_scheme_value["signingName"]
+            .as_str()
+            .ok_or_else(|| EndpointError::MissingAuthSchemeField("signingName"))?;
         let signing_region = auth_scheme_value
             .get("signingRegion")
+            .or_else(|| auth_scheme_value["signingRegionSet"].get(0))
             .and_then(|t| t.as_str())
-            .unwrap_or("*");
+            .ok_or_else(|| EndpointError::MissingAuthSchemeField("signingRegion or signingRegionSet"))?;
 
         Ok(AuthScheme {
             disable_double_encoding,
-            scheme_name: scheme_name.to_owned(),
+            scheme_name,
             signing_name: signing_name.to_owned(),
             signing_region: signing_region.to_owned(),
         })
@@ -246,7 +250,9 @@ pub enum EndpointError {
     #[error("Endpoint properties could not be parsed")]
     ParseError(#[from] serde_json::Error),
     #[error("AuthScheme field missing: {0}")]
-    InvalidAuthScheme(String),
+    MissingAuthSchemeField(&'static str),
+    #[error("invalid value {1} for AuthScheme field {0}")]
+    InvalidAuthSchemeField(&'static str, String),
 }
 
 #[derive(Debug, Error)]

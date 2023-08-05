@@ -59,6 +59,11 @@ pub struct CredentialsProvider {
     pub(crate) inner: NonNull<aws_credentials_provider>,
 }
 
+// SAFETY: aws_credentials_provider is thread-safe.
+unsafe impl Send for CredentialsProvider {}
+// SAFETY: aws_credentials_provider is thread-safe.
+unsafe impl Sync for CredentialsProvider {}
+
 impl CredentialsProvider {
     /// Creates the default credential provider chain as used by most AWS SDKs
     pub fn new_chain_default(
