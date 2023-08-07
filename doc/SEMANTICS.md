@@ -19,7 +19,7 @@ By default, Mountpoint does not allow deleting existing objects with commands li
 
 You cannot rename an existing file using Mountpoint.
 
-Objects in the Glacier Flexible Retrieval and Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are not accessible with Mountpoint even if they have been restored. To access these objects with Mountpoint, copy them to another storage class first.
+Objects in the S3 Glacier Flexible Retrieval and S3 Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are not accessible with Mountpoint even if they have been restored. To access these objects with Mountpoint, copy them to another storage class first.
 
 ## Directories
 
