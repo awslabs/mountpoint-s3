@@ -11,7 +11,7 @@
 
 ### Other changes
 
-* New bucket options of `--transfer-acceleration`, `--dual-stack` and `--fips` has been added.
+* New bucket options of `--transfer-acceleration` and `--dual-stack` have been added.
 * ARN is now also supported as <BUCKET_NAME> to mount the corresponding resource using Mountpoint.
 
 ## v0.4.1 (August 4, 2023)

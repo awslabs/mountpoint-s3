@@ -72,9 +72,6 @@ struct CliArgs {
     #[clap(long, help = "Use dual-stack endpoints when accessing S3", help_heading = BUCKET_OPTIONS_HEADER)]
     pub dual_stack: bool,
 
-    #[clap(long, help = "Use FIPS-compliant endpoints when accessing S3", help_heading = BUCKET_OPTIONS_HEADER)]
-    pub fips: bool,
-
     #[clap(long, help = "Set the 'x-amz-request-payer' to 'requester' on S3 requests", help_heading = BUCKET_OPTIONS_HEADER)]
     pub requester_pays: bool,
 
@@ -391,7 +388,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     // Placeholder region will be filled in by [create_client_for_bucket]
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
         .addressing_style(args.addressing_style())
-        .use_fips(args.fips)
         .use_accelerate(args.transfer_acceleration)
         .use_dual_stack(args.dual_stack);
 
