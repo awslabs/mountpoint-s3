@@ -1,4 +1,4 @@
-## v1.0.0 (Unreleased)
+## v1.0.0 (August 8, 2023)
 
 ### Breaking changes
 
