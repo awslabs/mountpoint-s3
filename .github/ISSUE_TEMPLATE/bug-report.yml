@@ -16,9 +16,9 @@ body:
     attributes:
       label: Mountpoint for Amazon S3 version
       description: |
-        Which version of the mountpoint are you using? You can find out using `mount-s3 --version`.
+        Which version of Mountpoint are you using? You can find out using `mount-s3 --version`.
         If you're building from source or a fork, please state that.
-      placeholder: mountpoint-s3 x.y.z
+      placeholder: mount-s3 x.y.z
     validations:
       required: true
   - type: input
