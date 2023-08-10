@@ -6,3 +6,4 @@ torchdata>=0.6.1
 torchvision
 webdataset
 s3fs
+certifi

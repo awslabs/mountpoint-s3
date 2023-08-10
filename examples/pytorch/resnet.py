@@ -34,7 +34,8 @@ import webdataset as wds
 
 def make_sharded_dataset(bucket: str, prefix: str, num_images: int, max_shard_size: int):
     """Make a fake dataset in WebDataset format and upload it to S3. In reality you'd already have
-    this dataset in S3, so this is just for benchmarking purposes"""
+    this dataset in S3, so this is just for benchmarking purposes. We choose the image sizes to be
+    roughly ImageNet-esque."""
 
     s3 = boto3.client("s3")
     ds = torchvision.datasets.FakeData(size=num_images, image_size=(3, 224, 224), num_classes=100)
@@ -157,7 +158,7 @@ if __name__ == "__main__":
     p_make.add_argument("--num-images", type=int, default=10000, help="number of images in dataset")
     p_make.add_argument("--max-shard-size", type=int, default=100, help="max size of each shard (in MiB)")
 
-    p_train = ps.add_parser("train", help="train resnet18 from a dataset")
+    p_train = ps.add_parser("train", help="train resnet50 from a dataset")
     p_train.add_argument(
         "s3url", help="S3 URL for sharded training data directory (starts with 's3://', ends with '/')"
     )
