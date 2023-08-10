@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use tracing::info;
+use tracing::trace;
 
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
@@ -92,7 +92,7 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
         // Unbounded channel will never actually block
         let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {
-            info!("closed channel");
+            trace!("closed channel");
         }
     }
 }
