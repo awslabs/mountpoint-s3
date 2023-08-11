@@ -17,6 +17,7 @@ bytes = "1.2.1"
 clap = { version = "4.1.9", features = ["derive"] }
 crc32c = "0.6.3"
 ctrlc = { version = "3.2.3", features = ["termination"] }
+dashmap = "5.5.0"
 futures = "0.3.24"
 hdrhistogram = { version = "7.5.2", default-features = false }
 lasso = { version = "0.7.2", features = ["multi-threaded"] }

@@ -1,24 +1,19 @@
 //! Metrics infrastructure
 //!
-//! This module hooks up the [metrics](https://docs.rs/metrics) facace to a thread-local metrics
-//! sink, that in turn is drained by a global recorder on a fixed cadence. This is slightly annoying
-//! because it needs to work with CRT threads, so we can't rely on, for example, knowing which
-//! threads are "request processors" (the FUSE daemon threads).
+//! This module hooks up the [metrics](https://docs.rs/metrics) facace to a metrics sink that
+//! currently just emits them to a tracing log entry.
 
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use once_cell::sync::OnceCell;
+use dashmap::DashMap;
+use metrics::{Key, Recorder};
 
 use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
-use crate::sync::{Arc, Mutex};
+use crate::sync::Arc;
 
 mod data;
-pub use data::METRICS_TARGET_NAME;
 use data::*;
-
-mod recorder;
-use recorder::*;
 
 mod tracing_span;
 pub use tracing_span::metrics_tracing_span_layer;
@@ -26,94 +21,149 @@ pub use tracing_span::metrics_tracing_span_layer;
 /// How long between drains of each thread's local metrics into the global sink
 const AGGREGATION_PERIOD: Duration = Duration::from_secs(5);
 
-/// Global metric sink that polls thread-local sinks for aggregated metrics
-static GLOBAL_SINK: OnceCell<MetricsSink> = OnceCell::new();
+/// The log target to use for emitted metrics
+pub const TARGET_NAME: &str = "mountpoint_s3::metrics";
 
-thread_local! {
-    /// The thread's local sink for writing metrics to. [ThreadMetricsHandle] has a [Mutex] inside
-    /// it, which looks a little funky, but it's completely uncontended except when the global sink
-    /// grabs it very briefly to aggregate out the metrics the thread has collected. An uncontended
-    /// [Mutex] should be fast enough that we don't really care about it, and the thread local
-    /// allows us not to think about contention on a global metrics sink among threads.
-    ///
-    /// A global metrics sink must be installed before any thread-local sinks can be accessed.
-    static LOCAL_SINK: OnceCell<ThreadMetricsSinkHandle> = OnceCell::new();
+/// Initialize and install the global metrics sink, and return a handle that can be used to shut
+/// the sink down. The sink should only be shut down after any threads that generate metrics are
+/// done with their work; metrics generated after shutting down the sink will be lost.
+///
+/// Panics if a sink has already been installed.
+pub fn install() -> MetricsSinkHandle {
+    let sink = Arc::new(MetricsSink::new());
+
+    let (tx, rx) = channel();
+
+    let publisher_thread = {
+        let inner = Arc::clone(&sink);
+        thread::spawn(move || {
+            loop {
+                match rx.recv_timeout(AGGREGATION_PERIOD) {
+                    Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => inner.publish(),
+                }
+            }
+            // Drain metrics one more time before shutting down. This has a chance of missing
+            // any new metrics data after the sink shuts down, but we assume a clean shutdown
+            // stops generating new metrics before shutting down the sink.
+            inner.publish();
+        })
+    };
+
+    let handle = MetricsSinkHandle {
+        shutdown: tx,
+        handle: Some(publisher_thread),
+    };
+
+    let recorder = MetricsRecorder { sink };
+    metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
+
+    handle
 }
 
-/// A global metrics sink that keeps a list of thread-local sinks to aggregate from
 #[derive(Debug)]
-pub struct MetricsSink {
-    threads: Arc<Mutex<Vec<Arc<Mutex<ThreadMetricsSink>>>>>,
+struct MetricsSink {
+    metrics: DashMap<Key, Metric>,
 }
 
 impl MetricsSink {
-    /// Initialize and install the global metrics sink, and return a handle that can be used to shut
-    /// the sink down. The sink should only be shut down after any threads that generate metrics are
-    /// done with their work; metrics generated after shutting down the sink will be lost.
-    ///
-    /// This *must* be invoked before any metrics are generated. If metrics are generated before a
-    /// global sink is installed, the thread generating the metrics will panic.
-    ///
-    /// Panics if a sink has already been installed.
-    pub fn init() -> MetricsSinkHandle {
-        let sink = Self::new();
-
-        let (tx, rx) = channel();
-
-        let publisher_thread = {
-            let threads = Arc::clone(&sink.threads);
-            thread::spawn(move || {
-                loop {
-                    match rx.recv_timeout(AGGREGATION_PERIOD) {
-                        Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
-                        Err(RecvTimeoutError::Timeout) => Self::aggregate_and_publish(&threads),
-                    }
-                }
-                // Drain metrics one more time before shutting down. This has a chance of missing
-                // any new metrics data after the sink shuts down, but we assume a clean shutdown
-                // stops generating new metrics before shutting down the sink.
-                Self::aggregate_and_publish(&threads);
-            })
-        };
-
-        let handle = MetricsSinkHandle {
-            shutdown: tx,
-            handle: Some(publisher_thread),
-        };
-
-        sink.install();
-        metrics::set_recorder(&MetricsRecorder).unwrap();
-
-        handle
-    }
-
-    fn new() -> MetricsSink {
-        let threads = Arc::new(Mutex::new(Vec::new()));
-
-        MetricsSink { threads }
-    }
-
-    fn install(self) {
-        GLOBAL_SINK.set(self).unwrap();
-    }
-
-    fn aggregate_and_publish(threads: &Mutex<Vec<Arc<Mutex<ThreadMetricsSink>>>>) {
-        let metrics = Self::aggregate(threads);
-        Self::publish(metrics);
-    }
-
-    fn aggregate(threads: &Mutex<Vec<Arc<Mutex<ThreadMetricsSink>>>>) -> Metrics {
-        let mut aggregate_metrics = Metrics::default();
-        let threads = threads.lock().unwrap();
-        for thread in threads.iter() {
-            let metrics = std::mem::take(&mut *thread.lock().unwrap());
-            aggregate_metrics.aggregate(metrics.metrics);
+    fn new() -> Self {
+        Self {
+            metrics: DashMap::with_capacity(64),
         }
-        aggregate_metrics
     }
 
-    fn publish(metrics: Metrics) {
-        metrics.emit();
+    fn counter(&self, key: &Key) -> metrics::Counter {
+        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::counter);
+        entry.as_counter()
+    }
+
+    fn gauge(&self, key: &Key) -> metrics::Gauge {
+        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::gauge);
+        entry.as_gauge()
+    }
+
+    fn histogram(&self, key: &Key) -> metrics::Histogram {
+        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::histogram);
+        entry.as_histogram()
+    }
+
+    /// Publish all this sink's metrics to `tracing` log messages
+    fn publish(&self) {
+        // Collect the output lines so we can sort them to make reading easier
+        let mut metrics = vec![];
+
+        for mut entry in self.metrics.iter_mut() {
+            let (key, metric) = entry.pair_mut();
+            let Some(metric) = metric.fmt_and_reset() else {
+                continue;
+            };
+            let labels = if key.labels().len() == 0 {
+                String::new()
+            } else {
+                format!(
+                    "[{}]",
+                    key.labels()
+                        .map(|label| format!("{}={}", label.key(), label.value()))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            };
+            metrics.push(format!("{}{}: {}", key.name(), labels, metric));
+        }
+
+        metrics.sort();
+
+        for metric in metrics {
+            tracing::info!(target: TARGET_NAME, "{}", metric);
+        }
+    }
+}
+
+/// The actual recorder that will be installed for the metrics facade. Just a wrapper around a
+/// [MetricsSinkInner] that does all the real work.
+struct MetricsRecorder {
+    sink: Arc<MetricsSink>,
+}
+
+impl Recorder for MetricsRecorder {
+    fn describe_counter(
+        &self,
+        _key: metrics::KeyName,
+        _unit: Option<metrics::Unit>,
+        _description: metrics::SharedString,
+    ) {
+        // No-op -- we don't implement descriptions
+    }
+
+    fn describe_gauge(
+        &self,
+        _key: metrics::KeyName,
+        _unit: Option<metrics::Unit>,
+        _description: metrics::SharedString,
+    ) {
+        // No-op -- we don't implement descriptions
+    }
+
+    fn describe_histogram(
+        &self,
+        _key: metrics::KeyName,
+        _unit: Option<metrics::Unit>,
+        _description: metrics::SharedString,
+    ) {
+        // No-op -- we don't implement descriptions
+    }
+
+    fn register_counter(&self, key: &Key) -> metrics::Counter {
+        self.sink.counter(key)
+    }
+
+    fn register_gauge(&self, key: &Key) -> metrics::Gauge {
+        self.sink.gauge(key)
+    }
+
+    fn register_histogram(&self, key: &Key) -> metrics::Histogram {
+        self.sink.histogram(key)
     }
 }
 
@@ -123,52 +173,11 @@ pub struct MetricsSinkHandle {
     handle: Option<JoinHandle<()>>,
 }
 
-impl MetricsSinkHandle {
-    // Shut down the metrics sink. This does not uninstall the sink.
-    pub fn shutdown(self) {
-        // Drop handler does all the work
-    }
-}
-
 impl Drop for MetricsSinkHandle {
     fn drop(&mut self) {
         let _ = self.shutdown.send(());
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct ThreadMetricsSink {
-    metrics: Metrics,
-}
-
-#[derive(Debug, Default)]
-struct ThreadMetricsSinkHandle {
-    inner: Arc<Mutex<ThreadMetricsSink>>,
-}
-
-impl ThreadMetricsSinkHandle {
-    /// Run a closure with access to the thread-local metrics sink
-    pub fn with<F, T>(f: F) -> T
-    where
-        F: FnOnce(&ThreadMetricsSinkHandle) -> T,
-    {
-        LOCAL_SINK.with(|handle| {
-            let handle = handle.get_or_init(Self::init);
-            f(handle)
-        })
-    }
-
-    /// Initialize the thread-local metrics sink by registering it with the global sink
-    fn init() -> ThreadMetricsSinkHandle {
-        if let Some(global_sink) = GLOBAL_SINK.get() {
-            let me = Arc::new(Mutex::new(ThreadMetricsSink::default()));
-            global_sink.threads.lock().unwrap().push(Arc::clone(&me));
-            ThreadMetricsSinkHandle { inner: me }
-        } else {
-            panic!("global metrics sink must be installed first");
         }
     }
 }
@@ -181,54 +190,81 @@ mod tests {
 
     #[test]
     fn basic_metrics() {
-        let sink = MetricsSink::new();
-        let threads = Arc::clone(&sink.threads);
+        let sink = Arc::new(MetricsSink::new());
+        let recorder = MetricsRecorder { sink: sink.clone() };
+        metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
 
-        sink.install();
-        metrics::set_recorder(&MetricsRecorder).unwrap();
+        // Run twice to check reset works
+        for _ in 0..2 {
+            metrics::counter!("test_counter", 1, "type" => "get");
+            metrics::counter!("test_counter", 1, "type" => "put");
+            metrics::counter!("test_counter", 2, "type" => "get");
+            metrics::counter!("test_counter", 2, "type" => "put");
+            metrics::counter!("test_counter", 3, "type" => "get");
+            metrics::counter!("test_counter", 4, "type" => "put");
 
-        metrics::counter!("test_counter", 1, "type" => "get");
-        metrics::counter!("test_counter", 1, "type" => "put");
-        metrics::counter!("test_counter", 2, "type" => "get");
-        metrics::counter!("test_counter", 2, "type" => "put");
-        metrics::counter!("test_counter", 3, "type" => "get");
-        metrics::counter!("test_counter", 4, "type" => "put");
+            metrics::gauge!("test_gauge", 5.0, "type" => "processing");
+            metrics::gauge!("test_gauge", 5.0, "type" => "in_queue");
+            metrics::gauge!("test_gauge", 2.0, "type" => "processing");
+            metrics::gauge!("test_gauge", 3.0, "type" => "in_queue");
 
-        metrics::gauge!("test_gauge", 5.0, "type" => "processing");
-        metrics::gauge!("test_gauge", 5.0, "type" => "in_queue");
-        metrics::gauge!("test_gauge", 2.0, "type" => "processing");
-        metrics::gauge!("test_gauge", 3.0, "type" => "in_queue");
+            metrics::histogram!("test_histogram", 3.0, "type" => "get");
+            metrics::histogram!("test_histogram", 4.0, "type" => "put");
+            metrics::histogram!("test_histogram", 4.0, "type" => "put");
 
-        let metrics = MetricsSink::aggregate(&threads);
-        assert_eq!(metrics.iter().count(), 4);
-        for (key, data) in metrics.iter() {
-            assert_eq!(key.labels().count(), 1);
-            match data {
-                Metric::Counter(inner) => {
-                    assert_eq!(key.name(), "test_counter");
-                    assert_eq!(inner.n, 3);
-                    let label = key.labels().next().unwrap();
-                    if label == &Label::new("type", "get") {
-                        assert_eq!(inner.sum, 6);
-                    } else if label == &Label::new("type", "put") {
-                        assert_eq!(inner.sum, 7);
-                    } else {
-                        panic!("wrong label");
+            for mut entry in sink.metrics.iter_mut() {
+                let (key, metric) = entry.pair_mut();
+                assert_eq!(key.labels().count(), 1);
+                match metric {
+                    Metric::Counter(inner) => {
+                        assert_eq!(key.name(), "test_counter");
+                        let (sum, n) = inner.load_and_reset().expect("should have a value");
+                        assert_eq!(n, 3);
+                        let label = key.labels().next().unwrap();
+                        if label == &Label::new("type", "get") {
+                            assert_eq!(sum, 6);
+                        } else if label == &Label::new("type", "put") {
+                            assert_eq!(sum, 7);
+                        } else {
+                            panic!("wrong label");
+                        }
+                    }
+                    Metric::Gauge(inner) => {
+                        assert_eq!(key.name(), "test_gauge");
+                        let value = inner.load_and_reset().expect("should have a value");
+                        let label = key.labels().next().unwrap();
+                        if label == &Label::new("type", "processing") {
+                            assert_eq!(value, 2.0);
+                        } else if label == &Label::new("type", "in_queue") {
+                            assert_eq!(value, 3.0);
+                        } else {
+                            panic!("wrong label");
+                        }
+                    }
+                    Metric::Histogram(inner) => {
+                        assert_eq!(key.name(), "test_histogram");
+                        let label = key.labels().next().unwrap();
+                        inner.run_and_reset(|histogram| {
+                            if label == &Label::new("type", "get") {
+                                assert_eq!(histogram.len(), 1);
+                                assert_eq!(histogram.count_at(3), 1);
+                            } else if label == &Label::new("type", "put") {
+                                assert_eq!(histogram.len(), 2);
+                                assert_eq!(histogram.count_at(4), 2);
+                            }
+                        });
                     }
                 }
-                Metric::Gauge(inner) => {
-                    assert_eq!(key.name(), "test_gauge");
-                    assert_eq!(inner.n, 1);
-                    let label = key.labels().next().unwrap();
-                    if label == &Label::new("type", "processing") {
-                        assert_eq!(inner.sum, 2.0);
-                    } else if label == &Label::new("type", "in_queue") {
-                        assert_eq!(inner.sum, 3.0);
-                    } else {
-                        panic!("wrong label");
-                    }
-                }
-                _ => panic!("wrong metric type"),
+            }
+        }
+
+        // Check that each metric is zeroed (returns None) after the end of the loop reset it
+        for mut entry in sink.metrics.iter_mut() {
+            let metric = entry.value_mut();
+            match metric {
+                Metric::Counter(inner) => assert!(inner.load_and_reset().is_none()),
+                Metric::Gauge(inner) => assert!(inner.load_and_reset().is_none()),
+                Metric::Histogram(inner) => assert!(inner.run_and_reset(|_| panic!("unreachable")).is_none()),
             }
         }
     }
