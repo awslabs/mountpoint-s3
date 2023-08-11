@@ -231,12 +231,12 @@ mod tests {
                     }
                     Metric::Gauge(inner) => {
                         assert_eq!(key.name(), "test_gauge");
-                        let value = inner.load_and_reset().expect("should have a value");
+                        let value = inner.load();
                         let label = key.labels().next().unwrap();
                         if label == &Label::new("type", "processing") {
-                            assert_eq!(value, 2.0);
+                            assert_eq!(value, Some(2.0));
                         } else if label == &Label::new("type", "in_queue") {
-                            assert_eq!(value, 3.0);
+                            assert_eq!(value, Some(3.0));
                         } else {
                             panic!("wrong label");
                         }
@@ -263,9 +263,21 @@ mod tests {
             let metric = entry.value_mut();
             match metric {
                 Metric::Counter(inner) => assert!(inner.load_and_reset().is_none()),
-                Metric::Gauge(inner) => assert!(inner.load_and_reset().is_none()),
+                // Gauges don't reset on their own
+                Metric::Gauge(inner) => assert!(inner.load().is_some()),
                 Metric::Histogram(inner) => assert!(inner.run_and_reset(|_| panic!("unreachable")).is_none()),
             }
+        }
+
+        // Set the gauges to zero and check they're no longer emitted
+        metrics::gauge!("test_gauge", 0.0, "type" => "processing");
+        metrics::gauge!("test_gauge", 0.0, "type" => "in_queue");
+        for mut entry in sink.metrics.iter_mut() {
+            let metric = entry.value_mut();
+            let Metric::Gauge(inner) = metric else {
+                continue;
+            };
+            assert!(inner.load().is_none());
         }
     }
 }

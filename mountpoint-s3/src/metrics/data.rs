@@ -55,7 +55,8 @@ impl Metric {
                     Some(format!("{} (n={})", sum, n))
                 }
             }
-            Metric::Gauge(inner) => inner.load_and_reset().map(|value| format!("{}", value)),
+            // Gauges can't reset because they can be incremented/decremented
+            Metric::Gauge(inner) => inner.load().map(|value| format!("{}", value)),
             Metric::Histogram(histogram) => histogram.run_and_reset(|histogram| {
                 format!(
                     "n={}: min={} p10={} p50={} avg={:.2} p90={} p99={} p99.9={} max={}",
@@ -107,7 +108,7 @@ impl ValueAndCount {
 /// An atomic gauge.
 ///
 /// Gauges are floats but there's no atomic floats in std, so we stuff the float into an AtomicU64
-/// by converting to/from the bit representation. We use NaN to represent "no value".
+/// by converting to/from the bit representation.
 #[derive(Debug, Default)]
 pub struct AtomicGauge {
     bits: AtomicU64,
@@ -131,17 +132,18 @@ impl AtomicGauge {
     fn update(&self, f: impl Fn(f64) -> f64) {
         self.bits
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, move |old_bits| {
-                let old_value = f64::from_bits(old_bits);
-                let old_value = if old_value.is_nan() { 0.0 } else { old_value };
-                Some(f(old_value).to_bits())
+                Some(f(f64::from_bits(old_bits)).to_bits())
             })
             .expect("closure always returns Some");
     }
 
-    pub fn load_and_reset(&self) -> Option<f64> {
-        let old_bits = self.bits.swap(f64::NAN.to_bits(), Ordering::SeqCst);
-        let old_value = f64::from_bits(old_bits);
-        (!old_value.is_nan()).then_some(old_value)
+    pub fn load(&self) -> Option<f64> {
+        let value = f64::from_bits(self.bits.load(Ordering::SeqCst));
+        if value == 0.0 {
+            None
+        } else {
+            Some(value)
+        }
     }
 }
 
