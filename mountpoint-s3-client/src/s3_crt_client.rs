@@ -766,6 +766,9 @@ pub enum S3RequestError {
     /// Forbidden
     #[error("Forbidden: {0}")]
     Forbidden(String),
+
+    #[error("No signing credentials provided")]
+    NoSigningCredentials,
 }
 
 impl S3RequestError {
@@ -868,12 +871,23 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
+    /// Try to look for error related to no signing credentials
+    fn try_parse_no_credentials(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        let crt_error_code = request_result.crt_error.raw_error();
+        if crt_error_code == 6146 {
+            Some(S3RequestError::NoSigningCredentials)
+        } else {
+            None
+        }
+    }
+
     match request_result.response_status {
         301 => try_parse_redirect(request_result),
         // 400 is overloaded, it can be an access error (invalid token) or (for MRAP) a bucket
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
+        0 => try_parse_no_credentials(request_result),
         _ => None,
     }
 }
