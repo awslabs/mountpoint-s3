@@ -4,3 +4,5 @@
 *.proptest-regressions
 # Don't commit releases
 out/
+# Python stuff
+examples/**/venv
