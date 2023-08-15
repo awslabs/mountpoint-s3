@@ -267,7 +267,7 @@ async fn test_put_review(pass_review: bool) {
         let err = put_result.expect_err("putobject should abort when review fails");
         assert!(matches!(
             err,
-            ObjectClientError::ClientError(S3RequestError::ResponseError(_))
+            ObjectClientError::ClientError(S3RequestError::CrtError(_))
         ));
 
         let err = get_result.expect_err("getobject should fail for aborted put");
