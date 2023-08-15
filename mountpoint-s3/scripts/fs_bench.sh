@@ -33,17 +33,48 @@ results_dir=results
 runtime_seconds=30
 startdelay_seconds=30
 max_threads=4
+iteration=10
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
+
+run_fio_job() {
+  job_file=$1
+  bench_file=$2
+  mount_dir=$3
+
+  job_name=$(basename "${job_file}")
+  job_name="${job_name%.*}"
+
+  for i in $(seq 1 $iteration);
+  do
+    fio --thread \
+      --output=${results_dir}/${job_name}_${i}.json \
+      --output-format=json \
+      --directory=${mount_dir} \
+      --filename=${bench_file} \
+      ${job_file}
+  done
+
+  # combine the results and find an average value
+  jq -n 'reduce inputs.jobs[] as $job (null; .name = $job.jobname | .len += 1 | .value += (if ($job."job options".rw == "read")
+      then $job.read.bw / 1024
+      elif ($job."job options".rw == "randread") then $job.read.bw / 1024
+      elif ($job."job options".rw == "randwrite") then $job.write.bw / 1024
+      else $job.write.bw / 1024 end)) | {name: .name, value: (.value / .len), unit: "MiB/s"}' ${results_dir}/${job_name}_*.json | tee ${results_dir}/${job_name}_parsed.json
+
+  # delete the raw output files
+  for i in $(seq 1 $iteration);
+  do
+    rm ${results_dir}/${job_name}_${i}.json
+  done
+}
 
 read_bechmark () {
   jobs_dir=mountpoint-s3/scripts/fio/read
 
   for job_file in "${jobs_dir}"/*.fio; do
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-    job_name=$(basename "${job_file}")
-    job_name="${job_name%.*}"
 
     echo "Running ${job_name}"
 
@@ -65,122 +96,45 @@ read_bechmark () {
       bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
     fi
 
-    # run benchmark
-    fio --thread \
-      --output=${results_dir}/${job_name}.json \
-      --output-format=json \
-      --directory=${mount_dir} \
-      --filename=${bench_file} \
-      ${job_file}
+    # run the benchmark
+    run_fio_job $job_file $bench_file $mount_dir
 
     # unmount file system
     sudo umount ${mount_dir}
 
     # cleanup mount directory
     rm -rf ${mount_dir}
-
-    # parse result
-    jq -n 'inputs.jobs[] | if (."job options".rw == "read")
-      then {name: .jobname, value: (.read.bw / 1024), unit: "MiB/s"}
-      elif (."job options".rw == "randread") then {name: .jobname, value: (.read.bw / 1024), unit: "MiB/s"}
-      elif (."job options".rw == "randwrite") then {name: .jobname, value: (.write.bw / 1024), unit: "MiB/s"}
-      else {name: .jobname, value: (.write.bw / 1024), unit: "MiB/s"} end' ${results_dir}/${job_name}.json | tee ${results_dir}/${job_name}_parsed.json
-
-    # delete the raw output file
-    rm ${results_dir}/${job_name}.json
   done
 }
 
 write_benchmark () {
-  # mount file system
-  mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
-      --allow-delete \
-      --prefix=${S3_BUCKET_TEST_PREFIX} \
-      --max-threads=${max_threads}
-  mount_status=$?
-  if [ $mount_status -ne 0 ]; then
-      echo "Failed to mount file system"
-      exit 1
-  fi
-  sleep $startdelay_seconds
-  
-  ## sequential write
-  job_name="sequential_write"
-  bench_file=${mount_dir}/${job_name}_${RANDOM}.dat
-  dd if=/dev/zero of=$bench_file bs=256k conv=fsync > ${results_dir}/${job_name}.txt 2>&1 &
-  # get the process ID
-  dd_pid=$!
+  jobs_dir=mountpoint-s3/scripts/fio/write
 
-  sleep $runtime_seconds
-  # send USR1 signal to print the result
-  kill -USR1 ${dd_pid}
-  sleep 0.1
-  kill ${dd_pid}
+  for job_file in "${jobs_dir}"/*.fio; do
+    # mount file system
+    mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
+    cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+        --allow-delete \
+        --prefix=${S3_BUCKET_TEST_PREFIX} \
+        --max-threads=${max_threads}
+    mount_status=$?
+    if [ $mount_status -ne 0 ]; then
+        echo "Failed to mount file system"
+        exit 1
+    fi
 
-  throughput_value=$(awk '/copied/ {print $10}' ${results_dir}/${job_name}.txt)
-  unit=$(awk '/copied/ {print $11}' ${results_dir}/${job_name}.txt)
-  # convert unit to MiB/s
-  case "$unit" in
-    GB/s)
-      throughput_value=$(awk "BEGIN {print $throughput_value*1000*1000*1000/1024/1024}")
-      ;;
-    MB/s)
-      throughput_value=$(awk "BEGIN {print $throughput_value*1000*1000/1024/1024}")
-      ;;
-    kB/s)
-      throughput_value=$(awk "BEGIN {print $throughput_value*1000/1024/1024}")
-      ;;
-  esac
+    # set bench file
+    bench_file=${mount_dir}/${job_name}_${RANDOM}.dat
 
-  json_data="{\"name\":\"$job_name\",\"value\":$throughput_value,\"unit\":\"MiB/s\"}"
-  echo $json_data | jq '.' | tee ${results_dir}/${job_name}.json
+    # run the benchmark
+    run_fio_job $job_file $bench_file $mount_dir
 
-  # clean up the data file and the raw output file
-  sleep 10
-  rm $bench_file ${results_dir}/${job_name}.txt
+    # unmount file system
+    sudo umount ${mount_dir}
 
-
-  ## sequential write with direct IO
-  job_name="sequential_write_direct_io"
-  bench_file=${mount_dir}/${job_name}_${RANDOM}.dat
-  dd if=/dev/zero of=$bench_file bs=256k oflag=direct conv=fsync > ${results_dir}/${job_name}.txt 2>&1 &
-  # get the process ID
-  dd_pid=$!
-
-  sleep $runtime_seconds
-  # send USR1 signal to print the result
-  kill -USR1 ${dd_pid}
-  sleep 0.1
-  kill ${dd_pid}
-
-  throughput_value=$(awk '/copied/ {print $10}' ${results_dir}/${job_name}.txt)
-  unit=$(awk '/copied/ {print $11}' ${results_dir}/${job_name}.txt)
-  # convert unit to MiB/s
-  case "$unit" in
-    GB/s)
-      throughput_value=$(awk "BEGIN {print $throughput_value*1000*1000*1000/1024/1024}")
-      ;;
-    MB/s)
-      throughput_value=$(awk "BEGIN {print $throughput_value*1000*1000/1024/1024}")
-      ;;
-    kB/s)
-      throughput_value=$(awk "BEGIN {print $throughput_value*1000/1024/1024}")
-      ;;
-  esac
-
-  json_data="{\"name\":\"$job_name\",\"value\":$throughput_value,\"unit\":\"MiB/s\"}"
-  echo $json_data | jq '.' | tee ${results_dir}/${job_name}.json
-
-  # clean up the data file and the raw output file
-  sleep 10
-  rm $bench_file ${results_dir}/${job_name}.txt
-
-  # unmount file system
-  sudo umount ${mount_dir}
-
-  # cleanup mount directory
-  rm -rf ${mount_dir}
+    # cleanup mount directory
+    rm -rf ${mount_dir}
+  done
 }
 
 read_bechmark
