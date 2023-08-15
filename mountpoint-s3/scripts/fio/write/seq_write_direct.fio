@@ -5,7 +5,7 @@ runtime=10s
 time_based
 group_reporting
 
-[sequential_write]
+[sequential_write_direct_io]
 size=100G
 rw=write
 ioengine=sync
