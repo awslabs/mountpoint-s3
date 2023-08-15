@@ -878,7 +878,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         if crt_error_code == 6146 {
             Some(S3RequestError::NoSigningCredentials)
         } else {
-            None
+            Some(S3RequestError::CrtError(crt_error_code.into()))
         }
     }
 
@@ -1190,10 +1190,12 @@ mod tests {
     fn parse_test_other_crt_error() {
         // 6144 is crt error code for AWS_AUTH_SIGNING_UNSUPPORTED_ALGORITHM, which is another signing error,
         // but not no signing credential error
-        let result = make_crt_error_result(0, 6144.into());
-        let error_result = try_parse_generic_error(&result);
-        let None = error_result else {
-            panic!("wrong result, got: {:?}", error_result);
+        let error_code = 6144;
+        let result = make_crt_error_result(0, error_code.into());
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::CrtError(error)) = result else {
+            panic!("wrong result, got: {:?}", result);
         };
+        assert_eq!(error, error_code.into());
     }
 }
