@@ -13,7 +13,7 @@ use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::instance::InstanceInfo;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
-use mountpoint_s3::metrics::{MetricsSink, METRICS_TARGET_NAME};
+use mountpoint_s3::metrics;
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::{
     AddressingStyle, EndpointConfig, ObjectClientError, S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError,
@@ -235,7 +235,7 @@ impl CliArgs {
             let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
             filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
             if self.log_metrics {
-                filter.push_str(&format!(",{}=info", METRICS_TARGET_NAME));
+                filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
             }
             filter
         };
@@ -263,7 +263,7 @@ fn main() -> anyhow::Result<()> {
     if args.foreground {
         init_logging(args.logging_config()).context("failed to initialize logging")?;
 
-        let _metrics = MetricsSink::init();
+        let _metrics = metrics::install();
 
         // mount file system as a foreground process
         let session = mount(args)?;
@@ -288,7 +288,7 @@ fn main() -> anyhow::Result<()> {
                 let args = CliArgs::parse();
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
 
-                let _metrics = MetricsSink::init();
+                let _metrics = metrics::install();
 
                 let session = mount(args);
 

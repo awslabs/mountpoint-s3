@@ -570,42 +570,39 @@ impl S3CrtClientInner {
 
     fn poll_client_metrics(s3_client: &Client) {
         let metrics = s3_client.poll_client_metrics();
-        metrics::gauge!(
+        metrics::absolute_counter!(
             "s3.client.num_requests_being_processed",
-            f64::from(metrics.num_requests_tracked_requests)
+            metrics.num_requests_tracked_requests as u64
         );
-        metrics::gauge!(
+        metrics::absolute_counter!(
             "s3.client.num_requests_being_prepared",
-            f64::from(metrics.num_requests_being_prepared)
+            metrics.num_requests_being_prepared as u64
         );
-        metrics::gauge!("s3.client.request_queue_size", f64::from(metrics.request_queue_size));
-        metrics::gauge!(
+        metrics::absolute_counter!("s3.client.request_queue_size", metrics.request_queue_size as u64);
+        metrics::absolute_counter!(
             "s3.client.num_auto_default_network_io",
-            f64::from(metrics.num_auto_default_network_io)
+            metrics.num_auto_default_network_io as u64
         );
-        metrics::gauge!(
+        metrics::absolute_counter!(
             "s3.client.num_auto_ranged_get_network_io",
-            f64::from(metrics.num_auto_ranged_get_network_io)
+            metrics.num_auto_ranged_get_network_io as u64
         );
-        metrics::gauge!(
+        metrics::absolute_counter!(
             "s3.client.num_auto_ranged_put_network_io",
-            f64::from(metrics.num_auto_ranged_put_network_io)
+            metrics.num_auto_ranged_put_network_io as u64
         );
-        metrics::gauge!(
+        metrics::absolute_counter!(
             "s3.client.num_auto_ranged_copy_network_io",
-            f64::from(metrics.num_auto_ranged_copy_network_io)
+            metrics.num_auto_ranged_copy_network_io as u64
         );
-        metrics::gauge!(
-            "s3.client.num_total_network_io",
-            f64::from(metrics.num_total_network_io())
-        );
-        metrics::gauge!(
+        metrics::absolute_counter!("s3.client.num_total_network_io", metrics.num_total_network_io() as u64);
+        metrics::absolute_counter!(
             "s3.client.num_requests_stream_queued_waiting",
-            f64::from(metrics.num_requests_stream_queued_waiting)
+            metrics.num_requests_stream_queued_waiting as u64
         );
-        metrics::gauge!(
+        metrics::absolute_counter!(
             "s3.client.num_requests_streaming",
-            f64::from(metrics.num_requests_streaming)
+            metrics.num_requests_streaming as u64
         );
     }
 
