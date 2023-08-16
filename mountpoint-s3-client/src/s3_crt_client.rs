@@ -766,6 +766,10 @@ pub enum S3RequestError {
     /// Forbidden
     #[error("Forbidden: {0}")]
     Forbidden(String),
+
+    /// No signing credential is set for requests
+    #[error("No signing credentials found")]
+    NoSigningCredentials,
 }
 
 impl S3RequestError {
@@ -868,12 +872,24 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
+    /// Try to look for error related to no signing credentials
+    fn try_parse_no_credentials(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        let crt_error_code = request_result.crt_error.raw_error();
+        // 6146 is crt error code for AWS_AUTH_SIGNING_NO_CREDENTIALS, which we get when there are no credentials found
+        if crt_error_code == 6146 {
+            Some(S3RequestError::NoSigningCredentials)
+        } else {
+            Some(S3RequestError::CrtError(crt_error_code.into()))
+        }
+    }
+
     match request_result.response_status {
         301 => try_parse_redirect(request_result),
         // 400 is overloaded, it can be an access error (invalid token) or (for MRAP) a bucket
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
+        0 => try_parse_no_credentials(request_result),
         _ => None,
     }
 }
@@ -955,6 +971,7 @@ impl ObjectClient for S3CrtClient {
 
 #[cfg(test)]
 mod tests {
+    use mountpoint_s3_crt::common::error::Error;
     use std::assert_eq;
 
     use super::*;
@@ -1149,5 +1166,37 @@ mod tests {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(message, "This error is made up.");
+    }
+
+    fn make_crt_error_result(response_status: i32, crt_error: Error) -> MetaRequestResult {
+        MetaRequestResult {
+            response_status,
+            crt_error,
+            error_response_headers: None,
+            error_response_body: None,
+        }
+    }
+
+    #[test]
+    fn parse_no_signing_credential_error() {
+        // 6146 is crt error code for AWS_AUTH_SIGNING_NO_CREDENTIALS
+        let result = make_crt_error_result(0, 6146.into());
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::NoSigningCredentials) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+    }
+
+    #[test]
+    fn parse_test_other_crt_error() {
+        // 6144 is crt error code for AWS_AUTH_SIGNING_UNSUPPORTED_ALGORITHM, which is another signing error,
+        // but not no signing credential error
+        let error_code = 6144;
+        let result = make_crt_error_result(0, error_code.into());
+        let result = try_parse_generic_error(&result);
+        let Some(S3RequestError::CrtError(error)) = result else {
+            panic!("wrong result, got: {:?}", result);
+        };
+        assert_eq!(error, error_code.into());
     }
 }
