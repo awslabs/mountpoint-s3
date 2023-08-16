@@ -132,7 +132,8 @@ where
         );
         // return value of read is proof a reply was sent
 
-        metrics::counter!("fuse.bytes_read", bytes_sent as u64);
+        metrics::counter!("fuse.total_bytes", bytes_sent as u64, "type" => "read");
+        metrics::histogram!("fuse.io_size", bytes_sent as f64, "type" => "read");
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent))]
@@ -147,6 +148,7 @@ where
     fn readdir(&self, _req: &Request<'_>, parent: InodeNo, fh: u64, offset: i64, mut reply: fuser::ReplyDirectory) {
         struct ReplyDirectory<'a> {
             inner: &'a mut fuser::ReplyDirectory,
+            count: &'a mut usize,
         }
 
         impl<'a> DirectoryReplier for ReplyDirectory<'a> {
@@ -159,14 +161,25 @@ where
                 _generation: u64,
                 _ttl: Duration,
             ) -> bool {
-                self.inner.add(ino, offset, attr.kind, name)
+                let result = self.inner.add(ino, offset, attr.kind, name);
+                if !result {
+                    *self.count += 1;
+                }
+                result
             }
         }
 
-        let replier = ReplyDirectory { inner: &mut reply };
+        let mut count = 0;
+        let replier = ReplyDirectory {
+            inner: &mut reply,
+            count: &mut count,
+        };
 
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
-            Ok(_) => reply.ok(),
+            Ok(_) => {
+                reply.ok();
+                metrics::counter!("fuse.readdir.entries", count as u64);
+            }
             Err(e) => fuse_error!("readdir", reply, e),
         }
     }
@@ -182,6 +195,7 @@ where
     ) {
         struct ReplyDirectoryPlus<'a> {
             inner: &'a mut fuser::ReplyDirectoryPlus,
+            count: &'a mut usize,
         }
 
         impl<'a> DirectoryReplier for ReplyDirectoryPlus<'a> {
@@ -194,14 +208,25 @@ where
                 generation: u64,
                 ttl: Duration,
             ) -> bool {
-                self.inner.add(ino, offset, name, &ttl, &attr, generation)
+                let result = self.inner.add(ino, offset, name, &ttl, &attr, generation);
+                if !result {
+                    *self.count += 1;
+                }
+                result
             }
         }
 
-        let replier = ReplyDirectoryPlus { inner: &mut reply };
+        let mut count = 0;
+        let replier = ReplyDirectoryPlus {
+            inner: &mut reply,
+            count: &mut count,
+        };
 
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
-            Ok(_) => reply.ok(),
+            Ok(_) => {
+                reply.ok();
+                metrics::counter!("fuse.readdirplus.entries", count as u64);
+            }
             Err(e) => fuse_error!("readdirplus", reply, e),
         }
     }
@@ -288,7 +313,11 @@ where
                 .write(ino, fh, offset, data, write_flags, flags, lock_owner)
                 .in_current_span(),
         ) {
-            Ok(bytes_written) => reply.written(bytes_written),
+            Ok(bytes_written) => {
+                reply.written(bytes_written);
+                metrics::counter!("fuse.total_bytes", bytes_written as u64, "type" => "write");
+                metrics::histogram!("fuse.io_size", bytes_written as f64, "type" => "write");
+            }
             Err(e) => fuse_error!("write", reply, e),
         }
     }

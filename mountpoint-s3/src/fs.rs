@@ -88,6 +88,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
             }
             Ok(request) => FileHandleType::Write(UploadState::InProgress { request, handle }.into()),
         };
+        metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "write");
         Ok(handle)
     }
 
@@ -106,6 +107,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
                 Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
             },
         };
+        metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "read");
         Ok(handle)
     }
 }
@@ -325,7 +327,8 @@ pub struct Opened {
 
 /// Reply to a `readdir` or `readdirplus` call
 pub trait DirectoryReplier {
-    /// Add a new dentry to the reply. Returns true if the buffer was full.
+    /// Add a new dentry to the reply. Returns true if the buffer was full and so the entry was not
+    /// added.
     fn add<T: AsRef<OsStr>>(
         &mut self,
         ino: u64,
@@ -815,16 +818,19 @@ where
 
         match file_handle.typ {
             FileHandleType::Write(request) => {
-                // Errors won't actually be seen by the user because `release` is async,
-                // but it's the right thing to do.
-                request
+                let result = request
                     .into_inner()
                     .complete_if_in_progress(&file_handle.full_key)
-                    .await
+                    .await;
+                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "write");
+                // Errors won't actually be seen by the user because `release` is async,
+                // but it's the right thing to do.
+                result
             }
             FileHandleType::Read { request: _, etag: _ } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 file_handle.inode.finish_reading()?;
+                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "read");
                 Ok(())
             }
         }

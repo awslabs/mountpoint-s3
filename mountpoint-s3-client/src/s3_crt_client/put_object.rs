@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams};
+use crate::s3_crt_client::emit_throughput_metric;
 use crate::{PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use mountpoint_s3_crt::http::request_response::Header;
@@ -55,6 +57,8 @@ impl S3CrtClient {
             body,
             writer,
             review_callback,
+            start_time: Instant::now(),
+            total_bytes: 0,
         })
     }
 }
@@ -97,6 +101,8 @@ pub struct S3PutObjectRequest {
     body: S3HttpRequest<Vec<u8>, PutObjectError>,
     writer: AsyncStreamWriter,
     review_callback: ReviewCallbackBox,
+    start_time: Instant,
+    total_bytes: u64,
 }
 
 #[async_trait]
@@ -104,6 +110,7 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        self.total_bytes += slice.len() as u64;
         self.writer
             .write(slice)
             .await
@@ -127,6 +134,11 @@ impl PutObjectRequest for S3PutObjectRequest {
             self.body
         };
 
-        body.await.map(|_| PutObjectResult {})
+        let result = body.await;
+
+        let elapsed = self.start_time.elapsed();
+        emit_throughput_metric(self.total_bytes, elapsed, "put_object");
+
+        result.map(|_| PutObjectResult {})
     }
 }
