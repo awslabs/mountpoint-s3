@@ -1,6 +1,6 @@
 //! Metrics infrastructure
 //!
-//! This module hooks up the [metrics](https://docs.rs/metrics) facace to a metrics sink that
+//! This module hooks up the [metrics](https://docs.rs/metrics) facade to a metrics sink that
 //! currently just emits them to a tracing log entry.
 
 use std::thread::{self, JoinHandle};
