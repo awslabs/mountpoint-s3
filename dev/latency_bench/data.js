@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1692153383975,
+  "lastUpdate": 1692198313775,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a39424cfb842bd4e0df3137da784b8ec4c430945",
-          "message": "Revamp semantics documentation (#418)\n\nThis tries to extract a higher-level story for the semantics\ndocumentation to lead with. It covers updates we've made since alpha,\nincluding consistency and durability.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-07-31T18:55:30Z",
-          "tree_id": "e6e6ba6fca02968968374371d7b98ac41d64e2c3",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a39424cfb842bd4e0df3137da784b8ec4c430945"
-        },
-        "date": 1690831813119,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.076,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.177,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.152,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.099,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 83.2829103,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 59.8638087,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 63.222978700000006,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "4c49fdbfa4a91910042412f748ee9b39b2f91922",
+          "message": "Improved Error message for Invalid Credential (#447)\n\n* Improved Error message for Invalid Credential\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* added tests for crt error parsing\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Throwing the CRT error instead of unkwown response error\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Converted the ResponseError to CrtError in test case\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Added comment and improved error message\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n---------\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2023-08-16T14:27:48Z",
+          "tree_id": "9ece4987ad00c785eba13bce8c3b9aed3dc43aed",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/4c49fdbfa4a91910042412f748ee9b39b2f91922"
+        },
+        "date": 1692198313246,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.079,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.179,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.185,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.79,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 90.195901,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 61.849399,
             "unit": "milliseconds"
           }
         ]
