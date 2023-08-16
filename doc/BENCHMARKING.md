@@ -15,7 +15,7 @@ In general, we run each IO operation for 30 seconds against a 100 GiB file. But 
 
 ***readdir workload*** - we measure how long it takes to run `ls` command against directories with different size. Each directory has no subdirectory and contains a specific number of files, range from 100 to 100000 files, which we have to create manually using fio then upload them to S3 bucket before running the benchmark. The fio configuration files for creating them can be found at path [mountpoint-s3/scripts/fio/create/](../mountpoint-s3/scripts/fio/create).
 
-***write workload*** - we measure write throughput by using [dd](https://man7.org/linux/man-pages/man1/dd.1.html) command to simulate sequential write workloads. We plan to use fio in the future for consistency with other benchmarks but its current write pattern is not supported by Mountpoint. Firstly, fio creates a file with 0 byte and close it. Secondly, fio opens the file again with `O_RDWR` flag to do the IO workloads. To support fio, Mountpoint has to allow file overwrites and allow file opens with `O_RDWR` flag.
+***write workload*** - we measure write throughput by using fio to simulate sequential write workloads. The fio configuration files for write workloads can be found at path [mountpoint-s3/scripts/fio/write/](../mountpoint-s3/scripts/fio/write).
 
 ### Regression Testing
 Our CI runs the benchmark automatically for any new commits to the main branch or specific pull requests that we have reviewed and tagged with **performance** label. Every benchmark from the CI workflow will be running on `m5n.24xlarge` EC2 instances (100 Gbps network speed) with Ubuntu 22.04 in us-east-1 against a bucket in us-east-1.
