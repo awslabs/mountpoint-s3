@@ -768,7 +768,7 @@ pub enum S3RequestError {
     Forbidden(String),
 
     /// No signing credential is set for requests
-    #[error("No signing credentials provided")]
+    #[error("No signing credentials found")]
     NoSigningCredentials,
 }
 
@@ -875,6 +875,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
     /// Try to look for error related to no signing credentials
     fn try_parse_no_credentials(request_result: &MetaRequestResult) -> Option<S3RequestError> {
         let crt_error_code = request_result.crt_error.raw_error();
+        // 6146 is crt error code for AWS_AUTH_SIGNING_NO_CREDENTIALS, which we get when there are no credentials found
         if crt_error_code == 6146 {
             Some(S3RequestError::NoSigningCredentials)
         } else {
