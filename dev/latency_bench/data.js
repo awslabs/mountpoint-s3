@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1692028464292,
+  "lastUpdate": 1692153383975,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "0beb3227c1a1eedc2264ae2a2052c32719d9cf0d",
-          "message": "Fix clippy error on macOS (#421)\n\nlibc::mode_t has a different width on macOS (u16 vs u32), so we need to cast the result of metadata.permissions().mode() before masking it.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-07-31T15:19:42Z",
-          "tree_id": "0af61f336418dc1f5a4fcc863f647e887e6f1666",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/0beb3227c1a1eedc2264ae2a2052c32719d9cf0d"
-        },
-        "date": 1690819235044,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.076,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.17,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.188,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.941,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 91.40934159999999,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 63.9070582,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 53.4809441,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3380f0cb2177840386487ecc76ddc81aaad9b5f2",
+          "message": "Increase credentials duration when assuming role for benchmark ci job (#459)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2023-08-16T02:00:18Z",
+          "tree_id": "b2c9a74a6b34a8c148f4175dd6301d298be03e2d",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/3380f0cb2177840386487ecc76ddc81aaad9b5f2"
+        },
+        "date": 1692153383480,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.107,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.17,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.106,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.137,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 91.85597759999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 63.222978700000006,
             "unit": "milliseconds"
           }
         ]
