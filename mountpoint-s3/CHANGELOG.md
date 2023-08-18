@@ -1,3 +1,7 @@
+## Unreleased changes
+
+* Added new metrics for object writes, IO sizes, file handles, and directory operations. The existing `fuse.bytes_read` metric has been renamed to `fuse.total_bytes` and is now keyed by operation (`read`/`write`).
+
 ## v1.0.0 (August 8, 2023)
 
 ### Breaking changes

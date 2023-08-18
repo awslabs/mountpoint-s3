@@ -412,6 +412,8 @@ impl S3CrtClientInner {
         let start_time = Instant::now();
         let first_body_part = Arc::new(AtomicBool::new(true));
         let first_body_part_clone = Arc::clone(&first_body_part);
+        let total_bytes = Arc::new(AtomicU64::new(0));
+        let total_bytes_clone = Arc::clone(&total_bytes);
 
         options
             .on_telemetry(move |metrics| {
@@ -456,6 +458,7 @@ impl S3CrtClientInner {
                     let op = span_body.metadata().map(|m| m.name()).unwrap_or("unknown");
                     metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
                 }
+                total_bytes.fetch_add(data.len() as u64, Ordering::SeqCst);
 
                 trace!(start = range_start, length = data.len(), "body part received");
 
@@ -473,6 +476,12 @@ impl S3CrtClientInner {
                 if first_body_part_clone.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).ok() == Some(true)  {
                     let latency = duration.as_micros() as f64;
                     metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
+                }
+                let total_bytes = total_bytes_clone.load(Ordering::SeqCst);
+                // We only log throughput of object data. PUT needs to be measured in its stream
+                // implementation rather than these callbacks, so we can only do GET here.
+                if op == "get_object" {
+                    emit_throughput_metric(total_bytes, duration, op);
                 }
 
                 let log_level = status_code_to_log_level(request_result.response_status);
@@ -889,6 +898,22 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         0 => try_parse_no_credentials(request_result),
         _ => None,
     }
+}
+
+/// Record a throughput metric for GET/PUT. We can't inline this into S3CrtClient callbacks because
+/// PUT bytes don't transit those callbacks.
+fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
+    let throughput_mbps = bytes as f64 / 1024.0 / 1024.0 / duration.as_secs_f64();
+    // Semi-arbitrary choices here to avoid averaging out large and small requests
+    const MEGABYTE: u64 = 1024 * 1024;
+    let bucket = if bytes < MEGABYTE {
+        "<1MiB"
+    } else if bytes <= 16 * MEGABYTE {
+        "1-16MiB"
+    } else {
+        ">16MiB"
+    };
+    metrics::histogram!("s3.meta_requests.throughput_mibs", throughput_mbps, "op" => op, "size" => bucket);
 }
 
 #[async_trait]
