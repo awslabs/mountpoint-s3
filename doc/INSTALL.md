@@ -9,7 +9,7 @@ Mountpoint for Amazon S3 is only available for Linux operating systems.
 
 The instructions for downloading and installing Mountpoint for Amazon S3 depend on which Linux operating system you are using.
 
-### RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL, SUSE)
+### RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL)
 
 To download and install Mountpoint for Amazon S3 on RPM-based distributions, including Amazon Linux, follow these steps:
 

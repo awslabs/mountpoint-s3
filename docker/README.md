@@ -9,7 +9,7 @@ We recommend using the primary Dockerfile.
 
 First, download the Dockerfile if you don't have it already:
 
-    wget https://github.com/awslabs/mountpoint-s3/blob/main/docker/Dockerfile
+    wget https://raw.githubusercontent.com/awslabs/mountpoint-s3/main/docker/Dockerfile
 
 Run this command to build a Docker image:
 
