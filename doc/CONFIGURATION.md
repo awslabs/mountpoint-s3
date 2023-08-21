@@ -174,6 +174,8 @@ Mountpoint applies default permissions that allow all files in your mounted dire
 
 By default, users other than the user who ran the `mount-s3` command cannot access your mounted directory, even if the permissions and ownership settings above would allow it. This is true even for the `root` user, and is a limitation of the FUSE system Mountpoint uses to create a file system. To allow other non-root users to access your mounted directory, use the `--allow-other` command-line flag. To allow the root user to access your mounted directory if you ran `mount-s3` as a different user, use the `--allow-root` command-line flag. To use these flags, you may need to first [configure FUSE](https://manpages.debian.org/testing/fuse/mount.fuse.8.en.html#CONFIGURATION) by adding the line `user_allow_other` to the `/etc/fuse.conf` file. Even with these flags enabled, Mountpoint still respects the permissions and ownership configured with the other flags above.
 
+Note, `--allow-other` infers `--allow-root`. If both `--allow-root` and `--allow-other` are defined, only `--allow-root` will function.
+
 Despite these configurations, [IAM permissions](#iam-permissions) still always apply to accessing the files and directories in your S3 bucket.
 
 ### Configuring Mountpoint performance
