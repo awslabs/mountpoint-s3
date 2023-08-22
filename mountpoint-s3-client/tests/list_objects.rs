@@ -19,7 +19,6 @@ async fn test_list_objects() {
         .expect("ListObjects failed");
 
     println!("{result:?}");
-    assert_eq!(result.bucket, bucket);
     assert!(result.next_continuation_token.is_none());
     assert_eq!(result.objects.len(), 1);
     assert_eq!(result.objects[0].key, format!("{}{}", prefix, "hello"));

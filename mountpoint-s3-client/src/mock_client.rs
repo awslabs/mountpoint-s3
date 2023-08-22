@@ -449,7 +449,6 @@ impl ObjectClient for MockClient {
         let common_prefixes = common_prefixes.into_iter().collect::<Vec<_>>();
 
         Ok(ListObjectsResult {
-            bucket: bucket.to_string(),
             objects: object_vec,
             common_prefixes,
             next_continuation_token,

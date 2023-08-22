@@ -1,3 +1,7 @@
+# Unreleased
+
+* Breaking change: `ListObjectsResult` no longer includes the `bucket` field.
+
 # v0.3.0 (June 20, 2023)
 
 Breaking changes:

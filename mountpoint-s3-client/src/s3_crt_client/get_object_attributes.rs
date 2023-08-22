@@ -123,20 +123,20 @@ impl S3CrtClient {
             if let Some(max_parts) = max_parts {
                 let value = format!("{}", max_parts);
                 message
-                    .add_header(&Header::new("x-amz-max-parts", value))
+                    .set_header(&Header::new("x-amz-max-parts", value))
                     .map_err(S3RequestError::construction_failure)?;
             }
 
             if let Some(part_number_marker) = part_number_marker {
                 let value = format!("{}", part_number_marker);
                 message
-                    .add_header(&Header::new("x-amz-part-number-marker", value))
+                    .set_header(&Header::new("x-amz-part-number-marker", value))
                     .map_err(S3RequestError::construction_failure)?;
             }
 
             let object_attributes: Vec<String> = object_attributes.iter().map(|attr| attr.to_string()).collect();
             message
-                .add_header(&Header::new("x-amz-object-attributes", object_attributes.join(",")))
+                .set_header(&Header::new("x-amz-object-attributes", object_attributes.join(",")))
                 .map_err(S3RequestError::construction_failure)?;
 
             let span = request_span!(
