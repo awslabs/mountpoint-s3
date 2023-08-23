@@ -110,8 +110,9 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Allow other non-root users to access file system",
-        help_heading = MOUNT_OPTIONS_HEADER
+        help = "Allow other users, including root, to access file system",
+        help_heading = MOUNT_OPTIONS_HEADER,
+        conflicts_with = "allow_root"
     )]
     pub allow_other: bool,
 
