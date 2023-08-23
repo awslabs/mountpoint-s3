@@ -266,6 +266,23 @@ impl Message {
         })
     }
 
+    /// Erases a header with the given name from this message
+    pub fn erase_header(&mut self, name: impl AsRef<OsStr>) -> Result<(), Error> {
+        let header_count = unsafe {aws_http_message_get_header_count(self.inner.as_ptr())};
+        for i in 1..header_count {
+            let h: aws_http_header = unsafe {
+            let mut h: MaybeUninit<aws_http_header> = MaybeUninit::uninit();
+                aws_http_message_get_header(self.inner.as_ptr(), h.as_mut_ptr(), i).ok_or_last_error()?;
+                h.assume_init()
+            };
+            let n = unsafe {OsStr::from_bytes(aws_byte_cursor_as_slice(&h.name)).to_owned()};
+            if n.to_ascii_lowercase() == name.as_ref().to_ascii_lowercase() {
+               return unsafe {aws_http_message_erase_header(self.inner.as_ptr(), i).ok_or_last_error()}
+            }
+        }
+        Ok(())
+    }
+
     /// Add a header to this message.
     pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>) -> Result<(), Error> {
         // SAFETY: `aws_http_message_add_header` makes a copy of the values in `header`.

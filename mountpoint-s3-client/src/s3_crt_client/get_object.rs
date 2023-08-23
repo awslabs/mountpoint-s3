@@ -36,6 +36,9 @@ impl S3CrtClient {
 
         // Overwrite "accept" header since this returns raw object data.
         message
+            .erase_header("accept")
+            .map_err(S3RequestError::construction_failure)?;
+        message
             .add_header(&Header::new("accept", "*/*"))
             .map_err(S3RequestError::construction_failure)?;
 

@@ -642,6 +642,14 @@ impl S3Message {
         self.inner.add_header(header)
     }
 
+    /// Erase a header with the given name from this message.
+    fn erase_header(
+        &mut self,
+        name: impl AsRef<OsStr>,
+    ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
+        self.inner.erase_header(name)
+    }
+
     /// Set the request path and query for this message. The components should not be URL-encoded;
     /// this method will handle that.
     fn set_request_path_and_query<P: AsRef<OsStr>>(
