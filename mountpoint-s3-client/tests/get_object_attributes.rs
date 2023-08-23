@@ -2,9 +2,9 @@
 
 pub mod common;
 
-use aws_sdk_s3::model::{ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart};
-use aws_sdk_s3::output::CompleteMultipartUploadOutput;
-use aws_sdk_s3::types::ByteStream;
+use aws_sdk_s3::operation::complete_multipart_upload::CompleteMultipartUploadOutput;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::{ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart};
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::{GetObjectAttributesError, ObjectAttribute, ObjectClientError, S3CrtClient, S3RequestError};

@@ -1,13 +1,17 @@
 #![cfg(feature = "s3_tests")]
 
 use aws_sdk_s3 as s3;
+use aws_sdk_s3::config::Region;
+use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::operation::list_multipart_uploads::ListMultipartUploadsError;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use s3::Region;
 use std::ops::Range;
 
 /// Enable tracing and CRT logging when running unit tests.
@@ -72,7 +76,7 @@ pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: 
             .put_object()
             .bucket(bucket)
             .key(format!("{}{}", prefix, name.as_ref()))
-            .body(s3::types::ByteStream::from(Bytes::from_static(b".")))
+            .body(ByteStream::from(Bytes::from_static(b".")))
             .send()
             .await
             .unwrap();
@@ -83,7 +87,7 @@ pub async fn get_mpu_count_for_key(
     client: &s3::Client,
     bucket: &str,
     key: &str,
-) -> Result<usize, aws_sdk_s3::types::SdkError<aws_sdk_s3::error::ListMultipartUploadsError>> {
+) -> Result<usize, SdkError<ListMultipartUploadsError, HttpResponse>> {
     let upload_count = client
         .list_multipart_uploads()
         .bucket(bucket)
@@ -105,7 +109,7 @@ async fn test_sdk_create_object() {
         .put_object()
         .bucket(bucket)
         .key(format!("{prefix}hello"))
-        .body(s3::types::ByteStream::from(Bytes::from_static(b".")))
+        .body(ByteStream::from(Bytes::from_static(b".")))
         .send()
         .await
         .unwrap();

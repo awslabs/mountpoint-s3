@@ -2,7 +2,7 @@
 #![cfg(feature = "s3_tests")]
 
 use assert_cmd::prelude::*;
-use aws_sdk_sts::Region;
+use aws_sdk_sts::config::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;

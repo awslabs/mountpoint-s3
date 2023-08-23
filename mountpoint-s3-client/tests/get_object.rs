@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::option::Option::None;
 use std::str::FromStr;
 
-use aws_sdk_s3::types::ByteStream;
+use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;

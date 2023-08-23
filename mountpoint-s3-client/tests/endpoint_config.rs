@@ -2,7 +2,7 @@
 
 pub mod common;
 
-use aws_sdk_s3::types::ByteStream;
+use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::{AddressingStyle, EndpointConfig, ObjectClient, S3ClientConfig, S3CrtClient};

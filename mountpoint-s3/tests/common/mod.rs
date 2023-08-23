@@ -1,5 +1,5 @@
-use aws_sdk_s3::types::ByteStream;
-use aws_sdk_s3::Region;
+use aws_sdk_s3::config::Region;
+use aws_sdk_s3::primitives::ByteStream;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{self, DirectoryReplier, ReadReplier, ToErrno};
