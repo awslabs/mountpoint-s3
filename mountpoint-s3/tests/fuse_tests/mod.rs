@@ -177,10 +177,11 @@ mod s3_session {
 
     use std::future::Future;
 
-    use aws_sdk_s3::error::HeadObjectErrorKind;
-    use aws_sdk_s3::model::ChecksumAlgorithm;
-    use aws_sdk_s3::Region;
-    use aws_sdk_s3::{error::HeadObjectError, types::ByteStream, Client};
+    use aws_sdk_s3::config::Region;
+    use aws_sdk_s3::operation::head_object::HeadObjectError;
+    use aws_sdk_s3::primitives::ByteStream;
+    use aws_sdk_s3::types::ChecksumAlgorithm;
+    use aws_sdk_s3::Client;
     use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
 
     /// Create a FUSE mount backed by a real S3 client
@@ -309,10 +310,7 @@ mod s3_session {
             match result {
                 Ok(_) => Ok(true),
                 Err(e) => match e.into_service_error() {
-                    HeadObjectError {
-                        kind: HeadObjectErrorKind::NotFound(_),
-                        ..
-                    } => Ok(false),
+                    HeadObjectError::NotFound(_) => Ok(false),
                     err => Err(Box::new(err) as Box<dyn std::error::Error>),
                 },
             }
@@ -338,7 +336,7 @@ mod s3_session {
                     .get_object_attributes()
                     .bucket(&self.bucket)
                     .key(full_key)
-                    .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
+                    .object_attributes(aws_sdk_s3::types::ObjectAttributes::StorageClass)
                     .send(),
             )
             .map(|output| output.storage_class().map(|s| s.as_str().to_string()))

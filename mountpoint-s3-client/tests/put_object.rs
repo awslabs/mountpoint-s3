@@ -211,7 +211,7 @@ async fn test_put_checksums() {
         .get_object_attributes()
         .bucket(bucket)
         .key(key)
-        .object_attributes(aws_sdk_s3::model::ObjectAttributes::ObjectParts)
+        .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
         .send()
         .await
         .unwrap();
@@ -319,7 +319,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
         .get_object_attributes()
         .bucket(bucket)
         .key(key)
-        .object_attributes(aws_sdk_s3::model::ObjectAttributes::StorageClass)
+        .object_attributes(aws_sdk_s3::types::ObjectAttributes::StorageClass)
         .send()
         .await
         .unwrap();

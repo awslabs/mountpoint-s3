@@ -7,8 +7,8 @@ use std::option::Option::None;
 
 use aws_config::default_provider::credentials::DefaultCredentialsChain;
 use aws_credential_types::provider::ProvideCredentials;
-use aws_sdk_s3::types::ByteStream;
-use aws_sdk_s3::Region;
+use aws_sdk_s3::config::Region;
+use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
