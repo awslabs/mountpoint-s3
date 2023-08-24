@@ -195,3 +195,18 @@ fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn allow_other_conflict() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg("--allow-other")
+        .arg("--allow-root");
+    let error_message = "the argument '--allow-other' cannot be used with '--allow-root'";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
