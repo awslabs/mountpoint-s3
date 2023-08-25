@@ -582,7 +582,7 @@ where
         name: &OsStr,
         newparent: u64,
         newname: &OsStr,
-        options: u64,
+        _options: u64,
         reply: ReplyEmpty,
     ) {
         fuse_unsupported!("exchange", reply);

@@ -84,7 +84,7 @@ impl<T> CrtError for *mut T {
     type Return = NonNull<T>;
 
     unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
-        NonNull::new(self as *mut T).ok_or_else(|| Error::last_error())
+        NonNull::new(self).ok_or_else(|| Error::last_error())
     }
 }
 

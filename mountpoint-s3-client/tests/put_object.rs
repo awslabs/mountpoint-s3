@@ -74,7 +74,7 @@ async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, pr
 
     let key = format!("{prefix}hello");
 
-    let mut contents = vec![0u8; 32];
+    let mut contents = [0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
