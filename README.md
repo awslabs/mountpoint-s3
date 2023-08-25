@@ -61,6 +61,18 @@ See [Configuring Mountpoint for Amazon S3](doc/CONFIGURATION.md) for more detail
 
 Mountpoint for Amazon S3 is designed for high-performance access to the Amazon S3 service. While it may be functional against other storage services that use S3-like APIs, we aren't able to provide support for those use cases, and they may inadvertently break when we make changes to better support Amazon S3. We welcome contributions of minor compatibility fixes or performance improvements for these services if the changes can be tested against Amazon S3.
 
+## Building
+
+### Ubuntu
+- Install required build dependencies: `sudo apt install git curl build-essential pkg-config cmake libunwind-dev libclang-dev libfuse-dev`
+- Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- Clone this project with all the submodules: `git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git`
+- Enter the project directory: `cd mountpoint-s3`
+- Build for debug: `make`
+- Build for release: `make release`
+
+You will find the binaries under the `target/debug` or `target/release` directory.
+
 ## Contributing
 
 We welcome contributions to Mountpoint for Amazon S3! Please see [CONTRIBUTING.md](doc/CONTRIBUTING.md) for more information on how to report bugs or submit pull requests. We especially welcome contributions to issues tagged as [good first issues to work on](https://github.com/awslabs/mountpoint-s3/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
