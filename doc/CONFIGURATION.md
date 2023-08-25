@@ -130,7 +130,7 @@ In most scenarios, Mountpoint automatically infers the appropriate Amazon S3 end
 
 ### Data encryption
 
-Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading objects that are encrypted with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS). It does not currently support reading objects encrypted with customer-provided keys (SSE-C). For new objects written by Mountpoint, Amazon S3 automatically applies server-side encryption with Amazon S3 managed keys (SSE-S3), and Mountpoint does not support using other encryption types.
+Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C). Mountpoint does not allow configuring encryption, and you cannot encrypt objects with a different encryption setting than that of the bucket. 
 
 Mountpoint does not support client-side encryption using the Amazon S3 Encryption Client.
 
