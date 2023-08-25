@@ -137,13 +137,17 @@ impl<W: Work> WorkerPool<W> {
     /// Try to add a new worker.
     /// Returns `Ok(false)` if there are already [`WorkerPool::max_workers`].
     fn try_add_worker(&self) -> anyhow::Result<bool> {
-        let Ok(i) = self.state.worker_count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |i| {
-            if i < self.max_workers {
-                Some(i + 1)
-            } else {
-                None
-            }
-        }) else {
+        let Ok(i) = self
+            .state
+            .worker_count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |i| {
+                if i < self.max_workers {
+                    Some(i + 1)
+                } else {
+                    None
+                }
+            })
+        else {
             return Ok(false);
         };
         self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);

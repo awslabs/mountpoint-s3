@@ -57,7 +57,11 @@ fmt-check:
 	done; \
 	exit $$fail
 
+DISABLED_LINTS =
+DISABLED_LINTS += -A clippy::items-after-test-module  # https://github.com/rust-lang/rust-clippy/issues/11153
+DISABLED_LINTS += -A clippy::arc-with-non-send-sync  # https://github.com/proptest-rs/proptest/issues/364
+
 .PHONY: clippy
 clippy:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
-	cargo clippy $$packages --no-deps --all-targets --all-features -- -D clippy::all -A clippy::items-after-test-module
+	cargo clippy $$packages --no-deps --all-targets --all-features -- -D clippy::all $(DISABLED_LINTS)

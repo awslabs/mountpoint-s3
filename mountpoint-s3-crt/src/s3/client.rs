@@ -371,7 +371,7 @@ unsafe extern "C" fn meta_request_telemetry_callback(
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
     if let Some(callback) = user_data.on_telemetry.as_ref() {
-        let metrics = NonNull::new(metrics as *mut aws_s3_request_metrics).expect("request metrics is never null");
+        let metrics = NonNull::new(metrics).expect("request metrics is never null");
         let metrics = RequestMetrics { inner: metrics };
         // The docs say "`metrics` is only valid for the duration of the callback", so we need to
         // pass a reference here.

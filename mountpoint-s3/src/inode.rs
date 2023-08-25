@@ -166,7 +166,12 @@ impl Superblock {
                         return;
                     };
                     let mut parent_state = parent.inner.sync.write().unwrap();
-                    let InodeKindData::Directory { children, writing_children, .. } = &mut parent_state.kind_data else {
+                    let InodeKindData::Directory {
+                        children,
+                        writing_children,
+                        ..
+                    } = &mut parent_state.kind_data
+                    else {
                         unreachable!("parent is always a directory");
                     };
                     if let Some(child) = children.get(inode.name()) {
@@ -745,7 +750,12 @@ impl SuperblockInner {
         match (remote, inode) {
             (None, None) => Err(InodeError::FileDoesNotExist),
             (None, Some(existing_inode)) => {
-                let InodeKindData::Directory { children, writing_children, .. } = &mut parent_state.kind_data else {
+                let InodeKindData::Directory {
+                    children,
+                    writing_children,
+                    ..
+                } = &mut parent_state.kind_data
+                else {
                     unreachable!("we know parent is a directory");
                 };
                 if writing_children.contains(&existing_inode.ino()) {
