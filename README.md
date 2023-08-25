@@ -42,7 +42,7 @@ To build FUSE-Rust or any program that depends on it, `pkg-config` needs to be i
 [FUSE for Linux] is available in most Linux distributions and usually called `fuse` or `fuse3` (this crate is compatible with both). To install on a Debian based system:
 
 ```sh
-sudo apt-get install fuse
+sudo apt-get install fuse3 libfuse3-dev
 ```
 
 Install on CentOS:
