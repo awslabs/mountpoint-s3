@@ -2,8 +2,10 @@ use std::ffi::OsString;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use lazy_static::lazy_static;
 use mountpoint_s3_crt::http::request_response::{Headers, HeadersError};
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
+use regex::Regex;
 use thiserror::Error;
 use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
@@ -11,7 +13,7 @@ use tracing::error;
 
 use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo};
 use crate::s3_crt_client::S3RequestError;
-use crate::S3CrtClient;
+use crate::{RestoreStatus, S3CrtClient};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -27,6 +29,9 @@ pub enum ParseError {
 
     #[error("Failed to parse field {1} as an int: {0:?}")]
     Int(#[source] std::num::ParseIntError, String),
+
+    #[error("Header x-amz-restore is invalid: {0:?}")]
+    InvalidRestore(String),
 }
 
 fn get_field(headers: &Headers, name: &str) -> Result<String, ParseError> {
@@ -47,7 +52,38 @@ fn get_optional_field(headers: &Headers, name: &str) -> Result<Option<String>, P
     })
 }
 
+lazy_static! {
+    // Example: ongoing-request="true"
+    static ref RESTORE_IN_PROGRESS_RE: Regex = Regex::new(r#"^ongoing-request="(?<ongoing>[^"]*)"$"#).unwrap();
+
+    // Example: ongoing-request="false", expiry-date="Fri, 21 Dec 2012 00:00:00 GMT"
+    static ref RESTORE_DONE_RE: Regex =
+        Regex::new(r#"^ongoing-request="[^"]*",\s*expiry-date="(?<expiry>[^"]*)"$"#).unwrap();
+}
+
 impl HeadObjectResult {
+    fn parse_restore_status(headers: &Headers) -> Result<Option<RestoreStatus>, ParseError> {
+        let Some(header) = get_optional_field(headers, "x-amz-restore")? else {
+            return Ok(None);
+        };
+
+        if let Some(caps) = RESTORE_IN_PROGRESS_RE.captures(&header) {
+            let ongoing = bool::from_str(&caps["ongoing"]).map_err(|_| ParseError::InvalidRestore(header.clone()))?;
+            return if ongoing {
+                Ok(Some(RestoreStatus::InProgress))
+            } else {
+                Err(ParseError::InvalidRestore(header.clone()))
+            };
+        };
+
+        let Some(caps) = RESTORE_DONE_RE.captures(&header) else {
+            return Err(ParseError::InvalidRestore(header));
+        };
+        let expiry = OffsetDateTime::parse(&caps["expiry"], &Rfc2822)
+            .map_err(|e| ParseError::OffsetDateTime(e, "x-amz-restore::expiry".into()))?;
+        Ok(Some(RestoreStatus::Restored { expiry: expiry.into() }))
+    }
+
     fn parse_from_hdr(bucket: String, key: String, headers: &Headers) -> Result<Self, ParseError> {
         let last_modified = OffsetDateTime::parse(&get_field(headers, "Last-Modified")?, &Rfc2822)
             .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".into()))?;
@@ -55,11 +91,13 @@ impl HeadObjectResult {
             .map_err(|e| ParseError::Int(e, "ContentLength".into()))?;
         let etag = get_field(headers, "Etag")?;
         let storage_class = get_optional_field(headers, "x-amz-storage-class")?;
+        let restore_status = Self::parse_restore_status(headers)?;
         let object = ObjectInfo {
             key,
             size,
             last_modified,
             storage_class,
+            restore_status,
             etag,
         };
         Ok(HeadObjectResult { bucket, object })
@@ -131,9 +169,12 @@ fn parse_head_object_error(result: &MetaRequestResult) -> Option<HeadObjectError
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use mountpoint_s3_crt::common::allocator::Allocator;
+    use mountpoint_s3_crt::http::request_response::Header;
 
     use super::*;
+
+    use test_case::test_case;
 
     fn make_result(response_status: i32, body: impl Into<OsString>) -> MetaRequestResult {
         MetaRequestResult {
@@ -149,5 +190,49 @@ mod tests {
         let result = make_result(404, "");
         let result = parse_head_object_error(&result);
         assert_eq!(result, Some(HeadObjectError::NotFound));
+    }
+
+    #[test_case(r#"ongoing-request="false", expiry-date="Fri, 21 Dec 2012 00:00:00 GMT""#; "from documentation")]
+    #[test_case(r#"ongoing-request="false",expiry-date="Fri, 21 Dec 2012 00:00:00 GMT""#; "no whitespace")]
+    #[test_case("ongoing-request=\"false\",   \t   \t  expiry-date=\"Fri, 21 Dec 2012 00:00:00 GMT\""; "lots of whitespaces")]
+    fn test_parse_restore_status_done(value: &str) {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new("x-amz-restore", value.to_owned());
+        headers.add_header(&header).unwrap();
+        let restore_status = HeadObjectResult::parse_restore_status(&headers).expect("failed to parse headers");
+        match restore_status {
+            Some(RestoreStatus::Restored { expiry }) => assert_eq!(
+                OffsetDateTime::format(expiry.into(), &Rfc2822).unwrap(),
+                "Fri, 21 Dec 2012 00:00:00 +0000"
+            ),
+            _ => panic!("unexpected restore_status"),
+        };
+    }
+
+    #[test_case(r#"ongoing-request="false", expiry-date="not a date""#; "not a date")]
+    #[test_case(r#"ongoing-request="false""#; "done without expiry")]
+    fn test_parse_restore_status_invalid(value: &str) {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new("x-amz-restore", value.to_owned());
+        headers.add_header(&header).unwrap();
+        assert!(HeadObjectResult::parse_restore_status(&headers).is_err());
+    }
+
+    #[test_case(r#"ongoing-request="true""#; "from documentation")]
+    fn test_parse_restore_in_progress(value: &str) {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new("x-amz-restore", value.to_owned());
+        headers.add_header(&header).unwrap();
+        let restore_status = HeadObjectResult::parse_restore_status(&headers).expect("failed to parse headers");
+        let Some(RestoreStatus::InProgress) = restore_status else {
+            panic!("unexpected restore_status");
+        };
+    }
+
+    #[test]
+    fn test_parse_restore_empty() {
+        let headers = Headers::new(&Allocator::default()).unwrap();
+        let restore_status = HeadObjectResult::parse_restore_status(&headers).expect("failed to parse headers");
+        assert!(restore_status.is_none());
     }
 }

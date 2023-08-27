@@ -5,15 +5,17 @@ use mountpoint_s3::fs::{ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
-use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::{mock_client::MockObject, ETag};
+use mountpoint_s3_client::{ObjectClient, RestoreStatus};
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
@@ -889,7 +891,13 @@ async fn test_readdir_vs_readdirplus() {
 
 #[tokio::test]
 async fn test_flexible_retrieval_objects() {
-    const NAMES: &[&str] = &["GLACIER", "GLACIER_IR", "DEEP_ARCHIVE"];
+    const NAMES: &[&str] = &[
+        "GLACIER",
+        "GLACIER_IR",
+        "DEEP_ARCHIVE",
+        "GLACIER_RESTORED",
+        "DEEP_ARCHIVE_RESTORED",
+    ];
 
     let (client, fs) = make_test_filesystem(
         "test_flexible_retrieval_objects",
@@ -899,7 +907,14 @@ async fn test_flexible_retrieval_objects() {
 
     for name in NAMES {
         let mut object = MockObject::from(b"hello world");
-        object.set_storage_class(Some(name.to_string()));
+        object.set_storage_class(Some(name.to_string().replace("_RESTORED", "")));
+        object.set_restored(if name.contains("_RESTORED") {
+            Some(RestoreStatus::Restored {
+                expiry: SystemTime::now().add(Duration::from_secs(3600)),
+            })
+        } else {
+            None
+        });
         client.add_object(name, object);
     }
 
@@ -936,7 +951,14 @@ async fn test_flexible_retrieval_objects() {
 
         let file_name = format!("{name}2");
         let mut object = MockObject::from(b"hello world");
-        object.set_storage_class(Some(name.to_string()));
+        object.set_storage_class(Some(name.to_string().replace("_RESTORED", "")));
+        object.set_restored(if name.contains("_RESTORED") {
+            Some(RestoreStatus::Restored {
+                expiry: SystemTime::now().add(Duration::from_secs(3600)),
+            })
+        } else {
+            None
+        });
         client.add_object(&file_name, object);
 
         let lookup = fs.lookup(FUSE_ROOT_INODE, file_name.as_ref()).await.unwrap();

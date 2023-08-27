@@ -2,6 +2,7 @@ use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::str::FromStr;
 
+use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
@@ -10,7 +11,7 @@ use tracing::error;
 
 use crate::object_client::{ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo};
 use crate::s3_crt_client::S3RequestError;
-use crate::S3CrtClient;
+use crate::{RestoreStatus, S3CrtClient};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -94,6 +95,24 @@ fn parse_result_from_xml(element: &mut xmltree::Element) -> Result<ListObjectsRe
     })
 }
 
+fn parse_restore_status(element: &xmltree::Element) -> Result<Option<RestoreStatus>, ParseError> {
+    let Some(restore_status) = element.get_child("RestoreStatus") else {
+        return Ok(None);
+    };
+
+    let restore_in_progress = bool::from_str(&get_field(restore_status, "IsRestoreInProgress")?)
+        .map_err(|e| ParseError::Bool(e, "IsRestoreInProgress".to_string()))?;
+    if restore_in_progress {
+        return Ok(Some(RestoreStatus::InProgress));
+    }
+
+    Ok(Some(RestoreStatus::Restored {
+        expiry: OffsetDateTime::parse(&get_field(restore_status, "RestoreExpiryDate")?, &Rfc3339)
+            .map_err(|e| ParseError::OffsetDateTime(e, "RestoreExpiryDate".to_string()))?
+            .into(),
+    }))
+}
+
 fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, ParseError> {
     let key = get_field(element, "Key")?;
 
@@ -110,6 +129,8 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
 
     let storage_class = get_field(element, "StorageClass").ok();
 
+    let restore_status = parse_restore_status(element)?;
+
     let etag = get_field(element, "ETag")?;
 
     Ok(ObjectInfo {
@@ -117,6 +138,7 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
         size,
         last_modified,
         storage_class,
+        restore_status,
         etag,
     })
 }
@@ -136,7 +158,9 @@ impl S3CrtClient {
                 .inner
                 .new_request_template("GET", bucket)
                 .map_err(S3RequestError::construction_failure)?;
-
+            message
+                .set_header(&Header::new("x-amz-optional-object-attributes", "RestoreStatus"))
+                .map_err(S3RequestError::construction_failure)?;
             let max_keys = format!("{max_keys}");
             let mut query = vec![
                 ("list-type", "2"),

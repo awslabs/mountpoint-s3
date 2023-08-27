@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
 use std::str::FromStr;
+use std::time::SystemTime;
 use std::{
     fmt::{self, Debug},
     ops::Range,
@@ -315,6 +316,19 @@ pub enum PutObjectError {
     NoSuchBucket,
 }
 
+/// Restoration status for S3 objects in GLACIER/DEEP_ARCHIVE storage class
+/// See https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html#restore-archived-objects-status for more details.
+#[derive(Debug, Clone, Copy)]
+pub enum RestoreStatus {
+    /// S3 returns this status after it accepted a restoration request, but not have completed it yet.
+    /// Objects with this status are not readable.
+    InProgress,
+
+    /// This status means that restoration is fully completed. Note that restored objects are stored only
+    /// for the number of days that was specified in the request.
+    Restored { expiry: SystemTime },
+}
+
 /// Metadata about a single S3 object.
 /// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html for more details.
 #[derive(Debug)]
@@ -332,6 +346,9 @@ pub struct ObjectInfo {
     /// the storage class in its response for Standard objects. See examples here:
     /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples
     pub storage_class: Option<String>,
+
+    /// Objects with GLACIER or DEEP_ARCHIVE storage classes are only acessable after restoration
+    pub restore_status: Option<RestoreStatus>,
 
     /// Entity tag of this object.
     pub etag: String,
