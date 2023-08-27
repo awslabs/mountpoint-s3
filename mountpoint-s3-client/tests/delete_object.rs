@@ -5,7 +5,8 @@ pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::{DeleteObjectError, ObjectClientError, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::error::{DeleteObjectError, ObjectClientError};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 #[tokio::test]
 async fn test_delete_object() {

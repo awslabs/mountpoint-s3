@@ -10,7 +10,9 @@ use time::OffsetDateTime;
 use tracing::{debug, error, trace};
 
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError};
+use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
+use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_client::ObjectClient;
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};

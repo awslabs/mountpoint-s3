@@ -5,7 +5,8 @@ pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::{AddressingStyle, EndpointConfig, ObjectClient, S3ClientConfig, S3CrtClient};
+use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use test_case::test_case;
 
 async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket: String) {

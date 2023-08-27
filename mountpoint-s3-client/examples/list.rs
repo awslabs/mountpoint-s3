@@ -1,4 +1,5 @@
-use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 
 use clap::{Arg, Command};

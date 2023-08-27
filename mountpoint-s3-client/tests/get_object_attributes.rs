@@ -7,7 +7,9 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart};
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::{GetObjectAttributesError, ObjectAttribute, ObjectClientError, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::error::{GetObjectAttributesError, ObjectClientError};
+use mountpoint_s3_client::types::ObjectAttribute;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use test_case::test_case;
 
 async fn create_mpu_object(

@@ -13,28 +13,34 @@ use time::OffsetDateTime;
 
 use md5::{Digest, Md5};
 
-/// A single element of the [ObjectClient::get_object] response is a pair of offset within the
-/// object and the bytes starting at that offset.
+/// A single element of a [`get_object`](ObjectClient::get_object) response stream is a pair of
+/// offset within the object and the bytes starting at that offset.
 pub type GetBodyPart = (u64, Box<[u8]>);
 
+/// An ETag (entity tag) is a unique identifier for a HTTP object.
+///
+/// New ETags can be created with the [`FromStr`] implementation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ETag {
     etag: String,
 }
 
 impl ETag {
+    /// Get the ETag as a string
     pub fn as_str(&self) -> &str {
         &self.etag
     }
 
-    // Creating default etag for tests
+    /// Creating default etag for tests
+    #[doc(hidden)]
     pub fn for_tests() -> Self {
         Self {
             etag: "test_etag".to_string(),
         }
     }
 
-    // Creating unique etag from bytes
+    /// Creating unique etag from bytes
+    #[doc(hidden)]
     pub fn from_object_bytes(data: &[u8]) -> Self {
         let mut hasher = Md5::new();
         hasher.update(data);
@@ -54,8 +60,14 @@ impl FromStr for ETag {
     }
 }
 
-/// An [ObjectClient] is an S3-like blob storage interface
-#[async_trait]
+/// A generic interface to S3-like object storage services.
+///
+/// This trait defines the common methods that all object services implement.
+///
+/// This is an async trait defined with the [async-trait](https://crates.io/crates/async-trait)
+/// crate, and so implementations of this trait must use the `#[async_trait::async_trait]`
+/// attribute.
+#[cfg_attr(not(docs_rs), async_trait)]
 #[auto_impl(Arc)]
 pub trait ObjectClient {
     type GetObjectResult: Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send;
@@ -122,16 +134,20 @@ pub trait ObjectClient {
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError>;
 }
 
-/// Errors returned by calls to an [ObjectClient]. Errors that are explicitly modeled on a
-/// per-request-type basis are [ServiceError]s. Other generic or unhandled errors are
-/// [ClientError]s.
+/// The top-level error type returned by calls to an [`ObjectClient`].
+///
+/// Errors that are explicitly modeled on a per-request-type basis are [`ServiceError`]s. Other
+/// generic or unhandled errors are [`ClientError`]s.
 ///
 /// The distinction between these two types of error can sometimes be blurry. As a rough heuristic,
-/// [ServiceError]s are those that *any reasonable implementation* of an object client would be
-/// capable of experiencing, and [ClientError]s are anything else. For example, any object client
+/// [`ServiceError`]s are those that *any reasonable implementation* of an object client would be
+/// capable of experiencing, and [`ClientError`]s are anything else. For example, any object client
 /// could experience a "no such key" error, but only object clients that implement a permissions
 /// system could experience "permission denied" errors. When in doubt, we err towards *not* adding
-/// new [ServiceError]s, as they are public API for *every* object client.
+/// new [`ServiceError`]s, as they are public API for *every* object client.
+///
+/// [`ServiceError`]: ObjectClientError::ServiceError
+/// [`ClientError`]: ObjectClientError::ClientError
 #[derive(Debug, Error)]
 pub enum ObjectClientError<S, C> {
     /// An error returned by the service itself
@@ -144,8 +160,10 @@ pub enum ObjectClientError<S, C> {
     ClientError(#[from] C),
 }
 
+/// Shorthand type for the result of an object client request
 pub type ObjectClientResult<T, S, C> = Result<T, ObjectClientError<S, C>>;
 
+/// Errors returned by a [`get_object`](ObjectClient::get_object) request
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GetObjectError {
@@ -159,7 +177,7 @@ pub enum GetObjectError {
     PreconditionFailed,
 }
 
-/// Result of a [ObjectClient::list_objects] request
+/// Result of a [`list_objects`](ObjectClient::list_objects) request
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ListObjectsResult {
@@ -174,6 +192,7 @@ pub struct ListObjectsResult {
     pub next_continuation_token: Option<String>,
 }
 
+/// Errors returned by a [`list_objects`](ObjectClient::list_objects) request
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ListObjectsError {
@@ -181,7 +200,7 @@ pub enum ListObjectsError {
     NoSuchBucket,
 }
 
-/// Result of a [ObjectClient::head_object] request
+/// Result of a [`head_object`](ObjectClient::head_object) request
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct HeadObjectResult {
@@ -192,6 +211,7 @@ pub struct HeadObjectResult {
     pub object: ObjectInfo,
 }
 
+/// Errors returned by a [`head_object`](ObjectClient::head_object) request
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HeadObjectError {
@@ -200,15 +220,15 @@ pub enum HeadObjectError {
     NotFound,
 }
 
-/// Result of a [ObjectClient::delete_object] request
+/// Result of a [`delete_object`](ObjectClient::delete_object) request
 ///
-/// Note: DeleteObject calls on a non-existent object within a bucket are considered a success.
-///
-/// TODO: Populate this struct with return fields from the S3 API, e.g., version id, delete marker.
+/// Note: DeleteObject requests on a non-existent object within a bucket are considered a success.
+// TODO: Populate this struct with return fields from the S3 API, e.g., version id, delete marker.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct DeleteObjectResult {}
 
+/// Errors returned by a [`delete_object`](ObjectClient::delete_object) request
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DeleteObjectError {
@@ -216,7 +236,7 @@ pub enum DeleteObjectError {
     NoSuchBucket,
 }
 
-/// Result of a [ObjectClient::get_object_attributes] request
+/// Result of a [`get_object_attributes`](ObjectClient::get_object_attributes) request
 #[derive(Debug, Default)]
 pub struct GetObjectAttributesResult {
     /// ETag of the object
@@ -235,6 +255,7 @@ pub struct GetObjectAttributesResult {
     pub object_size: Option<u64>,
 }
 
+/// Errors returned by a [`get_object_attributes`](ObjectClient::get_object_attributes) request
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GetObjectAttributesError {
@@ -245,8 +266,7 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
-/// Parameters to a [ObjectClient::put_object] request
-/// TODO: Populate this struct with parameters from the S3 API, e.g., storage class, encryption.
+/// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct PutObjectParams {
@@ -284,19 +304,27 @@ pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 /// Checksum algorithm.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
 
-/// A streaming put request which allows callers to asynchronously write
-/// the body of the request.
-#[async_trait]
+/// A streaming put request which allows callers to asynchronously write the body of the request.
+///
+/// You can call the [`write`](Self::write) method to write data to the object, and then call
+/// [`complete`](Self::complete) to complete the upload. Alternatively, you can call
+/// [`review_and_complete`](Self::review_and_complete) to review the upload before completing it,
+/// giving the chance to cancel the request if the upload is not as expected.
+///
+/// This is an async trait defined with the [async-trait](https://crates.io/crates/async-trait)
+/// crate, and so implementations of this trait must use the `#[async_trait::async_trait]`
+/// attribute.
+#[cfg_attr(not(docs_rs), async_trait)]
 pub trait PutObjectRequest: Send {
     type ClientError: std::error::Error + Send + Sync + 'static;
 
     /// Write the given slice to the put request body.
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError>;
 
-    /// Complete the put request and return a [PutObjectResult].
+    /// Complete the put request and return a [`PutObjectResult`].
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 
-    /// Review and complete the put request and return a [PutObjectResult].
+    /// Review and complete the put request and return a [`PutObjectResult`].
     async fn review_and_complete(
         self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
@@ -304,11 +332,12 @@ pub trait PutObjectRequest: Send {
 }
 
 /// Result of a [ObjectClient::put_object] request
-/// TODO: Populate this struct with return fields from the S3 API, e.g., etag.
+// TODO: Populate this struct with return fields from the S3 API, e.g., etag.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct PutObjectResult {}
 
+/// Errors returned by a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PutObjectError {
@@ -316,8 +345,11 @@ pub enum PutObjectError {
     NoSuchBucket,
 }
 
-/// Restoration status for S3 objects in GLACIER/DEEP_ARCHIVE storage class
-/// See https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html#restore-archived-objects-status for more details.
+/// Restoration status for S3 objects in flexible retrieval storage classes.
+///
+/// See [Checking restore status and expiration
+/// date](https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html#restore-archived-objects-status)
+/// in the *Amazon S3 User Guide* for more details.
 #[derive(Debug, Clone, Copy)]
 pub enum RestoreStatus {
     /// S3 returns this status after it accepted a restoration request, but not have completed it yet.
@@ -330,7 +362,9 @@ pub enum RestoreStatus {
 }
 
 /// Metadata about a single S3 object.
-/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html for more details.
+///
+/// See [Object](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html) in the *Amazon S3
+/// API Reference* for more details.
 #[derive(Debug)]
 pub struct ObjectInfo {
     /// Key for this object.
@@ -343,11 +377,12 @@ pub struct ObjectInfo {
     pub last_modified: OffsetDateTime,
 
     /// Storage class for this object. Optional because head_object does not return
-    /// the storage class in its response for Standard objects. See examples here:
-    /// https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples
+    /// the storage class in its response for Standard objects. See examples in the [*Amazon S3 API
+    /// Reference*](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples)
     pub storage_class: Option<String>,
 
-    /// Objects with GLACIER or DEEP_ARCHIVE storage classes are only acessable after restoration
+    /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
+    /// acessable after restoration
     pub restore_status: Option<RestoreStatus>,
 
     /// Entity tag of this object.
@@ -388,7 +423,9 @@ impl fmt::Display for ObjectAttribute {
 }
 
 /// Metadata about object checksum.
-/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_Checksum.html for more details.
+///
+/// See [Checksum](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Checksum.html) in the *Amazon
+/// S3 API Reference* for more details.
 #[derive(Debug)]
 pub struct Checksum {
     /// Base64-encoded, 32-bit CRC32 checksum of the object
@@ -405,7 +442,9 @@ pub struct Checksum {
 }
 
 /// Metadata about object parts from GetObjectAttributes API.
-/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObjectAttributesParts.html for more details.
+///
+/// See [GetObjectAttributesParts](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObjectAttributesParts.html)
+/// in the *Amazon S3 API Reference* for more details.
 #[derive(Debug)]
 pub struct GetObjectAttributesParts {
     /// Indicates whether the returned list of parts is truncated
@@ -428,7 +467,9 @@ pub struct GetObjectAttributesParts {
 }
 
 /// Metadata for an individual object part.
-/// See https://docs.aws.amazon.com/AmazonS3/latest/API/API_ObjectPart.html for more details.
+///
+/// See [ObjectPart](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ObjectPart.html) in the
+/// *Amazon S3 API Reference* for more details.
 #[derive(Debug)]
 pub struct ObjectPart {
     /// Checksum of the object
@@ -437,6 +478,6 @@ pub struct ObjectPart {
     /// Number of the part, this value is a positive integer between 1 and 10,000
     pub part_number: usize,
 
-    // Size of the part in bytes
+    /// Size of the part in bytes
     pub size: usize,
 }

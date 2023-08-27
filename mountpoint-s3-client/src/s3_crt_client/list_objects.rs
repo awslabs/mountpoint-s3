@@ -9,9 +9,10 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::object_client::{ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo};
-use crate::s3_crt_client::S3RequestError;
-use crate::{RestoreStatus, S3CrtClient};
+use crate::object_client::{
+    ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo, RestoreStatus,
+};
+use crate::s3_crt_client::{S3CrtClient, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -144,7 +145,7 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
 }
 
 impl S3CrtClient {
-    pub async fn list_objects(
+    pub(super) async fn list_objects(
         &self,
         bucket: &str,
         continuation_token: Option<&str>,

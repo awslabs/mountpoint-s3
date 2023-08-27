@@ -4,7 +4,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use fuser::BackgroundSession;
-use mountpoint_s3_client::PutObjectParams;
+use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;

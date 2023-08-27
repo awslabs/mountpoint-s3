@@ -31,7 +31,9 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::anyhow;
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
-use mountpoint_s3_client::{HeadObjectError, HeadObjectResult, ObjectClient, ObjectClientError, RestoreStatus};
+use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+use mountpoint_s3_client::types::{HeadObjectResult, RestoreStatus};
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -1378,7 +1380,7 @@ mod tests {
 
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockClientConfig, MockObject},
-        ETag,
+        types::ETag,
     };
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};

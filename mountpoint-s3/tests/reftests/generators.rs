@@ -1,5 +1,5 @@
 use mountpoint_s3_client::mock_client::MockObject;
-use mountpoint_s3_client::ETag;
+use mountpoint_s3_client::types::ETag;
 use proptest::prelude::*;
 use proptest::string::string_regex;
 use proptest_derive::Arbitrary;

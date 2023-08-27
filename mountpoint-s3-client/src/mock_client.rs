@@ -1,3 +1,5 @@
+//! A mock implementation of an object client for use in tests.
+
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -16,12 +18,11 @@ use tracing::trace;
 
 use crate::checksums::crc32c_to_base64;
 use crate::object_client::{
-    ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError,
+    Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
     GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
-    UploadReview, UploadReviewPart,
+    ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, RestoreStatus, UploadReview, UploadReviewPart,
 };
-use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest, RestoreStatus};
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
@@ -292,7 +293,7 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
     Err(ObjectClientError::ClientError(MockClientError(s.into())))
 }
 
-#[async_trait]
+#[cfg_attr(not(docs_rs), async_trait)]
 impl ObjectClient for MockClient {
     type GetObjectResult = GetObjectResult;
     type PutObjectRequest = MockPutObjectRequest;
@@ -589,7 +590,7 @@ impl Drop for MockPutObjectRequest {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(docs_rs), async_trait)]
 impl PutObjectRequest for MockPutObjectRequest {
     type ClientError = MockClientError;
 

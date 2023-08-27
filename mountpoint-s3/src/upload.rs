@@ -1,9 +1,9 @@
 use std::{fmt::Debug, sync::Arc};
 
-use mountpoint_s3_client::{
-    checksums::crc32c_from_base64, ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError,
-    PutObjectParams, PutObjectRequest, PutObjectResult, UploadReview,
-};
+use mountpoint_s3_client::checksums::crc32c_from_base64;
+use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
+use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams, PutObjectResult, UploadReview};
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 
 use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
 use thiserror::Error;

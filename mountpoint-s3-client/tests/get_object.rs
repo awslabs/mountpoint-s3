@@ -10,8 +10,9 @@ use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::stream::StreamExt;
-use mountpoint_s3_client::ETag;
-use mountpoint_s3_client::{GetObjectError, ObjectClient, ObjectClientError, S3CrtClient};
+use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
+use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
 use test_case::test_case;
 

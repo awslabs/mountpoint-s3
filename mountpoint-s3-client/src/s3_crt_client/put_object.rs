@@ -1,9 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams};
-use crate::s3_crt_client::emit_throughput_metric;
-use crate::{PutObjectRequest, PutObjectResult, S3CrtClient, S3RequestError};
+use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
+use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
@@ -96,6 +95,10 @@ impl ReviewCallbackBox {
     }
 }
 
+/// An in-progress streaming PutObject request to S3.
+///
+/// You can write to or complete the upload using the [`PutObjectRequest`] implementation on this
+/// object.
 #[derive(Debug)]
 pub struct S3PutObjectRequest {
     body: S3HttpRequest<Vec<u8>, PutObjectError>,
@@ -105,7 +108,7 @@ pub struct S3PutObjectRequest {
     total_bytes: u64,
 }
 
-#[async_trait]
+#[cfg_attr(not(docs_rs), async_trait)]
 impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
