@@ -19,7 +19,7 @@ By default, Mountpoint does not allow deleting existing objects with commands li
 
 You cannot rename an existing file using Mountpoint.
 
-Objects in the S3 Glacier Flexible Retrieval and S3 Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are not accessible with Mountpoint even if they have been restored. To access these objects with Mountpoint, copy them to another storage class first.
+Objects in the S3 Glacier Flexible Retrieval and S3 Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are only accessible with Mountpoint if they have been restored. To access these objects with Mountpoint, [restore](https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html) them first.
 
 ## Directories
 
@@ -108,13 +108,13 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
   * `blue/`
   * `blue/image.jpg`
   * `red/`
-  
+
   then mounting your bucket would give a file system with a `blue` directory containing an `image.jpg` file, and an empty `red` directory. The `blue/` and `red/` objects will not be accessible. Note that the S3 Console creates zero-byte objects like `blue/` and `red/` when creating directories in a bucket, and so these directories will work as expected.
 * Files will be shadowed by directories with the same name. For example, if your bucket has the following object keys:
 
   * `blue`
   * `blue/image.jpg`
-  
+
   then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
 We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.

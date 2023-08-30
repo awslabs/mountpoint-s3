@@ -20,7 +20,6 @@ ctrlc = { version = "3.2.3", features = ["termination"] }
 dashmap = "5.5.0"
 futures = "0.3.24"
 hdrhistogram = { version = "7.5.2", default-features = false }
-lasso = { version = "0.7.2", features = ["multi-threaded"] }
 lazy_static = "1.4.0"
 libc = "0.2.126"
 metrics = "0.20.1"

@@ -15,7 +15,7 @@ use mountpoint_s3_client::{ETag, GetObjectError, ObjectClient, ObjectClientError
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
 use crate::prefix::Prefix;
-use crate::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{UploadRequest, Uploader};
 
@@ -93,7 +93,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
     }
 
     async fn new_read_handle(lookup: &LookedUp) -> Result<FileHandleType<Client, Runtime>, Error> {
-        if is_flexible_retrieval_storage_class(lookup) {
+        if !lookup.stat.is_readable {
             return Err(err!(
                 libc::EACCES,
                 "objects in flexible retrieval storage classes are not accessible",
@@ -353,25 +353,6 @@ pub trait ReadReplier {
     fn error(self, error: Error) -> Self::Replied;
 }
 
-/// Objects in flexible retrieval storage classes can't be accessed via GetObject, and so we
-/// override their permissions to 000 and reject reads to them. We also warn the first time we see
-/// an object like this, because FUSE enforces the 000 permissions on our behalf so we might not
-/// see an attempted `open` call.
-fn is_flexible_retrieval_storage_class(lookup: &LookedUp) -> bool {
-    static HAS_SENT_WARNING: AtomicBool = AtomicBool::new(false);
-    match lookup.stat.storage_class() {
-        Some("GLACIER") | Some("DEEP_ARCHIVE") => {
-            if !HAS_SENT_WARNING.swap(true, Ordering::SeqCst) {
-                tracing::warn!(
-                    "objects in the GLACIER and DEEP_ARCHIVE storage classes are not readable with Mountpoint"
-                );
-            }
-            true
-        }
-        _ => false,
-    }
-}
-
 impl<Client, Runtime> S3Filesystem<Client, Runtime>
 where
     Client: ObjectClient + Send + Sync + 'static,
@@ -395,10 +376,10 @@ where
         // (itself + the "." link).
         let (perm, nlink) = match lookup.inode.kind() {
             InodeKind::File => {
-                if is_flexible_retrieval_storage_class(lookup) {
-                    (0o000, 1)
-                } else {
+                if lookup.stat.is_readable {
                     (self.config.file_mode, 1)
+                } else {
+                    (0o000, 1)
                 }
             }
             InodeKind::Directory => (self.config.dir_mode, 2),

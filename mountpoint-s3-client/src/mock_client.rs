@@ -4,6 +4,7 @@ use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -20,7 +21,7 @@ use crate::object_client::{
     ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams, PutObjectResult,
     UploadReview, UploadReviewPart,
 };
-use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest};
+use crate::{Checksum, ETag, ObjectAttribute, PutObjectRequest, RestoreStatus};
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
@@ -56,12 +57,12 @@ pub struct MockClientConfig {
 #[derive(Debug)]
 pub struct MockClient {
     config: MockClientConfig,
-    objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
+    objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
 
-fn add_object(objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>, key: &str, value: MockObject) {
-    objects.write().unwrap().insert(key.to_owned(), Arc::new(value));
+fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, value: MockObject) {
+    objects.write().unwrap().insert(key.to_owned(), value);
 }
 
 impl MockClient {
@@ -108,6 +109,30 @@ impl MockClient {
             Err(MockClientError("object not found".into()))
         }
     }
+
+    /// Returns error if object does not exist
+    pub fn restore_object(&self, key: &str) -> Result<(), MockClientError> {
+        match self.objects.write().unwrap().get_mut(key) {
+            Some(mock_object) => {
+                mock_object.restore_status = Some(RestoreStatus::Restored {
+                    expiry: SystemTime::now() + Duration::from_secs(3600),
+                });
+                Ok(())
+            }
+            None => Err(MockClientError("object not found".into())),
+        }
+    }
+
+    pub fn is_object_restored(&self, key: &str) -> Result<bool, MockClientError> {
+        if let Some(mock_object) = self.objects.read().unwrap().get(key) {
+            Ok(matches!(
+                mock_object.restore_status,
+                Some(RestoreStatus::Restored { expiry: _ })
+            ))
+        } else {
+            Err(MockClientError("object not found".into()))
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -115,6 +140,7 @@ pub struct MockObject {
     generator: Arc<dyn Fn(u64, usize) -> Box<[u8]> + Send + Sync>,
     size: usize,
     storage_class: Option<String>,
+    restore_status: Option<RestoreStatus>,
     last_modified: OffsetDateTime,
     etag: ETag,
 }
@@ -131,6 +157,7 @@ impl MockObject {
             size: bytes.len(),
             generator: Arc::new(move |offset, size| bytes[offset as usize..offset as usize + size].into()),
             storage_class: None,
+            restore_status: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
         }
@@ -141,6 +168,7 @@ impl MockObject {
             generator: Arc::new(move |_offset, size| vec![v; size].into_boxed_slice()),
             size,
             storage_class: None,
+            restore_status: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
         }
@@ -161,6 +189,7 @@ impl MockObject {
             }),
             size,
             storage_class: None,
+            restore_status: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
         }
@@ -172,6 +201,10 @@ impl MockObject {
 
     pub fn set_storage_class(&mut self, storage_class: Option<String>) {
         self.storage_class = storage_class;
+    }
+
+    pub fn set_restored(&mut self, restore_status: Option<RestoreStatus>) {
+        self.restore_status = restore_status;
     }
 
     pub fn len(&self) -> usize {
@@ -200,13 +233,14 @@ impl std::fmt::Debug for MockObject {
             .field("storage_class", &self.storage_class)
             .field("last_modified", &self.last_modified)
             .field("etag", &self.etag)
+            .field("restored", &self.restore_status)
             .finish()
     }
 }
 
 #[derive(Debug)]
 pub struct GetObjectResult {
-    object: Arc<MockObject>,
+    object: MockObject,
     next_offset: u64,
     length: usize,
     part_size: usize,
@@ -316,7 +350,7 @@ impl ObjectClient for MockClient {
             };
 
             Ok(GetObjectResult {
-                object: Arc::clone(object),
+                object: object.clone(),
                 next_offset,
                 length,
                 part_size: self.config.part_size,
@@ -347,6 +381,7 @@ impl ObjectClient for MockClient {
                     last_modified: object.last_modified,
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
+                    restore_status: object.restore_status,
                 },
             })
         } else {
@@ -442,6 +477,7 @@ impl ObjectClient for MockClient {
                     last_modified: object.last_modified,
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
+                    restore_status: object.restore_status,
                 });
             }
         }
@@ -523,7 +559,7 @@ pub struct MockPutObjectRequest {
     buffer: Vec<u8>,
     part_size: usize,
     params: PutObjectParams,
-    objects: Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
+    objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
 
@@ -532,7 +568,7 @@ impl MockPutObjectRequest {
         key: &str,
         part_size: usize,
         params: &PutObjectParams,
-        objects: &Arc<RwLock<BTreeMap<String, Arc<MockObject>>>>,
+        objects: &Arc<RwLock<BTreeMap<String, MockObject>>>,
         in_progress_uploads: &Arc<RwLock<BTreeSet<String>>>,
     ) -> Self {
         in_progress_uploads.write().unwrap().insert(key.to_owned());
