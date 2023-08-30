@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::prelude::FromRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -308,6 +309,12 @@ fn main() -> anyhow::Result<()> {
                             .write(&status_success)
                             .context("Failed to write data to the pipe")?;
                         drop(pipe_file);
+
+                        // Logging is set up and the mount succeeded, so we can hang up
+                        // stdin/out/err now to cleanly daemonize ourselves
+                        nix::unistd::close(std::io::stdin().as_raw_fd()).context("couldn't close stdin")?;
+                        nix::unistd::close(std::io::stdout().as_raw_fd()).context("couldn't close stdout")?;
+                        nix::unistd::close(std::io::stderr().as_raw_fd()).context("couldn't close stderr")?;
 
                         session.join().context("failed to join session")?;
                     }
