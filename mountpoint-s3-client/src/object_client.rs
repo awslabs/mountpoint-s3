@@ -162,9 +162,6 @@ pub enum GetObjectError {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ListObjectsResult {
-    /// The name of the bucket.
-    pub bucket: String,
-
     /// The list of objects.
     pub objects: Vec<ObjectInfo>,
 

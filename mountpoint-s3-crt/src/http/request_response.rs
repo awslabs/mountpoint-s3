@@ -266,10 +266,29 @@ impl Message {
         })
     }
 
-    /// Add a header to this message.
+    /// Add a header to this message. If the header already exists in the message, this will add a
+    /// another header instead of overwriting the existing one. Use [set_header] to overwrite
+    /// potentially existing headers.
     pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>) -> Result<(), Error> {
         // SAFETY: `aws_http_message_add_header` makes a copy of the values in `header`.
         unsafe { aws_http_message_add_header(self.inner.as_ptr(), header.inner).ok_or_last_error() }
+    }
+
+    /// Set a header in this message. The header is added if necessary and any existing values for
+    /// this name are removed.
+    pub fn set_header(&mut self, header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>) -> Result<(), Error> {
+        // SAFETY: `self.inner` is a valid aws_http_message
+        let headers = unsafe { aws_http_message_get_headers(self.inner.as_ptr()) };
+        assert!(!headers.is_null(), "headers are always initialized");
+        // SAFETY: `aws_http_headers_set` makes a copy of the values in `header`
+        unsafe {
+            aws_http_headers_set(
+                headers,
+                header.name().as_aws_byte_cursor(),
+                header.value().as_aws_byte_cursor(),
+            )
+            .ok_or_last_error()
+        }
     }
 
     /// Set the request path for this message.

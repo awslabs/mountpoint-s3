@@ -43,7 +43,7 @@ impl S3CrtClient {
 
         if let Some(storage_class) = params.storage_class.to_owned() {
             message
-                .add_header(&Header::new("x-amz-storage-class", storage_class))
+                .set_header(&Header::new("x-amz-storage-class", storage_class))
                 .map_err(S3RequestError::construction_failure)?;
         }
 

@@ -36,13 +36,13 @@ impl S3CrtClient {
 
         // Overwrite "accept" header since this returns raw object data.
         message
-            .add_header(&Header::new("accept", "*/*"))
+            .set_header(&Header::new("accept", "*/*"))
             .map_err(S3RequestError::construction_failure)?;
 
         if let Some(etag) = if_match {
             // Return the object only if its entity tag (ETag) is matched
             message
-                .add_header(&Header::new("If-Match", etag.as_str()))
+                .set_header(&Header::new("If-Match", etag.as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
@@ -55,7 +55,7 @@ impl S3CrtClient {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
-                .add_header(&Header::new("Range", range_value))
+                .set_header(&Header::new("Range", range_value))
                 .map_err(S3RequestError::construction_failure)?;
 
             let length = range.end.saturating_sub(range.start);

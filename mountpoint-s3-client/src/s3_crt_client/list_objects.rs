@@ -54,78 +54,71 @@ fn get_field(element: &xmltree::Element, name: &str) -> Result<String, ParseErro
     get_text(get_child(element, name)?)
 }
 
-impl ListObjectsResult {
-    fn parse_from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
-        Self::parse_from_xml(&mut xmltree::Element::parse(bytes)?)
-    }
-
-    fn parse_from_xml(element: &mut xmltree::Element) -> Result<Self, ParseError> {
-        let mut objects = Vec::new();
-
-        while let Some(content) = element.take_child("Contents") {
-            objects.push(ObjectInfo::parse_from_xml(&content)?);
-        }
-
-        let mut common_prefixes = Vec::new();
-
-        while let Some(common_prefix) = element.take_child("CommonPrefixes") {
-            let prefix = get_field(&common_prefix, "Prefix")?;
-            common_prefixes.push(prefix);
-        }
-
-        let bucket = get_field(element, "Name")?;
-
-        let mut next_continuation_token = None;
-        if let Some(elem) = element.get_child("NextContinuationToken") {
-            next_continuation_token = Some(get_text(elem)?);
-        }
-
-        let is_truncated = get_field(element, "IsTruncated")?;
-        let is_truncated = bool::from_str(&is_truncated).map_err(|e| ParseError::Bool(e, "IsTruncated".to_string()))?;
-
-        if is_truncated != next_continuation_token.is_some() {
-            return Err(ParseError::InvalidResponse(
-                element.clone(),
-                "IsTruncated doesn't match NextContinuationToken".to_string(),
-            ));
-        }
-
-        Ok(Self {
-            bucket,
-            objects,
-            common_prefixes,
-            next_continuation_token,
-        })
-    }
+fn parse_result_from_bytes(bytes: &[u8]) -> Result<ListObjectsResult, ParseError> {
+    parse_result_from_xml(&mut xmltree::Element::parse(bytes)?)
 }
 
-impl ObjectInfo {
-    fn parse_from_xml(element: &xmltree::Element) -> Result<Self, ParseError> {
-        let key = get_field(element, "Key")?;
+fn parse_result_from_xml(element: &mut xmltree::Element) -> Result<ListObjectsResult, ParseError> {
+    let mut objects = Vec::new();
 
-        let size = get_field(element, "Size")?;
-
-        let size = u64::from_str(&size).map_err(|e| ParseError::Int(e, "Size".to_string()))?;
-
-        let last_modified = get_field(element, "LastModified")?;
-
-        // S3 appears to use RFC 3339 to encode this field, based on the API example here:
-        // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
-        let last_modified = OffsetDateTime::parse(&last_modified, &Rfc3339)
-            .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".to_string()))?;
-
-        let storage_class = get_field(element, "StorageClass").ok();
-
-        let etag = get_field(element, "ETag")?;
-
-        Ok(Self {
-            key,
-            size,
-            last_modified,
-            storage_class,
-            etag,
-        })
+    while let Some(content) = element.take_child("Contents") {
+        objects.push(parse_object_info_from_xml(&content)?);
     }
+
+    let mut common_prefixes = Vec::new();
+
+    while let Some(common_prefix) = element.take_child("CommonPrefixes") {
+        let prefix = get_field(&common_prefix, "Prefix")?;
+        common_prefixes.push(prefix);
+    }
+
+    let mut next_continuation_token = None;
+    if let Some(elem) = element.get_child("NextContinuationToken") {
+        next_continuation_token = Some(get_text(elem)?);
+    }
+
+    let is_truncated = get_field(element, "IsTruncated")?;
+    let is_truncated = bool::from_str(&is_truncated).map_err(|e| ParseError::Bool(e, "IsTruncated".to_string()))?;
+
+    if is_truncated != next_continuation_token.is_some() {
+        return Err(ParseError::InvalidResponse(
+            element.clone(),
+            "IsTruncated doesn't match NextContinuationToken".to_string(),
+        ));
+    }
+
+    Ok(ListObjectsResult {
+        objects,
+        common_prefixes,
+        next_continuation_token,
+    })
+}
+
+fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, ParseError> {
+    let key = get_field(element, "Key")?;
+
+    let size = get_field(element, "Size")?;
+
+    let size = u64::from_str(&size).map_err(|e| ParseError::Int(e, "Size".to_string()))?;
+
+    let last_modified = get_field(element, "LastModified")?;
+
+    // S3 appears to use RFC 3339 to encode this field, based on the API example here:
+    // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
+    let last_modified = OffsetDateTime::parse(&last_modified, &Rfc3339)
+        .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".to_string()))?;
+
+    let storage_class = get_field(element, "StorageClass").ok();
+
+    let etag = get_field(element, "ETag")?;
+
+    Ok(ObjectInfo {
+        key,
+        size,
+        last_modified,
+        storage_class,
+        etag,
+    })
 }
 
 impl S3CrtClient {
@@ -175,7 +168,7 @@ impl S3CrtClient {
 
         let body = body.await?;
 
-        ListObjectsResult::parse_from_bytes(&body)
+        parse_result_from_bytes(&body)
             .map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(e.into())))
     }
 }

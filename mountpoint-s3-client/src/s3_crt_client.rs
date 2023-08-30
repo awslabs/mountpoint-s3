@@ -634,12 +634,13 @@ struct S3Message {
 }
 
 impl S3Message {
-    /// Add a header to this message.
-    fn add_header(
+    /// Add a header to this message. The header is added if necessary and any existing values for
+    /// this header are removed.
+    fn set_header(
         &mut self,
         header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>,
     ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
-        self.inner.add_header(header)
+        self.inner.set_header(header)
     }
 
     /// Set the request path and query for this message. The components should not be URL-encoded;
