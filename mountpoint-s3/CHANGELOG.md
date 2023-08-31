@@ -1,6 +1,12 @@
 ## v1.0.1 (August 31, 2023)
 
+### Other changes
 * Added new metrics for object writes, IO sizes, file handles, and directory operations. The existing `fuse.bytes_read` metric has been renamed to `fuse.total_bytes` and is now keyed by operation (`read`/`write`).
+* Close input/output handles when running in background.
+* Allowed reading restored GFR/GDA objects.
+
+### Breaking changes
+* Made `allow_other` and `allow_root` mutually exclusive.
 
 ## v1.0.0 (August 8, 2023)
 
