@@ -12,8 +12,7 @@ Mountpoint for Amazon S3 is optimized for applications that need high read throu
 
 but probably not the right fit for applications that:
 * use file operations that S3 doesn't natively support, like directory renaming or symlinks
-* make edits or appends to existing files in-place (don't work on your Git repository or SQLite database in Mountpoint 😄)
-* live editing files with text editors like vi
+* make edits to existing files (don't work on your Git repository or run `vim` in Mountpoint 😄)
 
 Mountpoint for Amazon S3 does not implement all the features of a POSIX file system, and there are some differences that may affect compatibility with your application. See [Mountpoint file system behavior](doc/SEMANTICS.md) for a detailed description of Mountpoint for Amazon S3's behavior and POSIX support and how they could affect your application.
 
