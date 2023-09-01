@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1693561671108,
+  "lastUpdate": 1693580670651,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "jchorl@users.noreply.github.com",
-            "name": "Josh Chorlton",
-            "username": "jchorl"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "243c4df87a5df171ecaaa5fdb33d327d65d0b894",
-          "message": "decrease closed-channel log severity (#443)\n\n* decrease closed-channel log severity\n\nSigned-off-by: Josh Chorlton <jchorlton@gmail.com>\n\n* switch to trace\n\nSigned-off-by: Josh Chorlton <jchorlton@gmail.com>\n\n---------\n\nSigned-off-by: Josh Chorlton <jchorlton@gmail.com>",
-          "timestamp": "2023-08-10T16:54:47Z",
-          "tree_id": "e780dffdc8e8798b170c705d5ccb547bae937f40",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/243c4df87a5df171ecaaa5fdb33d327d65d0b894"
-        },
-        "date": 1691688971110,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.095,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.19,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.203,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.089,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 86.8835682,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 74.95881259999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 75.0004244,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "cc7f31e0f7db834b907ad84760c945c97f675f57",
+          "message": "Update documentation for live editing use case (#491)\n\n* Make it clear that live editing is not a good fit for mountpoint\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n* Update README.md\n\nCo-authored-by: James Bornholt <jamesbornholt@gmail.com>\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n---------\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\nCo-authored-by: James Bornholt <jamesbornholt@gmail.com>",
+          "timestamp": "2023-09-01T14:27:57Z",
+          "tree_id": "83b64928c20eeb775938d8a370c161616c10a3f3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/cc7f31e0f7db834b907ad84760c945c97f675f57"
+        },
+        "date": 1693580669985,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.07,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.185,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.107,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.633,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 72.44031659999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 96.3176158,
             "unit": "milliseconds"
           }
         ]
