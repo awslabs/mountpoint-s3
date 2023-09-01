@@ -1,12 +1,12 @@
 ## v1.0.1 (August 31, 2023)
 
 ### Breaking changes
-* Made `allow_other` and `allow_root` mutually exclusive.
+* Made `allow_other` and `allow_root` mutually exclusive CLI arguments.
 
 ### Other changes
 * Added new metrics for object writes, IO sizes, file handles, and directory operations. The existing `fuse.bytes_read` metric has been renamed to `fuse.total_bytes` and is now keyed by operation (`read`/`write`).
-* Close input/output handles when running in background.
-* Allowed reading restored GFR/GDA objects.
+* Closing the input/output handles when we run Mountpoint in background mode. This prevents us from seeing anything the process prints after they are closed.
+* Mountpoint can now read objects in the S3 Glacier Flexible Retrieval and S3 Glacier Deep Archive storage classes if they have been restored. Mountpoint cannot issue restore requests, but if you issue a restore request separately, the restored objects will be readable.
 
 ## v1.0.0 (August 8, 2023)
 
