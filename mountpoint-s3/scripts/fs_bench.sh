@@ -32,7 +32,6 @@ cd ${project_dir}
 results_dir=results
 runtime_seconds=30
 startdelay_seconds=30
-max_threads=4
 iteration=10
 
 rm -rf ${results_dir}
@@ -81,8 +80,7 @@ read_bechmark () {
     # mount file system
     cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
-      --prefix=${S3_BUCKET_TEST_PREFIX} \
-      --max-threads=${max_threads}
+      --prefix=${S3_BUCKET_TEST_PREFIX}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
       echo "Failed to mount file system"
@@ -115,8 +113,7 @@ write_benchmark () {
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
     cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
         --allow-delete \
-        --prefix=${S3_BUCKET_TEST_PREFIX} \
-        --max-threads=${max_threads}
+        --prefix=${S3_BUCKET_TEST_PREFIX}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
         echo "Failed to mount file system"
