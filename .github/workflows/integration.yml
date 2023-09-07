@@ -22,6 +22,12 @@ env:
   S3_FORBIDDEN_BUCKET_NAME: ${{ vars.S3_FORBIDDEN_BUCKET_NAME }}
   # An IAM role that tests can assume when they want to create session policies
   S3_SUBSESSION_IAM_ROLE: ${{ vars.S3_SUBSESSION_IAM_ROLE }}
+  # Different Access Points Aliases and ARNs
+  S3_ACCESS_POINT_ALIAS: ${{ vars.S3_ACCESS_POINT_ALIAS }}
+  S3_ACCESS_POINT_ARN: ${{ vars.S3_ACCESS_POINT_ARN }}
+  S3_OLAP_ALIAS: ${{ vars.S3_OLAP_ALIAS }}
+  S3_OLAP_ARN: ${{ vars.S3_OLAP_ARN }}
+  S3_MRAP_ARN: $${{ vars.S3_MRAP_ARN }}
   RUST_FEATURES: fuse_tests,s3_tests,fips_tests
 
 permissions:
