@@ -214,9 +214,6 @@ impl KernelConfig {
     ///
     /// On success returns the previous value. On error returns the nearest value which will succeed
     pub fn set_max_readahead(&mut self, value: u32) -> Result<u32, u32> {
-        if value == 0 {
-            return Err(1);
-        }
         if value > self.max_max_readahead {
             return Err(self.max_max_readahead);
         }

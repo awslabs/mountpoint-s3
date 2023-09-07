@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
-use tracing::{instrument, Instrument};
+use tracing::{instrument, warn, Instrument};
 
 use crate::fs::{self, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno};
 use crate::prefix::Prefix;
@@ -69,6 +69,12 @@ where
 {
     #[instrument(level="warn", skip_all, fields(req=_req.unique()))]
     fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+        if let Err(closest_valid) = config.set_max_readahead(0) {
+            warn!(
+                "failed to configure readahead to zero, closest accepted value is {:?}",
+                closest_valid,
+            );
+        }
         block_on(self.fs.init(config).in_current_span())
     }
 
