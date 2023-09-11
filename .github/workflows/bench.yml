@@ -35,7 +35,7 @@ jobs:
         aws-region: ${{ vars.S3_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -104,7 +104,7 @@ jobs:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
