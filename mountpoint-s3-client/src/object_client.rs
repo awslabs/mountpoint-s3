@@ -382,7 +382,7 @@ pub struct ObjectInfo {
     pub storage_class: Option<String>,
 
     /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
-    /// acessable after restoration
+    /// accessible after restoration
     pub restore_status: Option<RestoreStatus>,
 
     /// Entity tag of this object.
