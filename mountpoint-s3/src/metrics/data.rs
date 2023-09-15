@@ -1,8 +1,6 @@
 use crate::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex};
 
-use tracing::error;
-
 /// A single metric
 #[derive(Debug)]
 pub enum Metric {
@@ -149,10 +147,7 @@ impl AtomicGauge {
     }
 }
 
-/// A histogram with a hard-coded resolution that saturates at 300,000,000.
-///
-/// Histogram is usually used for time durations.
-/// As an example, this histogram can support up to 300 seconds for microsecond-precision measurements.
+/// An auto-resizing histogram with a precision of two significant figures.
 #[derive(Debug)]
 pub struct Histogram {
     histogram: Mutex<hdrhistogram::Histogram<u64>>,
@@ -160,19 +155,17 @@ pub struct Histogram {
 
 impl metrics::HistogramFn for Histogram {
     fn record(&self, value: f64) {
-        let mut histogram = self.histogram.lock().unwrap();
-        match histogram.record(value as u64) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("metric value {:?} could not be recorded: {:?}", value, e);
-            }
-        }
+        self.histogram
+            .lock()
+            .unwrap()
+            .record(value as u64)
+            .expect("histogram should always resize when value is too large");
     }
 }
 
 impl Histogram {
     fn new() -> Self {
-        let histogram = hdrhistogram::Histogram::new_with_bounds(1, 300 * 1000 * 1000, 2).unwrap();
+        let histogram = hdrhistogram::Histogram::new(2).unwrap();
         Self {
             histogram: Mutex::new(histogram),
         }
