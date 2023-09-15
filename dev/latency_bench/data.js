@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1694790931387,
+  "lastUpdate": 1694791040478,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5556377c39ed69921a3977a5cb4ba3afa327925a",
-          "message": "Small docs fixes (#464)\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-08-21T10:54:39Z",
-          "tree_id": "edd53bf1caf9ae1427c80e01dc185f77245c4f54",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5556377c39ed69921a3977a5cb4ba3afa327925a"
-        },
-        "date": 1692617443180,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.075,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.172,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.127,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.462,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 91.4151954,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 85.70144379999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 80.02400279999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "b89117ad1384490a3c226e9f7cd90ec1b6d19124",
+          "message": "Update HistogramFn impl to log failure to record rather than panic (#513)\n\n* Update HistogramFn impl to log failure to record rather than panic\n\nWhen writing 50GiB of data to a file, mountpoint-s3 panicked due to an unexpected \"ValueOutOfRangeResizeDisabled\" error.\nWhen creating the Histogram, we limit it with an upper bound of 300000000. For time durations in microsecond precision, that's 300 seconds.\n\nThis change allows the histogram to fail only with a log message for values in excess of 300 seconds.\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Update Histogram to auto-resize\n\nPreviously, the histogram would be capped at a maximum value of 300,000,000. Now, the histogram will automatically resize.\nThis does come with the implication that more memory may be allocated if values of larger than 300,000,000 are recorded.\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-09-15T14:39:02Z",
+          "tree_id": "b6691d6b356ac67b2510cad257c728d0ac670e6a",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/b89117ad1384490a3c226e9f7cd90ec1b6d19124"
+        },
+        "date": 1694791039908,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.081,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.174,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.172,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.873,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 67.5820458,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 71.34666390000001,
             "unit": "milliseconds"
           }
         ]
