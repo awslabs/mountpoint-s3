@@ -4,7 +4,8 @@ use std::time::Instant;
 
 use clap::{Arg, Command};
 use futures::StreamExt;
-use mountpoint_s3_client::{EndpointConfig, ObjectClient, S3ClientConfig, S3CrtClient};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;

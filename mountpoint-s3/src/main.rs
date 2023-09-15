@@ -16,9 +16,9 @@ use mountpoint_s3::instance::InstanceInfo;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics;
 use mountpoint_s3::prefix::Prefix;
-use mountpoint_s3_client::{
-    AddressingStyle, EndpointConfig, ObjectClientError, S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError,
-};
+use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;

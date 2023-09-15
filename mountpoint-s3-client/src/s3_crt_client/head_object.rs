@@ -11,9 +11,10 @@ use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo};
-use crate::s3_crt_client::S3RequestError;
-use crate::{RestoreStatus, S3CrtClient};
+use crate::object_client::{
+    HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo, RestoreStatus,
+};
+use crate::s3_crt_client::{S3CrtClient, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -105,7 +106,7 @@ impl HeadObjectResult {
 }
 
 impl S3CrtClient {
-    pub async fn head_object(
+    pub(super) async fn head_object(
         &self,
         bucket: &str,
         key: &str,

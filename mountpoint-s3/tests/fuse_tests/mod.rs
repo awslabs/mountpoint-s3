@@ -19,7 +19,7 @@ use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
-use mountpoint_s3_client::PutObjectParams;
+use mountpoint_s3_client::types::PutObjectParams;
 use tempfile::TempDir;
 
 pub trait TestClient {
@@ -195,12 +195,13 @@ mod s3_session {
 
     use std::future::Future;
 
+    use aws_sdk_s3::config::Region;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use aws_sdk_s3::primitives::ByteStream;
-    use aws_sdk_s3::types::{ChecksumAlgorithm, RestoreRequest, Tier};
+    use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
     use aws_sdk_s3::Client;
-    use aws_sdk_s3::{config::Region, types::GlacierJobParameters};
-    use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
+    use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+    use mountpoint_s3_client::S3CrtClient;
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {

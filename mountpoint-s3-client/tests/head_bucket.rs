@@ -3,9 +3,9 @@
 pub mod common;
 
 use common::*;
-use mountpoint_s3_client::{
-    EndpointConfig, HeadBucketError, ObjectClientError, S3ClientConfig, S3CrtClient, S3RequestError,
-};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::error::{HeadBucketError, ObjectClientError};
+use mountpoint_s3_client::{S3CrtClient, S3RequestError};
 
 #[tokio::test]
 async fn test_head_bucket_correct_region() {

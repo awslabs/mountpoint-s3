@@ -1,3 +1,5 @@
+//! An Instance Metadata Service (IMDS) client using the AWS Common Runtime implementation.
+
 use futures::channel::oneshot;
 use mountpoint_s3_crt::auth::imds_client::{ImdsClient, ImdsClientConfig};
 use mountpoint_s3_crt::common::allocator::Allocator;

@@ -33,11 +33,12 @@ use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
+use self::get_object::S3GetObjectRequest;
+use self::put_object::S3PutObjectRequest;
+use crate::build_info;
+use crate::endpoint_config::EndpointConfig;
 use crate::endpoint_config::EndpointError;
 use crate::object_client::*;
-use crate::s3_crt_client::get_object::S3GetObjectRequest;
-use crate::s3_crt_client::put_object::S3PutObjectRequest;
-use crate::{build_info, EndpointConfig};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -55,11 +56,12 @@ macro_rules! request_span {
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
 pub(crate) mod get_object_attributes;
-pub(crate) mod head_bucket;
-
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
 pub(crate) mod put_object;
+
+pub(crate) mod head_bucket;
+pub use head_bucket::HeadBucketError;
 
 /// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
 /// requests based on their response status. https://github.com/tokio-rs/tracing/issues/372
@@ -75,6 +77,7 @@ macro_rules! event {
     }
 }
 
+/// Configurations for the CRT-based S3 client
 #[derive(Debug, Clone)]
 pub struct S3ClientConfig {
     auth_config: S3ClientAuthConfig,
@@ -155,6 +158,7 @@ impl S3ClientConfig {
     }
 }
 
+/// Authentication configuration for the CRT-based S3 client
 #[derive(Debug, Clone, Default)]
 pub enum S3ClientAuthConfig {
     /// The default AWS credentials resolution chain, similar to the AWS CLI
@@ -168,18 +172,29 @@ pub enum S3ClientAuthConfig {
     Provider(CredentialsProvider),
 }
 
+/// An S3 client that uses the [AWS Common Runtime (CRT)][crt] to make requests.
+///
+/// The AWS CRT is a C library that provides a common set of functionality for AWS SDKs. Its S3
+/// client provides high throughput by implementing S3 performance best practices, including
+/// automatic parallelization of GET and PUT requests.
+///
+/// To use this client, invoke the methods from the [`ObjectClient`] trait.
+///
+/// [crt]: https://docs.aws.amazon.com/sdkref/latest/guide/common-runtime.html
 #[derive(Debug, Clone)]
 pub struct S3CrtClient {
     inner: Arc<S3CrtClientInner>,
 }
 
 impl S3CrtClient {
+    /// Construct a new S3 client with the given configuration.
     pub fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         Ok(Self {
             inner: Arc::new(S3CrtClientInner::new(config)?),
         })
     }
 
+    #[doc(hidden)]
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.inner.event_loop_group.clone()
     }
@@ -747,7 +762,7 @@ pub enum NewClientError {
     InvalidConfiguration(String),
 }
 
-/// Failed S3 request results
+/// Errors returned by the CRT-based S3 client
 #[derive(Error, Debug)]
 pub enum S3RequestError {
     /// An internal error from within the S3 client. The request may have been sent.
@@ -917,7 +932,7 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
     metrics::histogram!("s3.meta_requests.throughput_mibs", throughput_mbps, "op" => op, "size" => bucket);
 }
 
-#[async_trait]
+#[cfg_attr(not(docs_rs), async_trait)]
 impl ObjectClient for S3CrtClient {
     type GetObjectResult = S3GetObjectRequest;
     type PutObjectRequest = S3PutObjectRequest;

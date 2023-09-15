@@ -1,7 +1,7 @@
 use std::assert_eq;
 
 use aws_config::imds::Client;
-use mountpoint_s3_client::ImdsCrtClient;
+use mountpoint_s3_client::imds_crt_client::ImdsCrtClient;
 use serde_json::Value;
 
 #[tokio::test]

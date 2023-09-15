@@ -12,9 +12,9 @@ use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
-use mountpoint_s3_client::{
-    EndpointConfig, ObjectClient, ObjectClientError, S3ClientAuthConfig, S3ClientConfig, S3CrtClient, S3RequestError,
-};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use rusty_fork::rusty_fork_test;

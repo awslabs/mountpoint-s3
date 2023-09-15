@@ -3,12 +3,12 @@ use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 
-use crate::object_client::{DeleteObjectError, DeleteObjectResult};
-use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
+use crate::object_client::{DeleteObjectError, DeleteObjectResult, ObjectClientResult};
+use crate::s3_crt_client::{S3CrtClient, S3RequestError};
 
 impl S3CrtClient {
     /// Create and begin a new DeleteObject request.
-    pub async fn delete_object(
+    pub(super) async fn delete_object(
         &self,
         bucket: &str,
         key: &str,

@@ -1,3 +1,5 @@
+//! An [`ObjectClient`] that can inject failures into requests for testing purposes.
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Range;
@@ -10,11 +12,12 @@ use futures::Stream;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ObjectClientError, ObjectClientResult,
-    PutObjectError, PutObjectParams, UploadReview,
+    DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
+    ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    UploadReview,
 };
-use crate::{ETag, ListObjectsResult, ObjectAttribute, ObjectClient, PutObjectRequest, PutObjectResult};
+use crate::ObjectClient;
 
 // Wrapper for injecting failures into a get stream or a put request
 pub struct FailureRequestWrapper<Client: ObjectClient, RequestWrapperState> {
@@ -57,7 +60,7 @@ pub struct FailureClient<Client: ObjectClient, State, RequestWrapperState> {
     >,
 }
 
-#[async_trait]
+#[cfg_attr(not(docs_rs), async_trait)]
 impl<Client, State, GetWrapperState> ObjectClient for FailureClient<Client, State, GetWrapperState>
 where
     Client: ObjectClient + Send + Sync + 'static,
@@ -188,7 +191,7 @@ pub struct FailurePutObjectRequest<Client: ObjectClient, PutWrapperState> {
     result_fn: fn(&mut PutWrapperState) -> Result<(), Client::ClientError>,
 }
 
-#[async_trait]
+#[cfg_attr(not(docs_rs), async_trait)]
 impl<Client: ObjectClient, PutWrapperState> PutObjectRequest for FailurePutObjectRequest<Client, PutWrapperState>
 where
     Client::PutObjectRequest: Send,

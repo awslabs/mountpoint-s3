@@ -2,7 +2,8 @@ use clap::{Arg, ArgAction, Command};
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::S3FilesystemConfig;
-use mountpoint_s3_client::{EndpointConfig, S3ClientConfig, S3CrtClient};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::{
     fs::File,

@@ -46,7 +46,7 @@ impl AuthScheme {
     }
 }
 
-/// Configuration for resolution of Endpoint
+/// Configuration for resolution of S3 endpoints
 #[derive(Debug, Clone)]
 pub struct EndpointConfig {
     region: String,

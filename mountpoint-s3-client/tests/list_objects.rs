@@ -3,7 +3,8 @@
 pub mod common;
 
 use common::*;
-use mountpoint_s3_client::{ListObjectsError, ObjectClientError, S3CrtClient};
+use mountpoint_s3_client::error::{ListObjectsError, ObjectClientError};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
 #[tokio::test]
 async fn test_list_objects() {

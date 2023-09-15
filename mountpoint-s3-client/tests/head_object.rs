@@ -8,7 +8,9 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::{HeadObjectError, ObjectClientError, RestoreStatus, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+use mountpoint_s3_client::types::RestoreStatus;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use test_case::test_case;
 
 #[tokio::test]

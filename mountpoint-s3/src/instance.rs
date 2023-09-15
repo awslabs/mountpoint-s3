@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::{anyhow, Context};
-use mountpoint_s3_client::{IdentityDocument, ImdsCrtClient};
+use mountpoint_s3_client::imds_crt_client::{IdentityDocument, ImdsCrtClient};
 use once_cell::unsync::Lazy;
 
 /// Information on the EC2 instance from the Imds client.

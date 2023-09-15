@@ -1,8 +1,9 @@
 use crate::object_client::ObjectClientResult;
-use crate::{S3CrtClient, S3RequestError};
+use crate::s3_crt_client::{S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::s3::client::MetaRequestType;
 use thiserror::Error;
 
+/// Errors returned by a [`head_bucket`](S3CrtClient::head_bucket) request.
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum HeadBucketError {

@@ -8,10 +8,11 @@ use mountpoint_s3_crt::{
 };
 use thiserror::Error;
 
-use crate::{
+use crate::object_client::{
     Checksum, GetObjectAttributesError, GetObjectAttributesParts, GetObjectAttributesResult, ObjectAttribute,
-    ObjectClientError, ObjectClientResult, ObjectPart, S3CrtClient, S3RequestError,
+    ObjectClientError, ObjectClientResult, ObjectPart,
 };
+use crate::s3_crt_client::{S3CrtClient, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -99,7 +100,7 @@ impl GetObjectAttributesResult {
 }
 
 impl S3CrtClient {
-    pub async fn get_object_attributes(
+    pub(super) async fn get_object_attributes(
         &self,
         bucket: &str,
         key: &str,

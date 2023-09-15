@@ -38,7 +38,8 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use mountpoint_s3_client::{ObjectClient, ObjectInfo};
+use mountpoint_s3_client::types::ObjectInfo;
+use mountpoint_s3_client::ObjectClient;
 use tracing::{error, trace, warn};
 
 use crate::sync::{Arc, AsyncMutex, Mutex};

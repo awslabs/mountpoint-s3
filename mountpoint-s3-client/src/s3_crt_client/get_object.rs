@@ -12,10 +12,8 @@ use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
 use pin_project::pin_project;
 
-use crate::object_client::{GetBodyPart, GetObjectError, ObjectClientError};
-use crate::s3_crt_client::S3HttpRequest;
-use crate::ETag;
-use crate::{ObjectClientResult, S3CrtClient, S3RequestError};
+use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
+use crate::s3_crt_client::{S3CrtClient, S3HttpRequest, S3RequestError};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
@@ -100,6 +98,11 @@ impl S3CrtClient {
     }
 }
 
+/// A streaming response to a GetObject request.
+///
+/// This struct implements [`futures::Stream`], which you can use to read the body of the object.
+/// Each item of the stream is a part of the object body together with the part's offset within the
+/// object.
 #[derive(Debug)]
 #[pin_project]
 pub struct S3GetObjectRequest {
