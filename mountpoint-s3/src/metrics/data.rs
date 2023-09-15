@@ -147,7 +147,7 @@ impl AtomicGauge {
     }
 }
 
-/// A histogram with a hard-coded resolution that saturates at 300 seconds.
+/// An auto-resizing histogram with a precision of two significant figures.
 #[derive(Debug)]
 pub struct Histogram {
     histogram: Mutex<hdrhistogram::Histogram<u64>>,
@@ -155,13 +155,17 @@ pub struct Histogram {
 
 impl metrics::HistogramFn for Histogram {
     fn record(&self, value: f64) {
-        self.histogram.lock().unwrap().record(value as u64).unwrap();
+        self.histogram
+            .lock()
+            .unwrap()
+            .record(value as u64)
+            .expect("histogram should always resize when value is too large");
     }
 }
 
 impl Histogram {
     fn new() -> Self {
-        let histogram = hdrhistogram::Histogram::new_with_bounds(1, 300 * 1000 * 1000, 2).unwrap();
+        let histogram = hdrhistogram::Histogram::new(2).unwrap();
         Self {
             histogram: Mutex::new(histogram),
         }
