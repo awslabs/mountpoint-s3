@@ -31,7 +31,7 @@ jobs:
         with:
           fuseVersion: 2
       - name: Build Docker image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           tags: mountpoint-builder
           context: ./package
