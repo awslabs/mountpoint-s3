@@ -133,6 +133,9 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     if args.official:
         # Remove the commit from the User-agent version number
         env["MOUNTPOINT_S3_AWS_RELEASE"] = "true"
+    for var in ["CC", "CXX", "LD_LIBRARY_PATH"]:
+        if var in os.environ:
+            env[var] = os.environ[var]
 
     # Build the binary
     cmd = ["cargo", "build", "--bin", "mount-s3", "--release"]
