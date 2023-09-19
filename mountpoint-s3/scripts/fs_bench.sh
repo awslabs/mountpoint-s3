@@ -51,7 +51,7 @@ run_fio_job() {
   for i in $(seq 1 $iterations);
   do
     echo -n "${i};"
-    fio --thread \
+    timeout 1 fio --thread \
       --output=${results_dir}/${job_name}_iter${i}.json \
       --output-format=json \
       --directory=${mount_dir} \
