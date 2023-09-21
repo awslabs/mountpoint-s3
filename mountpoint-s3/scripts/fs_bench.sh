@@ -42,6 +42,7 @@ run_fio_job() {
   job_file=$1
   bench_file=$2
   mount_dir=$3
+  log_dir=$4
 
   job_name=$(basename "${job_file}")
   job_name="${job_name%.*}"
@@ -51,13 +52,23 @@ run_fio_job() {
   for i in $(seq 1 $iterations);
   do
     echo -n "${i};"
-    fio --thread \
+    # we know each fio job will be running for exactly 1 minute from the job definitions.
+    # there must be something wrong if it takes longer than that.
+    set +e
+    timeout 300s fio --thread \
       --output=${results_dir}/${job_name}_iter${i}.json \
       --output-format=json \
       --directory=${mount_dir} \
       --filename=${bench_file} \
       --eta=never \
       ${job_file}
+    job_status=$?
+    set -e
+    if [ $job_status -ne 0 ]; then
+      tail -1000 ${log_dir}/mountpoint-s3-*
+      echo "Job ${job_name} failed with exit code ${job_status}"
+      exit 1
+    fi
   done
   echo "done"
 
@@ -75,11 +86,19 @@ read_benchmark () {
   for job_file in "${jobs_dir}"/*.fio; do
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
 
+    job_name=$(basename "${job_file}")
+    job_name="${job_name%.*}"
+    log_dir=logs/${job_name}
+    rm -rf ${log_dir}
+    mkdir -p ${log_dir}
+
     # mount file system
     set +e
     cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
+      --debug \
       --allow-delete \
+      --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX}
     mount_status=$?
     set -e
@@ -96,13 +115,14 @@ read_benchmark () {
     fi
 
     # run the benchmark
-    run_fio_job $job_file $bench_file $mount_dir
+    run_fio_job $job_file $bench_file $mount_dir $log_dir
 
     # unmount file system
     sudo umount ${mount_dir}
 
-    # cleanup mount directory
+    # cleanup mount directory and log directory
     rm -rf ${mount_dir}
+    rm -rf ${log_dir}
   done
 }
 
@@ -110,12 +130,20 @@ write_benchmark () {
   jobs_dir=mountpoint-s3/scripts/fio/write
 
   for job_file in "${jobs_dir}"/*.fio; do
+    job_name=$(basename "${job_file}")
+    job_name="${job_name%.*}"
+    log_dir=logs/${job_name}
+    rm -rf ${log_dir}
+    mkdir -p ${log_dir}
+
     # mount file system
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
     set +e
     cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
+      --debug \
       --allow-delete \
+      --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX}
     mount_status=$?
     set -e
@@ -128,13 +156,14 @@ write_benchmark () {
     bench_file=${mount_dir}/${job_name}_${RANDOM}.dat
 
     # run the benchmark
-    run_fio_job $job_file $bench_file $mount_dir
+    run_fio_job $job_file $bench_file $mount_dir $log_dir
 
     # unmount file system
     sudo umount ${mount_dir}
 
-    # cleanup mount directory
+    # cleanup mount directory and log directory
     rm -rf ${mount_dir}
+    rm -rf ${log_dir}
   done
 }
 
