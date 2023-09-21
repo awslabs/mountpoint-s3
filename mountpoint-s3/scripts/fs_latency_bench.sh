@@ -44,11 +44,16 @@ do
     target_dir="${mount_dir}/bench_dir_${dir_size}"
     startdelay=30
 
+    log_dir=logs/${job_name}
+    mkdir -p $log_dir
+
     echo "Running ${job_name}"
 
     # mount file system
     cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+        --debug \
         --allow-delete \
+        --log-directory=$log_dir \
         --prefix=${S3_BUCKET_TEST_PREFIX}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
@@ -67,7 +72,14 @@ do
     iteration=10
     for i in $(seq 1 $iteration);
     do
-        /usr/bin/time -o ${results_dir}/time_output.txt -v ls -f "${target_dir}" >/dev/null 2>&1
+        # we don't know for sure how long does it take, but 5 minutes should be enough
+        timeout 300s /usr/bin/time -o ${results_dir}/time_output.txt -v ls -f "${target_dir}" >/dev/null 2>&1
+        job_status=$?
+        if [ $job_status -ne 0 ]; then
+          tail -1000 ${log_dir}/mountpoint-s3-*
+          echo "Job ${job_name} failed with exit code ${job_status}"
+          exit 1
+        fi
 
         elapsed_time=$(awk '/Elapsed/ {print $8}' ${results_dir}/time_output.txt)
 
@@ -105,11 +117,16 @@ for job_file in "${jobs_dir}"/*.fio; do
   job_name=$(basename "${job_file}")
   job_name="${job_name%.*}"
 
+  log_dir=logs/${job_name}
+  mkdir -p $log_dir
+
   echo "Running ${job_name}"
 
   # mount file system
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+    --debug \
     --allow-delete \
+    --log-directory=$log_dir \
     --prefix=${S3_BUCKET_TEST_PREFIX}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then
@@ -124,12 +141,19 @@ for job_file in "${jobs_dir}"/*.fio; do
     bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
   fi
 
-  fio --thread \
+  # time to first byte should not be longer than 5 minutes
+  timeout 300s fio --thread \
     --output=${results_dir}/${job_name}.json \
     --output-format=json \
     --directory=${mount_dir} \
     --filename=${bench_file} \
     ${job_file}
+  job_status=$?
+  if [ $job_status -ne 0 ]; then
+    tail -1000 ${log_dir}/mountpoint-s3-*
+    echo "Job ${job_name} failed with exit code ${job_status}"
+    exit 1
+  fi
 
   jq -n 'inputs.jobs[] | if (."job options".rw == "read") 
     then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
