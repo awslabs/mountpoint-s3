@@ -501,7 +501,7 @@ impl Drop for MetaRequest {
 ///         (3.3) num_auto_ranged_put_network_io
 ///         (3.4) num_auto_ranged_copy_network_io
 ///     (4) num_requests_stream_queued_waiting: responses from the server are added into meta request priority queue, waiting to be streamed.
-///     (5) num_requests_streaming: responses are removed from the queue and streamed back to the callers.
+///     (5) num_requests_streaming_response: responses are removed from the queue and streamed back to the callers.
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ClientMetrics {
@@ -529,8 +529,8 @@ pub struct ClientMetrics {
     /// Number of requests sitting in their meta request priority queue, waiting to be streamed.
     pub num_requests_stream_queued_waiting: u32,
 
-    /// Number of requests currently scheduled to be streamed or are actively being streamed.
-    pub num_requests_streaming: u32,
+    /// Number of requests currently scheduled to be streamed the response body or are actively being streamed.
+    pub num_requests_streaming_response: u32,
 }
 
 impl ClientMetrics {
@@ -615,7 +615,7 @@ impl Client {
             let num_requests_stream_queued_waiting =
                 aws_atomic_load_int(&stats.num_requests_stream_queued_waiting) as u32;
 
-            let num_requests_streaming = aws_atomic_load_int(&stats.num_requests_streaming) as u32;
+            let num_requests_streaming_response = aws_atomic_load_int(&stats.num_requests_streaming_response) as u32;
 
             // These are "threaded data" and so technically we don't know that it's safe to read them
             // here, but it's just metrics data so we're not too concerned.
@@ -631,7 +631,7 @@ impl Client {
                 num_auto_ranged_put_network_io,
                 num_auto_ranged_copy_network_io,
                 num_requests_stream_queued_waiting,
-                num_requests_streaming,
+                num_requests_streaming_response,
             }
         }
     }
