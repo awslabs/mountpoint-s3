@@ -1,4 +1,16 @@
-## Unreleased
+## v1.0.2 (September 22, 2023)
+
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* Building the Mountpoint release on CentOS 7. This gets us compatibilty back to glibc 2.17. This should let mountpoint run on OS which by default packages GCC and Clang that were too old to build CRT and run bindgen respectively in previous release. ([#517](https://github.com/awslabs/mountpoint-s3/pull/517))
+
+* Updated the CRT submodules to the latest release which is one of the mountpoint-s3 dependencies. This majorly resolves the issue of mountpoint-s3 freeze when trying to upload files to s3 without knowing their full size at the time of upload and there are multiple such file to take time. ([#529](https://github.com/awslabs/mountpoint-s3/pull/529))
+
+* Updated the HistogramFn in metrics to log failure rather than panic when size of file is too large for histogram value. With this change mountpoint-s3 continues to operate after recieving histogram value too large. For example, earlier when writing 50GiB of data to a file, mountpoint-s3 panicked due to an unexpected "ValueOutOfRangeResizeDisabled" error. ([#513](https://github.com/awslabs/mountpoint-s3/pull/513))
+
+* Updated the prefetcher to cancel discarded tasks. With this change, prefetcher cancel unused GET requests, freeing up bandwidth for GETs that will be used to fulfill other mountpoint-s3 reads. ([#505](https://github.com/awslabs/mountpoint-s3/pull/505))
 
 ## v1.0.1 (August 31, 2023)
 
