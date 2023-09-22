@@ -625,8 +625,8 @@ impl S3CrtClientInner {
             metrics.num_requests_stream_queued_waiting as u64
         );
         metrics::absolute_counter!(
-            "s3.client.num_requests_streaming",
-            metrics.num_requests_streaming as u64
+            "s3.client.num_requests_streaming_response",
+            metrics.num_requests_streaming_response as u64
         );
     }
 
