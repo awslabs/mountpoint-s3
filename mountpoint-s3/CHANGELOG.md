@@ -5,9 +5,9 @@
 
 ### Other changes
 * New Mountpoint releases are built on CentOS 7 instead of Amazon Linux 2. This lowers the minimum requirement to run Mountpoint to glibc 2.17 or newer. ([#517](https://github.com/awslabs/mountpoint-s3/pull/517))
-* Updated the CRT submodules to the latest releases. This includes bug fixes in aws-c-s3 library such as aws-c-s3#347 and aws-c-s3#346. ([#529](https://github.com/awslabs/mountpoint-s3/pull/529))
+* Updated the CRT submodules to the latest releases. This majorly resolves the issue of mountpoint-s3 freeze when trying to upload files to s3 without knowing their full size at the time of upload and there are multiple such file. ([#529](https://github.com/awslabs/mountpoint-s3/pull/529))
 * Fixed a bug where writing to a file for longer than five minutes will result in a panic. ([#513](https://github.com/awslabs/mountpoint-s3/pull/513))
-* Updated the prefetcher to cancel discarded tasks and free up some unused resources. ([#505](https://github.com/awslabs/mountpoint-s3/pull/505))
+* Updated the prefetcher to cancel discarded tasks and free up some unused resources on random read workloads. ([#505](https://github.com/awslabs/mountpoint-s3/pull/505))
 
 ## v1.0.1 (August 31, 2023)
 
