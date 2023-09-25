@@ -1,3 +1,5 @@
+## Unreleased
+
 ## v1.0.2 (September 22, 2023)
 
 ### Breaking changes
