@@ -518,7 +518,7 @@ fn create_client_for_bucket(
     endpoint_config = endpoint_config.region(&region_to_try);
 
     if let Some(uri) = endpoint_url {
-        if user_provided_region {
+        if !user_provided_region {
             tracing::warn!(
                 "endpoint specified but region unspecified. using {} as the signing region.",
                 region_to_try

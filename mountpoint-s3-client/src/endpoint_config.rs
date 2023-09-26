@@ -293,6 +293,23 @@ mod test {
     }
 
     #[test]
+    fn test_endpoint_arg_with_region() {
+        let endpoint_config = EndpointConfig::new("us-east-1")
+            .endpoint(Uri::new_from_str(&Allocator::default(), "https://s3.eu-west-1.amazonaws.com").unwrap());
+        let resolved_endpoint = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let endpoint_uri = resolved_endpoint.uri().unwrap();
+        // region is ignored when endpoint_url is specified
+        assert_eq!(
+            "https://doc-example-bucket.s3.eu-west-1.amazonaws.com",
+            endpoint_uri.as_os_str()
+        );
+        let endpoint_auth_scheme = resolved_endpoint.auth_scheme().unwrap();
+        let signing_region = endpoint_auth_scheme.signing_region();
+        //signing region is still the region provided
+        assert_eq!(signing_region, "us-east-1");
+    }
+
+    #[test]
     fn test_fips_dual_stack() {
         let endpoint_config = EndpointConfig::new("eu-west-1").use_fips(true).use_dual_stack(true);
         let endpoint_uri = endpoint_config
