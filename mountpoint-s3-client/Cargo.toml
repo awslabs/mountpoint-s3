@@ -6,14 +6,14 @@ name = "mountpoint-s3-client"
 #   - Make sure to also bump the `mountpoint-s3-crt` dependency if needed
 # - Create a new Git tag `mountpoint-s3-client-0.x.y`
 # - Run `cargo publish`
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.2.2" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.3.0" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
