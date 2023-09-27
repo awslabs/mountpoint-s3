@@ -49,8 +49,8 @@ impl<'a> Response<'a> {
         let mut v: SmallVec<[IoSlice<'_>; 3]> = smallvec![IoSlice::new(header.as_bytes())];
         match &self {
             Response::Error(_) => {}
-            Response::Data(d) => v.push(IoSlice::new(d.as_ref())),
-            Response::Slice(d) => v.push(IoSlice::new(d.as_ref())),
+            Response::Data(d) => v.push(IoSlice::new(d)),
+            Response::Slice(d) => v.push(IoSlice::new(d)),
         }
         f(&v)
     }
@@ -258,6 +258,7 @@ pub(crate) fn time_from_system_time(system_time: &SystemTime) -> (i64, u32) {
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
 // But others like macOS x86_64 have mode_t = u16, requiring a typecast.  So, just silence lint.
 #[allow(trivial_numeric_casts)]
+#[allow(clippy::unnecessary_cast)]
 /// Returns the mode for a given file kind and permission
 pub(crate) fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
     (match kind {

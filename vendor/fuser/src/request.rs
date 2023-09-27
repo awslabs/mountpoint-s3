@@ -275,8 +275,8 @@ impl<'a> Request<'a> {
                 se.filesystem.symlink(
                     self,
                     self.request.nodeid().into(),
-                    x.target().as_ref(),
-                    Path::new(x.link()),
+                    x.link_name().as_ref(),
+                    Path::new(x.target()),
                     self.reply(),
                 );
             }

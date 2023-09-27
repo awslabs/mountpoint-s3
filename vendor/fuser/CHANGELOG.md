@@ -1,5 +1,9 @@
 # FUSE for Rust - Changelog
 
+## 0.13.0 - 2023-08-16
+* Remove dependency on `users` crate
+* Performance optimizations
+
 ## 0.12.0 - 2022-12-13
 * Add method to `Session` to unmount non-`Send` `Filesystem`s
 

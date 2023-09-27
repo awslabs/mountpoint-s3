@@ -89,12 +89,12 @@ impl MountOption {
 pub fn check_option_conflicts(options: &[MountOption]) -> Result<(), io::Error> {
     let mut options_set = HashSet::new();
     options_set.extend(options.iter().cloned());
-    let conflicting: HashSet<MountOption> = options.iter().map(conflicts_with).flatten().collect();
+    let conflicting: HashSet<MountOption> = options.iter().flat_map(conflicts_with).collect();
     let intersection: Vec<MountOption> = conflicting.intersection(&options_set).cloned().collect();
     if !intersection.is_empty() {
         Err(io::Error::new(
             ErrorKind::InvalidInput,
-            format!("Conflicting mount options found: {:?}", intersection),
+            format!("Conflicting mount options found: {intersection:?}"),
         ))
     } else {
         Ok(())
@@ -129,8 +129,8 @@ fn conflicts_with(option: &MountOption) -> Vec<MountOption> {
 // Format option to be passed to libfuse or kernel
 pub fn option_to_string(option: &MountOption) -> String {
     match option {
-        MountOption::FSName(name) => format!("fsname={}", name),
-        MountOption::Subtype(subtype) => format!("subtype={}", subtype),
+        MountOption::FSName(name) => format!("fsname={name}"),
+        MountOption::Subtype(subtype) => format!("subtype={subtype}"),
         MountOption::CUSTOM(value) => value.to_string(),
         MountOption::AutoUnmount => "auto_unmount".to_string(),
         MountOption::AllowOther => "allow_other".to_string(),
@@ -171,7 +171,7 @@ pub(crate) fn parse_options_from_args(args: &[&OsStr]) -> io::Result<Vec<MountOp
                 err("Error parsing args: Expected option, reached end of args".to_owned())
             })?,
             Some(x) if x.starts_with("-o") => &x[2..],
-            Some(x) => return Err(err(format!("Error parsing args: expected -o, got {}", x))),
+            Some(x) => return Err(err(format!("Error parsing args: expected -o, got {x}"))),
         };
         for x in opt.split(',') {
             out.push(MountOption::from_str(x))

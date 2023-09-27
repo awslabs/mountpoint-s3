@@ -28,7 +28,7 @@ fn main() {
             if pkg_config::Config::new()
                 .atleast_version("3.0.0")
                 .probe("fuse3")
-                .map_err(|e| eprintln!("{}", e))
+                .map_err(|e| eprintln!("{e}"))
                 .is_ok()
             {
                 println!("cargo:rustc-cfg=feature=\"libfuse3\"");
@@ -37,7 +37,7 @@ fn main() {
                 pkg_config::Config::new()
                     .atleast_version("2.6.0")
                     .probe("fuse")
-                    .map_err(|e| eprintln!("{}", e))
+                    .map_err(|e| eprintln!("{e}"))
                     .unwrap();
                 println!("cargo:rustc-cfg=feature=\"libfuse2\"");
             }
