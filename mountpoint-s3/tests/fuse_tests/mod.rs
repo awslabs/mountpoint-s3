@@ -72,11 +72,28 @@ mod mock_session {
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use std::path::Path;
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
+        let options = vec![
+            MountOption::DefaultPermissions,
+            MountOption::FSName("mountpoint-s3".to_string()),
+            MountOption::NoAtime,
+            MountOption::AutoUnmount,
+            MountOption::AllowOther,
+        ];
         let mount_dir = tempfile::tempdir().unwrap();
+        let (session, client) = with_options(test_name, test_config, mount_dir.path(), &options);
+        (mount_dir, session, client)
+    }
 
+    pub fn with_options(
+        test_name: &str,
+        test_config: TestSessionConfig,
+        mount_dir: &Path,
+        options: &[MountOption],
+    ) -> (BackgroundSession, TestClientBox) {
         let bucket = "test_bucket";
         let prefix = if test_name.is_empty() {
             test_name.to_string()
@@ -90,14 +107,6 @@ mod mock_session {
         };
         let client = Arc::new(MockClient::new(client_config));
 
-        let options = vec![
-            MountOption::DefaultPermissions,
-            MountOption::FSName("mountpoint-s3".to_string()),
-            MountOption::NoAtime,
-            MountOption::AutoUnmount,
-            MountOption::AllowOther,
-        ];
-
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
 
         let prefix = Prefix::new(&prefix).expect("valid prefix");
@@ -109,7 +118,7 @@ mod mock_session {
                 &prefix,
                 test_config.filesystem_config,
             ),
-            mount_dir.path(),
+            mount_dir,
             &options,
         )
         .unwrap();
@@ -121,7 +130,7 @@ mod mock_session {
             client,
         };
 
-        (mount_dir, session, Box::new(test_client))
+        (session, Box::new(test_client))
     }
 
     struct MockTestClient {

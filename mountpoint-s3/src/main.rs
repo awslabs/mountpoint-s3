@@ -621,6 +621,15 @@ fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (Str
 fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
     let mount_point = path.as_ref();
 
+    #[cfg(target_os = "linux")]
+    {
+        // Example: /dev/fd/3
+        let file_descriptor_pattern = Regex::new(r#"^/dev/fd/\d+$"#).unwrap();
+        if mount_point.to_str().is_some() && file_descriptor_pattern.is_match(mount_point.to_str().unwrap()) {
+            return Ok(());
+        }
+    }
+
     if !mount_point.exists() {
         return Err(anyhow!("mount point {} does not exist", mount_point.display()));
     }
@@ -674,5 +683,12 @@ mod tests {
         } else {
             parsed.expect_err("invalid bucket name");
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test_case("/dev/fd/3"; "Valid file descriptor mount point")]
+    #[test_case("/dev/fd/8"; "Another valid file descriptor mount point")]
+    fn validate_mount_point_test(mountpoint: &str) {
+        validate_mount_point(mountpoint).expect("valid mount point");
     }
 }

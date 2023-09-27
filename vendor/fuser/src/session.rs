@@ -6,8 +6,10 @@
 //! for filesystem operations under its mount point.
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
-use log::{info, warn};
+use log::{info, warn, error};
 use std::fmt;
+use std::fs::File;
+use std::os::fd::FromRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -19,6 +21,7 @@ use crate::request::Request;
 use crate::Filesystem;
 use crate::MountOption;
 use crate::{channel::Channel, mnt::Mount};
+use regex::Regex;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
@@ -70,19 +73,40 @@ impl<FS: Filesystem> Session<FS> {
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
         info!("Mounting {}", mountpoint.display());
-        // If AutoUnmount is requested, but not AllowRoot or AllowOther we enforce the ACL
-        // ourself and implicitly set AllowOther because fusermount needs allow_root or allow_other
-        // to handle the auto_unmount option
-        let (file, mount) = if options.contains(&MountOption::AutoUnmount)
+        let (already_mounted, fd) = {
+            // Example: /dev/fd/3
+            let file_descriptor_pattern = Regex::new(r#"^/dev/fd/(?<fd>[1-9]\d*)$"#).unwrap();
+            match mountpoint.to_str() {
+                Some(path) => {
+                    match file_descriptor_pattern.captures(path) {
+                        Some(caps) => (true, caps["fd"].parse::<i32>().unwrap()),
+                        None => (false, 0),
+                    }
+                },
+                None => (false, 0),
+            }
+        };
+        let (file, mount) = if already_mounted && options.contains(&MountOption::AutoUnmount) {
+            error!("can not auto-unmount in pre-mounted mode");
+            return Err(io::ErrorKind::Other.into())
+        } else if already_mounted {
+            let file = unsafe {File::from_raw_fd(fd)};
+            (Arc::new(file), None)
+        } else if options.contains(&MountOption::AutoUnmount)
             && !(options.contains(&MountOption::AllowRoot)
                 || options.contains(&MountOption::AllowOther))
         {
+            // If AutoUnmount is requested, but not AllowRoot or AllowOther we enforce the ACL
+            // ourself and implicitly set AllowOther because fusermount needs allow_root or allow_other
+            // to handle the auto_unmount option
             warn!("Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling");
             let mut modified_options = options.to_vec();
             modified_options.push(MountOption::AllowOther);
-            Mount::new(mountpoint, &modified_options)?
+            let (file, mount) = Mount::new(mountpoint, &modified_options)?;
+            (file, Some(mount))
         } else {
-            Mount::new(mountpoint, options)?
+            let (file, mount) = Mount::new(mountpoint, options)?;
+            (file, Some(mount))
         };
 
         let ch = Channel::new(file);
@@ -97,7 +121,7 @@ impl<FS: Filesystem> Session<FS> {
         Ok(Session {
             filesystem,
             ch,
-            mount: Arc::new(Mutex::new(Some(mount))),
+            mount: Arc::new(Mutex::new(mount)),
             mountpoint: mountpoint.to_owned(),
             allowed,
             session_owner: unsafe { libc::geteuid() },
@@ -123,8 +147,8 @@ impl<FS: Filesystem> Session<FS> {
     /// calls into the filesystem.
     /// This version also notifies callers of kernel requests before and after they
     /// are dispatched to the filesystem.
-    pub fn run_with_callbacks<FA, FB>(&self, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()> 
-    where 
+    pub fn run_with_callbacks<FA, FB>(&self, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()>
+    where
         FB: FnMut(&Request<'_>),
         FA: FnMut(&Request<'_>),
     {
@@ -225,7 +249,7 @@ pub struct BackgroundSession {
     /// Thread guard of the background session
     pub guard: JoinHandle<io::Result<()>>,
     /// Ensures the filesystem is unmounted when the session ends
-    _mount: Mount,
+    _mount: Option<Mount>,
 }
 
 impl BackgroundSession {
@@ -236,7 +260,6 @@ impl BackgroundSession {
         let mountpoint = se.mountpoint().to_path_buf();
         // Take the fuse_session, so that we can unmount it
         let mount = std::mem::take(&mut *se.mount.lock().unwrap());
-        let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
         let guard = thread::spawn(move || {
             se.run()
         });

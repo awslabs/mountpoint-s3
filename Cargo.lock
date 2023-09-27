@@ -1267,6 +1267,7 @@ dependencies = [
  "memchr",
  "page_size",
  "pkg-config",
+ "regex",
  "serde",
  "smallvec",
  "tempfile",
