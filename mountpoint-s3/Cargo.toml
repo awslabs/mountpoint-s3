@@ -6,7 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-fuser = { path = "../vendor/fuser", version = "0.12.0", features = ["abi-7-28"] }
+fuser = { path = "../vendor/fuser", version = "0.13.0", features = ["abi-7-28"] }
 mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.4.0" }
 mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.3.0" }
 

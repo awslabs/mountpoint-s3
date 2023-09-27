@@ -193,13 +193,12 @@ impl fmt::Display for RequestError {
         match self {
             RequestError::ShortReadHeader(len) => write!(
                 f,
-                "Short read of FUSE request header ({} < {})",
-                len,
+                "Short read of FUSE request header ({len} < {})",
                 mem::size_of::<fuse_in_header>()
             ),
-            RequestError::UnknownOperation(opcode) => write!(f, "Unknown FUSE opcode ({})", opcode),
+            RequestError::UnknownOperation(opcode) => write!(f, "Unknown FUSE opcode ({opcode})"),
             RequestError::ShortRead(len, total) => {
-                write!(f, "Short read of FUSE request ({} < {})", len, total)
+                write!(f, "Short read of FUSE request ({len} < {total})")
             }
             RequestError::InsufficientData => write!(f, "Insufficient argument data"),
         }
@@ -490,15 +489,15 @@ mod op {
     pub struct SymLink<'a> {
         header: &'a fuse_in_header,
         target: &'a Path,
-        link: &'a Path,
+        link_name: &'a Path,
     }
     impl_request!(SymLink<'_>);
     impl<'a> SymLink<'a> {
         pub fn target(&self) -> &'a Path {
             self.target
         }
-        pub fn link(&self) -> &'a Path {
-            self.link
+        pub fn link_name(&self) -> &'a Path {
+            self.link_name
         }
     }
 
@@ -1625,8 +1624,8 @@ mod op {
             fuse_opcode::FUSE_READLINK => Operation::ReadLink(ReadLink { header }),
             fuse_opcode::FUSE_SYMLINK => Operation::SymLink(SymLink {
                 header,
+                link_name: data.fetch_str()?.as_ref(),
                 target: data.fetch_str()?.as_ref(),
-                link: data.fetch_str()?.as_ref(),
             }),
             fuse_opcode::FUSE_MKNOD => Operation::MkNod(MkNod {
                 header,
@@ -1919,7 +1918,12 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::SetAttr(x) => x.fmt(f),
             Operation::ReadLink(_) => write!(f, "READLINK"),
             Operation::SymLink(x) => {
-                write!(f, "SYMLINK target {:?}, link {:?}", x.target(), x.link())
+                write!(
+                    f,
+                    "SYMLINK target {:?}, link_name {:?}",
+                    x.target(),
+                    x.link_name()
+                )
             }
             Operation::MkNod(x) => write!(
                 f,

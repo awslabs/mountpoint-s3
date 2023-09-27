@@ -423,13 +423,13 @@ pub trait Filesystem {
         &self,
         _req: &Request<'_>,
         parent: u64,
-        name: &OsStr,
-        link: &Path,
+        link_name: &OsStr,
+        target: &Path,
         reply: ReplyEntry,
     ) {
         debug!(
-            "[Not Implemented] symlink(parent: {:#x?}, name: {:?}, link: {:?})",
-            parent, name, link,
+            "[Not Implemented] symlink(parent: {:#x?}, link_name: {:?}, target: {:?})",
+            parent, link_name, target,
         );
         reply.error(EPERM);
     }

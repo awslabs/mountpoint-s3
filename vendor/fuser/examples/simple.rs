@@ -1,4 +1,5 @@
 #![allow(clippy::needless_return)]
+#![allow(clippy::unnecessary_cast)] // libc::S_* are u16 or u32 depending on the platform
 
 use clap::{crate_version, Arg, Command};
 use fuser::consts::FOPEN_DIRECT_IO;
@@ -334,7 +335,7 @@ impl SimpleFS {
         let path = Path::new(&self.data_dir)
             .join("contents")
             .join(inode.to_string());
-        if let Ok(file) = File::open(&path) {
+        if let Ok(file) = File::open(path) {
             Ok(bincode::deserialize_from(file).unwrap())
         } else {
             Err(libc::ENOENT)
@@ -349,7 +350,7 @@ impl SimpleFS {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&path)
+            .open(path)
             .unwrap();
         bincode::serialize_into(file, &entries).unwrap();
     }
@@ -358,7 +359,7 @@ impl SimpleFS {
         let path = Path::new(&self.data_dir)
             .join("inodes")
             .join(inode.to_string());
-        if let Ok(file) = File::open(&path) {
+        if let Ok(file) = File::open(path) {
             Ok(bincode::deserialize_from(file).unwrap())
         } else {
             Err(libc::ENOENT)
@@ -373,7 +374,7 @@ impl SimpleFS {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&path)
+            .open(path)
             .unwrap();
         bincode::serialize_into(file, inode).unwrap();
     }
@@ -415,7 +416,7 @@ impl SimpleFS {
         }
 
         let path = self.content_path(inode);
-        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        let file = OpenOptions::new().write(true).open(path).unwrap();
         file.set_len(new_length).unwrap();
 
         attrs.size = new_length;
@@ -728,7 +729,7 @@ impl Filesystem for SimpleFS {
     fn readlink(&self, _req: &Request, inode: u64, reply: ReplyData) {
         debug!("readlink() called on {:?}", inode);
         let path = self.content_path(inode);
-        if let Ok(mut file) = File::open(&path) {
+        if let Ok(mut file) = File::open(path) {
             let file_size = file.metadata().unwrap().len();
             let mut buffer = vec![0; file_size as usize];
             file.read_exact(&mut buffer).unwrap();
@@ -1021,11 +1022,14 @@ impl Filesystem for SimpleFS {
         &self,
         req: &Request,
         parent: u64,
-        name: &OsStr,
-        link: &Path,
+        link_name: &OsStr,
+        target: &Path,
         reply: ReplyEntry,
     ) {
-        debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
+        debug!(
+            "symlink() called with {:?} {:?} {:?}",
+            parent, link_name, target
+        );
         let mut parent_attrs = match self.get_inode(parent) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1053,7 +1057,7 @@ impl Filesystem for SimpleFS {
         let attrs = InodeAttributes {
             inode,
             open_file_handles: 0,
-            size: link.as_os_str().as_bytes().len() as u64,
+            size: target.as_os_str().as_bytes().len() as u64,
             last_accessed: time_now(),
             last_modified: time_now(),
             last_metadata_changed: time_now(),
@@ -1065,7 +1069,8 @@ impl Filesystem for SimpleFS {
             xattrs: Default::default(),
         };
 
-        if let Err(error_code) = self.insert_link(req, parent, name, inode, FileKind::Symlink) {
+        if let Err(error_code) = self.insert_link(req, parent, link_name, inode, FileKind::Symlink)
+        {
             reply.error(error_code);
             return;
         }
@@ -1076,9 +1081,9 @@ impl Filesystem for SimpleFS {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&path)
+            .open(path)
             .unwrap();
-        file.write_all(link.as_os_str().as_bytes()).unwrap();
+        file.write_all(target.as_os_str().as_bytes()).unwrap();
 
         reply.entry(&Duration::new(0, 0), &attrs.into(), 0);
     }
@@ -1389,7 +1394,7 @@ impl Filesystem for SimpleFS {
         }
 
         let path = self.content_path(inode);
-        if let Ok(file) = File::open(&path) {
+        if let Ok(file) = File::open(path) {
             let file_size = file.metadata().unwrap().len();
             // Could underflow if file length is less than local_start
             let read_size = min(size, file_size.saturating_sub(offset as u64) as u32);
@@ -1422,7 +1427,7 @@ impl Filesystem for SimpleFS {
         }
 
         let path = self.content_path(inode);
-        if let Ok(mut file) = OpenOptions::new().write(true).open(&path) {
+        if let Ok(mut file) = OpenOptions::new().write(true).open(path) {
             file.seek(SeekFrom::Start(offset as u64)).unwrap();
             file.write_all(data).unwrap();
 
@@ -1790,7 +1795,7 @@ impl Filesystem for SimpleFS {
         reply: ReplyEmpty,
     ) {
         let path = self.content_path(inode);
-        if let Ok(file) = OpenOptions::new().write(true).open(&path) {
+        if let Ok(file) = OpenOptions::new().write(true).open(path) {
             unsafe {
                 libc::fallocate64(file.into_raw_fd(), mode, offset, length);
             }
@@ -1836,7 +1841,7 @@ impl Filesystem for SimpleFS {
         }
 
         let src_path = self.content_path(src_inode);
-        if let Ok(file) = File::open(&src_path) {
+        if let Ok(file) = File::open(src_path) {
             let file_size = file.metadata().unwrap().len();
             // Could underflow if file length is less than local_start
             let read_size = min(size, file_size.saturating_sub(src_offset as u64));
@@ -1845,7 +1850,7 @@ impl Filesystem for SimpleFS {
             file.read_exact_at(&mut data, src_offset as u64).unwrap();
 
             let dest_path = self.content_path(dest_inode);
-            if let Ok(mut file) = OpenOptions::new().write(true).open(&dest_path) {
+            if let Ok(mut file) = OpenOptions::new().write(true).open(dest_path) {
                 file.seek(SeekFrom::Start(dest_offset as u64)).unwrap();
                 file.write_all(&data).unwrap();
 
@@ -1919,7 +1924,7 @@ fn as_file_kind(mut mode: u32) -> FileKind {
 fn get_groups(pid: u32) -> Vec<u32> {
     #[cfg(not(target_os = "macos"))]
     {
-        let path = format!("/proc/{}/task/{}/status", pid, pid);
+        let path = format!("/proc/{pid}/task/{pid}/status");
         let file = File::open(path).unwrap();
         for line in BufReader::new(file).lines() {
             let line = line.unwrap();
