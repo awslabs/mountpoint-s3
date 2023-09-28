@@ -211,6 +211,7 @@ pub struct Subject(u32);
 
 impl Subject {
     /// Generate a string representation of the subject
+    #[allow(clippy::unnecessary_cast)]
     pub fn name(&self) -> &str {
         // Safety: `aws_log_subject_name` always returns a valid C string. Technically it's possible
         // for someone to call `aws_unregister_log_subject_info_list` to unregister a subject name
