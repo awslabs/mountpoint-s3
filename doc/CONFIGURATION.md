@@ -74,7 +74,7 @@ Mountpoint also respects access control lists (ACLs) applied to objects in your 
 
 ## S3 bucket configuration
 
-By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 network endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
+By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 HTTPS endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
 
 ### Mounting a bucket prefix
 
