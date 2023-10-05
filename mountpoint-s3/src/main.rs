@@ -461,7 +461,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         filesystem_config.file_mode = file_mode;
     }
     filesystem_config.storage_class = args.storage_class;
-    filesystem_config.prefetcher_config.part_alignment = args.part_size as usize;
     filesystem_config.allow_delete = args.allow_delete;
 
     let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &prefix, filesystem_config);
