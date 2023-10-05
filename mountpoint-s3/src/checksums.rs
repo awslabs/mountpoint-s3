@@ -1,9 +1,10 @@
+use std::ops::RangeBounds;
+
 use bytes::{Bytes, BytesMut};
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
-/// The implementation guarantees that its integrity will be validated when data transformation occurs.
 #[derive(Clone, Debug)]
 pub struct ChecksummedBytes {
     orig_bytes: Bytes,
@@ -20,6 +21,12 @@ impl ChecksummedBytes {
             curr_slice,
             checksum,
         }
+    }
+
+    /// Create [ChecksummedBytes] from [Bytes], calculating its checksum.
+    pub fn from_bytes(bytes: Bytes) -> Self {
+        let checksum = crc32c::checksum(&bytes);
+        Self::new(bytes, checksum)
     }
 
     /// Convert the `ChecksummedBytes` into `Bytes`, data integrity will be validated before converting.
@@ -119,6 +126,27 @@ impl Default for ChecksummedBytes {
     }
 }
 
+impl From<Bytes> for ChecksummedBytes {
+    fn from(value: Bytes) -> Self {
+        Self::from_bytes(value)
+    }
+}
+
+impl TryFrom<ChecksummedBytes> for Bytes {
+    type Error = IntegrityError;
+
+    fn try_from(value: ChecksummedBytes) -> Result<Self, Self::Error> {
+        value.into_bytes()
+    }
+}
+
+/// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
+/// `suffix_crc` is the checksum for `B`, and `suffix_len` is the length of `B`.
+pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
+    let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
+    Crc32c::new(combined)
+}
+
 #[derive(Debug, Error)]
 pub enum IntegrityError {
     #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
@@ -146,19 +174,15 @@ impl PartialEq for ChecksummedBytes {
 
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
     use mountpoint_s3_crt::checksums::crc32c;
 
-    use crate::prefetch::checksummed_bytes::IntegrityError;
-
-    use super::ChecksummedBytes;
+    use super::*;
 
     #[test]
     fn test_into_bytes() {
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
-        let checksum = crc32c::checksum(&bytes);
-        let checksummed_bytes = ChecksummedBytes::new(bytes, checksum);
+        let checksummed_bytes = ChecksummedBytes::from_bytes(bytes);
 
         let actual = checksummed_bytes.into_bytes().unwrap();
         assert_eq!(expected, actual);
@@ -261,5 +285,16 @@ mod tests {
 
         let result = checksummed_bytes.extend(extend);
         assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+    }
+
+    #[test]
+    fn test_combine_checksums() {
+        let buf: &[u8] = b"123456789";
+        let (buf1, buf2) = buf.split_at(4);
+        let crc = crc32c::checksum(buf);
+        let crc1 = crc32c::checksum(buf1);
+        let crc2 = crc32c::checksum(buf2);
+        let combined = combine_checksums(crc1, crc2, buf2.len());
+        assert_eq!(combined, crc);
     }
 }

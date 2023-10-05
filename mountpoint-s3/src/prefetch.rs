@@ -7,7 +7,6 @@
 //! we increase the size of the GetObject requests up to some maximum. If the reader ever makes a
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
-pub mod checksummed_bytes;
 mod feed;
 mod part;
 mod part_queue;
@@ -26,7 +25,7 @@ use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
-use crate::prefetch::checksummed_bytes::{ChecksummedBytes, IntegrityError};
+use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::prefetch::feed::{ClientPartFeed, ObjectPartFeed};
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueue};

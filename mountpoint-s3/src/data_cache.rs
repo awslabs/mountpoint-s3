@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use thiserror::Error;
 
-pub use crate::prefetch::checksummed_bytes::ChecksummedBytes;
+pub use crate::checksums::ChecksummedBytes;
 
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;

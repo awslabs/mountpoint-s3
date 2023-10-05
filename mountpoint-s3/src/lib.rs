@@ -1,3 +1,4 @@
+mod checksums;
 mod data_cache;
 pub mod fs;
 pub mod fuse;

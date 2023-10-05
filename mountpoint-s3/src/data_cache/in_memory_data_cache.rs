@@ -59,20 +59,18 @@ mod tests {
 
     use bytes::Bytes;
 
-    use mountpoint_s3_crt::checksums::crc32c;
-
     type TestCacheKey = String;
 
     #[test]
     fn test_put_get() {
         let data_1 = Bytes::from_static(b"Hello world");
-        let data_1 = ChecksummedBytes::new(data_1.clone(), crc32c::checksum(&data_1));
+        let data_1 = ChecksummedBytes::from_bytes(data_1.clone());
         let data_2 = Bytes::from_static(b"Foo bar");
-        let data_2 = ChecksummedBytes::new(data_2.clone(), crc32c::checksum(&data_2));
+        let data_2 = ChecksummedBytes::from_bytes(data_2.clone());
         let data_3 = Bytes::from_static(b"Baz");
-        let data_3 = ChecksummedBytes::new(data_3.clone(), crc32c::checksum(&data_3));
+        let data_3 = ChecksummedBytes::from_bytes(data_3.clone());
 
-        let mut cache = InMemoryDataCache::new(8 * 1024 * 1024);
+        let cache = InMemoryDataCache::new(8 * 1024 * 1024);
         let cache_key_1: TestCacheKey = String::from("a");
         let cache_key_2: TestCacheKey = String::from("b");
 
@@ -136,11 +134,11 @@ mod tests {
     #[test]
     fn test_cached_indices() {
         let data_1 = Bytes::from_static(b"Hello world");
-        let data_1 = ChecksummedBytes::new(data_1.clone(), crc32c::checksum(&data_1));
+        let data_1 = ChecksummedBytes::from_bytes(data_1.clone());
         let data_2 = Bytes::from_static(b"Foo bar");
-        let data_2 = ChecksummedBytes::new(data_2.clone(), crc32c::checksum(&data_2));
+        let data_2 = ChecksummedBytes::from_bytes(data_2.clone());
 
-        let mut cache = InMemoryDataCache::new(8 * 1024 * 1024);
+        let cache = InMemoryDataCache::new(8 * 1024 * 1024);
         let cache_key_1: TestCacheKey = String::from("a");
         let cache_key_2: TestCacheKey = String::from("b");
 

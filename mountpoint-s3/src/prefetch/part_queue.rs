@@ -99,7 +99,7 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::prefetch::checksummed_bytes::ChecksummedBytes;
+    use crate::checksums::ChecksummedBytes;
 
     use super::*;
 
