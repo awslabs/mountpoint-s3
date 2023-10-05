@@ -15,6 +15,7 @@ use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::instance::InstanceInfo;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics;
+use mountpoint_s3::prefetch::{default_prefetch, Prefetch};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
@@ -288,6 +289,35 @@ impl CliArgs {
             format!("bucket {}", self.bucket_name)
         }
     }
+
+    fn fuse_session_config(&self) -> FuseSessionConfig {
+        let fs_name = String::from("mountpoint-s3");
+        let mut options = vec![
+            MountOption::DefaultPermissions,
+            MountOption::FSName(fs_name),
+            MountOption::NoAtime,
+        ];
+        if self.read_only {
+            options.push(MountOption::RO);
+        }
+        if self.auto_unmount {
+            options.push(MountOption::AutoUnmount);
+        }
+        if self.allow_root {
+            options.push(MountOption::AllowRoot);
+        }
+        if self.allow_other {
+            options.push(MountOption::AllowOther);
+        }
+
+        let mount_point = self.mount_point.to_owned();
+        let max_threads = self.max_threads as usize;
+        FuseSessionConfig {
+            mount_point,
+            options,
+            max_threads,
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -425,6 +455,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     validate_mount_point(&args.mount_point)?;
 
     let bucket_description = args.bucket_description();
+    let fuse_config = args.fuse_session_config();
 
     // Placeholder region will be filled in by [create_client_for_bucket]
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
@@ -502,6 +533,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
 
+    let prefetcher_config = Default::default();
+
     #[cfg(feature = "caching")]
     {
         use mountpoint_s3::fs::CacheConfig;
@@ -517,39 +550,51 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         }
     }
 
-    let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &prefix, filesystem_config);
+    let prefetcher = default_prefetch(runtime, prefetcher_config);
+    create_filesystem(
+        client,
+        prefetcher,
+        &args.bucket_name,
+        &prefix,
+        filesystem_config,
+        fuse_config,
+        &bucket_description,
+    )
+}
 
-    let fs_name = String::from("mountpoint-s3");
-    let mut options = vec![
-        MountOption::DefaultPermissions,
-        MountOption::FSName(fs_name),
-        MountOption::NoAtime,
-    ];
-    if args.read_only {
-        options.push(MountOption::RO);
-    }
-    if args.auto_unmount {
-        options.push(MountOption::AutoUnmount);
-    }
-    if args.allow_root {
-        options.push(MountOption::AllowRoot);
-    }
-    if args.allow_other {
-        options.push(MountOption::AllowOther);
-    }
-
-    let session = Session::new(fs, &args.mount_point, &options).context("Failed to create FUSE session")?;
-
-    let max_threads = args.max_threads as usize;
-    let session = FuseSession::new(session, max_threads).context("Failed to start FUSE session")?;
+fn create_filesystem<Client, Prefetcher>(
+    client: Client,
+    prefetcher: Prefetcher,
+    bucket_name: &str,
+    prefix: &Prefix,
+    filesystem_config: S3FilesystemConfig,
+    fuse_session_config: FuseSessionConfig,
+    bucket_description: &str,
+) -> Result<FuseSession, anyhow::Error>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Prefetcher: Prefetch + Send + Sync + 'static,
+{
+    let fs = S3FuseFilesystem::new(client, prefetcher, bucket_name, prefix, filesystem_config);
+    let session = Session::new(fs, &fuse_session_config.mount_point, &fuse_session_config.options)
+        .context("Failed to create FUSE session")?;
+    let session = FuseSession::new(session, fuse_session_config.max_threads).context("Failed to start FUSE session")?;
 
     tracing::info!(
         "successfully mounted {} at {}",
         bucket_description,
-        args.mount_point.display()
+        fuse_session_config.mount_point.display()
     );
 
     Ok(session)
+}
+
+/// Configuration for a FUSE background session.
+#[derive(Debug)]
+struct FuseSessionConfig {
+    pub mount_point: PathBuf,
+    pub options: Vec<MountOption>,
+    pub max_threads: usize,
 }
 
 /// Create a client for a bucket in the given region and send a ListObjectsV2 request to validate
