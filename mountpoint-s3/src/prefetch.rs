@@ -7,6 +7,7 @@
 //! we increase the size of the GetObject requests up to some maximum. If the reader ever makes a
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
+mod cached_stream;
 mod part;
 mod part_queue;
 mod part_stream;
@@ -28,6 +29,7 @@ use crate::prefetch::task::RequestTask;
 use crate::store::PrefetchReadError;
 use crate::sync::Arc;
 
+pub use crate::prefetch::cached_stream::CachedPartStream;
 pub use crate::prefetch::part_stream::{ClientPartStream, ObjectPartStream, RequestRange};
 
 #[derive(Debug, Clone, Copy)]
@@ -412,9 +414,11 @@ mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
 
+    use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
     use crate::prefetch::part_stream::ClientPartStream;
     use crate::store::PrefetchGetObject;
 
+    use super::cached_stream::CachedPartStream;
     use super::*;
     use futures::executor::{block_on, ThreadPool};
     use futures::task::Spawn;
@@ -422,11 +426,19 @@ mod tests {
     use mountpoint_s3_client::failure_client::{countdown_failure_client, RequestFailureMap};
     use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use mountpoint_s3_client::ObjectClient;
-    use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
+    use proptest::{prop_oneof, proptest};
     use proptest_derive::Arbitrary;
     use std::collections::HashMap;
     use test_case::test_case;
+
+    const MB: usize = 1024 * 1024;
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum DataCacheConfig {
+        NoCache,
+        InMemoryCache { block_size: usize },
+    }
 
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
@@ -442,6 +454,15 @@ mod tests {
         max_forward_seek_distance: u64,
         #[proptest(strategy = "1u64..4*1024*1024")]
         max_backward_seek_distance: u64,
+        #[proptest(strategy = "data_cache_config_strategy()")]
+        data_cache_config: DataCacheConfig,
+    }
+
+    fn data_cache_config_strategy() -> impl Strategy<Value = DataCacheConfig> {
+        prop_oneof![
+            Just(DataCacheConfig::NoCache),
+            (16usize..2 * 1024 * 1024).prop_map(|block_size| DataCacheConfig::InMemoryCache { block_size })
+        ]
     }
 
     type GetObjectFn<E> = dyn Fn(&str, &str, u64, ETag) -> Box<dyn PrefetchGetObject<ClientError = E>>;
@@ -473,25 +494,39 @@ mod tests {
         }
     }
 
-    fn create_prefetcher<Client>(client: Client, config: PrefetcherConfig) -> PrefetcherBox<Client::ClientError>
+    fn create_prefetcher<Client>(
+        client: Client,
+        config: PrefetcherConfig,
+        cache_config: DataCacheConfig,
+    ) -> PrefetcherBox<Client::ClientError>
     where
         Client: ObjectClient + Send + Sync + 'static,
     {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-        create_prefetcher_with_runtime(client, runtime, config)
+        create_prefetcher_with_runtime(client, runtime, config, cache_config)
     }
 
     fn create_prefetcher_with_runtime<Client, Runtime>(
         client: Client,
         runtime: Runtime,
         config: PrefetcherConfig,
+        cache_config: DataCacheConfig,
     ) -> PrefetcherBox<Client::ClientError>
     where
         Client: ObjectClient + Send + Sync + 'static,
         Runtime: Spawn + Send + Sync + 'static,
     {
-        let part_stream = ClientPartStream::new(Arc::new(client), runtime);
-        PrefetcherBox::new(part_stream, config)
+        match cache_config {
+            DataCacheConfig::NoCache => {
+                let part_stream = ClientPartStream::new(Arc::new(client), runtime);
+                PrefetcherBox::new(part_stream, config)
+            }
+            DataCacheConfig::InMemoryCache { block_size } => {
+                let cache = InMemoryDataCache::new(block_size as u64);
+                let part_stream = CachedPartStream::new(Arc::new(client), runtime, cache);
+                PrefetcherBox::new(part_stream, config)
+            }
+        }
     }
 
     fn run_sequential_read_test(size: u64, read_size: usize, test_config: TestConfig) {
@@ -514,7 +549,7 @@ mod tests {
             max_backward_seek_distance: test_config.max_backward_seek_distance,
         };
 
-        let prefetcher = create_prefetcher(client, prefetcher_config);
+        let prefetcher = create_prefetcher(client, prefetcher_config, test_config.data_cache_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", size, etag);
 
@@ -532,8 +567,9 @@ mod tests {
         assert_eq!(next_offset, size);
     }
 
-    #[test]
-    fn sequential_read_small() {
+    #[test_case(DataCacheConfig::NoCache)]
+    #[test_case(DataCacheConfig::InMemoryCache { block_size: 1 * MB })]
+    fn sequential_read_small(data_cache_config: DataCacheConfig) {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 1024 * 1024 * 1024,
@@ -541,12 +577,14 @@ mod tests {
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            data_cache_config,
         };
         run_sequential_read_test(1024 * 1024 + 111, 1024 * 1024, config);
     }
 
-    #[test]
-    fn sequential_read_medium() {
+    #[test_case(DataCacheConfig::NoCache)]
+    #[test_case(DataCacheConfig::InMemoryCache { block_size: 1 * MB })]
+    fn sequential_read_medium(data_cache_config: DataCacheConfig) {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 64 * 1024 * 1024,
@@ -554,12 +592,14 @@ mod tests {
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            data_cache_config,
         };
         run_sequential_read_test(16 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
-    #[test]
-    fn sequential_read_large() {
+    #[test_case(DataCacheConfig::NoCache)]
+    #[test_case(DataCacheConfig::InMemoryCache { block_size: 1 * MB })]
+    fn sequential_read_large(data_cache_config: DataCacheConfig) {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 64 * 1024 * 1024,
@@ -567,6 +607,7 @@ mod tests {
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            data_cache_config,
         };
         run_sequential_read_test(256 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
@@ -595,7 +636,7 @@ mod tests {
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             ..Default::default()
         };
-        let prefetcher = create_prefetcher(client, prefetcher_config);
+        let prefetcher = create_prefetcher(client, prefetcher_config, test_config.data_cache_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", size, etag);
 
@@ -617,10 +658,15 @@ mod tests {
         assert!(next_offset < size); // Since we're injecting failures, shouldn't make it to the end
     }
 
-    #[test_case("invalid range; length=42")]
+    #[test_case("invalid range; length=42", DataCacheConfig::NoCache)]
+    #[test_case("invalid range; length=42", DataCacheConfig::InMemoryCache { block_size: 1 * MB })]
     // test case for the request failure due to etag not matching
-    #[test_case("At least one of the pre-conditions you specified did not hold")]
-    fn fail_request_sequential_small(err_value: &str) {
+    #[test_case(
+        "At least one of the pre-conditions you specified did not hold",
+        DataCacheConfig::NoCache
+    )]
+    #[test_case("At least one of the pre-conditions you specified did not hold", DataCacheConfig::InMemoryCache { block_size: 1 * MB })]
+    fn fail_request_sequential_small(err_value: &str, data_cache_config: DataCacheConfig) {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 1024 * 1024 * 1024,
@@ -628,6 +674,7 @@ mod tests {
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            data_cache_config,
         };
 
         let mut get_failures = HashMap::new();
@@ -669,6 +716,7 @@ mod tests {
             client_part_size: 181682,
             max_forward_seek_distance: 1,
             max_backward_seek_distance: 18668,
+            data_cache_config: DataCacheConfig::NoCache,
         };
         run_sequential_read_test(object_size, read_size, config);
     }
@@ -692,7 +740,7 @@ mod tests {
             max_backward_seek_distance: test_config.max_backward_seek_distance,
             ..Default::default()
         };
-        let prefetcher = create_prefetcher(client, prefetcher_config);
+        let prefetcher = create_prefetcher(client, prefetcher_config, test_config.data_cache_config);
 
         let mut request = prefetcher.get("test-bucket", "hello", object_size, etag);
 
@@ -753,6 +801,7 @@ mod tests {
             client_part_size: 516882,
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            data_cache_config: DataCacheConfig::NoCache,
         };
         run_random_read_test(object_size, reads, config);
     }
@@ -768,6 +817,7 @@ mod tests {
             client_part_size: 1219731,
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            data_cache_config: DataCacheConfig::NoCache,
         };
         run_random_read_test(object_size, reads, config);
     }
@@ -783,6 +833,7 @@ mod tests {
             client_part_size: 1219731,
             max_forward_seek_distance: 2260662,
             max_backward_seek_distance: 2369799,
+            data_cache_config: DataCacheConfig::NoCache,
         };
         run_random_read_test(object_size, reads, config);
     }
@@ -798,6 +849,7 @@ mod tests {
             client_part_size: 1972409,
             max_forward_seek_distance: 2810651,
             max_backward_seek_distance: 3531090,
+            data_cache_config: DataCacheConfig::NoCache,
         };
         run_random_read_test(object_size, reads, config);
     }
@@ -824,7 +876,7 @@ mod tests {
             first_request_size: FIRST_REQUEST_SIZE,
             ..Default::default()
         };
-        let prefetcher = create_prefetcher(client, prefetcher_config);
+        let prefetcher = create_prefetcher(client, prefetcher_config, DataCacheConfig::NoCache);
 
         // Try every possible seek from first_read_size
         for offset in first_read_size + 1..OBJECT_SIZE {
@@ -860,7 +912,7 @@ mod tests {
             first_request_size: FIRST_REQUEST_SIZE,
             ..Default::default()
         };
-        let prefetcher = create_prefetcher(client, prefetcher_config);
+        let prefetcher = create_prefetcher(client, prefetcher_config, DataCacheConfig::NoCache);
 
         // Try every possible seek from first_read_size
         for offset in 0..first_read_size {
@@ -920,7 +972,8 @@ mod tests {
                 ..Default::default()
             };
 
-            let prefetcher = create_prefetcher_with_runtime(client, ShuttleRuntime, prefetcher_config);
+            let prefetcher =
+                create_prefetcher_with_runtime(client, ShuttleRuntime, prefetcher_config, DataCacheConfig::NoCache);
 
             let mut request = prefetcher.get("test-bucket", "hello", object_size, file_etag);
 
@@ -977,7 +1030,8 @@ mod tests {
                 ..Default::default()
             };
 
-            let prefetcher = create_prefetcher_with_runtime(client, ShuttleRuntime, prefetcher_config);
+            let prefetcher =
+                create_prefetcher_with_runtime(client, ShuttleRuntime, prefetcher_config, DataCacheConfig::NoCache);
 
             let mut request = prefetcher.get("test-bucket", "hello", object_size, file_etag);
 

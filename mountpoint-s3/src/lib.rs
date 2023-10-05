@@ -1,5 +1,5 @@
 mod checksums;
-mod data_cache;
+pub mod data_cache;
 pub mod fs;
 pub mod fuse;
 mod inode;

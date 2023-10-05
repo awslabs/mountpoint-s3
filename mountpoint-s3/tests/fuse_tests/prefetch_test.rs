@@ -1,4 +1,5 @@
 use fuser::BackgroundSession;
+use mountpoint_s3::data_cache::in_memory_data_cache::InMemoryDataCache;
 use mountpoint_s3::prefetch::PrefetcherConfig;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -36,11 +37,32 @@ fn read_test_s3(object_size: usize) {
     read_test(crate::fuse_tests::s3_session::new, object_size);
 }
 
+#[cfg(feature = "s3_tests")]
+#[test_case(0; "empty file")]
+#[test_case(1; "single-byte file")]
+#[test_case(1024*1024; "1MiB file")]
+fn read_test_s3_with_cache(object_size: usize) {
+    read_test(
+        crate::fuse_tests::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        object_size,
+    );
+}
+
 #[test_case(0; "empty file")]
 #[test_case(1; "single-byte file")]
 #[test_case(1024*1024; "1MiB file")]
 fn read_test_mock(object_size: usize) {
     read_test(crate::fuse_tests::mock_session::new, object_size);
+}
+
+#[test_case(0; "empty file")]
+#[test_case(1; "single-byte file")]
+#[test_case(1024*1024; "1MiB file")]
+fn read_test_mock_with_cache(object_size: usize) {
+    read_test(
+        crate::fuse_tests::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        object_size,
+    );
 }
 
 /// test for checking either prefetching fails or read original object when object is mutated during read.
@@ -136,6 +158,19 @@ fn prefetch_test_etag_mock(request_size: usize, read_size: usize) {
     );
 }
 
+#[test_case(256 * 1024, 1024; "default first request size, much larger than first block read size")]
+#[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
+#[test_case(512 * 1024, 1024; "first request size greater than default,  much larger than first block read size")]
+#[test_case(64 * 1024, 500 * 1024; "first request size smaller than first block read size")]
+fn prefetch_test_etag_mock_with_cache(request_size: usize, read_size: usize) {
+    prefetch_test_etag(
+        crate::fuse_tests::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        "prefetch_test_etag_mock",
+        request_size,
+        read_size,
+    );
+}
+
 #[cfg(feature = "s3_tests")]
 #[test_case(256 * 1024, 1024; "default first request size, much larger than first block read size")]
 #[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
@@ -144,6 +179,20 @@ fn prefetch_test_etag_mock(request_size: usize, read_size: usize) {
 fn prefetch_test_etag_s3(request_size: usize, read_size: usize) {
     prefetch_test_etag(
         crate::fuse_tests::s3_session::new,
+        "prefetch_test_etag_s3",
+        request_size,
+        read_size,
+    );
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case(256 * 1024, 1024; "default first request size, much larger than first block read size")]
+#[test_case(64 * 1024, 1024; "first request size smaller than default, much larger than first block read size")]
+#[test_case(512 * 1024, 1024; "first request size greater than default,  much larger than first block read size")]
+#[test_case(256 * 1024, 256 * 1024; "first request size smaller than first block read size")]
+fn prefetch_test_etag_s3_with_cache(request_size: usize, read_size: usize) {
+    prefetch_test_etag(
+        crate::fuse_tests::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
         "prefetch_test_etag_s3",
         request_size,
         read_size,

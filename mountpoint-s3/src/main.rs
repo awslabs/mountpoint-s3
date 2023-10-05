@@ -240,6 +240,27 @@ struct CliArgs {
     )]
     pub metadata_cache_ttl: Option<Duration>,
 
+    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Enable caching of object data in memory",
+        help_heading = CACHING_OPTIONS_HEADER,
+    )]
+    pub enable_data_caching: bool,
+
+    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Block size for the data cache",
+        default_value = "1048576",
+        value_parser = value_parser!(u64).range(1..),
+        help_heading = CACHING_OPTIONS_HEADER,
+        requires = "enable_data_caching",
+    )]
+    pub data_cache_block_size: u64,
+
     #[clap(
         long,
         help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
@@ -538,7 +559,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     #[cfg(feature = "caching")]
     {
+        use mountpoint_s3::data_cache::in_memory_data_cache::InMemoryDataCache;
         use mountpoint_s3::fs::CacheConfig;
+        use mountpoint_s3::store::cached_store;
 
         if args.enable_metadata_caching {
             // TODO: Review default for TTL
@@ -548,6 +571,20 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
                 dir_ttl: metadata_cache_ttl,
                 file_ttl: metadata_cache_ttl,
             };
+        }
+
+        if args.enable_data_caching {
+            let cache = InMemoryDataCache::new(args.data_cache_block_size);
+            let client = Arc::new(client);
+            let store = cached_store(client, cache, runtime, prefetcher_config);
+            return create_filesystem(
+                store,
+                &args.bucket_name,
+                &prefix,
+                filesystem_config,
+                fuse_config,
+                &bucket_description,
+            );
         }
     }
 

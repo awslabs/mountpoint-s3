@@ -14,7 +14,8 @@ use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use thiserror::Error;
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
-use crate::prefetch::{self, ClientPartStream, ObjectPartStream, Prefetcher, PrefetcherConfig};
+use crate::data_cache::DataCache;
+use crate::prefetch::{self, CachedPartStream, ClientPartStream, ObjectPartStream, Prefetcher, PrefetcherConfig};
 use crate::sync::Arc;
 
 /// A generic interface to S3-like object store.
@@ -211,6 +212,21 @@ where
     Runtime: Spawn + Send + Sync + 'static,
 {
     let part_stream = ClientPartStream::new(client.clone(), runtime);
+    ClientStore::new(client, part_stream, prefetcher_config)
+}
+
+pub fn cached_store<Client, Cache, Runtime>(
+    client: Arc<Client>,
+    cache: Cache,
+    runtime: Runtime,
+    prefetcher_config: PrefetcherConfig,
+) -> ClientStore<Client, CachedPartStream<Client, Cache, Runtime>>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Cache: DataCache + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync + 'static,
+{
+    let part_stream = CachedPartStream::new(client.clone(), runtime, cache);
     ClientStore::new(client, part_stream, prefetcher_config)
 }
 

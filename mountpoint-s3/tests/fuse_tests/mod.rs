@@ -18,9 +18,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fuser::{BackgroundSession, MountOption, Session};
+use mountpoint_s3::data_cache::DataCache;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::PrefetcherConfig;
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::store::cached_store;
 use mountpoint_s3::store::{default_store, ObjectStore};
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::types::PutObjectParams;
@@ -131,6 +133,38 @@ mod mock_session {
         (mount_dir, session, test_client)
     }
 
+    /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
+    pub fn new_with_cache<Cache>(
+        cache: Cache,
+    ) -> impl FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox)
+    where
+        Cache: DataCache + Send + Sync + 'static,
+    {
+        |test_name, test_config| {
+            let mount_dir = tempfile::tempdir().unwrap();
+
+            let bucket = "test_bucket";
+            let prefix = if test_name.is_empty() {
+                test_name.to_string()
+            } else {
+                format!("{test_name}/")
+            };
+
+            let client_config = MockClientConfig {
+                bucket: bucket.to_string(),
+                part_size: test_config.part_size,
+            };
+            let client = Arc::new(MockClient::new(client_config));
+            let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+            let store = cached_store(client.clone(), cache, runtime, test_config.prefetcher_config);
+
+            let session = create_fuse_session(store, bucket, &prefix, mount_dir.path(), test_config.filesystem_config);
+            let test_client = create_test_client(client, &prefix);
+
+            (mount_dir, session, test_client)
+        }
+    }
+
     fn create_test_client(client: Arc<MockClient>, prefix: &str) -> TestClientBox {
         let test_client = MockTestClient {
             prefix: prefix.to_owned(),
@@ -237,6 +271,33 @@ mod s3_session {
         let test_client = create_test_client(&region, &bucket, &prefix);
 
         (mount_dir, session, test_client)
+    }
+
+    /// Create a FUSE mount backed by a real S3 client, with caching
+    pub fn new_with_cache<Cache>(
+        cache: Cache,
+    ) -> impl FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox)
+    where
+        Cache: DataCache + Send + Sync + 'static,
+    {
+        |test_name, test_config| {
+            let mount_dir = tempfile::tempdir().unwrap();
+
+            let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
+            let region = get_test_region();
+
+            let client_config = S3ClientConfig::default()
+                .part_size(test_config.part_size)
+                .endpoint_config(EndpointConfig::new(&region));
+            let client = S3CrtClient::new(client_config).unwrap();
+            let runtime = client.event_loop_group();
+            let store = cached_store(Arc::new(client), cache, runtime, test_config.prefetcher_config);
+
+            let session = create_fuse_session(store, &bucket, &prefix, mount_dir.path(), test_config.filesystem_config);
+            let test_client = create_test_client(&region, &bucket, &prefix);
+
+            (mount_dir, session, test_client)
+        }
     }
 
     fn create_test_client(region: &str, bucket: &str, prefix: &str) -> TestClientBox {

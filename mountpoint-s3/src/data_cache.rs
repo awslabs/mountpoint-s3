@@ -16,8 +16,8 @@ pub use crate::checksums::ChecksummedBytes;
 /// Struct representing a key for accessing an entry in a [DataCache].
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CacheKey {
-    s3_key: String,
-    etag: ETag,
+    pub s3_key: String,
+    pub etag: ETag,
 }
 
 /// Indexes blocks within a given object.
