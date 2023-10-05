@@ -1,9 +1,9 @@
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
 use fuser::{FileAttr, FileType};
-use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::store::{test_store, TestStore};
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_client::ObjectClient;
@@ -18,28 +18,28 @@ pub fn make_test_filesystem(
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
-) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>, ThreadPool>) {
+) -> (Arc<MockClient>, S3Filesystem<TestStore<MockClient>>) {
     let client_config = MockClientConfig {
         bucket: bucket.to_string(),
         part_size: 1024 * 1024,
     };
 
     let client = Arc::new(MockClient::new(client_config));
-    let fs = make_test_filesystem_with_client(Arc::clone(&client), bucket, prefix, config);
+    let fs = make_test_filesystem_with_client(client.clone(), bucket, prefix, config);
     (client, fs)
 }
 
 pub fn make_test_filesystem_with_client<Client>(
-    client: Client,
+    client: Arc<Client>,
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
-) -> S3Filesystem<Client, ThreadPool>
+) -> S3Filesystem<TestStore<Client>>
 where
     Client: ObjectClient + Send + Sync + 'static,
 {
-    let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-    S3Filesystem::new(client, runtime, bucket, prefix, config)
+    let store = test_store(client);
+    S3Filesystem::new(store, bucket, prefix, config)
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {

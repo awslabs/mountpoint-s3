@@ -1,9 +1,11 @@
 use std::time::Instant;
 
+use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::types::ObjectClientResult;
 use tracing::trace;
 
 use crate::prefetch::part::Part;
-use crate::prefetch::PrefetchReadError;
+use crate::store::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::AsyncMutex;
@@ -11,20 +13,20 @@ use crate::sync::AsyncMutex;
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
 #[derive(Debug)]
-pub struct PartQueue<E> {
+pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
-    receiver: Receiver<Result<Part, E>>,
+    receiver: Receiver<ObjectClientResult<Part, PrefetchReadError, E>>,
     failed: AtomicBool,
 }
 
 /// Producer side of the queue of [Part]s.
 #[derive(Debug)]
-pub struct PartQueueProducer<E> {
-    sender: Sender<Result<Part, E>>,
+pub struct PartQueueProducer<E: std::error::Error> {
+    sender: Sender<ObjectClientResult<Part, PrefetchReadError, E>>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
-pub fn unbounded_part_queue<E>() -> (PartQueue<E>, PartQueueProducer<E>) {
+pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
     let (sender, receiver) = unbounded();
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
@@ -42,7 +44,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub async fn read(&self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&self, length: usize) -> ObjectClientResult<Part, PrefetchReadError, E> {
         let mut current_part = self.current_part.lock().await;
 
         assert!(
@@ -55,14 +57,16 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         } else {
             // Do `try_recv` first so we can track whether the read is starved or not
             if let Ok(part) = self.receiver.try_recv() {
-                part.map_err(|e| PrefetchReadError::GetRequestFailed(e))
+                part
             } else {
                 let start = Instant::now();
                 let part = self.receiver.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
                 match part {
-                    Err(RecvError) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
-                    Ok(part) => part.map_err(|e| PrefetchReadError::GetRequestFailed(e)),
+                    Err(RecvError) => Err(ObjectClientError::ServiceError(
+                        PrefetchReadError::GetRequestTerminatedUnexpectedly,
+                    )),
+                    Ok(part) => part,
                 }
             }
         };
@@ -88,7 +92,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
-    pub fn push(&self, part: Result<Part, E>) {
+    pub fn push(&self, part: ObjectClientResult<Part, PrefetchReadError, E>) {
         // Unbounded channel will never actually block
         let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {

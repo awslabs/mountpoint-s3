@@ -39,9 +39,9 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 use mountpoint_s3_client::types::ObjectInfo;
-use mountpoint_s3_client::ObjectClient;
 use tracing::{error, trace, warn};
 
+use crate::store::ObjectStore;
 use crate::sync::{Arc, AsyncMutex, Mutex};
 
 use super::{
@@ -106,7 +106,7 @@ impl ReaddirHandle {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub async fn next<OC: ObjectClient>(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
+    pub async fn next<OS: ObjectStore>(&self, store: &OS) -> Result<Option<LookedUp>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
@@ -116,7 +116,7 @@ impl ReaddirHandle {
         loop {
             let next = {
                 let mut iter = self.iter.lock().await;
-                iter.next(client).await?
+                iter.next(store).await?
             };
 
             if let Some(next) = next {
@@ -183,9 +183,9 @@ impl ReaddirHandle {
     }
 
     #[cfg(test)]
-    pub(super) async fn collect<OC: ObjectClient>(&self, client: &OC) -> Result<Vec<LookedUp>, InodeError> {
+    pub(super) async fn collect<OS: ObjectStore>(&self, store: &OS) -> Result<Vec<LookedUp>, InodeError> {
         let mut result = vec![];
-        while let Some(entry) = self.next(client).await? {
+        while let Some(entry) = self.next(store).await? {
             result.push(entry);
         }
         Ok(result)
@@ -295,13 +295,13 @@ impl ReaddirIter {
 
     /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
     /// `Ok(None)`.
-    async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+    async fn next(&mut self, store: &impl ObjectStore) -> Result<Option<ReaddirEntry>, InodeError> {
         // The only reason to go around this loop more than once is if the next entry to return is
         // a duplicate, in which case it's skipped.
         loop {
             // First refill the peeks at the next entries on each iterator
             if self.next_remote.is_none() {
-                self.next_remote = self.remote.next(client).await?;
+                self.next_remote = self.remote.next(store).await?;
             }
             if self.next_local.is_none() {
                 self.next_local = self.local.next();
@@ -372,7 +372,7 @@ impl RemoteIter {
         }
     }
 
-    async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+    async fn next(&mut self, store: &impl ObjectStore) -> Result<Option<ReaddirEntry>, InodeError> {
         if self.entries.is_empty() {
             let continuation_token = match &mut self.state {
                 RemoteIterState::Finished => {
@@ -384,7 +384,7 @@ impl RemoteIter {
 
             trace!(self=?self as *const _, prefix=?self.full_path, ?continuation_token, "continuing remote iter");
 
-            let result = client
+            let result = store
                 .list_objects(
                     &self.bucket,
                     continuation_token.as_deref(),

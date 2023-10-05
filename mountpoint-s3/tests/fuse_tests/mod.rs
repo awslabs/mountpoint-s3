@@ -14,10 +14,14 @@ mod write_test;
 
 use std::ffi::OsStr;
 use std::fs::ReadDir;
+use std::path::Path;
+use std::sync::Arc;
 
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
+use mountpoint_s3::prefetch::PrefetcherConfig;
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::store::{default_store, ObjectStore};
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::types::PutObjectParams;
 use tempfile::TempDir;
@@ -54,6 +58,7 @@ pub type TestClientBox = Box<dyn TestClient>;
 pub struct TestSessionConfig {
     pub part_size: usize,
     pub filesystem_config: S3FilesystemConfig,
+    pub prefetcher_config: PrefetcherConfig,
 }
 
 impl Default for TestSessionConfig {
@@ -61,14 +66,42 @@ impl Default for TestSessionConfig {
         Self {
             part_size: 8 * 1024 * 1024,
             filesystem_config: Default::default(),
+            prefetcher_config: Default::default(),
         }
     }
 }
 
+fn create_fuse_session<Store>(
+    store: Store,
+    bucket: &str,
+    prefix: &str,
+    mount_dir: &Path,
+    filesystem_config: S3FilesystemConfig,
+) -> BackgroundSession
+where
+    Store: ObjectStore + Send + Sync + 'static,
+{
+    let options = vec![
+        MountOption::DefaultPermissions,
+        MountOption::FSName("mountpoint-s3".to_string()),
+        MountOption::NoAtime,
+        MountOption::AutoUnmount,
+        MountOption::AllowOther,
+    ];
+
+    let prefix = Prefix::new(prefix).expect("valid prefix");
+    let session = Session::new(
+        S3FuseFilesystem::new(store, bucket, &prefix, filesystem_config),
+        mount_dir,
+        &options,
+    )
+    .unwrap();
+
+    BackgroundSession::new(session).unwrap()
+}
+
 mod mock_session {
     use super::*;
-
-    use std::sync::Arc;
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
@@ -89,39 +122,22 @@ mod mock_session {
             part_size: test_config.part_size,
         };
         let client = Arc::new(MockClient::new(client_config));
-
-        let options = vec![
-            MountOption::DefaultPermissions,
-            MountOption::FSName("mountpoint-s3".to_string()),
-            MountOption::NoAtime,
-            MountOption::AutoUnmount,
-            MountOption::AllowOther,
-        ];
-
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let store = default_store(client.clone(), runtime, test_config.prefetcher_config);
 
-        let prefix = Prefix::new(&prefix).expect("valid prefix");
-        let session = Session::new(
-            S3FuseFilesystem::new(
-                Arc::clone(&client),
-                runtime,
-                bucket,
-                &prefix,
-                test_config.filesystem_config,
-            ),
-            mount_dir.path(),
-            &options,
-        )
-        .unwrap();
+        let session = create_fuse_session(store, bucket, &prefix, mount_dir.path(), test_config.filesystem_config);
+        let test_client = create_test_client(client, &prefix);
 
-        let session = BackgroundSession::new(session).unwrap();
+        (mount_dir, session, test_client)
+    }
 
+    fn create_test_client(client: Arc<MockClient>, prefix: &str) -> TestClientBox {
         let test_client = MockTestClient {
-            prefix: prefix.to_string(),
+            prefix: prefix.to_owned(),
             client,
         };
 
-        (mount_dir, session, Box::new(test_client))
+        Box::new(test_client)
     }
 
     struct MockTestClient {
@@ -215,33 +231,23 @@ mod s3_session {
             .endpoint_config(EndpointConfig::new(&region));
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = client.event_loop_group();
+        let store = default_store(Arc::new(client), runtime, test_config.prefetcher_config);
 
-        let options = vec![
-            MountOption::DefaultPermissions,
-            MountOption::FSName("mountpoint-s3".to_string()),
-            MountOption::NoAtime,
-            MountOption::AutoUnmount,
-            MountOption::AllowOther,
-        ];
+        let session = create_fuse_session(store, &bucket, &prefix, mount_dir.path(), test_config.filesystem_config);
+        let test_client = create_test_client(&region, &bucket, &prefix);
 
-        let prefix = Prefix::new(&prefix).expect("valid prefix");
-        let session = Session::new(
-            S3FuseFilesystem::new(client, runtime, &bucket, &prefix, test_config.filesystem_config),
-            mount_dir.path(),
-            &options,
-        )
-        .unwrap();
+        (mount_dir, session, test_client)
+    }
 
-        let session = BackgroundSession::new(session).unwrap();
-
-        let sdk_client = tokio_block_on(async { get_test_sdk_client(&region).await });
+    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> TestClientBox {
+        let sdk_client = tokio_block_on(async { get_test_sdk_client(region).await });
         let test_client = SDKTestClient {
-            prefix: prefix.to_string(),
-            bucket,
+            prefix: prefix.to_owned(),
+            bucket: bucket.to_owned(),
             sdk_client,
         };
 
-        (mount_dir, session, Box::new(test_client))
+        Box::new(test_client)
     }
 
     async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {

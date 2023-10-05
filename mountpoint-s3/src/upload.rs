@@ -1,17 +1,19 @@
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
 
 use mountpoint_s3_client::checksums::crc32c_from_base64;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams, PutObjectResult, UploadReview};
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
+use mountpoint_s3_client::PutObjectRequest;
 
 use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
 use thiserror::Error;
 use tracing::error;
 
 use crate::checksums::combine_checksums;
+use crate::store::ObjectStore;
+use crate::sync::Arc;
 
-type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
+type PutRequestError<Store> = ObjectClientError<PutObjectError, <Store as ObjectStore>::ClientError>;
 
 const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
@@ -22,15 +24,15 @@ pub struct Uploader<Client> {
 }
 
 #[derive(Debug)]
-struct UploaderInner<Client> {
-    client: Arc<Client>,
+struct UploaderInner<Store> {
+    store: Store,
     storage_class: Option<String>,
 }
 
-impl<Client: ObjectClient> Uploader<Client> {
+impl<Store: ObjectStore> Uploader<Store> {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
-        let inner = UploaderInner { client, storage_class };
+    pub fn new(store: Store, storage_class: Option<String>) -> Self {
+        let inner = UploaderInner { store, storage_class };
         Self { inner: Arc::new(inner) }
     }
 
@@ -39,7 +41,7 @@ impl<Client: ObjectClient> Uploader<Client> {
         &self,
         bucket: &str,
         key: &str,
-    ) -> ObjectClientResult<UploadRequest<Client>, PutObjectError, Client::ClientError> {
+    ) -> ObjectClientResult<UploadRequest<Store>, PutObjectError, Store::ClientError> {
         UploadRequest::new(Arc::clone(&self.inner), bucket, key).await
     }
 }
@@ -59,29 +61,29 @@ pub enum UploadWriteError<E: std::error::Error> {
 /// Manages the upload of an object to S3.
 ///
 /// Wraps a PutObject request and enforces sequential writes.
-pub struct UploadRequest<Client: ObjectClient> {
+pub struct UploadRequest<Store: ObjectStore> {
     bucket: String,
     key: String,
     next_request_offset: u64,
     hasher: Hasher,
-    request: Client::PutObjectRequest,
+    request: Store::PutObjectRequest,
     maximum_upload_size: Option<usize>,
 }
 
-impl<Client: ObjectClient> UploadRequest<Client> {
+impl<Store: ObjectStore> UploadRequest<Store> {
     async fn new(
-        inner: Arc<UploaderInner<Client>>,
+        inner: Arc<UploaderInner<Store>>,
         bucket: &str,
         key: &str,
-    ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
+    ) -> ObjectClientResult<Self, PutObjectError, Store::ClientError> {
         let mut params = PutObjectParams::new().trailing_checksums(true);
 
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
         }
 
-        let request = inner.client.put_object(bucket, key, &params).await?;
-        let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
+        let request = inner.store.put_object(bucket, key, &params).await?;
+        let maximum_upload_size = inner.store.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
 
         Ok(Self {
             bucket: bucket.to_owned(),
@@ -97,11 +99,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         self.next_request_offset
     }
 
-    pub async fn write(
-        &mut self,
-        offset: i64,
-        data: &[u8],
-    ) -> Result<usize, UploadWriteError<PutRequestError<Client>>> {
+    pub async fn write(&mut self, offset: i64, data: &[u8]) -> Result<usize, UploadWriteError<PutRequestError<Store>>> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
             return Err(UploadWriteError::OutOfOrderWrite {
@@ -121,7 +119,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         Ok(data.len())
     }
 
-    pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
+    pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Store>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
         self.request
@@ -130,7 +128,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     }
 }
 
-impl<Client: ObjectClient> Debug for UploadRequest<Client> {
+impl<Store: ObjectStore> Debug for UploadRequest<Store> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UploadRequest")
             .field("bucket", &self.bucket)
@@ -186,6 +184,8 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
 mod tests {
     use std::collections::HashMap;
 
+    use crate::store::test_store;
+
     use super::*;
     use mountpoint_s3_client::{
         failure_client::countdown_failure_client,
@@ -203,7 +203,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 32,
         }));
-        let uploader = Uploader::new(client.clone(), None);
+        let uploader = Uploader::new(test_store(client.clone()), None);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -226,7 +226,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 32,
         }));
-        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()));
+        let uploader = Uploader::new(test_store(client.clone()), Some(storage_class.to_owned()));
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
@@ -266,15 +266,15 @@ mod tests {
         put_failures.insert(1, Ok((1, MockClientError("error".to_owned().into()))));
         put_failures.insert(2, Ok((2, MockClientError("error".to_owned().into()))));
 
-        let failure_client = Arc::new(countdown_failure_client(
+        let failure_client = countdown_failure_client(
             client.clone(),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
             put_failures,
-        ));
+        );
 
-        let uploader = Uploader::new(failure_client.clone(), None);
+        let uploader = Uploader::new(test_store(Arc::new(failure_client)), None);
 
         // First request fails on first write.
         {
@@ -314,7 +314,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: PART_SIZE,
         }));
-        let uploader = Uploader::new(client.clone(), None);
+        let uploader = Uploader::new(test_store(client.clone()), None);
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;

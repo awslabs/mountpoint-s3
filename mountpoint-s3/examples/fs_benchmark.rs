@@ -1,14 +1,15 @@
 use clap::{Arg, ArgAction, Command};
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
+use mountpoint_s3::store::default_store;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::{
-    fs::File,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::{self, BufRead, BufReader},
+    sync::Arc,
     time::Instant,
 };
 use tempfile::tempdir;
@@ -164,8 +165,9 @@ fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Op
         bucket_name,
         mountpoint.to_str().unwrap()
     );
+    let store = default_store(Arc::new(client), runtime, Default::default());
     let session = Session::new(
-        S3FuseFilesystem::new(client, runtime, bucket_name, &Default::default(), filesystem_config),
+        S3FuseFilesystem::new(store, bucket_name, &Default::default(), filesystem_config),
         mountpoint,
         &options,
     )

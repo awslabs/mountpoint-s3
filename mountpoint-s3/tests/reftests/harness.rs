@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fuser::FileType;
-use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3::fs::{self, CacheConfig, InodeNo, ReadReplier, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::store::TestStore;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::ObjectClient;
@@ -164,7 +164,7 @@ impl InflightWrites {
 pub struct Harness {
     readdir_limit: usize, // max number of entries that a readdir will return; 0 means no limit
     reference: Reference,
-    fs: S3Filesystem<Arc<MockClient>, ThreadPool>,
+    fs: S3Filesystem<TestStore<MockClient>>,
     client: Arc<MockClient>,
     bucket: String,
     inflight_writes: InflightWrites,
@@ -173,7 +173,7 @@ pub struct Harness {
 impl Harness {
     /// Create a new test harness
     pub fn new(
-        fs: S3Filesystem<Arc<MockClient>, ThreadPool>,
+        fs: S3Filesystem<TestStore<MockClient>>,
         client: Arc<MockClient>,
         reference: Reference,
         bucket: &str,

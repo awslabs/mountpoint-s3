@@ -1,7 +1,6 @@
 //! Links _fuser_ method calls into Mountpoint's filesystem code in [crate::fs].
 
 use futures::executor::block_on;
-use futures::task::Spawn;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::SystemTime;
@@ -12,13 +11,13 @@ use crate::fs::{
     self, DirectoryEntry, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno,
 };
 use crate::prefix::Prefix;
+use crate::store::ObjectStore;
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
     ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
-use mountpoint_s3_client::ObjectClient;
 
 pub mod session;
 
@@ -48,26 +47,24 @@ macro_rules! fuse_unsupported {
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
 /// so that we can test our actual filesystem implementation without having actual FUSE in the loop.
-pub struct S3FuseFilesystem<Client: ObjectClient, Runtime> {
-    fs: S3Filesystem<Client, Runtime>,
+pub struct S3FuseFilesystem<Store: ObjectStore> {
+    fs: S3Filesystem<Store>,
 }
 
-impl<Client, Runtime> S3FuseFilesystem<Client, Runtime>
+impl<Store> S3FuseFilesystem<Store>
 where
-    Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync,
+    Store: ObjectStore + Send + Sync + 'static,
 {
-    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
-        let fs = S3Filesystem::new(client, runtime, bucket, prefix, config);
+    pub fn new(store: Store, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
+        let fs = S3Filesystem::new(store, bucket, prefix, config);
 
         Self { fs }
     }
 }
 
-impl<Client, Runtime> Filesystem for S3FuseFilesystem<Client, Runtime>
+impl<Store> Filesystem for S3FuseFilesystem<Store>
 where
-    Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync,
+    Store: ObjectStore + Send + Sync + 'static,
 {
     #[instrument(level="warn", skip_all, fields(req=_req.unique()))]
     fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
