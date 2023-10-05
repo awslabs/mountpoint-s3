@@ -1,6 +1,9 @@
+use std::ops::RangeBounds;
+
 use bytes::{Bytes, BytesMut};
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
-use thiserror::Error;
+
+use crate::checksums::IntegrityError;
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that its integrity will be validated when data transformation occurs.
@@ -52,6 +55,18 @@ impl ChecksummedBytes {
         Self {
             orig_bytes: self.orig_bytes.clone(),
             curr_slice: new_bytes,
+            checksum: self.checksum,
+        }
+    }
+
+    /// Returns a slice of self for the provided range.
+    ///
+    /// This operation just increases the reference count and sets a few indices,
+    /// so there will be no validation and the checksum will not be recomputed.
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        Self {
+            orig_bytes: self.orig_bytes.clone(),
+            curr_slice: self.curr_slice.slice(range),
             checksum: self.checksum,
         }
     }
@@ -118,13 +133,6 @@ impl Default for ChecksummedBytes {
         }
     }
 }
-
-#[derive(Debug, Error)]
-pub enum IntegrityError {
-    #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
-    ChecksumMismatch(Crc32c, Crc32c),
-}
-
 // Implement equality for tests only. We implement equality, and will panic if the data is corrupted.
 #[cfg(test)]
 impl PartialEq for ChecksummedBytes {
@@ -149,9 +157,7 @@ mod tests {
     use bytes::Bytes;
     use mountpoint_s3_crt::checksums::crc32c;
 
-    use crate::prefetch::checksummed_bytes::IntegrityError;
-
-    use super::ChecksummedBytes;
+    use super::*;
 
     #[test]
     fn test_into_bytes() {

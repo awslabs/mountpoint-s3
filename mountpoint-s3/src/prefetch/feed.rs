@@ -11,7 +11,8 @@ use mountpoint_s3_client::{
 use mountpoint_s3_crt::checksums::crc32c;
 use tracing::{error, trace};
 
-use crate::prefetch::{checksummed_bytes::ChecksummedBytes, part::Part, part_queue::PartQueueProducer};
+use crate::checksums::ChecksummedBytes;
+use crate::prefetch::{part::Part, part_queue::PartQueueProducer};
 
 /// A generic interface to retrieve data from objects in a S3-like store.
 #[async_trait]

@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use thiserror::Error;
 
-pub use crate::prefetch::checksummed_bytes::ChecksummedBytes;
+pub use crate::checksums::ChecksummedBlock;
 
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;
@@ -36,10 +36,10 @@ pub trait DataCache<Key> {
     /// Get block of data from the cache for the given [Key] and [BlockIndex], if available.
     ///
     /// Operation may fail due to errors, or return [None] if the block was not available in the cache.
-    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>>;
+    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBlock>>;
 
     /// Put block of data to the cache for the given [Key] and [BlockIndex].
-    fn put_block(&self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()>;
+    fn put_block(&self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBlock) -> DataCacheResult<()>;
 
     /// Returns the block size for the data cache.
     fn block_size(&self) -> u64;

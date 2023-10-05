@@ -5,12 +5,12 @@ use std::default::Default;
 use std::hash::Hash;
 use std::ops::Range;
 
-use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
+use super::{BlockIndex, ChecksummedBlock, DataCache, DataCacheResult};
 use crate::sync::RwLock;
 
 /// Simple in-memory (RAM) implementation of [DataCache]. Recommended for use in testing only.
 pub struct InMemoryDataCache<CacheKey> {
-    data: RwLock<HashMap<CacheKey, HashMap<BlockIndex, ChecksummedBytes>>>,
+    data: RwLock<HashMap<CacheKey, HashMap<BlockIndex, ChecksummedBlock>>>,
     block_size: u64,
 }
 
@@ -25,13 +25,13 @@ impl<Key> InMemoryDataCache<Key> {
 }
 
 impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
-    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
+    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBlock>> {
         let data = self.data.read().unwrap();
         let block_data = data.get(cache_key).and_then(|blocks| blocks.get(&block_idx)).cloned();
         Ok(block_data)
     }
 
-    fn put_block(&self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
+    fn put_block(&self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBlock) -> DataCacheResult<()> {
         let mut data = self.data.write().unwrap();
         let blocks = data.entry(cache_key).or_default();
         blocks.insert(block_idx, bytes);
@@ -59,20 +59,18 @@ mod tests {
 
     use bytes::Bytes;
 
-    use mountpoint_s3_crt::checksums::crc32c;
-
     type TestCacheKey = String;
 
     #[test]
     fn test_put_get() {
         let data_1 = Bytes::from_static(b"Hello world");
-        let data_1 = ChecksummedBytes::new(data_1.clone(), crc32c::checksum(&data_1));
+        let data_1 = ChecksummedBlock::from_bytes(data_1.clone());
         let data_2 = Bytes::from_static(b"Foo bar");
-        let data_2 = ChecksummedBytes::new(data_2.clone(), crc32c::checksum(&data_2));
+        let data_2 = ChecksummedBlock::from_bytes(data_2.clone());
         let data_3 = Bytes::from_static(b"Baz");
-        let data_3 = ChecksummedBytes::new(data_3.clone(), crc32c::checksum(&data_3));
+        let data_3 = ChecksummedBlock::from_bytes(data_3.clone());
 
-        let mut cache = InMemoryDataCache::new(8 * 1024 * 1024);
+        let cache = InMemoryDataCache::new(8 * 1024 * 1024);
         let cache_key_1: TestCacheKey = String::from("a");
         let cache_key_2: TestCacheKey = String::from("b");
 
@@ -136,11 +134,11 @@ mod tests {
     #[test]
     fn test_cached_indices() {
         let data_1 = Bytes::from_static(b"Hello world");
-        let data_1 = ChecksummedBytes::new(data_1.clone(), crc32c::checksum(&data_1));
+        let data_1 = ChecksummedBlock::from_bytes(data_1.clone());
         let data_2 = Bytes::from_static(b"Foo bar");
-        let data_2 = ChecksummedBytes::new(data_2.clone(), crc32c::checksum(&data_2));
+        let data_2 = ChecksummedBlock::from_bytes(data_2.clone());
 
-        let mut cache = InMemoryDataCache::new(8 * 1024 * 1024);
+        let cache = InMemoryDataCache::new(8 * 1024 * 1024);
         let cache_key_1: TestCacheKey = String::from("a");
         let cache_key_2: TestCacheKey = String::from("b");
 

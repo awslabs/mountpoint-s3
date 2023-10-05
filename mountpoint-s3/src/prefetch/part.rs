@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use super::checksummed_bytes::ChecksummedBytes;
+use crate::checksums::ChecksummedBytes;
 
 /// A self-identifying part of an S3 object. Users can only retrieve the bytes from this part if
 /// they can prove they have the correct offset and key.
