@@ -26,7 +26,7 @@ We keep the records of benchmarking results in `gh-pages` branch and the perform
 While our benchmark script is written for CI testing only, it is possible to run manually.
 You can use the following steps.
 
-1. Install dependencies and configure FUSE by running the following script in the repository:
+1. Install dependencies and configure FUSE by running the following script in the `mountpoint-s3` repository:
 
         bash .github/actions/install-dependencies/install.sh \
                 --fuse-version 2 \
@@ -39,10 +39,15 @@ You can use the following steps.
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
 
-3. Create the bench files manually in your bucket. The size of the files must be exactly the same as the size defined in fio configuration files. The easiest way to do this is running fio against your local file system first to let fio create the files for you, and then upload them to your S3 bucket using the AWS CLI. For example:
+3. Create the bench files manually in your bucket. The size of the files must be exactly the same as the size defined in fio configuration files. The easiest way to do this is mounting your bucket on local file system using mountpoint-s3.Then, running fio against your mount directory to let fio create the files for you. For example:
+* To create small benchmark file for read workload use:
 
-        fio --directory=your_local_dir --filename=your_file_name mountpoint-s3/scripts/fio/read/seq_read_small.fio
-        aws s3 cp your_local_dir/your_file_name s3://${S3_BUCKET_NAME}/${S3_BUCKET_TEST_PREFIX}
+        fio --directory=your_mount_dir --filename=your_file_name mountpoint-s3/scripts/fio/read/seq_read_small.fio
+
+* To create directory with 10000 files for readdir workload use:
+
+        mkdir bench_dir_10000
+        fio --directory=your_mount_dir/bench_dir_10000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_10000.fio
 
 4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
