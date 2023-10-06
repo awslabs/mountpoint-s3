@@ -46,10 +46,10 @@ You can use the following steps.
         fio --directory=your_mount_dir --filename=bench5MB.bin mountpoint-s3/scripts/fio/read/seq_read_small.fio
         fio --directory=your_mount_dir --filename=bench100GB.bin mountpoint-s3/scripts/fio/read/seq_read.fio
         mkdir bench_dir_100/ bench_dir_1000/ bench_dir_10000/ bench_dir_100000/
-        fio --directory=your_mount_dir/bench_dir_100 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_100.fio
-        fio --directory=your_mount_dir/bench_dir_1000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_1000.fio
-        fio --directory=your_mount_dir/bench_dir_10000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_10000.fio
-        fio --directory=your_mount_dir/bench_dir_100000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_100000.fio
+        fio --directory=your_mount_dir/bench_dir_100 mountpoint-s3/scripts/fio/create/create_files_100.fio
+        fio --directory=your_mount_dir/bench_dir_1000 mountpoint-s3/scripts/fio/create/create_files_1000.fio
+        fio --directory=your_mount_dir/bench_dir_10000 mountpoint-s3/scripts/fio/create/create_files_10000.fio
+        fio --directory=your_mount_dir/bench_dir_100000 mountpoint-s3/scripts/fio/create/create_files_100000.fio
 
 4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
