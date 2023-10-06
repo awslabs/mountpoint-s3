@@ -39,15 +39,17 @@ You can use the following steps.
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
 
-3. Create the bench files manually in your bucket. The size of the files must be exactly the same as the size defined in fio configuration files. The easiest way to do this is mounting your bucket on local file system using mountpoint-s3.Then, running fio against your mount directory to let fio create the files for you. For example:
-* To create small benchmark file for read workload use:
+3. Create the bench files manually in your bucket(create a `benchmark` directory in it if not present). The size of the files must be exactly the same as the size defined in fio configuration files. The easiest way to do this is mounting your bucket on local file system using mountpoint-s3. Then, running fio against your mount directory to let fio create the files for you.
 
-        fio --directory=your_mount_dir --filename=your_file_name mountpoint-s3/scripts/fio/read/seq_read_small.fio
-
-* To create directory with 10000 files for readdir workload use:
-
-        mkdir bench_dir_10000
+        mount-s3 your-bucket-name your_mount_dir/ --allow-delete --prefix benchmark/
+        cd your_mount_dir/
+        fio --directory=your_mount_dir --filename=bench5MB.bin mountpoint-s3/scripts/fio/read/seq_read_small.fio
+        fio --directory=your_mount_dir --filename=bench100GB.bin mountpoint-s3/scripts/fio/read/seq_read_small.fio
+        mkdir bench_dir_100/ bench_dir_1000/ bench_dir_10000/ bench_dir_100000/
+        fio --directory=your_mount_dir/bench_dir_100 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_100.fio
+        fio --directory=your_mount_dir/bench_dir_1000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_1000.fio
         fio --directory=your_mount_dir/bench_dir_10000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_10000.fio
+        fio --directory=your_mount_dir/bench_dir_100000 --filename=your_file_name mountpoint-s3/scripts/fio/create/create_files_100000.fio
 
 4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
