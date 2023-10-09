@@ -119,6 +119,14 @@ struct CliArgs {
 
     #[clap(
         long,
+        help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
+        value_name = "PREFIX",
+        help_heading = CLIENT_OPTIONS_HEADER
+    )]
+    pub user_agent_prefix: Option<String>,
+
+    #[clap(
+        long,
         help = "Maximum throughput in Gbps [default: auto-detected on EC2 instances, 10 Gbps elsewhere]",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
@@ -420,11 +428,17 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         S3ClientAuthConfig::Default
     };
 
+    let user_agent_prefix = if let Some(custom_prefix) = args.user_agent_prefix {
+        format!("{} mountpoint-s3/{}", custom_prefix, build_info::FULL_VERSION)
+    } else {
+        format!("mountpoint-s3/{}", build_info::FULL_VERSION)
+    };
+
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
         .part_size(args.part_size as usize)
-        .user_agent_prefix(&format!("mountpoint-s3/{}", build_info::FULL_VERSION));
+        .user_agent_prefix(&user_agent_prefix);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
     }
