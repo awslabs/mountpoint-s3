@@ -39,17 +39,17 @@ You can use the following steps.
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
 
-3. Create the bench files manually in your bucket(create a `benchmark` directory in it if not present). The size of the files must be exactly the same as the size defined in fio configuration files. The easiest way to do this is mounting your bucket on local file system using mountpoint-s3. Then, running fio against your mount directory to let fio create the files for you.
+3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
 
-        mount-s3 your-bucket-name your_mount_dir/ --allow-delete --prefix benchmark/
-        cd your_mount_dir/
-        fio --directory=your_mount_dir --filename=bench5MB.bin mountpoint-s3/scripts/fio/read/seq_read_small.fio
-        fio --directory=your_mount_dir --filename=bench100GB.bin mountpoint-s3/scripts/fio/read/seq_read.fio
-        mkdir bench_dir_100/ bench_dir_1000/ bench_dir_10000/ bench_dir_100000/
-        fio --directory=your_mount_dir/bench_dir_100 mountpoint-s3/scripts/fio/create/create_files_100.fio
-        fio --directory=your_mount_dir/bench_dir_1000 mountpoint-s3/scripts/fio/create/create_files_1000.fio
-        fio --directory=your_mount_dir/bench_dir_10000 mountpoint-s3/scripts/fio/create/create_files_10000.fio
-        fio --directory=your_mount_dir/bench_dir_100000 mountpoint-s3/scripts/fio/create/create_files_100000.fio
+        mount-s3 DOC-EXAMPLE-BUCKET path/to/mount/ --prefix benchmark/ --part-size=16777216
+        cd mountpoint-s3/scripts/fio/
+        fio --directory=path/to/mount/ --filename=bench5MB.bin read/seq_read_small.fio --create-only=1
+        fio --directory=path/to/mount/ --filename=bench100GB.bin read/seq_read.fio --create-only=1
+        mkdir path/to/mount/bench_dir_100/ path/to/mount/bench_dir_1000/ path/to/mount/bench_dir_10000/ path/to/mount/bench_dir_100000/
+        fio --directory=path/to/mount/bench_dir_100 create/create_files_100.fio --create-only=1
+        fio --directory=path/to/mount/bench_dir_1000 create/create_files_1000.fio --create-only=1
+        fio --directory=path/to/mount/bench_dir_10000 create/create_files_10000.fio --create-only=1
+        fio --directory=path/to/mount/bench_dir_100000 create/create_files_100000.fio --create-only=1
 
 4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
