@@ -41,7 +41,7 @@ You can use the following steps.
 
 3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
 
-        MOUNT_DIR = path/to/mount
+        MOUNT_DIR=path/to/mount
         mount-s3 DOC-EXAMPLE-BUCKET $MOUNT_DIR/ --prefix benchmark/ --part-size=16777216
         cd mountpoint-s3/scripts/fio/
         fio --directory=$MOUNT_DIR/ --filename=bench5MB.bin --create_only=1 read/seq_read_small.fio
