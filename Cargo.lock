@@ -1945,6 +1945,7 @@ dependencies = [
  "assert_fs",
  "async-channel",
  "async-lock",
+ "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "aws-sdk-sts",

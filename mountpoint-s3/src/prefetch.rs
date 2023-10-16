@@ -8,6 +8,7 @@
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
 pub mod checksummed_bytes;
+mod feed;
 mod part;
 mod part_queue;
 
@@ -15,20 +16,17 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::time::Duration;
 
-use bytes::Bytes;
 use futures::future::RemoteHandle;
-use futures::pin_mut;
-use futures::stream::StreamExt;
 use futures::task::{Spawn, SpawnExt};
 use metrics::counter;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_crt::checksums::crc32c;
 use thiserror::Error;
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::prefetch::checksummed_bytes::{ChecksummedBytes, IntegrityError};
+use crate::prefetch::feed::{ClientPartFeed, ObjectPartFeed};
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueue};
 use crate::sync::{Arc, RwLock};
@@ -45,8 +43,6 @@ pub struct PrefetcherConfig {
     pub sequential_prefetch_multiplier: usize,
     /// Timeout to wait for a part to become available
     pub read_timeout: Duration,
-    /// The size of the parts that the prefetcher is trying to align with
-    pub part_alignment: usize,
 }
 
 impl Default for PrefetcherConfig {
@@ -65,7 +61,6 @@ impl Default for PrefetcherConfig {
             max_request_size: 2 * 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
-            part_alignment: 8 * 1024 * 1024,
         }
     }
 }
@@ -76,11 +71,16 @@ pub struct Prefetcher<Client, Runtime> {
     inner: Arc<PrefetcherInner<Client, Runtime>>,
 }
 
-#[derive(Debug)]
 struct PrefetcherInner<Client, Runtime> {
-    client: Arc<Client>,
+    part_feed: Arc<dyn ObjectPartFeed<Client> + Send + Sync>,
     config: PrefetcherConfig,
     runtime: Runtime,
+}
+
+impl<Client, Runtime> Debug for PrefetcherInner<Client, Runtime> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrefetcherInner").field("config", &self.config).finish()
+    }
 }
 
 impl<Client, Runtime> Prefetcher<Client, Runtime>
@@ -90,8 +90,9 @@ where
 {
     /// Create a new [Prefetcher] that will make requests to the given client.
     pub fn new(client: Arc<Client>, runtime: Runtime, config: PrefetcherConfig) -> Self {
+        let part_feed = Arc::new(ClientPartFeed::new(client));
         let inner = PrefetcherInner {
-            client,
+            part_feed,
             config,
             runtime,
         };
@@ -101,7 +102,7 @@ where
 
     /// Start a new get request to the specified object.
     pub fn get(&self, bucket: &str, key: &str, size: u64, etag: ETag) -> PrefetchGetObject<Client, Runtime> {
-        PrefetchGetObject::new(Arc::clone(&self.inner), bucket, key, size, etag)
+        PrefetchGetObject::new(self.inner.clone(), bucket, key, size, etag)
     }
 }
 
@@ -276,7 +277,7 @@ where
         trace!(?range, size, "spawning request");
 
         let request_task = {
-            let client = Arc::clone(&self.inner.client);
+            let feed = self.inner.part_feed.clone();
             let preferred_part_size = self.preferred_part_size;
             let bucket = self.bucket.to_owned();
             let key = self.key.to_owned();
@@ -284,47 +285,8 @@ where
             let span = debug_span!("prefetch", range=?range);
 
             async move {
-                match client.get_object(&bucket, &key, Some(range.clone()), Some(etag)).await {
-                    Err(e) => {
-                        error!(error=?e, "RequestTask get object failed");
-                        part_queue_producer.push(Err(e));
-                    }
-                    Ok(request) => {
-                        pin_mut!(request);
-                        loop {
-                            match request.next().await {
-                                Some(Ok((offset, body))) => {
-                                    // pre-split the body into multiple parts as suggested by preferred part size
-                                    // in order to avoid validating checksum on large parts at read.
-                                    assert!(preferred_part_size > 0);
-                                    let mut body: Bytes = body.into();
-                                    let mut curr_offset = offset;
-                                    loop {
-                                        let chunk_size = preferred_part_size.min(body.len());
-                                        if chunk_size == 0 {
-                                            break;
-                                        }
-                                        let chunk = body.split_to(chunk_size);
-                                        // S3 doesn't provide checksum for us if the request range is not aligned to object part boundaries,
-                                        // so we're computing our own checksum here.
-                                        let checksum = crc32c::checksum(&chunk);
-                                        let checksum_bytes = ChecksummedBytes::new(chunk, checksum);
-                                        let part = Part::new(&key, curr_offset, checksum_bytes);
-                                        curr_offset += part.len() as u64;
-                                        part_queue_producer.push(Ok(part));
-                                    }
-                                }
-                                Some(Err(e)) => {
-                                    error!(error=?e, "RequestTask body part failed");
-                                    part_queue_producer.push(Err(e));
-                                    break;
-                                }
-                                None => break,
-                            }
-                        }
-                        trace!("request finished");
-                    }
-                }
+                feed.get_object_parts(&bucket, &key, range, etag, preferred_part_size, part_queue_producer)
+                    .await
             }
             .instrument(span)
         };
@@ -344,29 +306,14 @@ where
     }
 
     /// Suggest next request size.
-    /// Normally, next request size is current request size multiply by sequential prefetch multiplier,
-    /// but if the request size is getting bigger than a part size we will try to align it to part boundaries.
+    /// The next request size is the current request size multiplied by sequential prefetch multiplier.
     fn get_next_request_size(&self) -> usize {
         // calculate next request size
         let next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multiplier)
             .min(self.inner.config.max_request_size);
-
-        let offset_in_part = (self.next_request_offset % self.inner.config.part_alignment as u64) as usize;
-        // if the offset is not at the start of the part we will drain all the bytes from that part first
-        if offset_in_part != 0 {
-            let remaining_in_part = self.inner.config.part_alignment - offset_in_part;
-            next_request_size.min(remaining_in_part)
-        } else {
-            // if the next request size is smaller than the part size, just return that value
-            if next_request_size < self.inner.config.part_alignment {
-                return next_request_size;
-            }
-
-            // if it exceeds part boundaries, trim it to the part boundaries
-            let next_request_boundary = self.next_request_offset + next_request_size as u64;
-            let remainder = (next_request_boundary % self.inner.config.part_alignment as u64) as usize;
-            next_request_size - remainder
-        }
+        self.inner
+            .part_feed
+            .get_aligned_request_size(self.next_request_offset, next_request_size)
     }
 
     /// Reset this prefetch request to a new offset, clearing any existing tasks queued.
@@ -457,7 +404,6 @@ mod tests {
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             read_timeout: Duration::from_secs(5),
-            part_alignment: test_config.client_part_size,
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
@@ -608,7 +554,6 @@ mod tests {
             sequential_prefetch_multiplier: prefetch_multiplier,
             max_request_size,
             read_timeout: Duration::from_secs(60),
-            part_alignment: part_size,
         };
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let prefetcher = Prefetcher::new(Arc::new(client), runtime, test_config);
