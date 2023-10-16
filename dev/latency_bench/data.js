@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1697490718781,
+  "lastUpdate": 1697493996873,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "534c3ed7f53289587b9aa47778a7ffa76109f81e",
-          "message": "Added Unreleased section in changelog (#497)\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2023-09-01T15:57:58Z",
-          "tree_id": "7fb39eccb7cba98135a54cd7b5f5f4eeeb3dfd9f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/534c3ed7f53289587b9aa47778a7ffa76109f81e"
-        },
-        "date": 1693585713065,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.081,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.175,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.165,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.808,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 64.1876625,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 66.2393769,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 100.39361170000001,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8490e8b8b4a0e5bbc71f6bdeb914cf75c4cc8580",
+          "message": "Introduce new abstraction between the prefetcher and GetObject calls (#552)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-10-16T21:28:27Z",
+          "tree_id": "75fd1405c73e55c7b7d4c3f0084bc2047d83e507",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8490e8b8b4a0e5bbc71f6bdeb914cf75c4cc8580"
+        },
+        "date": 1697493996364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.072,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.189,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.129,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.944,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 84.05870809999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 70.3162143,
             "unit": "milliseconds"
           }
         ]
