@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1696515995663,
+  "lastUpdate": 1697490718781,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "efb334dc6dbb1c72f21be20d26377ccf79989166",
-          "message": "Change release title in the workflow (#496)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2023-09-01T14:28:08Z",
-          "tree_id": "62869c00cee5eb34bd3ed0e8acf104e409bde630",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/efb334dc6dbb1c72f21be20d26377ccf79989166"
-        },
-        "date": 1693580684165,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.077,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.181,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.123,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.754,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 57.065677,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 78.18084990000001,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 118.88460979999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9db1d24904173d720ab2a79dd3549d502032bf43",
+          "message": "Improve the instructions to add benchmark files manually (#543)\n\n* Improved the instructions to add benchmark files manually in doc/BENCHMARKING.md\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Added all the steps for creating benchmark files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Corrected job name\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Removed filename argument to create directory\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* corrected the recommendations\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Added mount-dir variable\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Corrected the ordering\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Removed unnecessary space\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n---------\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2023-10-16T20:35:13Z",
+          "tree_id": "0c90ff1efcdaaa4b24c6f1d2a0ac44073a7a5bea",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/9db1d24904173d720ab2a79dd3549d502032bf43"
+        },
+        "date": 1697490718276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.079,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.182,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.125,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.269,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 116.2393625,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 100.39361170000001,
             "unit": "milliseconds"
           }
         ]
