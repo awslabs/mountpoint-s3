@@ -10,7 +10,7 @@ use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
+use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt};
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -50,6 +50,9 @@ pub struct ClientConfig {
     /// so we only need to hold onto it until this [ClientConfig] is consumed, at which point the
     /// client will take ownership.
     retry_strategy: Option<RetryStrategy>,
+
+    /// The default signing config for the CRT client.
+    signing_config: Option<SigningConfig>,
 }
 
 impl ClientConfig {
@@ -69,6 +72,13 @@ impl ClientConfig {
     pub fn retry_strategy(&mut self, retry_strategy: RetryStrategy) -> &mut Self {
         self.inner.retry_strategy = retry_strategy.inner.as_ptr();
         self.retry_strategy = Some(retry_strategy);
+        self
+    }
+
+    /// Default signing config for the requests.
+    pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
+        self.inner.signing_config = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;
+        self.signing_config = Some(signing_config);
         self
     }
 
@@ -1035,40 +1045,26 @@ impl From<aws_s3_request_type> for RequestType {
     }
 }
 
-/// Create a new [SigningConfig] with the default configuration for signing S3 requests to a region
+/// Create a new [SigningConfig] with the given configuration for signing S3 requests to a region
 /// using the given [CredentialsProvider]
-pub fn init_default_signing_config(
+pub fn init_signing_config(
     region: &str,
-    algorithm: SigningAlgorithm,
-    service: &str,
-    use_double_uri_encode: bool,
     credentials_provider: CredentialsProvider,
+    algorithm: Option<SigningAlgorithm>,
+    service: Option<&str>,
+    use_double_uri_encode: Option<bool>,
 ) -> SigningConfig {
-    let mut signing_config = Box::new(SigningConfigInner {
-        inner: Default::default(),
-        region: region.to_owned().into(),
-        credentials_provider,
-        service: service.to_owned().into(),
-        _pinned: Default::default(),
-    });
+    let mut signing_config = Box::new(SigningConfigInner::new(region, credentials_provider));
 
-    let credentials_provider = signing_config.credentials_provider.inner.as_ptr();
-    // SAFETY: `region` and `service` are owned by signing_config (see e.g. `region.to_owned()` above),
-    // so the byte cursors we create here will point to bytes that are valid as long as this SigningConfig is.
-    // singing_config owns `credential_provider` that is valid as long as this SingingConfig is.
-    unsafe {
-        let region_cursor = signing_config.region.as_aws_byte_cursor();
-        aws_s3_init_default_signing_config(&mut signing_config.inner, region_cursor, credentials_provider);
-
-        let service_cursor = signing_config.service.as_aws_byte_cursor();
-        signing_config.inner.service = service_cursor;
+    if let Some(service) = service {
+        signing_config.service(service);
     }
-
-    signing_config
-        .inner
-        .flags
-        .set_use_double_uri_encode(use_double_uri_encode as u32);
-    signing_config.inner.algorithm = algorithm.into();
+    if let Some(use_double_uri_encode) = use_double_uri_encode {
+        signing_config.use_double_uri_encode(use_double_uri_encode);
+    }
+    if let Some(algorithm) = algorithm {
+        signing_config.algorithm(algorithm);
+    }
 
     SigningConfig(Box::into_pin(signing_config))
 }
