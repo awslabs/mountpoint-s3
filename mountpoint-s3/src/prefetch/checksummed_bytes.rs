@@ -4,10 +4,11 @@ use thiserror::Error;
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that its integrity will be validated when data transformation occurs.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ChecksummedBytes {
     orig_bytes: Bytes,
     curr_slice: Bytes,
+    /// Checksum for `orig_bytes`
     checksum: Crc32c,
 }
 
@@ -123,6 +124,23 @@ pub enum IntegrityError {
     #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
     ChecksumMismatch(Crc32c, Crc32c),
 }
+
+/// Compare two [ChecksummedBytes].
+///
+/// Leverages existing [assert_eq!], just transforming the [ChecksummedBytes] as slices to be comparable.
+macro_rules! assert_eq_checksummed_bytes {
+    ($expected:expr, $actual:expr, $($message:expr),*) => {
+        assert_eq!(
+            $expected.to_owned().into_bytes().expect("buffer should not be corrupted")[..],
+            $actual.to_owned().into_bytes().expect("buffer should not be corrupted")[..],
+            $($message),*
+        );
+    };
+}
+
+#[cfg(test)]
+pub(crate) use assert_eq_checksummed_bytes;
+
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
