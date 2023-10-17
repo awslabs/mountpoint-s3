@@ -6,10 +6,11 @@ use std::hash::Hash;
 use std::ops::Range;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
+use crate::sync::RwLock;
 
 /// Simple in-memory (RAM) implementation of [DataCache]. Recommended for use in testing only.
 struct InMemoryDataCache<CacheKey> {
-    data: HashMap<CacheKey, HashMap<BlockIndex, ChecksummedBytes>>,
+    data: RwLock<HashMap<CacheKey, HashMap<BlockIndex, ChecksummedBytes>>>,
     block_size: u64,
 }
 
@@ -24,13 +25,15 @@ impl<Key> InMemoryDataCache<Key> {
 }
 
 impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
-    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<&ChecksummedBytes>> {
-        let block_data = self.data.get(cache_key).and_then(|blocks| blocks.get(&block_idx));
+    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
+        let data = self.data.read().unwrap();
+        let block_data = data.get(cache_key).and_then(|blocks| blocks.get(&block_idx)).cloned();
         Ok(block_data)
     }
 
-    fn put_block(&mut self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
-        let blocks = self.data.entry(cache_key).or_default();
+    fn put_block(&self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
+        let mut data = self.data.write().unwrap();
+        let blocks = data.entry(cache_key).or_default();
         blocks.insert(block_idx, bytes);
         Ok(())
     }
@@ -40,7 +43,8 @@ impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
     }
 
     fn cached_block_indices(&self, cache_key: &Key, range: Range<BlockIndex>) -> DataCacheResult<Vec<BlockIndex>> {
-        let result = match self.data.get(cache_key) {
+        let data = self.data.read().unwrap();
+        let result = match data.get(cache_key) {
             None => Vec::new(),
             Some(blocks) => range.into_iter().filter(|idx| blocks.contains_key(idx)).collect(),
         };
