@@ -55,7 +55,6 @@ mod tests {
 
     use bytes::Bytes;
 
-    use crate::prefetch::checksummed_bytes::assert_eq_checksummed_bytes;
     use mountpoint_s3_crt::checksums::crc32c;
 
     type TestCacheKey = String;
@@ -88,9 +87,8 @@ mod tests {
             .get_block(&cache_key_1, 0)
             .expect("cache is accessible")
             .expect("cache entry should be returned");
-        assert_eq_checksummed_bytes!(
-            &data_1,
-            entry,
+        assert_eq!(
+            &data_1, entry,
             "cache entry returned should match original bytes after put"
         );
 
@@ -102,9 +100,8 @@ mod tests {
             .get_block(&cache_key_2, 0)
             .expect("cache is accessible")
             .expect("cache entry should be returned");
-        assert_eq_checksummed_bytes!(
-            &data_2,
-            entry,
+        assert_eq!(
+            &data_2, entry,
             "cache entry returned should match original bytes after put"
         );
 
@@ -116,9 +113,8 @@ mod tests {
             .get_block(&cache_key_1, 1)
             .expect("cache is accessible")
             .expect("cache entry should be returned");
-        assert_eq_checksummed_bytes!(
-            &data_3,
-            entry,
+        assert_eq!(
+            &data_3, entry,
             "cache entry returned should match original bytes after put"
         );
 
@@ -127,9 +123,8 @@ mod tests {
             .get_block(&cache_key_1, 0)
             .expect("cache is accessible")
             .expect("cache entry should be returned");
-        assert_eq_checksummed_bytes!(
-            &data_1,
-            entry,
+        assert_eq!(
+            &data_1, entry,
             "cache entry returned should match original bytes after put"
         );
     }

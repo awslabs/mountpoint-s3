@@ -125,21 +125,24 @@ pub enum IntegrityError {
     ChecksumMismatch(Crc32c, Crc32c),
 }
 
-/// Compare two [ChecksummedBytes].
-///
-/// Leverages existing [assert_eq!], just transforming the [ChecksummedBytes] as slices to be comparable.
-macro_rules! assert_eq_checksummed_bytes {
-    ($expected:expr, $actual:expr, $($message:expr),*) => {
-        assert_eq!(
-            $expected.to_owned().into_bytes().expect("buffer should not be corrupted")[..],
-            $actual.to_owned().into_bytes().expect("buffer should not be corrupted")[..],
-            $($message),*
-        );
-    };
-}
-
+// Implement equality for tests only. We implement equality, and will panic if the data is corrupted.
 #[cfg(test)]
-pub(crate) use assert_eq_checksummed_bytes;
+impl PartialEq for ChecksummedBytes {
+    fn eq(&self, other: &Self) -> bool {
+        if self.curr_slice != other.curr_slice {
+            return false;
+        }
+
+        if self.orig_bytes == other.orig_bytes && self.checksum == other.checksum {
+            return true;
+        }
+
+        self.validate().expect("should be valid");
+        other.validate().expect("should be valid");
+
+        true
+    }
+}
 
 #[cfg(test)]
 mod tests {
