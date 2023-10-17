@@ -1,5 +1,11 @@
 ## Unreleased
 
+### Breaking changes
+* ...
+
+### Other changes
+* Introduced `--user-agent-prefix <PREFIX>` CLI argument ([#548](https://github.com/awslabs/mountpoint-s3/pull/548)) to optionally allow invoker of `mount-s3` to specify an additional prefix for the HTTP User-Agent header.
+
 ## v1.0.2 (September 22, 2023)
 
 ### Breaking changes
