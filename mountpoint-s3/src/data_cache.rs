@@ -40,12 +40,11 @@ pub trait DataCache<Key> {
     /// Put block of data to the cache for the given [Key] and [BlockIndex].
     fn put_block(&mut self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()>;
 
-    /// For a given byte range, which blocks should contain the cached data if available?
-    ///
-    /// This does not perform any check to see if the relevant data is cached.
-    fn indices_for_byte_range(&self, range: Range<u64>) -> Range<BlockIndex>;
+    /// Returns the block size for the data cache.
+    fn block_size(&self) -> u64;
 
     /// For the given range of blocks, which are present in the cache?
+    /// Indices in the vector are already sorted.
     ///
     /// It is possible that the **blocks may be deleted before reading**, or may be corrupted or inaccessible.
     /// This method only indicates that a cache entry was present at the time of calling.

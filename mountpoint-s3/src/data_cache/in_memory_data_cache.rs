@@ -35,14 +35,8 @@ impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
         Ok(())
     }
 
-    fn indices_for_byte_range(&self, range: Range<u64>) -> Range<BlockIndex> {
-        let start_block = range.start / self.block_size;
-        let mut end_block = range.end / self.block_size;
-        if !range.is_empty() && range.end % self.block_size != 0 {
-            end_block += 1;
-        }
-
-        start_block..end_block
+    fn block_size(&self) -> u64 {
+        self.block_size
     }
 
     fn cached_block_indices(&self, cache_key: &Key, range: Range<BlockIndex>) -> DataCacheResult<Vec<BlockIndex>> {
@@ -60,7 +54,6 @@ mod tests {
     use super::*;
 
     use bytes::Bytes;
-    use test_case::test_case;
 
     use crate::prefetch::checksummed_bytes::assert_eq_checksummed_bytes;
     use mountpoint_s3_crt::checksums::crc32c;
@@ -172,16 +165,5 @@ mod tests {
             .cached_block_indices(&cache_key_1, 0..12)
             .expect("should not error");
         assert_eq!(cached_indices, vec![2, 3]);
-    }
-
-    #[test_case(8, 2..12, 0..2; "non-zero offset, multiple blocks")]
-    #[test_case(16, 2..12, 0..1; "different block size")]
-    #[test_case(8, 0..8, 0..1; "range size of block size")]
-    #[test_case(8, 0..9, 0..2; "range size of block size + 1")]
-    #[test_case(8, 80..160, 10..20; "large range")]
-    #[test_case(8, 5..5, 0..0; "empty range")]
-    fn test_blocks_for_byte_range(block_size: u64, input: Range<u64>, output: Range<BlockIndex>) {
-        let cache: InMemoryDataCache<TestCacheKey> = InMemoryDataCache::new(block_size);
-        assert_eq!(cache.indices_for_byte_range(input), output);
     }
 }
