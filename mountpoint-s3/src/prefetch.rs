@@ -338,7 +338,11 @@ where
     /// Suggest next request size.
     /// The next request size is the current request size multiplied by sequential prefetch multiplier.
     fn get_next_request_size(&self) -> usize {
-        // calculate next request size
+        // TODO: this logic doesn't work well right now in the case where part_size <
+        // first_request_size and sequential_prefetch_multiplier = 1. It ends up just repeatedly
+        // shrinking the request size until it reaches 1. But this isn't a configuration we
+        // currently expect to ever run in (part_size will always be >= 5MB for MPU reasons, and a
+        // prefetcher with multiplier 1 is not very good).
         let next_request_size = (self.next_request_size * self.inner.config.sequential_prefetch_multiplier)
             .min(self.inner.config.max_request_size);
         self.inner
@@ -983,8 +987,10 @@ mod tests {
             let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
             let first_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let max_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
-            let sequential_prefetch_multiplier = rng.gen_range(1usize..16);
-            let part_size = rng.gen_range(16usize..2 * 1024 * 1024);
+            let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
+            let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
+            let max_forward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
+            let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
@@ -1000,6 +1006,8 @@ mod tests {
                 first_request_size,
                 max_request_size,
                 sequential_prefetch_multiplier,
+                max_forward_seek_distance,
+                max_backward_seek_distance,
                 ..Default::default()
             };
 
@@ -1036,8 +1044,10 @@ mod tests {
             // under Shuttle (lots of concurrent tasks)
             let max_object_size = first_request_size.min(max_request_size) * 20;
             let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
-            let sequential_prefetch_multiplier = rng.gen_range(1usize..16);
+            let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
             let part_size = rng.gen_range(16usize..128 * 1024);
+            let max_forward_seek_distance = rng.gen_range(16u64..192 * 1024);
+            let max_backward_seek_distance = rng.gen_range(16u64..192 * 1024);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
@@ -1053,6 +1063,8 @@ mod tests {
                 first_request_size,
                 max_request_size,
                 sequential_prefetch_multiplier,
+                max_forward_seek_distance,
+                max_backward_seek_distance,
                 ..Default::default()
             };
 
