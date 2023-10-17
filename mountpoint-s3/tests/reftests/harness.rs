@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use fuser::FileType;
 use futures::executor::ThreadPool;
 use futures::future::{BoxFuture, FutureExt};
-use mountpoint_s3::fs::{self, InodeNo, ReadReplier, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{self, CacheConfig, InodeNo, ReadReplier, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
@@ -885,6 +886,12 @@ mod mutations {
         let config = S3FilesystemConfig {
             readdir_size: 5,
             allow_delete: true,
+            cache_config: CacheConfig {
+                // We are only interested in strong consistency for the reference tests. FUSE isn't even in the loop.
+                prefer_s3: true,
+                dir_ttl: Duration::ZERO,
+                file_ttl: Duration::ZERO,
+            },
             ..Default::default()
         };
         let (client, fs) = make_test_filesystem(BUCKET_NAME, &test_prefix, config);
