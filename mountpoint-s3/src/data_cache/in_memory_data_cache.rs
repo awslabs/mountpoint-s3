@@ -92,7 +92,7 @@ mod tests {
             .expect("cache is accessible")
             .expect("cache entry should be returned");
         assert_eq!(
-            &data_1, entry,
+            data_1, entry,
             "cache entry returned should match original bytes after put"
         );
 
@@ -105,7 +105,7 @@ mod tests {
             .expect("cache is accessible")
             .expect("cache entry should be returned");
         assert_eq!(
-            &data_2, entry,
+            data_2, entry,
             "cache entry returned should match original bytes after put"
         );
 
@@ -118,7 +118,7 @@ mod tests {
             .expect("cache is accessible")
             .expect("cache entry should be returned");
         assert_eq!(
-            &data_3, entry,
+            data_3, entry,
             "cache entry returned should match original bytes after put"
         );
 
@@ -128,7 +128,7 @@ mod tests {
             .expect("cache is accessible")
             .expect("cache entry should be returned");
         assert_eq!(
-            &data_1, entry,
+            data_1, entry,
             "cache entry returned should match original bytes after put"
         );
     }
