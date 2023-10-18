@@ -6,11 +6,14 @@ By default, Mountpoint for Amazon S3 emits high-severity log information to [sys
 
 On other systems, syslog entries are likely written to a file such as `/var/log/syslog`.
 
-When running in foreground mode (the `-f, --foreground` command-line argument), Mountpoint will emit logs to stdout in addition to syslog or any configured log directory (see below).
+When running `mount-s3` in foreground mode (the `-f, --foreground` command-line argument), Mountpoint will emit logs to stdout in addition to syslog or any configured log directory (see below).
 
 ## Logging to a file
 
-You can direct logs to a file instead of syslog by providing a destination directory using the `-l, --log-directory` command-line argument.
+You can direct logs to a file instead of syslog by providing a destination directory using the `-l, --log-directory` command-line argument with `mount-s3`.
+
+    mount-s3 <BUCKET> <MOUNT_PATH> --log-directory <LOG_DIRECTORY>
+
 The directory will be created if it doesn't exist.
 A new log file will be created for each execution of `mount-s3`.
 Both the directory and log files are created with read/write access for the process owner and read access for the process owner's group.
