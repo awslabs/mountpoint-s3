@@ -5,6 +5,7 @@
 
 ### Other changes
 * Introduced `--user-agent-prefix <PREFIX>` CLI argument ([#548](https://github.com/awslabs/mountpoint-s3/pull/548)) to optionally allow invoker of `mount-s3` to specify an additional prefix for the HTTP User-Agent header.
+* Fixed a bug that cause poor performance for sequential reads in some cases ([#488](https://github.com/awslabs/mountpoint-s3/pull/488)). A workaround we have previously shared for this issue (setting the `--max-threads` argument to `1`) is no longer necessary with this fix. ([#556](https://github.com/awslabs/mountpoint-s3/pull/556))
 
 ## v1.0.2 (September 22, 2023)
 

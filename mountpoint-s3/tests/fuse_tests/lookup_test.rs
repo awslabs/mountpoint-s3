@@ -111,6 +111,7 @@ where
 {
     let filesystem_config = S3FilesystemConfig {
         cache_config: CacheConfig {
+            prefer_s3: true,
             file_ttl: Duration::ZERO,
             dir_ttl: Duration::ZERO,
         },

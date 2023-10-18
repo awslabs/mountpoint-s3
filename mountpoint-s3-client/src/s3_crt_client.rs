@@ -22,8 +22,8 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
-    init_default_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestType,
+    init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
+    RequestType,
 };
 
 use async_trait::async_trait;
@@ -251,26 +251,32 @@ impl S3CrtClientInner {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
                 };
-                Some(
-                    CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
-                        .map_err(NewClientError::ProviderFailure)?,
-                )
+                CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
+                    .map_err(NewClientError::ProviderFailure)?
             }
-            S3ClientAuthConfig::NoSigning => None,
+            S3ClientAuthConfig::NoSigning => {
+                CredentialsProvider::new_anonymous(&allocator).map_err(NewClientError::ProviderFailure)?
+            }
             S3ClientAuthConfig::Profile(profile_name) => {
                 let credentials_profile_options = CredentialsProviderProfileOptions {
                     bootstrap: &mut client_bootstrap,
                     profile_name_override: &profile_name,
                 };
-                Some(
-                    CredentialsProvider::new_profile(&allocator, credentials_profile_options)
-                        .map_err(NewClientError::ProviderFailure)?,
-                )
+                CredentialsProvider::new_profile(&allocator, credentials_profile_options)
+                    .map_err(NewClientError::ProviderFailure)?
             }
-            S3ClientAuthConfig::Provider(provider) => Some(provider),
+            S3ClientAuthConfig::Provider(provider) => provider,
         };
 
         let endpoint_config = config.endpoint_config;
+        let signing_config = init_signing_config(
+            endpoint_config.get_region(),
+            credentials_provider.clone(),
+            None,
+            None,
+            None,
+        );
+        client_config.signing_config(signing_config);
 
         client_config
             .client_bootstrap(client_bootstrap)
@@ -303,7 +309,7 @@ impl S3CrtClientInner {
             request_payer: config.request_payer,
             part_size: config.part_size,
             bucket_owner: config.bucket_owner,
-            credentials_provider,
+            credentials_provider: Some(credentials_provider),
         })
     }
 
@@ -325,12 +331,15 @@ impl S3CrtClientInner {
                 }
             };
             trace!(?auth_scheme, "resolved auth scheme");
-            Some(init_default_signing_config(
+            let algorithm = Some(auth_scheme.scheme_name());
+            let service = Some(auth_scheme.signing_name());
+            let use_double_uri_encode = Some(!auth_scheme.disable_double_encoding());
+            Some(init_signing_config(
                 auth_scheme.signing_region(),
-                auth_scheme.scheme_name(),
-                auth_scheme.signing_name(),
-                !auth_scheme.disable_double_encoding(),
                 credentials_provider.clone(),
+                algorithm,
+                service,
+                use_double_uri_encode,
             ))
         } else {
             None

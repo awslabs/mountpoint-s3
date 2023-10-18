@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that its integrity will be validated when data transformation occurs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChecksummedBytes {
     orig_bytes: Bytes,
     curr_slice: Bytes,

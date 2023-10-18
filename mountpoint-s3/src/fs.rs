@@ -194,6 +194,13 @@ impl<Client: ObjectClient> UploadState<Client> {
 
 #[derive(Debug, Clone)]
 pub struct CacheConfig {
+    /// Should the file system check S3 even when a valid cached entry may be available?
+    ///
+    /// When enabled, some operations such as `getattr` are allowed to be served from cache
+    /// with a short TTL since Linux filesystems behave badly when the TTL is zero.
+    /// For example, results from `readdir` will expire immediately, and so the kernel will
+    /// immediately `getattr` every entry returned from `readdir`.
+    pub prefer_s3: bool,
     /// How long the kernel will cache metadata for files
     pub file_ttl: Duration,
     /// How long the kernel will cache metadata for directories
@@ -202,8 +209,9 @@ pub struct CacheConfig {
 
 impl Default for CacheConfig {
     fn default() -> Self {
-        // We want to do as little caching as possible, but Linux filesystems behave badly when the
-        // TTL is exactly zero. For example, results from `readdir` will expire immediately, and so
+        // We want to do as little caching as possible by default,
+        // but Linux filesystems behave badly when the TTL is exactly zero.
+        // For example, results from `readdir` will expire immediately, and so
         // the kernel will immediately re-lookup every entry returned from `readdir`. So we apply
         // small non-zero TTLs. The goal is to be small enough that the impact on consistency is
         // minimal, but large enough that a single cache miss doesn't cause a cascading effect where
@@ -213,7 +221,11 @@ impl Default for CacheConfig {
         let file_ttl = Duration::from_millis(100);
         let dir_ttl = Duration::from_millis(1000);
 
-        Self { file_ttl, dir_ttl }
+        Self {
+            prefer_s3: true,
+            file_ttl,
+            dir_ttl,
+        }
     }
 }
 
@@ -461,7 +473,8 @@ where
     pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, Error> {
         trace!("fs:open with ino {:?} flags {:?}", ino, flags);
 
-        let lookup = self.superblock.getattr(&self.client, ino, true).await?;
+        let force_revalidate = self.config.cache_config.prefer_s3;
+        let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
 
         match lookup.inode.kind() {
             InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),

@@ -7,7 +7,7 @@ use super::checksummed_bytes::ChecksummedBytes;
 // TODO this is not very efficient right now -- it forces a lot of copying around of Strings. If
 // that's a bottleneck, let's think about either carrying &str (hard to make lifetimes work?) or
 // the etag or some kind of "cookie" (like the hash of the key).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Part {
     key: String,
     offset: u64,
