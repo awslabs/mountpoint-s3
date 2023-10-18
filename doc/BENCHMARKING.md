@@ -26,7 +26,7 @@ We keep the records of benchmarking results in `gh-pages` branch and the perform
 While our benchmark script is written for CI testing only, it is possible to run manually.
 You can use the following steps.
 
-1. Install dependencies and configure FUSE by running the following script in the repository:
+1. Install dependencies and configure FUSE by running the following script in the `mountpoint-s3` repository:
 
         bash .github/actions/install-dependencies/install.sh \
                 --fuse-version 2 \
@@ -39,10 +39,18 @@ You can use the following steps.
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
 
-3. Create the bench files manually in your bucket. The size of the files must be exactly the same as the size defined in fio configuration files. The easiest way to do this is running fio against your local file system first to let fio create the files for you, and then upload them to your S3 bucket using the AWS CLI. For example:
+3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
 
-        fio --directory=your_local_dir --filename=your_file_name mountpoint-s3/scripts/fio/read/seq_read_small.fio
-        aws s3 cp your_local_dir/your_file_name s3://${S3_BUCKET_NAME}/${S3_BUCKET_TEST_PREFIX}
+        MOUNT_DIR=path/to/mount
+        mount-s3 DOC-EXAMPLE-BUCKET $MOUNT_DIR/ --prefix benchmark/ --part-size=16777216
+        cd mountpoint-s3/scripts/fio/
+        fio --directory=$MOUNT_DIR/ --filename=bench5MB.bin --create_only=1 read/seq_read_small.fio
+        fio --directory=$MOUNT_DIR/ --filename=bench100GB.bin --create_only=1 read/seq_read.fio
+        mkdir $MOUNT_DIR/bench_dir_100/ $MOUNT_DIR/bench_dir_1000/ $MOUNT_DIR/bench_dir_10000/ $MOUNT_DIR/bench_dir_100000/
+        fio --directory=$MOUNT_DIR/bench_dir_100 create/create_files_100.fio
+        fio --directory=$MOUNT_DIR/bench_dir_1000 create/create_files_1000.fio
+        fio --directory=$MOUNT_DIR/bench_dir_10000 create/create_files_10000.fio
+        fio --directory=$MOUNT_DIR/bench_dir_100000 create/create_files_100000.fio
 
 4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 

@@ -5,8 +5,9 @@ use std::ptr::NonNull;
 
 use mountpoint_s3_crt_sys::{
     aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_chain_default_options,
-    aws_credentials_provider_new_chain_default, aws_credentials_provider_new_profile,
-    aws_credentials_provider_new_static, aws_credentials_provider_profile_options, aws_credentials_provider_release,
+    aws_credentials_provider_new_anonymous, aws_credentials_provider_new_chain_default,
+    aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
+    aws_credentials_provider_profile_options, aws_credentials_provider_release,
     aws_credentials_provider_static_options,
 };
 
@@ -80,6 +81,19 @@ impl CredentialsProvider {
         // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options.
         let inner = unsafe {
             aws_credentials_provider_new_chain_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
+        };
+
+        Ok(Self { inner })
+    }
+
+    /// Creates the anonymous credential provider.
+    /// Anonynous credentials provider gives you anonymous credentials which can be used to skip the signing process.
+    pub fn new_anonymous(allocator: &Allocator) -> Result<Self, Error> {
+        auth_library_init(allocator);
+
+        // SAFETY: allocator is a valid aws_allocator and shutdown_options is optional
+        let inner = unsafe {
+            aws_credentials_provider_new_anonymous(allocator.inner.as_ptr(), std::ptr::null_mut()).ok_or_last_error()?
         };
 
         Ok(Self { inner })

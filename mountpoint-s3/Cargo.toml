@@ -13,6 +13,7 @@ mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.3.0" }
 anyhow = { version = "1.0.64", features = ["backtrace"] }
 async-channel = "1.8.0"
 async-lock = "2.6.0"
+async-trait = "0.1.57"
 bytes = "1.2.1"
 clap = { version = "4.1.9", features = ["derive"] }
 crc32c = "0.6.3"
@@ -61,6 +62,10 @@ tokio = { version = "1.24.2", features = ["rt", "macros"] }
 walkdir = "2.3.3"
 
 [features]
+# Experimental features
+caching = []
+
+# Test features
 fips_tests = []
 fuse_tests = []
 s3_tests = []

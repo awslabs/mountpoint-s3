@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, Parser};
 use fuser::{MountOption, Session};
-use mountpoint_s3::fs::S3FilesystemConfig;
+use mountpoint_s3::fs::{CacheConfig, S3FilesystemConfig};
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::instance::InstanceInfo;
@@ -33,6 +33,8 @@ const MOUNT_OPTIONS_HEADER: &str = "Mount options";
 const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
 const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
 const LOGGING_OPTIONS_HEADER: &str = "Logging options";
+#[cfg(feature = "caching")]
+const CACHING_OPTIONS_HEADER: &str = "Caching options";
 
 #[derive(Parser)]
 #[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
@@ -214,6 +216,26 @@ struct CliArgs {
         conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
     )]
     pub no_log: bool,
+
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Enable caching of file and directory metadata for a configurable time-to-live (TTL)",
+        help_heading = CACHING_OPTIONS_HEADER,
+    )]
+    pub enable_metadata_caching: bool,
+
+    // TODO: What is a sensible default? Should TTL even be configurable?
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Override time-to-live (TTL) for cached metadata entries in seconds",
+        value_name = "SECONDS",
+        value_parser = parse_duration_seconds,
+        help_heading = CACHING_OPTIONS_HEADER,
+        requires = "enable_metadata_caching",
+    )]
+    pub metadata_cache_ttl: Option<Duration>,
 }
 
 impl CliArgs {
@@ -461,8 +483,20 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         filesystem_config.file_mode = file_mode;
     }
     filesystem_config.storage_class = args.storage_class;
-    filesystem_config.prefetcher_config.part_alignment = args.part_size as usize;
     filesystem_config.allow_delete = args.allow_delete;
+
+    #[cfg(feature = "caching")]
+    {
+        if args.enable_metadata_caching {
+            // TODO: Review default for TTL
+            let metadata_cache_ttl = args.metadata_cache_ttl.unwrap_or(Duration::from_secs(3600));
+            filesystem_config.cache_config = CacheConfig {
+                prefer_s3: false,
+                dir_ttl: metadata_cache_ttl,
+                file_ttl: metadata_cache_ttl,
+            };
+        }
+    }
 
     let fs = S3FuseFilesystem::new(client, runtime, &args.bucket_name, &prefix, filesystem_config);
 
@@ -579,6 +613,12 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     }
 
     Ok(bucket_name.to_owned())
+}
+
+fn parse_duration_seconds(seconds_str: &str) -> anyhow::Result<Duration> {
+    let seconds = seconds_str.parse()?;
+    let duration = Duration::from_secs(seconds);
+    Ok(duration)
 }
 
 fn env_region() -> Option<String> {

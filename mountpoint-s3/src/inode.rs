@@ -160,6 +160,13 @@ impl Superblock {
                         }
                     }
                     writing_children.remove(&ino);
+
+                    if let Ok(state) = inode.get_inode_state() {
+                        metrics::counter!(
+                            "metadata_cache.inode_forgotten_before_expiry",
+                            state.stat.is_valid().into(),
+                        );
+                    };
                 }
             }
         }
@@ -174,7 +181,10 @@ impl Superblock {
         name: &OsStr,
     ) -> Result<LookedUp, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
-        let lookup = self.inner.lookup(client, parent_ino, name).await?;
+        let lookup = self
+            .inner
+            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .await?;
         self.inner.remember(&lookup.inode);
         Ok(lookup)
     }
@@ -197,7 +207,10 @@ impl Superblock {
             }
         }
 
-        let lookup = self.inner.lookup(client, inode.parent(), inode.name().as_ref()).await?;
+        let lookup = self
+            .inner
+            .lookup_by_name(client, inode.parent(), inode.name().as_ref(), true)
+            .await?;
         if lookup.inode.ino() != ino {
             Err(InodeError::StaleInode {
                 remote_key: lookup.inode.full_key().to_owned(),
@@ -287,7 +300,10 @@ impl Superblock {
     ) -> Result<LookedUp, InodeError> {
         trace!(parent=?dir, ?name, "create");
 
-        let existing = self.inner.lookup(client, dir, name).await;
+        let existing = self
+            .inner
+            .lookup_by_name(client, dir, name, self.inner.cache_config.prefer_s3)
+            .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
             Err(InodeError::FileDoesNotExist) => (),
@@ -341,7 +357,10 @@ impl Superblock {
         parent_ino: InodeNo,
         name: &OsStr,
     ) -> Result<(), InodeError> {
-        let LookedUp { inode, .. } = self.inner.lookup(client, parent_ino, name).await?;
+        let LookedUp { inode, .. } = self
+            .inner
+            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .await?;
 
         if inode.kind() == InodeKind::File {
             return Err(InodeError::NotADirectory(inode.err()));
@@ -407,7 +426,10 @@ impl Superblock {
         name: &OsStr,
     ) -> Result<(), InodeError> {
         let parent = self.inner.get(parent_ino)?;
-        let LookedUp { inode, .. } = self.inner.lookup(client, parent_ino, name).await?;
+        let LookedUp { inode, .. } = self
+            .inner
+            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .await?;
 
         if inode.kind() == InodeKind::Directory {
             return Err(InodeError::IsDirectory(inode.err()));
@@ -474,7 +496,10 @@ impl Superblock {
 }
 
 impl SuperblockInner {
-    /// Retrieve the inode for the given number if it exists
+    /// Retrieve the inode for the given number if it exists.
+    ///
+    /// The expiry of its stat field is not checked.
+    /// This may return error on no entry existing or if the Inode is corrupted.
     pub fn get(&self, ino: InodeNo) -> Result<Inode, InodeError> {
         let inode = self
             .inodes
@@ -499,14 +524,16 @@ impl SuperblockInner {
     }
 
     /// Lookup an inode in the parent directory with the given name.
+    ///
     /// Updates the parent inode to be in sync with the client, but does
     /// not add new inodes to the superblock. The caller is responsible
     /// for calling [`remember()`] if that is required.
-    pub async fn lookup<OC: ObjectClient>(
+    pub async fn lookup_by_name<OC: ObjectClient>(
         &self,
         client: &OC,
         parent_ino: InodeNo,
         name: &OsStr,
+        skip_cache: bool,
     ) -> Result<LookedUp, InodeError> {
         let name = name
             .to_str()
@@ -518,12 +545,58 @@ impl SuperblockInner {
             return Err(InodeError::InvalidFileName(name.into()));
         }
 
-        // TODO use caches. if we already know about this name, we just need to revalidate the stat
-        // cache and then read it.
-        let remote = self.remote_lookup(client, parent_ino, name).await?;
-        let lookup = self.update_from_remote(parent_ino, name, remote)?;
+        let lookup = if skip_cache {
+            None
+        } else {
+            self.cache_lookup(parent_ino, name)
+        };
+
+        let lookup = match lookup {
+            Some(lookup) => lookup,
+            None => {
+                let remote = self.remote_lookup(client, parent_ino, name).await?;
+                self.update_from_remote(parent_ino, name, remote)?
+            }
+        };
+
         lookup.inode.verify_child(parent_ino, name.as_ref())?;
         Ok(lookup)
+    }
+
+    /// Lookup an [Inode] against known directory entries in the parent,
+    /// verifying any returned entry has not expired.
+    fn cache_lookup(&self, parent_ino: InodeNo, name: &str) -> Option<LookedUp> {
+        fn do_cache_lookup(parent: Inode, name: &str) -> Option<LookedUp> {
+            match &parent.get_inode_state().ok()?.kind_data {
+                InodeKindData::File { .. } => unreachable!("parent should be a directory!"),
+                InodeKindData::Directory { children, .. } => {
+                    let inode = children.get(name)?;
+                    let inode_stat = &inode.get_inode_state().ok()?.stat;
+                    if inode_stat.is_valid() {
+                        let lookup = LookedUp {
+                            inode: inode.clone(),
+                            stat: inode_stat.clone(),
+                        };
+                        return Some(lookup);
+                    }
+                }
+            };
+
+            None
+        }
+
+        let lookup = self
+            .get(parent_ino)
+            .ok()
+            .and_then(|parent| do_cache_lookup(parent, name));
+
+        match &lookup {
+            Some(lookup) => trace!("lookup returned from cache: {:?}", lookup),
+            None => trace!("no lookup available from cache"),
+        }
+        metrics::counter!("metadata_cache.cache_hit", lookup.is_some().into());
+
+        lookup
     }
 
     /// Lookup an inode in the parent directory with the given name
@@ -1121,6 +1194,7 @@ impl Inode {
         Self { inner: inner.into() }
     }
 
+    /// Verify [Inode] has the expected inode number and the inode content is valid for its checksum.
     fn verify_inode(&self, expected_ino: InodeNo) -> Result<(), InodeError> {
         let computed = Self::compute_checksum(self.ino(), self.full_key());
         if computed == self.inner.checksum && self.ino() == expected_ino {
@@ -1130,6 +1204,8 @@ impl Inode {
         }
     }
 
+    /// Verify [Inode] has the expected inode number, expected parent inode number,
+    /// and the inode's content is valid for its checksum.
     fn verify_child(&self, expected_parent: InodeNo, expected_name: &str) -> Result<(), InodeError> {
         let computed = Self::compute_checksum(self.ino(), self.full_key());
         if computed == self.inner.checksum && self.parent() == expected_parent && self.name() == expected_name {
@@ -1197,11 +1273,10 @@ impl From<InodeKind> for FileType {
 enum InodeKindData {
     File {},
     Directory {
-        /// Mapping from child names to [Inode]s.
+        /// Mapping from child names to previously seen [Inode]s.
         ///
-        /// How should this field be used?:
-        /// - **Many operations should maintain** this list.
-        /// - **Only `mknod` and `mkdir` should read** this list, for checking if a file already exists.
+        /// The existence of a child or lack thereof does not imply the object does not exist,
+        /// nor that it currently exists in S3 in that state.
         children: HashMap<String, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
@@ -1507,6 +1582,71 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test_case(true; "cached")]
+    #[test_case(false; "not cached")]
+    #[tokio::test]
+    async fn test_lookup_with_caching(cached: bool) {
+        let bucket = "test_bucket";
+        let prefix = "prefix/";
+        let client_config = MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let keys = &[
+            format!("{prefix}dir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file1.txt"),
+        ];
+
+        let object_size = 30;
+        let mut last_modified = OffsetDateTime::UNIX_EPOCH;
+        for key in keys {
+            let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
+            last_modified += Duration::days(1);
+            obj.set_last_modified(last_modified);
+            client.add_object(key, obj);
+        }
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let ts = OffsetDateTime::now_utc();
+        let ttl = if cached {
+            std::time::Duration::from_secs(60 * 60 * 24 * 7) // 7 days should be enough
+        } else {
+            std::time::Duration::ZERO
+        };
+        let superblock = Superblock::new(
+            bucket,
+            &prefix,
+            CacheConfig {
+                prefer_s3: false,
+                dir_ttl: ttl,
+                file_ttl: ttl,
+            },
+        );
+
+        let dir0 = superblock
+            .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir0"))
+            .await
+            .expect("should exist");
+        let file0 = superblock
+            .lookup(&client, dir0.inode.ino(), &OsString::from("file0.txt"))
+            .await
+            .expect("should exist");
+
+        client.remove_object(file0.inode.full_key());
+
+        let file0 = superblock
+            .lookup(&client, dir0.inode.ino(), &OsString::from("file0.txt"))
+            .await;
+        if cached {
+            file0.expect("file0 inode should still be served from cache");
+        } else {
+            file0.expect_err("file0 entry should have expired, and not be found in S3");
         }
     }
 
