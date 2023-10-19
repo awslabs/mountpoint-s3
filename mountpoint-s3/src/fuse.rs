@@ -93,9 +93,9 @@ where
         block_on(self.fs.forget(ino, nlookup));
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
-    fn open(&self, _req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
-        match block_on(self.fs.open(ino, flags).in_current_span()) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, pid=req.pid()))]
+    fn open(&self, req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
+        match block_on(self.fs.open(ino, flags, req.pid()).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => fuse_error!("open", reply, e),
         }
@@ -255,6 +255,14 @@ where
         }
     }
 
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, pid=req.pid()))]
+    fn flush(&self, req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+        match block_on(self.fs.flush(ino, fh, lock_owner, req.pid()).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("flush", reply, e),
+        }
+    }
+
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
     fn release(
         &self,
@@ -311,7 +319,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len()))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len(), pid=_req.pid()))]
     fn write(
         &self,
         _req: &Request<'_>,
@@ -418,11 +426,6 @@ where
     fn link(&self, _req: &Request<'_>, ino: u64, newparent: u64, newname: &OsStr, reply: ReplyEntry) {
         // Userspace expects EPERM for link/symlink if unsupported
         fuse_unsupported!("link", reply, libc::EPERM);
-    }
-
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
-    fn flush(&self, _req: &Request<'_>, ino: u64, fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        fuse_unsupported!("flush", reply);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync))]

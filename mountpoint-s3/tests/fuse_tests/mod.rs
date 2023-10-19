@@ -22,7 +22,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::types::PutObjectParams;
 use tempfile::TempDir;
 
-pub trait TestClient {
+pub trait TestClient: Send {
     fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         self.put_object_params(key, value, PutObjectParams::default())
     }
