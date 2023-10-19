@@ -261,10 +261,11 @@ impl Superblock {
         _client: &OC,
         ino: InodeNo,
         parent_ino: InodeNo,
+        pid: u32,
     ) -> Result<WriteHandle, InodeError> {
         trace!(?ino, parent=?parent_ino, "write");
 
-        WriteHandle::new(self.inner.clone(), ino, parent_ino)
+        WriteHandle::new(self.inner.clone(), ino, parent_ino, pid)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -991,21 +992,32 @@ pub struct WriteHandle {
     inner: Arc<SuperblockInner>,
     ino: InodeNo,
     parent_ino: InodeNo,
+    pid: u32,
 }
 
 impl WriteHandle {
     /// Check the status on the inode and set it to writing state if it's writable
-    fn new(inner: Arc<SuperblockInner>, ino: InodeNo, parent_ino: InodeNo) -> Result<Self, InodeError> {
+    fn new(inner: Arc<SuperblockInner>, ino: InodeNo, parent_ino: InodeNo, pid: u32) -> Result<Self, InodeError> {
         let inode = inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
-                Ok(Self { inner, ino, parent_ino })
+                Ok(Self {
+                    inner,
+                    ino,
+                    parent_ino,
+                    pid,
+                })
             }
             WriteStatus::LocalOpen => Err(InodeError::InodeAlreadyWriting(inode.err())),
             WriteStatus::Remote => Err(InodeError::InodeNotWritable(inode.err())),
         }
+    }
+
+    /// The pid of the process which opened this handle.
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
 
     /// Update status of the inode and of containing "local" directories.
@@ -1867,7 +1879,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0)
                 .await
                 .unwrap();
             expected_list.push(filename);
@@ -1923,7 +1935,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0)
                 .await
                 .unwrap();
             expected_list.push(filename);
@@ -2247,7 +2259,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), leaf_dir_ino)
+            .write(&client, new_inode.inode.ino(), leaf_dir_ino, 0)
             .await
             .unwrap();
 
@@ -2416,7 +2428,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE)
+            .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0)
             .await
             .unwrap();
 

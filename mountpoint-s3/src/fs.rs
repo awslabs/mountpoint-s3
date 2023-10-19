@@ -69,6 +69,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
         lookup: &LookedUp,
         ino: InodeNo,
         flags: i32,
+        pid: u32,
         fs: &S3Filesystem<Client, Runtime>,
     ) -> Result<FileHandleType<Client, Runtime>, Error> {
         // We can't support O_SYNC writes because they require the data to go to stable storage
@@ -77,7 +78,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
             return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
-        let handle = match fs.superblock.write(&fs.client, ino, lookup.inode.parent()).await {
+        let handle = match fs.superblock.write(&fs.client, ino, lookup.inode.parent(), pid).await {
             Ok(handle) => handle,
             Err(e) => {
                 return Err(e.into());
@@ -127,7 +128,12 @@ enum UploadState<Client: ObjectClient> {
 
 impl<Client: ObjectClient> UploadState<Client> {
     async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, Error> {
-        let upload = self.get_upload_in_progress(key)?;
+        let upload = match self {
+            Self::InProgress { request, .. } => request,
+            Self::Completed => return Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
+            Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
+        };
+
         match upload.write(offset, data).await {
             Ok(len) => Ok(len as u32),
             Err(e) => {
@@ -139,20 +145,42 @@ impl<Client: ObjectClient> UploadState<Client> {
                             error!(?err, "error updating the inode status");
                         }
                     }
-                    Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
+                    Self::Failed(_) | Self::Completed => unreachable!("checked above"),
                 };
                 Err(e.into())
             }
         }
     }
 
-    async fn complete(&mut self, key: &str) -> Result<(), Error> {
-        // Check that the upload is still in progress.
-        _ = self.get_upload_in_progress(key)?;
+    async fn complete(&mut self, key: &str, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
+        match self {
+            Self::InProgress { request, handle } => {
+                if ignore_if_empty && request.size() == 0 {
+                    trace!(key, "not completing upload because file is empty");
+                    return Ok(());
+                }
+                if let Some(pid) = pid {
+                    let open_pid = handle.pid();
+                    if !are_from_same_process(open_pid, pid) {
+                        trace!(
+                            key,
+                            pid,
+                            open_pid,
+                            "not completing upload because current pid differs from pid at open"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            Self::Completed => return Ok(()),
+            Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
+        };
+
         let (upload, handle) = match std::mem::replace(self, Self::Completed) {
             Self::InProgress { request, handle } => (request, handle),
-            Self::Failed(_) | Self::Completed => unreachable!("checked by get_upload_in_progress"),
+            Self::Failed(_) | Self::Completed => unreachable!("checked above"),
         };
+
         let result = Self::complete_upload(upload, key, handle).await;
         if let Err(e) = &result {
             *self = Self::Failed(e.to_errno());
@@ -182,14 +210,44 @@ impl<Client: ObjectClient> UploadState<Client> {
         }
         put_result
     }
+}
 
-    fn get_upload_in_progress(&mut self, key: &str) -> Result<&mut UploadRequest<Client>, Error> {
-        match self {
-            Self::InProgress { request, .. } => Ok(request),
-            Self::Completed => Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
-            Self::Failed(e) => Err(err!(*e, "upload already aborted for key {:?}", key)),
+/// Get the thread-group id (tgid) from a process id (pid).
+/// Despite the names, the process id is actually the thread id
+/// and the thread-group id is the parent process id.
+/// Returns `None` if unable to find or parse the task status.
+/// Not supported on macOS.
+fn get_tgid(pid: u32) -> Option<u32> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        let path = format!("/proc/{}/task/{}/status", pid, pid);
+        let file = File::open(path).ok()?;
+        for line in BufReader::new(file).lines() {
+            let line = line.ok()?;
+            if line.starts_with("Tgid:") {
+                return line["Tgid: ".len()..].trim().parse::<u32>().ok();
+            }
         }
     }
+
+    None
+}
+
+/// Check whether two pids correspond to the same process.
+fn are_from_same_process(pid1: u32, pid2: u32) -> bool {
+    if pid1 == pid2 {
+        return true;
+    }
+    let Some(tgid1) = get_tgid(pid1) else {
+        return false;
+    };
+    let Some(tgid2) = get_tgid(pid2) else {
+        return false;
+    };
+    tgid1 == tgid2
 }
 
 #[derive(Debug, Clone)]
@@ -470,8 +528,8 @@ where
         self.superblock.forget(ino, n);
     }
 
-    pub async fn open(&self, ino: InodeNo, flags: i32) -> Result<Opened, Error> {
-        trace!("fs:open with ino {:?} flags {:?}", ino, flags);
+    pub async fn open(&self, ino: InodeNo, flags: i32, pid: u32) -> Result<Opened, Error> {
+        trace!("fs:open with ino {:?} flags {:?} pid {:?}", ino, flags, pid);
 
         let force_revalidate = self.config.cache_config.prefer_s3;
         let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
@@ -488,10 +546,10 @@ where
                 FileHandleType::new_read_handle(&lookup).await?
             } else {
                 trace!("fs:open choosing write handle for O_RDWR");
-                FileHandleType::new_write_handle(&lookup, ino, flags, self).await?
+                FileHandleType::new_write_handle(&lookup, ino, flags, pid, self).await?
             }
         } else if flags & libc::O_WRONLY != 0 {
-            FileHandleType::new_write_handle(&lookup, ino, flags, self).await?
+            FileHandleType::new_write_handle(&lookup, ino, flags, pid, self).await?
         } else {
             FileHandleType::new_read_handle(&lookup).await?
         };
@@ -765,7 +823,7 @@ where
         }
     }
 
-    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
+    async fn complete_upload(&self, fh: u64, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -777,12 +835,33 @@ where
             FileHandleType::Write(request) => request.lock().await,
             FileHandleType::Read { .. } => return Ok(()),
         };
-        match request.complete(&file_handle.full_key).await {
+        match request.complete(&file_handle.full_key, ignore_if_empty, pid).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
             ret => ret,
         }
+    }
+
+    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
+        self.complete_upload(fh, false, None).await
+    }
+
+    pub async fn flush(&self, _ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
+        // We generally want to complete the upload when users close a file descriptor (and flush
+        // is invoked), so that we can notify them of the outcome. However, since different file
+        // descriptors can point to the same file handle, flush can be invoked multiple times on
+        // a file handle and will fail once the object has been uploaded.
+        // While we cannot avoid this issue in the general case, we want to support common usage
+        // patterns, in particular:
+        // * commands like `touch` and `dd` duplicate a file descriptor immediately after open,
+        //   close (flush) the original one, and then start writing on the duplicate. We support
+        //   these cases by only completing the upload on flush when some bytes have been written.
+        // * a `fork` on a process with open file descriptors will duplicate them for the child
+        //   process. In many cases, the child will then immediately close (flush) the duplicated
+        //   file descriptors. We will not complete the upload if we can detect that the process
+        //   invoking flush is different from the one that originally opened the file.
+        self.complete_upload(fh, true, Some(pid)).await
     }
 
     pub async fn release(

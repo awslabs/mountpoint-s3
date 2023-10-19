@@ -72,7 +72,7 @@ async fn test_read_dir_root(prefix: &str) {
         assert_eq!(attr.attr.ino, reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, 0x8000).await.unwrap().fh;
+        let fh = fs.open(reply.ino, 0x8000, 0).await.unwrap().fh;
         let mut read = Err(0);
         fs.read(reply.ino, fh, 0, 4096, 0, None, ReadReply(&mut read)).await;
         assert_eq!(&read.unwrap()[..], &[0xa0 + (i as u8 + 1); 15]);
@@ -146,7 +146,7 @@ async fn test_read_dir_nested(prefix: &str) {
         assert_eq!(attr.attr.ino, reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, 0x8000).await.unwrap().fh;
+        let fh = fs.open(reply.ino, 0x8000, 0).await.unwrap().fh;
         let mut read = Err(0);
         fs.read(reply.ino, fh, 0, 4096, 0, None, ReadReply(&mut read)).await;
         assert_eq!(&read.unwrap()[..], &[0xa0 + (i as u8 + 1); 15]);
@@ -185,7 +185,7 @@ async fn test_random_read(object_size: usize) {
     assert_eq!(reply.entries[2].name, "file");
     let ino = reply.entries[2].ino;
 
-    let fh = fs.open(ino, 0x8000).await.unwrap().fh;
+    let fh = fs.open(ino, 0x8000, 0).await.unwrap().fh;
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
     for _ in 0..10 {
@@ -240,7 +240,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     assert_eq!(reply.entries[2].name, "file2.txt");
     assert_eq!(reply.entries[2].attr.kind, FileType::RegularFile);
 
-    let fh = fs.open(reply.entries[2].ino, 0x8000).await.unwrap().fh;
+    let fh = fs.open(reply.entries[2].ino, 0x8000, 0).await.unwrap().fh;
     let mut read = Err(0);
     fs.read(reply.entries[2].ino, fh, 0, 4096, 0, None, ReadReply(&mut read))
         .await;
@@ -283,7 +283,7 @@ async fn test_sequential_write(write_size: usize) {
     let file_ino = dentry.attr.ino;
 
     let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -325,7 +325,7 @@ async fn test_sequential_write(write_size: usize) {
 
     // First let's check that we can't write it again
     let result = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .expect_err("file should not be overwritable")
         .to_errno();
@@ -333,7 +333,7 @@ async fn test_sequential_write(write_size: usize) {
 
     // But read-only should work
     let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_RDONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_RDONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -378,7 +378,7 @@ async fn test_unordered_write_fails(offset: i64) {
     let file_ino = dentry.attr.ino;
 
     let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -416,11 +416,14 @@ async fn test_duplicate_write_fails() {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let _opened = fs.open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY).await.unwrap();
+    let _opened = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .await
+        .unwrap();
 
     // Should not be allowed to open the file a second time
     let err = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .expect_err("should not be able to write twice")
         .to_errno();
@@ -456,7 +459,7 @@ async fn test_upload_aborted_on_write_failure() {
     let file_ino = dentry.attr.ino;
 
     let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -527,7 +530,7 @@ async fn test_upload_aborted_on_fsync_failure() {
     let file_ino = dentry.attr.ino;
 
     let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -583,7 +586,7 @@ async fn test_upload_aborted_on_release_failure() {
     let file_ino = dentry.attr.ino;
 
     let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -707,7 +710,7 @@ async fn test_local_dir(prefix: &str) {
     let file_entry = fs.mknod(dir_ino, filename.as_ref(), mode, 0, 0).await.unwrap();
     let file_ino = file_entry.attr.ino;
     let file_handle = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY)
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap()
         .fh;
@@ -935,7 +938,7 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(entry.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(entry.ino, libc::O_RDONLY).await;
+        let open = fs.open(entry.ino, libc::O_RDONLY, 0).await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
@@ -966,7 +969,7 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(lookup.attr.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(lookup.attr.ino, libc::O_RDONLY).await;
+        let open = fs.open(lookup.attr.ino, libc::O_RDONLY, 0).await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
