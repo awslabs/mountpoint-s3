@@ -121,14 +121,6 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
-        value_name = "PREFIX",
-        help_heading = CLIENT_OPTIONS_HEADER
-    )]
-    pub user_agent_prefix: Option<String>,
-
-    #[clap(
-        long,
         help = "Maximum throughput in Gbps [default: auto-detected on EC2 instances, 10 Gbps elsewhere]",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
@@ -244,6 +236,14 @@ struct CliArgs {
         requires = "enable_metadata_caching",
     )]
     pub metadata_cache_ttl: Option<Duration>,
+
+    #[clap(
+        long,
+        help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
+        value_name = "PREFIX",
+        help_heading = CLIENT_OPTIONS_HEADER
+    )]
+    pub user_agent_prefix: Option<String>,
 }
 
 impl CliArgs {
