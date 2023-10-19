@@ -4,7 +4,8 @@
 * Mountpoint will now complete file uploads at `close` time, and `close` will return an error if the upload was not successful. Before this change, `close` did not wait for the upload to complete, which could cause confusing results for applications that try to read a file they just wrote. ([#526](https://github.com/awslabs/mountpoint-s3/pull/526))
 
 ### Other changes
-* Fixed a bug that caused poor performance for sequential reads in some cases ([#488](https://github.com/awslabs/mountpoint-s3/pull/488)). A workaround we have previously shared for this issue (setting the `--max-threads` argument to `1`) is no longer necessary with this fix. ([#556](https://github.com/awslabs/mountpoint-s3/pull/556))
+* Fixed a bug that cause poor performance for sequential reads in some cases ([#488](https://github.com/awslabs/mountpoint-s3/pull/488)). A workaround we have previously shared for this issue (setting the `--max-threads` argument to `1`) is no longer necessary with this fix. ([#556](https://github.com/awslabs/mountpoint-s3/pull/556))
+* Introduced `--user-agent-prefix <PREFIX>` CLI argument ([#548](https://github.com/awslabs/mountpoint-s3/pull/548)) to optionally allow invoker of `mount-s3` to specify an additional prefix for the HTTP User-Agent header.
 
 ## v1.0.2 (September 22, 2023)
 
