@@ -35,6 +35,7 @@ const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
 const LOGGING_OPTIONS_HEADER: &str = "Logging options";
 #[cfg(feature = "caching")]
 const CACHING_OPTIONS_HEADER: &str = "Caching options";
+const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
 #[derive(Parser)]
 #[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
@@ -241,7 +242,7 @@ struct CliArgs {
         long,
         help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
         value_name = "PREFIX",
-        help_heading = CLIENT_OPTIONS_HEADER
+        help_heading = ADVANCED_OPTIONS_HEADER,
     )]
     pub user_agent_prefix: Option<String>,
 }
