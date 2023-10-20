@@ -2,6 +2,8 @@ use std::fs::{metadata, read, read_dir, File};
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::OpenOptionsExt;
 use std::path::Path;
+use std::process::Command;
+use std::thread;
 
 use fuser::BackgroundSession;
 use rand::{Rng, SeedableRng};
@@ -493,4 +495,183 @@ fn write_file(path: impl AsRef<Path>) -> std::io::Result<()> {
 #[test_case("INVALID_CLASS")]
 fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
     write_with_invalid_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
+}
+
+fn flush_test<F>(creator_fn: F, append: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const OBJECT_SIZE: usize = 50 * 1024;
+    const WRITE_SIZE: usize = 1024;
+    const KEY: &str = "new.txt";
+
+    let (mount_point, _session, test_client) = creator_fn("flush_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, append).unwrap();
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    for part in body.chunks(WRITE_SIZE) {
+        f.write_all(part).unwrap();
+    }
+
+    assert!(test_client.is_upload_in_progress(KEY).unwrap());
+
+    // Close the file. Will trigger a call to flush.
+    drop(f);
+
+    assert!(!test_client.is_upload_in_progress(KEY).unwrap());
+
+    // Now it's closed, we can stat or read it
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), body.len() as u64);
+
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &body[..]);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "append")]
+#[test_case(false; "no append")]
+fn flush_test_s3(append: bool) {
+    flush_test(crate::fuse_tests::s3_session::new, append);
+}
+
+#[test_case(true; "append")]
+#[test_case(false; "no append")]
+fn flush_test_mock(append: bool) {
+    flush_test(crate::fuse_tests::mock_session::new, append);
+}
+
+fn touch_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+
+    let (mount_point, _session, test_client) = creator_fn("touch_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+
+    let exit_status = Command::new("touch")
+        .arg(&path)
+        .status()
+        .expect("Unable to spawn touch");
+    assert!(exit_status.success());
+
+    // Wait until the upload completes.
+    const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+    let st = std::time::Instant::now();
+    loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        if !test_client.is_upload_in_progress(KEY).unwrap() && test_client.contains_key(KEY).unwrap() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), 0);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn touch_test_s3() {
+    touch_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn touch_test_mock() {
+    touch_test(crate::fuse_tests::mock_session::new);
+}
+
+fn dd_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const KEY: &str = "new.txt";
+    const SIZE: u64 = 128;
+
+    let (mount_point, _session, test_client) = creator_fn("dd_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+
+    let exit_status = Command::new("dd")
+        .arg("if=/dev/random")
+        .arg(format!("of={}", path.to_str().unwrap()))
+        .arg(format!("bs={}", SIZE))
+        .arg("count=1")
+        .status()
+        .expect("Unable to spawn dd");
+    assert!(exit_status.success());
+
+    assert!(!test_client.is_upload_in_progress(KEY).unwrap());
+    assert!(test_client.contains_key(KEY).unwrap());
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), SIZE);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn dd_test_s3() {
+    dd_test(crate::fuse_tests::s3_session::new);
+}
+
+#[test]
+fn dd_test_mock() {
+    dd_test(crate::fuse_tests::mock_session::new);
+}
+
+#[test]
+fn spawn_test() {
+    const KEY: &str = "new.txt";
+    let (mount_point, _session, _test_client) = crate::fuse_tests::mock_session::new("spawn_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+    let mut f = open_for_write(&path, false).unwrap();
+
+    let data = vec![0xaa; 32];
+    f.write_all(&data).unwrap();
+
+    // Spawn another process between writes to
+    // an open file.
+    _ = Command::new("echo").status().expect("Unable to spawn echo");
+
+    f.write_all(&data).unwrap();
+    drop(f);
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), (data.len() * 2) as u64);
+}
+
+#[test]
+fn multi_thread_test() {
+    const KEY: &str = "new.txt";
+    let (mount_point, _session, test_client) = crate::fuse_tests::mock_session::new("spawn_test", Default::default());
+
+    let path = mount_point.path().join(KEY);
+    let mut f = open_for_write(&path, false).unwrap();
+
+    let data = vec![0xaa; 32 * 1024 * 1024];
+    f.write_all(&data).unwrap();
+
+    thread::spawn(move || {
+        f.write_all(&data).unwrap();
+        drop(f);
+
+        assert!(!test_client.is_upload_in_progress(KEY).unwrap());
+        assert!(test_client.contains_key(KEY).unwrap());
+
+        let m = metadata(&path).unwrap();
+        assert_eq!(m.len(), (data.len() * 2) as u64);
+    })
+    .join()
+    .unwrap();
 }

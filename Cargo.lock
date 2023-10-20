@@ -2417,7 +2417,7 @@ dependencies = [
  "byteorder",
  "hex",
  "lazy_static",
- "rustix 0.36.14",
+ "rustix 0.36.16",
 ]
 
 [[package]]
@@ -2645,9 +2645,9 @@ checksum = "a45e222b29b1c72df440525c4158fa44fda5347a95f14dc47bb37fd7c1969b43"
 
 [[package]]
 name = "rustix"
-version = "0.36.14"
+version = "0.36.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14e4d67015953998ad0eb82887a0eb0129e18a7e2f3b7b0f6c422fddcd503d62"
+checksum = "6da3636faa25820d8648e0e31c5d519bbb01f72fdf57131f0f5f7da5fed36eab"
 dependencies = [
  "bitflags 1.3.2",
  "errno",

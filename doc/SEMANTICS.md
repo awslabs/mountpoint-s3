@@ -143,6 +143,13 @@ but with some limitations:
 Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow
 further writes.
 
+`close` also generally completes the upload of the object and reports an error if not successful. However,
+if the file is empty, or if `close` is invoked by a different process than the one that originally opened it,
+`close` returns immediately and the upload is only completed asynchronously after the last reference to the
+file is closed. These exceptions allow Mountpoint to support common usage patterns seen in tools like `dd`,
+`touch`, or in shell redirection, that hold multiple references to an open file and keep writing to one after
+closing another.
+
 Space allocation operations (`fallocate`, `posix_fallocate`) are not supported.
 
 Changing last access and modification times (`utime`) is supported only on files that are being written.

@@ -35,6 +35,7 @@ const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
 const LOGGING_OPTIONS_HEADER: &str = "Logging options";
 #[cfg(feature = "caching")]
 const CACHING_OPTIONS_HEADER: &str = "Caching options";
+const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
 #[derive(Parser)]
 #[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
@@ -236,6 +237,14 @@ struct CliArgs {
         requires = "enable_metadata_caching",
     )]
     pub metadata_cache_ttl: Option<Duration>,
+
+    #[clap(
+        long,
+        help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
+        value_name = "PREFIX",
+        help_heading = ADVANCED_OPTIONS_HEADER,
+    )]
+    pub user_agent_prefix: Option<String>,
 }
 
 impl CliArgs {
@@ -442,11 +451,17 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         S3ClientAuthConfig::Default
     };
 
+    let user_agent_prefix = if let Some(custom_prefix) = args.user_agent_prefix {
+        format!("{} mountpoint-s3/{}", custom_prefix, build_info::FULL_VERSION)
+    } else {
+        format!("mountpoint-s3/{}", build_info::FULL_VERSION)
+    };
+
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
         .part_size(args.part_size as usize)
-        .user_agent_prefix(&format!("mountpoint-s3/{}", build_info::FULL_VERSION));
+        .user_agent_prefix(&user_agent_prefix);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
     }
