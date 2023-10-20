@@ -13,6 +13,7 @@ use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::object_client::KmsKeys;
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
 use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
@@ -309,6 +310,8 @@ pub struct S3FilesystemConfig {
     pub storage_class: Option<String>,
     /// KMS key type for Server side encryption
     pub kms_key: Option<KmsKeys>,
+    /// KMS key ID for Server side encryption
+    pub key_id: Option<String>
 }
 
 impl Default for S3FilesystemConfig {
@@ -326,6 +329,8 @@ impl Default for S3FilesystemConfig {
             prefetcher_config: PrefetcherConfig::default(),
             allow_delete: false,
             storage_class: None,
+            kms_key: None,
+            key_id: None
         }
     }
 }

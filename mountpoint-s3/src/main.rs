@@ -17,6 +17,7 @@ use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::metrics;
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::object_client::KmsKeys;
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::common::allocator::Allocator;
@@ -507,9 +508,16 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     if let Some(file_mode) = args.file_mode {
         filesystem_config.file_mode = file_mode;
     }
+    if args.sse_kms {
+        filesystem_config.kms_key = Some(KmsKeys::SseKms)
+    }
+    if args.dsse_kms {
+        filesystem_config.kms_key = Some(KmsKeys::DsseKms)
+    }
+    filesystem_config.key_id = args.key_id;
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
-    
+
 
     #[cfg(feature = "caching")]
     {

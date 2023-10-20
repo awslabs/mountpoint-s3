@@ -282,9 +282,9 @@ pub struct PutObjectParams {
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
     /// Server side encryption type for creating new S3 object
-    kms_key: Option<KmsKeys>,
+    pub kms_key: Option<KmsKeys>,
     /// Corresponding key id if SSE-KMS key type is opted
-    key_id: Option<String>
+    pub key_id: Option<String>
 }
 
 impl PutObjectParams {

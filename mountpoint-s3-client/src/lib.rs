@@ -51,7 +51,7 @@ pub mod failure_client;
 pub mod imds_crt_client;
 #[doc(hidden)]
 pub mod mock_client;
-mod object_client;
+pub mod object_client;
 mod s3_crt_client;
 mod util;
 
