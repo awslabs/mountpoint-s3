@@ -14,11 +14,19 @@ We've tried hard to make this simple command adopt good defaults for most scenar
 
 Mountpoint uses the same [credentials configuration options](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html) as the AWS CLI, and will automatically discover credentials from multiple sources. If you are able to run AWS CLI commands like `aws s3 ls` against your bucket, you should generally also be able to use Mountpoint against that bucket.
 
-> Note: Mountpoint does not currently support authenticating with IAM Identity Center (SSO or Legacy SSO). This issue is tracked in [#433](https://github.com/awslabs/mountpoint-s3/issues/433).
+> [!NOTE]
+> Mountpoint does not currently support authenticating with IAM Identity Center (SSO or Legacy SSO). This issue is tracked in [#433](https://github.com/awslabs/mountpoint-s3/issues/433).
 
 We recommend you use short-term AWS credentials whenever possible. Mountpoint supports several options for short-term AWS credentials:
-* When running Mountpoint on an Amazon EC2 instance, you can [associate an IAM role with your instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) using an instance profile, and Mountpoint will automatically assume that IAM role.
-* When running Mountpoint in an Amazon ECS task, you can similarly [associate an IAM role with the task](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html) for Mountpoint to automatically assume.
+* When running Mountpoint on an Amazon EC2 instance, you can [associate an IAM role with your instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) using an instance profile, and Mountpoint will automatically assume that IAM role and manage refreshing the credentials.
+* When running Mountpoint in an Amazon ECS task, you can similarly [associate an IAM role with the task](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html) for Mountpoint to automatically assume and manage refreshing the credentials.
+* You can configure Mountpoint to [automatically assume a specific IAM role](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-role.html#cli-role-overview) using the `role_arn` field of the `~/.aws/config` file. This configuration can be useful for cross-account access, where the target IAM role is in a different AWS account. You will need to specify how to obtain credentials that have permission to assume the role with either the `source_profile` or `credential_source` fields. For example, if you want Mountpoint to assume the IAM role `arn:aws:iam::123456789012:role/marketingadminrole`, you can associate an instance profile with your EC2 instance that has permission to assume that role, and then configure a profile in your `~/.aws/config` file:
+  ```
+  [profile marketingadmin]
+  role_arn = arn:aws:iam::123456789012:role/marketingadminrole
+  credential_source = Ec2InstanceMetadata
+  ```
+  With this configuration, running Mountpoint with the `--profile marketingadmin` command-line argument will automatically assume the specified IAM role and manage refreshing the credentials.
 * Otherwise, you can [acquire temporary AWS credentials for an IAM role](https://docs.aws.amazon.com/cli/latest/userguide/cli-authentication-short-term.html) from the AWS Console or with the `aws sts assume-role` AWS CLI command, and store them in the `~/.aws/credentials` file.
 
 If you need to use long-term AWS credentials, you can [store them in the configuration and credentials files](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html) in `~/.aws`, or [specify them with environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html) (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`).
@@ -106,6 +114,9 @@ then you can mount your S3 bucket to the `/path/to/mount` directory with either 
 
 ### S3 Object Lambda
 
+> [!IMPORTANT]
+> Not all Object Lambda functions will work with Mountpoint. Your Lambda function must satisfy some additional properties (listed below) for it to be usable with Mountpoint.
+
 [Amazon S3 Object Lambda](https://docs.aws.amazon.com/AmazonS3/latest/userguide/transforming-objects.html) allows you to add your own code to Amazon S3 `GET`, `LIST`, and `HEAD` requests to modify and process data as it is returned to an application. S3 Object Lambda uses AWS Lambda functions to automatically process the output of standard S3 `GET`, `LIST`, or `HEAD` requests.
 
 You can use S3 Object Lambda with Mountpoint by mounting an [Object Lambda Access Point](https://docs.aws.amazon.com/AmazonS3/latest/userguide/olap-use.html). Mounting an Object Lambda Access Point works the same way as [mounting an access point](#access-points), by specifying either the ARN or the bucket-style alias of the Object Lambda Access Point as the bucket argument to `mount-s3`. To use S3 Object Lambda with Mountpoint (or any other client), your IAM identity needs [additional permissions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/olap-policies.html).
@@ -126,7 +137,8 @@ In most scenarios, Mountpoint automatically infers the appropriate Amazon S3 end
   --endpoint-url https://bucket.vpce-0e25b8cdd720f900e-argc85vg.s3.us-east-1.vpce.amazonaws.com
   ```
   Alternatively, if you enable [private DNS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/privatelink-interface-endpoints.html#private-dns) for your interface endpoint, you do not need to provide the `--endpoint-url` command-line argument.
-* In other scenarios, you can use the `--endpoint-url` command-line argument to fully override Mountpoint's endpoint detection. For example, the argument `--endpoint-url https://example.com` will force Mountpoint to send S3 requests to `example.com`. You may need to also use the `--region` flag to correctly specify the region to use in AWS request signing, and the `--force-path-style` flag to disable [virtual-hosted-style addressing](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html) if the endpoint does not support it.
+
+If necessary, you can use the `--endpoint-url` command-line argument to fully override Mountpoint's endpoint detection. For example, the argument `--endpoint-url https://example.com` will force Mountpoint to send S3 requests to `example.com`. You may need to also use the `--region` flag to correctly specify the region to use for signing requests. By default, Mountpoint will use [virtual-hosted-style addressing](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html) for the configured endpoint, and so will send requests to `https://docexamplebucket.example.com` if configured with `--endpoint-url https://example.com` and the bucket name `docexamplebucket`. To disable virtual-hosted-style addressing, use the `--force-path-style` command-line flag to instead send requests to `https://example.com/docexamplebucket/`.
 
 ### Data encryption
 
