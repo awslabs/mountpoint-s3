@@ -46,6 +46,28 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
         }
 
+        if let Some(kms_key) = params.kms_key.to_owned() {
+            match kms_key {
+                crate::object_client::KmsKeys::SseKms => {
+                    message
+                        .set_header(&Header::new("x-amz-server-side-encryption", "aws:kms"))
+                        .map_err(S3RequestError::construction_failure)?;
+                },
+                crate::object_client::KmsKeys::DsseKms => {
+                    message
+                        .set_header(&Header::new("x-amz-server-side-encryption", "aws:kms:dsse"))
+                        .map_err(S3RequestError::construction_failure)?;
+                },
+            }
+        }
+
+        // Although, key_id can only be set when kms_key is provided, but that is already ensured in command line arguments
+        if let Some(key_id) = params.key_id.to_owned() {
+            message
+                .set_header(&Header::new("x-amz-server-side-encryption-aws-kms-key-id", key_id))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
         let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
         options.on_upload_review(move |review| callback.invoke(review));
         let body = self

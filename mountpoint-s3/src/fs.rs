@@ -307,6 +307,8 @@ pub struct S3FilesystemConfig {
     pub allow_delete: bool,
     /// Storage class to be used for new object uploads
     pub storage_class: Option<String>,
+    /// KMS key type for Server side encryption
+    pub kms_key: Option<KmsKeys>,
 }
 
 impl Default for S3FilesystemConfig {

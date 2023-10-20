@@ -266,6 +266,13 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
+/// Type of Server side encryption(SSE) opted for Put Object
+#[derive(Debug, Clone)]
+pub enum KmsKeys {
+    SseKms,
+    DsseKms,
+}
+
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
@@ -274,6 +281,10 @@ pub struct PutObjectParams {
     pub trailing_checksums: bool,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
+    /// Server side encryption type for creating new S3 object
+    kms_key: Option<KmsKeys>,
+    /// Corresponding key id if SSE-KMS key type is opted
+    key_id: Option<String>
 }
 
 impl PutObjectParams {
@@ -291,6 +302,18 @@ impl PutObjectParams {
     /// Set the storage class.
     pub fn storage_class(mut self, value: String) -> Self {
         self.storage_class = Some(value);
+        self
+    }
+
+    /// Set the KMS key type.
+    pub fn kms_key(mut self, key_type: KmsKeys) -> Self {
+        self.kms_key = Some(key_type);
+        self
+    }
+
+    /// Set the KMS key ID.
+    pub fn key_id(mut self, value: String) -> Self {
+        self.key_id = Some(value);
         self
     }
 }

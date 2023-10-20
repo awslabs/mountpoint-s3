@@ -121,6 +121,31 @@ struct CliArgs {
 
     #[clap(
         long,
+        help = "Add the SSE KMS encryption for PUT requests",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        group = "sse_options"
+    )]
+    pub sse_kms: bool,
+
+    // Keeping [sse_kms] and [dsse_kms] in same arg group makes them mutually exclusive arguments
+    #[clap(
+        long,
+        help = "Add the DSSE KMS encryption for PUT requests",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        group = "sse_options"
+    )]
+    pub dsse_kms: bool,
+
+    #[clap(
+        long,
+        help = "Add the encryption key id for KMS keys",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        requires = "sse_options"
+    )]
+    pub key_id: Option<String>,
+
+    #[clap(
+        long,
         help = "Maximum throughput in Gbps [default: auto-detected on EC2 instances, 10 Gbps elsewhere]",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
@@ -484,6 +509,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     }
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
+    
 
     #[cfg(feature = "caching")]
     {
