@@ -143,7 +143,7 @@ impl MockClient {
         let initial_count = op_counts.get(&operation).copied().unwrap_or_default();
 
         OperationCounter {
-            client: self.clone(),
+            client: self,
             initial_count,
             operation,
         }
