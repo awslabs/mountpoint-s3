@@ -138,7 +138,7 @@ impl MockClient {
     }
 
     /// Create a new counter for the given operation, starting at 0.
-    pub fn new_counter<'a>(&'a self, operation: Operation) -> OperationCounter<'a> {
+    pub fn new_counter(&self, operation: Operation) -> OperationCounter<'_> {
         let op_counts = self.operation_counts.read().unwrap();
         let initial_count = op_counts.get(&operation).copied().unwrap_or_default();
 

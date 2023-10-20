@@ -277,7 +277,7 @@ async fn test_readdir_then_open_cached() {
         let _ = entries.next().expect("should have parent directory");
 
         let entry = entries.next().expect("should have file1.txt in entries");
-        let expected: OsString = format!("file1.txt").into();
+        let expected = OsString::from("file1.txt");
         assert_eq!(entry.name, expected);
         assert_eq!(entry.attr.kind, FileType::RegularFile);
 
@@ -330,8 +330,7 @@ async fn test_unlink_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let _unlinked = fs
-        .unlink(parent_ino, "file1.txt".as_ref())
+    fs.unlink(parent_ino, "file1.txt".as_ref())
         .await
         .expect("unlink should unlink cached object");
     assert_eq!(head_counter.count(), 1);
