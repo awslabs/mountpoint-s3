@@ -1,10 +1,12 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-use mountpoint_s3::fs::{ToErrno, FUSE_ROOT_INODE};
+use libc::S_IFREG;
+use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
-use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject};
+use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 use nix::unistd::{getgid, getuid};
@@ -162,6 +164,226 @@ async fn test_read_dir_nested(prefix: &str) {
     assert_eq!(reply.entries.len(), 0);
 
     fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_lookup_negative_cached() {
+    let fs_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            prefer_s3: false,
+            dir_ttl: Duration::from_secs(600),
+            file_ttl: Duration::from_secs(600),
+        },
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem("test_lookup_negative_cached", &Default::default(), fs_config);
+
+    let head_counter = client.new_counter(Operation::HeadObject);
+    let list_counter = client.new_counter(Operation::ListObjectsV2);
+
+    let _ = fs
+        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .await
+        .expect_err("should fail as no object exists");
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    // Check no negative caching
+    let _ = fs
+        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .await
+        .expect_err("should fail as no object exists");
+    assert_eq!(head_counter.count(), 2);
+    assert_eq!(list_counter.count(), 2);
+
+    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+    let _ = fs
+        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .await
+        .expect("should succeed as object exists and no negative cache");
+    assert_eq!(head_counter.count(), 3);
+    assert_eq!(list_counter.count(), 3);
+
+    let _ = fs
+        .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
+        .await
+        .expect("should succeed as object is cached and exists");
+    assert_eq!(head_counter.count(), 3);
+    assert_eq!(list_counter.count(), 3);
+}
+
+#[tokio::test]
+async fn test_lookup_then_open_cached() {
+    let fs_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            prefer_s3: false,
+            dir_ttl: Duration::from_secs(600),
+            file_ttl: Duration::from_secs(600),
+        },
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
+
+    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+    let head_counter = client.new_counter(Operation::HeadObject);
+    let list_counter = client.new_counter(Operation::ListObjectsV2);
+
+    let entry = fs.lookup(FUSE_ROOT_INODE, "file1.txt".as_ref()).await.unwrap();
+    let ino = entry.attr.ino;
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    let fh = fs.open(ino, S_IFREG as i32).await.unwrap().fh;
+    fs.release(ino, fh, 0, None, true).await.unwrap();
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    let fh = fs.open(entry.attr.ino, S_IFREG as i32).await.unwrap().fh;
+    fs.release(ino, fh, 0, None, true).await.unwrap();
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+}
+
+#[tokio::test]
+async fn test_readdir_then_open_cached() {
+    let fs_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            prefer_s3: false,
+            dir_ttl: Duration::from_secs(600),
+            file_ttl: Duration::from_secs(600),
+        },
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem("test_readdir_then_open_cached", &Default::default(), fs_config);
+
+    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+    // Repeat to check readdir is not currently served from cache
+    for _ in 0..2 {
+        let head_counter = client.new_counter(Operation::HeadObject);
+        let list_counter = client.new_counter(Operation::ListObjectsV2);
+
+        let dir_ino = FUSE_ROOT_INODE;
+        let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+
+        assert_eq!(reply.entries.len(), 2 + 1);
+
+        let mut entries = reply.entries.iter();
+        let _ = entries.next().expect("should have current directory");
+        let _ = entries.next().expect("should have parent directory");
+
+        let entry = entries.next().expect("should have file1.txt in entries");
+        let expected: OsString = format!("file1.txt").into();
+        assert_eq!(entry.name, expected);
+        assert_eq!(entry.attr.kind, FileType::RegularFile);
+
+        assert_eq!(head_counter.count(), 0);
+        assert_eq!(list_counter.count(), 1);
+
+        let fh = fs.open(entry.ino, S_IFREG as i32).await.unwrap().fh;
+
+        assert_eq!(head_counter.count(), 0);
+        assert_eq!(list_counter.count(), 1);
+        fs.release(entry.ino, fh, 0, None, true).await.unwrap();
+        fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
+
+        assert_eq!(head_counter.count(), 0);
+        assert_eq!(list_counter.count(), 1);
+    }
+}
+
+#[tokio::test]
+async fn test_unlink_cached() {
+    let fs_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            prefer_s3: false,
+            dir_ttl: Duration::from_secs(600),
+            file_ttl: Duration::from_secs(600),
+        },
+        allow_delete: true,
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
+
+    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+    let parent_ino = FUSE_ROOT_INODE;
+    let head_counter = client.new_counter(Operation::HeadObject);
+    let list_counter = client.new_counter(Operation::ListObjectsV2);
+
+    let _entry = fs
+        .lookup(parent_ino, "file1.txt".as_ref())
+        .await
+        .expect("should find file as object exists");
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    client.remove_object("file1.txt");
+    let _entry = fs
+        .lookup(parent_ino, "file1.txt".as_ref())
+        .await
+        .expect("lookup should still see obj");
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    let _unlinked = fs
+        .unlink(parent_ino, "file1.txt".as_ref())
+        .await
+        .expect("unlink should unlink cached object");
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    let _entry = fs
+        .lookup(parent_ino, "file1.txt".as_ref())
+        .await
+        .expect_err("cached entry should now be gone");
+    assert_eq!(head_counter.count(), 2);
+    assert_eq!(list_counter.count(), 2);
+}
+
+#[tokio::test]
+async fn test_mknod_cached() {
+    const BUCKET_NAME: &str = "test_mknod_cached";
+    let fs_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            prefer_s3: false,
+            dir_ttl: Duration::from_secs(600),
+            file_ttl: Duration::from_secs(600),
+        },
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), fs_config);
+
+    let parent = FUSE_ROOT_INODE;
+    let head_counter = client.new_counter(Operation::HeadObject);
+    let list_counter = client.new_counter(Operation::ListObjectsV2);
+
+    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let err_no = fs
+        .mknod(parent, "file1.txt".as_ref(), mode, 0, 0)
+        .await
+        .expect_err("file already exists")
+        .to_errno();
+    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {:?}", err_no);
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    client.remove_object("file1.txt");
+
+    let err_no = fs
+        .mknod(parent, "file1.txt".as_ref(), mode, 0, 0)
+        .await
+        .expect_err("should fail as directory entry still cached")
+        .to_errno();
+    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {:?}", err_no);
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
 }
 
 #[test_case(1024 * 1024; "small")]
