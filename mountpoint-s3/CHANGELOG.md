@@ -1,6 +1,6 @@
 ## Unreleased
 
-## v1.1.0 (October 20, 2023)
+## v1.1.0 (October 23, 2023)
 
 ### Breaking changes
 * Mountpoint will now complete file uploads at `close` time, and `close` will return an error if the upload was not successful. Before this change, `close` did not wait for the upload to complete, which could cause confusing results for applications that try to read a file they just wrote. ([#526](https://github.com/awslabs/mountpoint-s3/pull/526))
