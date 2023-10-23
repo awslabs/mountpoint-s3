@@ -18,9 +18,10 @@ pub type BlockIndex = u64;
 /// Errors returned by operations on a [DataCache]
 #[derive(Debug, Error)]
 pub enum DataCacheError {
-    /// It was not possible to read from the cache
-    #[error("Failed reading or writing from cache: {0}")]
-    IoFailure(#[source] anyhow::Error),
+    #[error("IO error when reading or writing from cache: {0}")]
+    IoFailure(#[from] std::io::Error),
+    #[error("Block content was not valid/readable")]
+    InvalidBlockContent,
 }
 
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
