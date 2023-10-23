@@ -4,10 +4,11 @@ use thiserror::Error;
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that its integrity will be validated when data transformation occurs.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ChecksummedBytes {
     orig_bytes: Bytes,
     curr_slice: Bytes,
+    /// Checksum for `orig_bytes`
     checksum: Crc32c,
 }
 
@@ -123,6 +124,26 @@ pub enum IntegrityError {
     #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
     ChecksumMismatch(Crc32c, Crc32c),
 }
+
+// Implement equality for tests only. We implement equality, and will panic if the data is corrupted.
+#[cfg(test)]
+impl PartialEq for ChecksummedBytes {
+    fn eq(&self, other: &Self) -> bool {
+        if self.curr_slice != other.curr_slice {
+            return false;
+        }
+
+        if self.orig_bytes == other.orig_bytes && self.checksum == other.checksum {
+            return true;
+        }
+
+        self.validate().expect("should be valid");
+        other.validate().expect("should be valid");
+
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
