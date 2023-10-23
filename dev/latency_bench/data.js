@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1698060951534,
+  "lastUpdate": 1698068010853,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c722533103716a9311b2feba4a149ec15df732f9",
-          "message": "Update CRT submodules (#529)\n\n* Update CRT submodules to latest releases\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Fix mountpoint-s3-crt after CRT update\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-09-22T07:13:05Z",
-          "tree_id": "299ed89f127660cbec1c883119b2acec664e08bd",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/c722533103716a9311b2feba4a149ec15df732f9"
-        },
-        "date": 1695369309579,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.066,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.163,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.117,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.437,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 77.5687128,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 78.17976909999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 105.1544981,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "15bec263971818398093ebc6de55bfa18aeaf421",
+          "message": "Release v1.1.0 (#565)\n\n* Release v1.1.0\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n* Update release date\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\nCo-authored-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-10-23T12:56:58Z",
+          "tree_id": "db57cef5b833c2abce92c9dd56d1aef62c84a8f9",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/15bec263971818398093ebc6de55bfa18aeaf421"
+        },
+        "date": 1698068010306,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.072,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.188,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.155,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.88,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 101.7355927,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 67.1178386,
             "unit": "milliseconds"
           }
         ]
