@@ -158,31 +158,25 @@ mod tests {
     #[test]
     fn test_extend() {
         let bytes = Bytes::from_static(b"some bytes");
-        let expected = Bytes::from_static(b"some bytes extended");
-        let checksum = crc32c::checksum(&bytes);
-        let mut checksummed_block = ChecksummedBlock::new(bytes, checksum);
-
         let extend = Bytes::from_static(b" extended");
-        let extend_checksum = crc32c::checksum(&extend);
-        let extend = ChecksummedBlock::new(extend, extend_checksum);
-        checksummed_block.extend(extend);
+        let expected = Bytes::from_static(b"some bytes extended");
+
+        let mut checksummed_block = ChecksummedBlock::from_bytes(bytes);
+        let extend_block = ChecksummedBlock::from_bytes(extend);
+        checksummed_block.extend(extend_block);
         let actual = checksummed_block.bytes;
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_extend_self_corrupted() {
-        let bytes = Bytes::from_static(b"some bytes");
-        let checksum = crc32c::checksum(&bytes);
-        let mut checksummed_block = ChecksummedBlock::new(bytes, checksum);
-
+        let checksum = crc32c::checksum(b"some bytes");
         let currupted_bytes = Bytes::from_static(b"corrupted data");
-        checksummed_block.bytes = currupted_bytes.clone();
+        let mut checksummed_block = ChecksummedBlock::new(currupted_bytes, checksum);
 
         let extend = Bytes::from_static(b" extended");
-        let extend_checksum = crc32c::checksum(&extend);
-        let extend = ChecksummedBlock::new(extend, extend_checksum);
-        checksummed_block.extend(extend);
+        let extend_block = ChecksummedBlock::from_bytes(extend);
+        checksummed_block.extend(extend_block);
         assert!(matches!(
             checksummed_block.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
@@ -192,17 +186,13 @@ mod tests {
     #[test]
     fn test_extend_other_corrupted() {
         let bytes = Bytes::from_static(b"some bytes");
-        let checksum = crc32c::checksum(&bytes);
-        let mut checksummed_block = ChecksummedBlock::new(bytes, checksum);
-
-        let extend = Bytes::from_static(b" extended");
-        let extend_checksum = crc32c::checksum(&extend);
-        let mut extend = ChecksummedBlock::new(extend, extend_checksum);
+        let mut checksummed_block = ChecksummedBlock::from_bytes(bytes);
 
         let currupted_bytes = Bytes::from_static(b"corrupted data");
-        extend.bytes = currupted_bytes.clone();
+        let extend_checksum = crc32c::checksum(b" extended");
+        let extend_block = ChecksummedBlock::new(currupted_bytes, extend_checksum);
 
-        checksummed_block.extend(extend);
+        checksummed_block.extend(extend_block);
         assert!(matches!(
             checksummed_block.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
