@@ -178,8 +178,8 @@ pub struct OperationCounter<'a> {
 }
 
 impl<'a> OperationCounter<'a> {
-    /// Return number of requests for the given operation counter.
-    /// Count is **not** reset when read.
+    /// Return number of requests since the counter was created.
+    /// The counter is **not** reset when read.
     pub fn count(&self) -> u64 {
         let op_counts = self.client.operation_counts.read().unwrap();
         let total_count = op_counts.get(&self.operation).copied().unwrap_or_default();
