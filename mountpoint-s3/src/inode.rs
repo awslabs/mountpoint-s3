@@ -183,7 +183,12 @@ impl Superblock {
         trace!(parent=?parent_ino, ?name, "lookup");
         let lookup = self
             .inner
-            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(
+                client,
+                parent_ino,
+                name,
+                self.inner.cache_config.serve_lookup_from_cache,
+            )
             .await?;
         self.inner.remember(&lookup.inode);
         Ok(lookup)
@@ -209,7 +214,7 @@ impl Superblock {
 
         let lookup = self
             .inner
-            .lookup_by_name(client, inode.parent(), inode.name().as_ref(), true)
+            .lookup_by_name(client, inode.parent(), inode.name().as_ref(), false)
             .await?;
         if lookup.inode.ino() != ino {
             Err(InodeError::StaleInode {
@@ -303,7 +308,7 @@ impl Superblock {
 
         let existing = self
             .inner
-            .lookup_by_name(client, dir, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(client, dir, name, self.inner.cache_config.serve_lookup_from_cache)
             .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
@@ -360,7 +365,12 @@ impl Superblock {
     ) -> Result<(), InodeError> {
         let LookedUp { inode, .. } = self
             .inner
-            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(
+                client,
+                parent_ino,
+                name,
+                self.inner.cache_config.serve_lookup_from_cache,
+            )
             .await?;
 
         if inode.kind() == InodeKind::File {
@@ -429,7 +439,12 @@ impl Superblock {
         let parent = self.inner.get(parent_ino)?;
         let LookedUp { inode, .. } = self
             .inner
-            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(
+                client,
+                parent_ino,
+                name,
+                self.inner.cache_config.serve_lookup_from_cache,
+            )
             .await?;
 
         if inode.kind() == InodeKind::Directory {
@@ -534,7 +549,7 @@ impl SuperblockInner {
         client: &OC,
         parent_ino: InodeNo,
         name: &OsStr,
-        skip_cache: bool,
+        allow_cache: bool,
     ) -> Result<LookedUp, InodeError> {
         let name = name
             .to_str()
@@ -546,10 +561,10 @@ impl SuperblockInner {
             return Err(InodeError::InvalidFileName(name.into()));
         }
 
-        let lookup = if skip_cache {
-            None
-        } else {
+        let lookup = if allow_cache {
             self.cache_lookup(parent_ino, name)
+        } else {
+            None
         };
 
         let lookup = match lookup {
@@ -1635,7 +1650,7 @@ mod tests {
             bucket,
             &prefix,
             CacheConfig {
-                prefer_s3: false,
+                serve_lookup_from_cache: true,
                 dir_ttl: ttl,
                 file_ttl: ttl,
             },
