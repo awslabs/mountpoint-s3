@@ -94,6 +94,20 @@ impl From<ChecksummedBlock> for ChecksummedBytes {
     }
 }
 
+impl From<Bytes> for ChecksummedBlock {
+    fn from(value: Bytes) -> Self {
+        Self::from_bytes(value)
+    }
+}
+
+impl TryFrom<ChecksummedBlock> for Bytes {
+    type Error = IntegrityError;
+
+    fn try_from(value: ChecksummedBlock) -> Result<Self, Self::Error> {
+        value.into_bytes()
+    }
+}
+
 // Implement equality for tests only. We implement equality, and will panic if the data is corrupted.
 #[cfg(test)]
 impl PartialEq for ChecksummedBlock {
@@ -162,8 +176,7 @@ mod tests {
         let expected = Bytes::from_static(b"some bytes extended");
 
         let mut checksummed_block = ChecksummedBlock::from_bytes(bytes);
-        let extend_block = ChecksummedBlock::from_bytes(extend);
-        checksummed_block.extend(extend_block);
+        checksummed_block.extend(extend.into());
         let actual = checksummed_block.bytes;
         assert_eq!(expected, actual);
     }
@@ -175,8 +188,7 @@ mod tests {
         let mut checksummed_block = ChecksummedBlock::new(currupted_bytes, checksum);
 
         let extend = Bytes::from_static(b" extended");
-        let extend_block = ChecksummedBlock::from_bytes(extend);
-        checksummed_block.extend(extend_block);
+        checksummed_block.extend(extend.into());
         assert!(matches!(
             checksummed_block.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
