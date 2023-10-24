@@ -247,6 +247,38 @@ async fn test_lookup_then_open_cached() {
 }
 
 #[tokio::test]
+async fn test_lookup_then_open_no_cache() {
+    let fs_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            prefer_s3: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem("test_lookup_then_open_no_cache", &Default::default(), fs_config);
+
+    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+    let head_counter = client.new_counter(Operation::HeadObject);
+    let list_counter = client.new_counter(Operation::ListObjectsV2);
+
+    let entry = fs.lookup(FUSE_ROOT_INODE, "file1.txt".as_ref()).await.unwrap();
+    let ino = entry.attr.ino;
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    let fh = fs.open(ino, S_IFREG as i32, 0).await.unwrap().fh;
+    fs.release(ino, fh, 0, None, true).await.unwrap();
+    assert_eq!(head_counter.count(), 2);
+    assert_eq!(list_counter.count(), 2);
+
+    let fh = fs.open(entry.attr.ino, S_IFREG as i32, 0).await.unwrap().fh;
+    fs.release(ino, fh, 0, None, true).await.unwrap();
+    assert_eq!(head_counter.count(), 3);
+    assert_eq!(list_counter.count(), 3);
+}
+
+#[tokio::test]
 async fn test_readdir_then_open_cached() {
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
