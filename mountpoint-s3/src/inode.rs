@@ -183,7 +183,12 @@ impl Superblock {
         trace!(parent=?parent_ino, ?name, "lookup");
         let lookup = self
             .inner
-            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(
+                client,
+                parent_ino,
+                name,
+                self.inner.cache_config.serve_lookup_from_cache,
+            )
             .await?;
         self.inner.remember(&lookup.inode);
         Ok(lookup)
@@ -209,7 +214,7 @@ impl Superblock {
 
         let lookup = self
             .inner
-            .lookup_by_name(client, inode.parent(), inode.name().as_ref(), true)
+            .lookup_by_name(client, inode.parent(), inode.name().as_ref(), false)
             .await?;
         if lookup.inode.ino() != ino {
             Err(InodeError::StaleInode {
@@ -303,7 +308,7 @@ impl Superblock {
 
         let existing = self
             .inner
-            .lookup_by_name(client, dir, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(client, dir, name, self.inner.cache_config.serve_lookup_from_cache)
             .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
@@ -360,7 +365,12 @@ impl Superblock {
     ) -> Result<(), InodeError> {
         let LookedUp { inode, .. } = self
             .inner
-            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(
+                client,
+                parent_ino,
+                name,
+                self.inner.cache_config.serve_lookup_from_cache,
+            )
             .await?;
 
         if inode.kind() == InodeKind::File {
@@ -429,7 +439,12 @@ impl Superblock {
         let parent = self.inner.get(parent_ino)?;
         let LookedUp { inode, .. } = self
             .inner
-            .lookup_by_name(client, parent_ino, name, self.inner.cache_config.prefer_s3)
+            .lookup_by_name(
+                client,
+                parent_ino,
+                name,
+                self.inner.cache_config.serve_lookup_from_cache,
+            )
             .await?;
 
         if inode.kind() == InodeKind::Directory {
@@ -534,7 +549,7 @@ impl SuperblockInner {
         client: &OC,
         parent_ino: InodeNo,
         name: &OsStr,
-        skip_cache: bool,
+        allow_cache: bool,
     ) -> Result<LookedUp, InodeError> {
         let name = name
             .to_str()
@@ -546,10 +561,10 @@ impl SuperblockInner {
             return Err(InodeError::InvalidFileName(name.into()));
         }
 
-        let lookup = if skip_cache {
-            None
-        } else {
+        let lookup = if allow_cache {
             self.cache_lookup(parent_ino, name)
+        } else {
+            None
         };
 
         let lookup = match lookup {
@@ -858,10 +873,9 @@ impl SuperblockInner {
                 // Try to update in place if we can. The fast path does this too, but here we can
                 // also handle the case of a local directory becoming remote, which requires
                 // updating the parent.
-                if remote.kind == existing_inode.kind()
-                    && (existing_is_remote || remote.kind == InodeKind::Directory)
-                    && existing_state.stat.etag == remote.stat.etag
-                {
+                let same_kind = remote.kind == existing_inode.kind();
+                let same_etag = existing_state.stat.etag == remote.stat.etag;
+                if same_kind && same_etag && (existing_is_remote || remote.kind == InodeKind::Directory) {
                     trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place (slow path)");
                     existing_state.stat = remote.stat.clone();
                     if remote.kind == InodeKind::Directory && !existing_is_remote {
@@ -877,6 +891,14 @@ impl SuperblockInner {
                         stat: remote.stat,
                     });
                 }
+
+                trace!(
+                    same_kind,
+                    same_etag,
+                    existing_is_remote,
+                    remote_is_dir = remote.kind == InodeKind::Directory,
+                    "inode could not be updated in place",
+                );
 
                 // Otherwise, create a fresh inode, possibly merging the existing contents. Note
                 // that [create_inode_locked] takes care of unlinking the existing inode from its
@@ -1635,7 +1657,7 @@ mod tests {
             bucket,
             &prefix,
             CacheConfig {
-                prefer_s3: false,
+                serve_lookup_from_cache: true,
                 dir_ttl: ttl,
                 file_ttl: ttl,
             },

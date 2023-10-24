@@ -506,7 +506,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
             // TODO: Review default for TTL
             let metadata_cache_ttl = args.metadata_cache_ttl.unwrap_or(Duration::from_secs(3600));
             filesystem_config.cache_config = CacheConfig {
-                prefer_s3: false,
+                serve_lookup_from_cache: true,
                 dir_ttl: metadata_cache_ttl,
                 file_ttl: metadata_cache_ttl,
             };
