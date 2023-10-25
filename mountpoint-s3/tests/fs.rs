@@ -170,7 +170,7 @@ async fn test_read_dir_nested(prefix: &str) {
 async fn test_lookup_negative_cached() {
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            prefer_s3: false,
+            serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
         },
@@ -217,7 +217,7 @@ async fn test_lookup_negative_cached() {
 async fn test_lookup_then_open_cached() {
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            prefer_s3: false,
+            serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
         },
@@ -250,7 +250,7 @@ async fn test_lookup_then_open_cached() {
 async fn test_lookup_then_open_no_cache() {
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            prefer_s3: true,
+            serve_lookup_from_cache: false,
             ..Default::default()
         },
         ..Default::default()
@@ -282,7 +282,7 @@ async fn test_lookup_then_open_no_cache() {
 async fn test_readdir_then_open_cached() {
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            prefer_s3: false,
+            serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
         },
@@ -332,7 +332,7 @@ async fn test_readdir_then_open_cached() {
 async fn test_unlink_cached() {
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            prefer_s3: false,
+            serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
         },
@@ -381,7 +381,7 @@ async fn test_mknod_cached() {
     const BUCKET_NAME: &str = "test_mknod_cached";
     let fs_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            prefer_s3: false,
+            serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
         },

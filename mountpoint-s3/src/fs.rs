@@ -252,13 +252,14 @@ fn are_from_same_process(pid1: u32, pid2: u32) -> bool {
 
 #[derive(Debug, Clone)]
 pub struct CacheConfig {
-    /// Should the file system check S3 even when a valid cached entry may be available?
+    /// Should the file system serve lookup requests including open from cached entries,
+    /// or instead check S3 even when a valid cached entry may be available?
     ///
-    /// When enabled, some operations such as `getattr` are allowed to be served from cache
+    /// Even when disabled, some operations such as `getattr` are allowed to be served from cache
     /// with a short TTL since Linux filesystems behave badly when the TTL is zero.
-    /// For example, results from `readdir` will expire immediately, and so the kernel will
+    /// For example, results from `readdir` would expire immediately, and the kernel would
     /// immediately `getattr` every entry returned from `readdir`.
-    pub prefer_s3: bool,
+    pub serve_lookup_from_cache: bool,
     /// How long the kernel will cache metadata for files
     pub file_ttl: Duration,
     /// How long the kernel will cache metadata for directories
@@ -280,7 +281,7 @@ impl Default for CacheConfig {
         let dir_ttl = Duration::from_millis(1000);
 
         Self {
-            prefer_s3: true,
+            serve_lookup_from_cache: false,
             file_ttl,
             dir_ttl,
         }
@@ -531,7 +532,7 @@ where
     pub async fn open(&self, ino: InodeNo, flags: i32, pid: u32) -> Result<Opened, Error> {
         trace!("fs:open with ino {:?} flags {:?} pid {:?}", ino, flags, pid);
 
-        let force_revalidate = self.config.cache_config.prefer_s3;
+        let force_revalidate = !self.config.cache_config.serve_lookup_from_cache;
         let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
 
         match lookup.inode.kind() {

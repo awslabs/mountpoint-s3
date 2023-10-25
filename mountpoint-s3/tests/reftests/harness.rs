@@ -888,7 +888,7 @@ mod mutations {
             allow_delete: true,
             cache_config: CacheConfig {
                 // We are only interested in strong consistency for the reference tests. FUSE isn't even in the loop.
-                prefer_s3: true,
+                serve_lookup_from_cache: false,
                 dir_ttl: Duration::ZERO,
                 file_ttl: Duration::ZERO,
             },
