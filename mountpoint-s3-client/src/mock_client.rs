@@ -1,7 +1,7 @@
 //! A mock implementation of an object client for use in tests.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
@@ -60,6 +60,7 @@ pub struct MockClient {
     config: MockClientConfig,
     objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
+    operation_counts: Arc<RwLock<HashMap<Operation, u64>>>,
 }
 
 fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, value: MockObject) {
@@ -73,6 +74,7 @@ impl MockClient {
             config,
             objects: Default::default(),
             in_progress_uploads: Default::default(),
+            operation_counts: Default::default(),
         }
     }
 
@@ -133,6 +135,55 @@ impl MockClient {
         } else {
             Err(MockClientError("object not found".into()))
         }
+    }
+
+    /// Create a new counter for the given operation, starting at 0.
+    pub fn new_counter(&self, operation: Operation) -> OperationCounter<'_> {
+        let op_counts = self.operation_counts.read().unwrap();
+        let initial_count = op_counts.get(&operation).copied().unwrap_or_default();
+
+        OperationCounter {
+            client: self,
+            initial_count,
+            operation,
+        }
+    }
+
+    /// Track number of operations for verifying API calls made by the client in testing.
+    fn inc_op_count(&self, operation: Operation) {
+        let mut op_counts = self.operation_counts.write().unwrap();
+        op_counts.entry(operation).and_modify(|count| *count += 1).or_insert(1);
+    }
+}
+
+/// Operations for use in operation counters.
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub enum Operation {
+    DeleteObject,
+    HeadObject,
+    GetObject,
+    GetObjectAttributes,
+    ListObjectsV2,
+    PutObject,
+}
+
+/// Counter for a specific client [Operation].
+///
+/// Obtainable via `new_counter(&Operation)` method on [MockClient]
+/// Its lifetime is bounded by the client which created it.
+pub struct OperationCounter<'a> {
+    client: &'a MockClient,
+    initial_count: u64,
+    operation: Operation,
+}
+
+impl<'a> OperationCounter<'a> {
+    /// Return number of requests since the counter was created.
+    /// The counter is **not** reset when read.
+    pub fn count(&self) -> u64 {
+        let op_counts = self.client.operation_counts.read().unwrap();
+        let total_count = op_counts.get(&self.operation).copied().unwrap_or_default();
+        total_count - self.initial_count
     }
 }
 
@@ -309,6 +360,7 @@ impl ObjectClient for MockClient {
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
         trace!(bucket, key, "DeleteObject");
+        self.inc_op_count(Operation::DeleteObject);
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(DeleteObjectError::NoSuchBucket));
@@ -327,6 +379,7 @@ impl ObjectClient for MockClient {
         if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?range, ?if_match, "GetObject");
+        self.inc_op_count(Operation::GetObject);
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
@@ -367,6 +420,7 @@ impl ObjectClient for MockClient {
         key: &str,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         trace!(bucket, key, "HeadObject");
+        self.inc_op_count(Operation::HeadObject);
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(HeadObjectError::NotFound));
@@ -399,6 +453,7 @@ impl ObjectClient for MockClient {
         prefix: &str,
     ) -> ObjectClientResult<ListObjectsResult, ListObjectsError, Self::ClientError> {
         trace!(bucket, ?continuation_token, delimiter, max_keys, prefix, "ListObjects");
+        self.inc_op_count(Operation::ListObjectsV2);
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket));
@@ -499,6 +554,7 @@ impl ObjectClient for MockClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         trace!(bucket, key, "PutObject");
+        self.inc_op_count(Operation::PutObject);
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
@@ -523,6 +579,7 @@ impl ObjectClient for MockClient {
         object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
         trace!(bucket, key, "GetObjectAttributes");
+        self.inc_op_count(Operation::GetObjectAttributes);
 
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchBucket));
@@ -959,5 +1016,32 @@ mod tests {
         assert!(
             matches!(&list_result.objects[..], [object] if object.key == key && object.storage_class.as_deref() == storage_class )
         );
+    }
+
+    #[tokio::test]
+    async fn counter_test() {
+        let bucket = "test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            part_size: 1024,
+        });
+
+        let head_counter_1 = client.new_counter(Operation::HeadObject);
+        let delete_counter_1 = client.new_counter(Operation::DeleteObject);
+
+        let _result = client.head_object(bucket, "key").await;
+        assert_eq!(1, head_counter_1.count());
+        assert_eq!(0, delete_counter_1.count());
+
+        let head_counter_2 = client.new_counter(Operation::HeadObject);
+        assert_eq!(0, head_counter_2.count());
+
+        let _result = client.head_object(bucket, "key").await;
+        let _result = client.delete_object(bucket, "key").await;
+        let _result = client.delete_object(bucket, "key").await;
+        let _result = client.delete_object(bucket, "key").await;
+        assert_eq!(2, head_counter_1.count());
+        assert_eq!(3, delete_counter_1.count());
+        assert_eq!(1, head_counter_2.count());
     }
 }
