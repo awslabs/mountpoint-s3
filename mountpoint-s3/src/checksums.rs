@@ -369,6 +369,23 @@ mod tests {
     }
 
     #[test]
+    fn test_extend_split_off_self_corrupted() {
+        let corrupted_bytes = Bytes::from_static(b"corrupted data");
+        let checksum = crc32c::checksum(b"some bytes");
+        let mut split_off = ChecksummedBytes::new(corrupted_bytes, checksum).split_off(4);
+        assert!(matches!(
+            split_off.validate(),
+            Err(IntegrityError::ChecksumMismatch(_, _))
+        ));
+
+        let extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
+        assert!(matches!(extend.validate(), Ok(())));
+
+        let result = split_off.extend(extend);
+        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+    }
+
+    #[test]
     fn test_extend_other_corrupted() {
         let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
         assert!(matches!(checksummed_bytes.validate(), Ok(())));
@@ -397,6 +414,23 @@ mod tests {
         assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
 
         let result = checksummed_bytes.extend(extend);
+        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+    }
+
+    #[test]
+    fn test_extend_split_off_other_corrupted() {
+        let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
+        assert!(matches!(checksummed_bytes.validate(), Ok(())));
+
+        let corrupted_bytes = Bytes::from_static(b"corrupted data");
+        let extend_checksum = crc32c::checksum(b" extended");
+        let split_off = ChecksummedBytes::new(corrupted_bytes, extend_checksum).split_off(4);
+        assert!(matches!(
+            split_off.validate(),
+            Err(IntegrityError::ChecksumMismatch(_, _))
+        ));
+
+        let result = checksummed_bytes.extend(split_off);
         assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
     }
 
