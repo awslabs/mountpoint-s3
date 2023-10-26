@@ -12,6 +12,7 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 pub struct ChecksummedBytes {
     orig_bytes: Bytes,
+    /// Always a subslice of `orig_bytes`
     curr_slice: Bytes,
     /// Checksum for `orig_bytes`
     checksum: Crc32c,
@@ -88,7 +89,12 @@ impl ChecksummedBytes {
             return Ok(self.clone());
         }
 
-        let result = Self::from_bytes(self.curr_slice.clone());
+        // Note that no data is copied: `bytes` still points to a subslice of `orig_bytes`.
+        let bytes = self.curr_slice.clone();
+        let checksum = crc32c::checksum(&bytes);
+        let result = Self::new(bytes, checksum);
+
+        // Check the integrity of the whole buffer.
         self.validate()?;
         Ok(result)
     }
