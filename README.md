@@ -33,7 +33,7 @@ On Ubuntu, use these commands instead (for Graviton instances, replace `x86_64` 
     sudo apt-get install -y ./mount-s3.deb
 
 > [!NOTE]
-> See [Installing Mountpoint for Amazon S3](doc/INSTALL.md) for detailed instructions and other installation options (including Docker or building from source).
+> See [Installing Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md) for detailed instructions and other installation options (including Docker or building from source).
 
 Once you've got Mountpoint for Amazon S3 installed, you can mount your Amazon S3 bucket.
 You'll need valid AWS credentials to access your bucket;
@@ -57,7 +57,7 @@ When you're finished accessing your bucket, you can unmount it (you might need `
     umount /path/to/mount
 
 > [!IMPORTANT]
-> See [Configuring Mountpoint for Amazon S3](doc/CONFIGURATION.md) for more details on how to configure and use Mountpoint, including options for providing AWS credentials.
+> See [Configuring Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md) for more details on how to configure and use Mountpoint, including options for providing AWS credentials.
 
 ### Compatibility with other storage services
 
