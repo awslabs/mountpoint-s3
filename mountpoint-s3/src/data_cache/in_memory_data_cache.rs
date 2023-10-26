@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::default::Default;
 use std::hash::Hash;
-use std::ops::Range;
+use std::ops::RangeBounds;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 use crate::sync::RwLock;
@@ -42,12 +42,17 @@ impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
         self.block_size
     }
 
-    fn cached_block_indices(&self, cache_key: &Key, range: Range<BlockIndex>) -> DataCacheResult<Vec<BlockIndex>> {
+    fn cached_block_indices<R: RangeBounds<BlockIndex>>(
+        &self,
+        cache_key: &Key,
+        range: R,
+    ) -> DataCacheResult<Vec<BlockIndex>> {
         let data = self.data.read().unwrap();
-        let result = match data.get(cache_key) {
+        let mut result = match data.get(cache_key) {
             None => Vec::new(),
-            Some(blocks) => range.into_iter().filter(|idx| blocks.contains_key(idx)).collect(),
+            Some(blocks) => blocks.keys().filter(|idx| range.contains(idx)).copied().collect(),
         };
+        result.sort();
 
         Ok(result)
     }

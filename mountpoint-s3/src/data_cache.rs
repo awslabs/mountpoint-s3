@@ -6,7 +6,7 @@
 
 pub mod in_memory_data_cache;
 
-use std::ops::Range;
+use std::ops::RangeBounds;
 
 use thiserror::Error;
 
@@ -50,5 +50,9 @@ pub trait DataCache<Key> {
     /// It is possible that the **blocks may be deleted before reading**, or may be corrupted or inaccessible.
     /// This method only indicates that a cache entry was present at the time of calling.
     /// There is no guarantee that the data will still be available at the time of reading.
-    fn cached_block_indices(&self, cache_key: &Key, range: Range<BlockIndex>) -> DataCacheResult<Vec<BlockIndex>>;
+    fn cached_block_indices<R: RangeBounds<BlockIndex>>(
+        &self,
+        cache_key: &Key,
+        range: R,
+    ) -> DataCacheResult<Vec<BlockIndex>>;
 }
