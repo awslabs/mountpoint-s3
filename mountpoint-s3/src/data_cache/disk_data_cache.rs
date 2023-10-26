@@ -6,22 +6,43 @@ use std::ops::RangeBounds;
 use std::path::PathBuf;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use bytes::{BufMut, BytesMut};
-use mountpoint_s3_crt::checksums::crc32c;
+use bytes::{BufMut, Bytes, BytesMut};
+use serde::{Deserialize, Serialize};
 use tracing::{error, trace, warn};
 
 use crate::data_cache::DataCacheError;
+use crate::serde::SerializableCrc32c;
 
 use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// On-disk implementation of [DataCache].
 ///
-/// TODO: Store checksums on disk, reconstruct as [ChecksummedBytes] using same checksum avoiding recomputation.
-///
 /// TODO: Store additional metadata with each block such as expected S3 key, ETag, etc..
 pub struct DiskDataCache {
     block_size: u64,
     cache_directory: PathBuf,
+}
+
+/// Represents a fixed-size chunk of data that can be serialized.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DataBlock {
+    checksum: SerializableCrc32c,
+    data: Bytes,
+}
+
+impl DataBlock {
+    fn new(bytes: ChecksummedBytes) -> Self {
+        let (data, checksum) = bytes
+            .into_inner()
+            .expect("TODO: what to do if there's an integrity issue");
+        let checksum: SerializableCrc32c = checksum.into();
+        DataBlock { checksum, data }
+    }
+
+    /// TODO: Replace with unpack method taking anything we need for validation?
+    fn data(&self) -> ChecksummedBytes {
+        ChecksummedBytes::new(self.data.clone(), self.checksum.into())
+    }
 }
 
 impl DiskDataCache {
@@ -68,16 +89,20 @@ impl DataCache for DiskDataCache {
             Err(err) => return Err(err.into()),
         };
 
-        let bytes = BytesMut::with_capacity(self.block_size as usize);
+        let bytes = BytesMut::with_capacity(self.block_size as usize); // TODO: fix capacity?
         let mut writer = bytes.writer();
         std::io::copy(&mut file, &mut writer)?;
-        let bytes = writer.into_inner().freeze();
+        let encoded = writer.into_inner().freeze();
 
-        // TODO: Read checksum from block file
-        let checksum = crc32c::checksum(bytes.as_ref());
-        let bytes = ChecksummedBytes::new(bytes, checksum);
+        let block: DataBlock = match bincode::deserialize(&encoded[..]) {
+            Ok(block) => block,
+            Err(e) => {
+                error!("block could not be deserialized: {:?}", e);
+                return Err(DataCacheError::InvalidBlockContent);
+            }
+        };
 
-        Ok(Some(bytes))
+        Ok(Some(block.data()))
     }
 
     fn put_block(&self, cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
@@ -85,9 +110,9 @@ impl DataCache for DiskDataCache {
         trace!(?cache_key, ?path, "new block will be created in data cache");
         fs::create_dir_all(path.parent().expect("path should include cache key in directory name"))?;
         let mut file = fs::File::create(path)?;
-        let (bytes, _checksum) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
-        // TODO: Store checksum
-        file.write_all(&bytes)?;
+        let block = DataBlock::new(bytes);
+        let encoded: Vec<u8> = bincode::serialize(&block).expect("todo: why do i expect this to work?");
+        file.write_all(&encoded)?;
         file.sync_data()?;
         Ok(())
     }

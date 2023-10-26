@@ -8,6 +8,7 @@ pub mod logging;
 pub mod metrics;
 pub mod prefetch;
 pub mod prefix;
+mod serde;
 mod sync;
 mod upload;
 
