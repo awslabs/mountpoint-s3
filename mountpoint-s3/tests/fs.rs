@@ -1255,10 +1255,13 @@ async fn test_readdir_rewind() {
         .collect::<Vec<_>>();
     assert_eq!(entries.len(), 5);
 
+    // Trying to read out of order should fail (only the previous or next offsets are valid)
+    assert!(reply.entries.back().unwrap().offset > 1);
     fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 1, &mut Default::default())
         .await
         .expect_err("out of order");
 
+    // Requesting the same buffer size should work fine
     let mut new_reply = DirectoryReply::new(5);
     let _ = fs
         .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
@@ -1269,9 +1272,35 @@ async fn test_readdir_rewind() {
         .iter()
         .map(|e| (e.ino, e.name.clone()))
         .collect::<Vec<_>>();
-
     assert_eq!(entries, new_entries);
 
+    // Requesting a smaller buffer works fine and returns a prefix
+    let mut new_reply = DirectoryReply::new(3);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
+        .await
+        .unwrap();
+    let new_entries = new_reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(&entries[..3], new_entries);
+
+    // Requesting a larger buffer works fine, but only partially fills (which is allowed)
+    let mut new_reply = DirectoryReply::new(10);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
+        .await
+        .unwrap();
+    let new_entries = new_reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(entries, new_entries);
+
+    // And we can resume the stream from the end of the first request
     let mut next_page = DirectoryReply::new(0);
     let _ = fs
         .readdirplus(

@@ -775,7 +775,7 @@ where
             // request offset 0 twice in a row. So we remember the last response and, if repeated,
             // we return it again.
             let last_response = dir_handle.last_response.lock().await;
-            if let Some((last_offset, entries)) = &*last_response {
+            if let Some((last_offset, entries)) = last_response.as_ref() {
                 if offset == *last_offset {
                     trace!(offset, "repeating readdir response");
                     for entry in entries {
