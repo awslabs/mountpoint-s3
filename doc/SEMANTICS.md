@@ -168,7 +168,7 @@ the following behavior:
 
 ### Directory operations
 
-Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported.
+Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported. However, seeking (`lseek`) on directory handles is not supported.
 
 Creating directories (`mkdir`) is supported, with the following behavior:
 

@@ -4,17 +4,19 @@ use futures::executor::block_on;
 use futures::task::Spawn;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use time::OffsetDateTime;
 use tracing::{instrument, Instrument};
 
-use crate::fs::{self, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno};
+use crate::fs::{
+    self, DirectoryEntry, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno,
+};
 use crate::prefix::Prefix;
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
-    FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry,
-    ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
+    ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 use mountpoint_s3_client::ObjectClient;
 
@@ -168,16 +170,8 @@ where
         }
 
         impl<'a> DirectoryReplier for ReplyDirectory<'a> {
-            fn add<T: AsRef<OsStr>>(
-                &mut self,
-                ino: InodeNo,
-                offset: i64,
-                name: T,
-                attr: FileAttr,
-                _generation: u64,
-                _ttl: Duration,
-            ) -> bool {
-                let result = self.inner.add(ino, offset, attr.kind, name);
+            fn add(&mut self, entry: DirectoryEntry) -> bool {
+                let result = self.inner.add(entry.ino, entry.offset, entry.attr.kind, entry.name);
                 if !result {
                     *self.count += 1;
                 }
@@ -215,16 +209,15 @@ where
         }
 
         impl<'a> DirectoryReplier for ReplyDirectoryPlus<'a> {
-            fn add<T: AsRef<OsStr>>(
-                &mut self,
-                ino: u64,
-                offset: i64,
-                name: T,
-                attr: FileAttr,
-                generation: u64,
-                ttl: Duration,
-            ) -> bool {
-                let result = self.inner.add(ino, offset, name, &ttl, &attr, generation);
+            fn add(&mut self, entry: DirectoryEntry) -> bool {
+                let result = self.inner.add(
+                    entry.ino,
+                    entry.offset,
+                    entry.name,
+                    &entry.ttl,
+                    &entry.attr,
+                    entry.generation,
+                );
                 if !result {
                     *self.count += 1;
                 }

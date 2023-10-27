@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
-use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, ReadReply};
+use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, ReadReply};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1229,6 +1229,97 @@ async fn test_flexible_retrieval_objects() {
         } else {
             let open = open.expect("instant retrieval files are readable");
             fs.release(lookup.attr.ino, open.fh, 0, None, true).await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_readdir_rewind() {
+    let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
+
+    for i in 0..10 {
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+
+    let mut reply = DirectoryReply::new(5);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        .await
+        .unwrap();
+    let entries = reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 5);
+
+    // Trying to read out of order should fail (only the previous or next offsets are valid)
+    assert!(reply.entries.back().unwrap().offset > 1);
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 1, &mut Default::default())
+        .await
+        .expect_err("out of order");
+
+    // Requesting the same buffer size should work fine
+    let mut new_reply = DirectoryReply::new(5);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
+        .await
+        .unwrap();
+    let new_entries = new_reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(entries, new_entries);
+
+    // Requesting a smaller buffer works fine and returns a prefix
+    let mut new_reply = DirectoryReply::new(3);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
+        .await
+        .unwrap();
+    let new_entries = new_reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(&entries[..3], new_entries);
+
+    // Requesting a larger buffer works fine, but only partially fills (which is allowed)
+    let mut new_reply = DirectoryReply::new(10);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
+        .await
+        .unwrap();
+    let new_entries = new_reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(entries, new_entries);
+
+    // And we can resume the stream from the end of the first request
+    let mut next_page = DirectoryReply::new(0);
+    let _ = fs
+        .readdirplus(
+            FUSE_ROOT_INODE,
+            dir_handle,
+            reply.entries.back().unwrap().offset,
+            &mut next_page,
+        )
+        .await
+        .unwrap();
+    assert_eq!(next_page.entries.len(), 7); // 10 directory entries + . + .. = 12, minus the 5 we already saw
+    assert_eq!(next_page.entries.front().unwrap().name, "foo3");
+
+    for entry in reply.entries {
+        // We know we're in the root dir, so the . and .. entries will both be FUSE_ROOT_INODE
+        if entry.ino != FUSE_ROOT_INODE {
+            // Each inode in this list should be remembered twice since we did two `readdirplus`es.
+            // Forget will panic if this makes the lookup count underflow.
+            fs.forget(entry.ino, 2).await;
         }
     }
 }
