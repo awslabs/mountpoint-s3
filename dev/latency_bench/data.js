@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1698348888961,
+  "lastUpdate": 1698421118052,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "73328cc64a2dbca78e879730d4d264aedd881c60",
-          "message": "Silence unnecessary-cast clippy error on linux arm64 (#539)\n\nOn linux arm64 `::libc::c_char` (returned by `aws_log_subject_name`) is defined as `u8`,\nso a cast to `u8` is flagged as unnecessary by clippy, but it is required on other platforms.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-09-28T17:55:20Z",
-          "tree_id": "a0ce5d536b517b256bd659209ff23308db318e09",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/73328cc64a2dbca78e879730d4d264aedd881c60"
-        },
-        "date": 1695925951091,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.074,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.181,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.11,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.92,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 79.2489662,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 76.7403348,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 61.222796100000004,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e5688dc45f5a76d145d03a859ad0160a12e43c8",
+          "message": "Allow repeated readdir offsets (#581)\n\n* Allow repeated readdir offsets\n\nPOSIX allows seeking an open directory handle, which in FUSE means the\n`offset` can be any offset we've previously returned. This is pretty\nannoying for us to implement since we're streaming directory entries\nfrom S3 with ListObjects, which can't resume from an arbitrary index,\nand can't fit its continuation tokens into a 64-bit offset anyway. So\nwe're probably never going to truly support seeking a directory handle.\n\nBut there's a special case we've seen come up a couple of times (#477, #520):\nsome applications read one page of directory entries and then seek back\nto 0 and do it again. I don't fully understand _why_ they do this, but\nit's common enough that it's worth special casing.\n\nThis change makes open directory handles remember their most recent\nresponse so that they can repeat it if asked for the same offset again.\nIt's not too complicated other than needing to make sure we do\nreaddirplus correctly (managing the lookup counts for entries that are\nbeing returned a second time).\n\nI've tested this by running the PHP example from #477, which now works.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n* PR feedback\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n* Changelog and docs\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n---------\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-10-27T15:02:35Z",
+          "tree_id": "0a00dc019105785c874c199e01518a49c7a52e28",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8e5688dc45f5a76d145d03a859ad0160a12e43c8"
+        },
+        "date": 1698421116559,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.079,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.205,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.172,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.726,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 95.85587140000001,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 79.8740317,
             "unit": "milliseconds"
           }
         ]
