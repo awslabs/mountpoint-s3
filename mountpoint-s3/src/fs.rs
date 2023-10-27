@@ -3,7 +3,7 @@
 use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use time::OffsetDateTime;
@@ -35,6 +35,7 @@ struct DirHandle {
     ino: InodeNo,
     handle: ReaddirHandle,
     offset: AtomicI64,
+    last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
 }
 
 impl DirHandle {
@@ -402,15 +403,18 @@ pub struct Opened {
 pub trait DirectoryReplier {
     /// Add a new dentry to the reply. Returns true if the buffer was full and so the entry was not
     /// added.
-    fn add<T: AsRef<OsStr>>(
-        &mut self,
-        ino: u64,
-        offset: i64,
-        name: T,
-        attr: FileAttr,
-        generation: u64,
-        ttl: Duration,
-    ) -> bool;
+    fn add(&mut self, entry: DirectoryEntry) -> bool;
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectoryEntry {
+    pub ino: u64,
+    pub offset: i64,
+    pub name: OsString,
+    pub attr: FileAttr,
+    pub generation: u64,
+    pub ttl: Duration,
+    lookup: LookedUp,
 }
 
 /// Reply to a `read` call. This is funky because we want the reply to happen with only a borrow of
@@ -717,6 +721,7 @@ where
             ino: parent,
             handle: inode_handle,
             offset: AtomicI64::new(0),
+            last_response: AsyncMutex::new(None),
         };
 
         let mut dir_handles = self.dir_handles.write().await;
@@ -764,19 +769,77 @@ where
         };
 
         if offset != dir_handle.offset() {
+            // POSIX allows seeking an open directory. That's a pain for us since we are streaming
+            // the directory entries and don't want to keep them all in memory. But one common case
+            // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
+            // request offset 0 twice in a row. So we remember the last response and, if repeated,
+            // we return it again.
+            let last_response = dir_handle.last_response.lock().await;
+            if let Some((last_offset, entries)) = &*last_response {
+                if offset == *last_offset {
+                    trace!(offset, "repeating readdir response");
+                    for entry in entries {
+                        if reply.add(entry.clone()) {
+                            break;
+                        }
+                        // We are returning this result a second time, so the contract is that we
+                        // must remember it again, except that readdirplus specifies that . and ..
+                        // are never incremented.
+                        if is_readdirplus && entry.name != "." && entry.name != ".." {
+                            dir_handle.handle.remember(&entry.lookup);
+                        }
+                    }
+                    return Ok(reply);
+                }
+            }
             return Err(err!(
                 libc::EINVAL,
-                "offset mismatch, expected={}, actual={}",
+                "out-of-order readdir, expected={}, actual={}",
                 dir_handle.offset(),
                 offset
             ));
         }
 
+        /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
+        /// we can re-use them if the directory handle rewinds
+        struct Reply<R: DirectoryReplier> {
+            reply: R,
+            entries: Vec<DirectoryEntry>,
+        }
+
+        impl<R: DirectoryReplier> Reply<R> {
+            async fn finish(self, offset: i64, dir_handle: &DirHandle) -> R {
+                *dir_handle.last_response.lock().await = Some((offset, self.entries));
+                self.reply
+            }
+        }
+
+        impl<R: DirectoryReplier> DirectoryReplier for Reply<R> {
+            fn add(&mut self, entry: DirectoryEntry) -> bool {
+                let result = self.reply.add(entry.clone());
+                if !result {
+                    self.entries.push(entry);
+                }
+                result
+            }
+        }
+
+        let mut reply = Reply { reply, entries: vec![] };
+
         if dir_handle.offset() < 1 {
             let lookup = self.superblock.getattr(&self.client, parent, false).await?;
             let attr = self.make_attr(&lookup);
-            if reply.add(parent, dir_handle.offset() + 1, ".", attr, 0u64, lookup.validity()) {
-                return Ok(reply);
+            let entry = DirectoryEntry {
+                ino: parent,
+                offset: dir_handle.offset() + 1,
+                name: ".".into(),
+                attr,
+                generation: 0,
+                ttl: lookup.validity(),
+                lookup,
+            };
+            if reply.add(entry) {
+                return Ok(reply.finish(offset, &dir_handle).await);
             }
             dir_handle.next_offset();
         }
@@ -786,36 +849,41 @@ where
                 .getattr(&self.client, dir_handle.handle.parent(), false)
                 .await?;
             let attr = self.make_attr(&lookup);
-            if reply.add(
-                dir_handle.handle.parent(),
-                dir_handle.offset() + 1,
-                "..",
+            let entry = DirectoryEntry {
+                ino: dir_handle.handle.parent(),
+                offset: dir_handle.offset() + 1,
+                name: "..".into(),
                 attr,
-                0u64,
-                lookup.validity(),
-            ) {
-                return Ok(reply);
+                generation: 0,
+                ttl: lookup.validity(),
+                lookup,
+            };
+            if reply.add(entry) {
+                return Ok(reply.finish(offset, &dir_handle).await);
             }
             dir_handle.next_offset();
         }
 
         loop {
             let next = match dir_handle.handle.next(&self.client).await? {
-                None => return Ok(reply),
+                None => return Ok(reply.finish(offset, &dir_handle).await),
                 Some(next) => next,
             };
 
             let attr = self.make_attr(&next);
-            if reply.add(
-                attr.ino,
-                dir_handle.offset() + 1,
-                next.inode.name(),
+            let entry = DirectoryEntry {
+                ino: attr.ino,
+                offset: dir_handle.offset() + 1,
+                name: next.inode.name().into(),
                 attr,
-                0u64,
-                next.validity(),
-            ) {
+                generation: 0,
+                ttl: next.validity(),
+                lookup: next.clone(),
+            };
+
+            if reply.add(entry) {
                 dir_handle.handle.readd(next);
-                return Ok(reply);
+                return Ok(reply.finish(offset, &dir_handle).await);
             }
             if is_readdirplus {
                 dir_handle.handle.remember(&next);

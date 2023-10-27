@@ -2,7 +2,7 @@ use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
-use mountpoint_s3::fs::{self, DirectoryReplier, ReadReplier, ToErrno};
+use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
@@ -11,10 +11,8 @@ use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::VecDeque;
-use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 pub fn make_test_filesystem(
     bucket: &str,
@@ -105,14 +103,6 @@ pub fn assert_attr(attr: FileAttr, ftype: FileType, size: u64, uid: u32, gid: u3
     assert_eq!(attr.perm, perm);
 }
 
-#[derive(Debug, Clone)]
-pub struct DirectoryEntry {
-    pub ino: u64,
-    pub offset: i64,
-    pub attr: FileAttr,
-    pub name: OsString,
-}
-
 #[derive(Debug, Default)]
 pub struct DirectoryReply {
     readdir_limit: usize,
@@ -120,24 +110,11 @@ pub struct DirectoryReply {
 }
 
 impl DirectoryReplier for &mut DirectoryReply {
-    fn add<T: AsRef<OsStr>>(
-        &mut self,
-        ino: u64,
-        offset: i64,
-        name: T,
-        attr: FileAttr,
-        _generation: u64,
-        _ttl: Duration,
-    ) -> bool {
+    fn add(&mut self, entry: DirectoryEntry) -> bool {
         if self.readdir_limit > 0 && !self.entries.is_empty() && self.entries.len() % self.readdir_limit == 0 {
             true
         } else {
-            self.entries.push_back(DirectoryEntry {
-                ino,
-                offset,
-                attr,
-                name: name.as_ref().to_os_string(),
-            });
+            self.entries.push_back(entry);
             false
         }
     }

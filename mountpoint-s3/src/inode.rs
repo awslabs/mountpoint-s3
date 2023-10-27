@@ -1167,7 +1167,8 @@ impl Inode {
     pub fn dec_lookup_count(&self, n: u64) -> u64 {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
-        *lookup_count -= n;
+        debug_assert!(n <= *lookup_count, "lookup count cannot go negative");
+        *lookup_count = lookup_count.saturating_sub(n);
         trace!(new_lookup_count = lookup_count, "decremented lookup count");
         *lookup_count
     }
