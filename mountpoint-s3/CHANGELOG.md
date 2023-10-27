@@ -1,5 +1,11 @@
 ## Unreleased
 
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* Some applications that read directory entries out of order (for example, [PHP](https://github.com/awslabs/mountpoint-s3/issues/477)) will now work correctly. ([#581](https://github.com/awslabs/mountpoint-s3/pull/581))
+
 ## v1.1.0 (October 23, 2023)
 
 ### Breaking changes
