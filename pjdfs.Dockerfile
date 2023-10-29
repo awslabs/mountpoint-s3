@@ -17,9 +17,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 ENV PATH=/root/.cargo/bin:$PATH
 ARG BUILD_FEATURES
 
-ADD Cargo.toml build.rs /code/fuser/
-RUN cd /code/fuser && mkdir src && touch src/lib.rs && cargo build --release --examples $BUILD_FEATURES
-
 ADD . /code/fuser/
 
 RUN cd /code/fuser && cargo build --release --examples $BUILD_FEATURES && cp target/release/examples/simple /bin/fuser
