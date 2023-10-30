@@ -420,6 +420,8 @@ fn main() -> anyhow::Result<()> {
 fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
 
+    tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
+
     validate_mount_point(&args.mount_point)?;
 
     let bucket_description = args.bucket_description();
