@@ -337,8 +337,15 @@ impl Superblock {
         // Local inode stats never expire, because they can't be looked up remotely
         let stat = match kind {
             // Objects don't have an ETag until they are uploaded to S3
-            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, NEVER_EXPIRE_TTL),
-            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, NEVER_EXPIRE_TTL),
+            InodeKind::File => InodeStat::for_file(
+                0,
+                OffsetDateTime::now_utc(),
+                None,
+                None,
+                None,
+                Duration::from_millis(100),
+            ),
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, Duration::from_millis(100)),
         };
 
         let state = InodeState {
