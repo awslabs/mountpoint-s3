@@ -164,6 +164,19 @@ By default, Mountpoint allows creating new files, and does not allow deleting ex
 
 You cannot currently use Mountpoint to overwrite existing objects. However, if you use the `--allow-delete` flag, you can first delete the object and then create it again.
 
+### Caching
+
+Mountpoint now offers caching of metadata and object content allowing for reduced requests when reading files.
+This is particularly useful when reading the same files many times for the same Mountpoint filesystem.
+
+To enable caching, use the `--caching` command-line flag.
+This alone will enable caching of metadata using a default time-to-live (TTL) of 60 minutes.
+Caching of object/file content on disk can also be enabled
+by providing a caching location using the `--data-cache-directory <DIR>` command-line flag.
+
+Enabling caching relaxes the strong read-after-write consistency offered by Mountpoint with default configuration.
+Please read more in the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency).
+
 ### S3 storage classes
 
 Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. By default, Mountpoint uses the S3 Standard storage class, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:
