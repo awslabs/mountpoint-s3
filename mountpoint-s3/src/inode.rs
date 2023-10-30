@@ -343,9 +343,9 @@ impl Superblock {
                 None,
                 None,
                 None,
-                Duration::from_millis(100),
+                self.inner.cache_config.file_ttl,
             ),
-            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, Duration::from_millis(100)),
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl),
         };
 
         let state = InodeState {
