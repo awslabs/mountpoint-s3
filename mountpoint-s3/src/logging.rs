@@ -102,7 +102,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         let mut dir_builder = DirBuilder::new();
         dir_builder.recursive(true).mode(0o750);
         let mut file_options = OpenOptions::new();
-        file_options.mode(0o640).write(true).create(true);
+        file_options.mode(0o640).append(true).create(true);
 
         dir_builder.create(path).context("failed to create log folder")?;
         let file = file_options
