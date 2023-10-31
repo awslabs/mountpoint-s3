@@ -34,9 +34,7 @@ pub enum DataCacheError {
 
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
 
-/// Cache data with a checksum identified by some [CacheKey].
-///
-/// The underlying cache is divided into blocks of equal size.
+/// Data cache for fixed-size checksummed buffers.
 ///
 /// TODO: Deletion and eviction of cache entries.
 /// TODO: Some version information (ETag) independent from [CacheKey] to allow smarter eviction?
