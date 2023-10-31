@@ -20,7 +20,7 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 /// An ETag (entity tag) is a unique identifier for a HTTP object.
 ///
 /// New ETags can be created with the [`FromStr`] implementation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ETag {
     etag: String,
 }

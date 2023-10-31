@@ -2,19 +2,18 @@
 
 use std::collections::HashMap;
 use std::default::Default;
-use std::hash::Hash;
 use std::ops::RangeBounds;
 
-use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
+use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 use crate::sync::RwLock;
 
 /// Simple in-memory (RAM) implementation of [DataCache]. Recommended for use in testing only.
-pub struct InMemoryDataCache<CacheKey> {
+pub struct InMemoryDataCache {
     data: RwLock<HashMap<CacheKey, HashMap<BlockIndex, ChecksummedBytes>>>,
     block_size: u64,
 }
 
-impl<Key> InMemoryDataCache<Key> {
+impl InMemoryDataCache {
     /// Create a new instance of an [InMemoryDataCache] with the specified `block_size`.
     pub fn new(block_size: u64) -> Self {
         InMemoryDataCache {
@@ -24,14 +23,14 @@ impl<Key> InMemoryDataCache<Key> {
     }
 }
 
-impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
-    fn get_block(&self, cache_key: &Key, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
+impl DataCache for InMemoryDataCache {
+    fn get_block(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
         let data = self.data.read().unwrap();
         let block_data = data.get(cache_key).and_then(|blocks| blocks.get(&block_idx)).cloned();
         Ok(block_data)
     }
 
-    fn put_block(&self, cache_key: Key, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
+    fn put_block(&self, cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
         let mut data = self.data.write().unwrap();
         let blocks = data.entry(cache_key).or_default();
         blocks.insert(block_idx, bytes);
@@ -44,7 +43,7 @@ impl<Key: Eq + Hash> DataCache<Key> for InMemoryDataCache<Key> {
 
     fn cached_block_indices<R: RangeBounds<BlockIndex>>(
         &self,
-        cache_key: &Key,
+        cache_key: &CacheKey,
         range: R,
     ) -> DataCacheResult<Vec<BlockIndex>> {
         let data = self.data.read().unwrap();
@@ -63,8 +62,7 @@ mod tests {
     use super::*;
 
     use bytes::Bytes;
-
-    type TestCacheKey = String;
+    use mountpoint_s3_client::types::ETag;
 
     #[test]
     fn test_put_get() {
@@ -76,8 +74,14 @@ mod tests {
         let data_3 = ChecksummedBytes::from_bytes(data_3.clone());
 
         let cache = InMemoryDataCache::new(8 * 1024 * 1024);
-        let cache_key_1: TestCacheKey = String::from("a");
-        let cache_key_2: TestCacheKey = String::from("b");
+        let cache_key_1 = CacheKey {
+            s3_key: "a".into(),
+            etag: ETag::for_tests(),
+        };
+        let cache_key_2 = CacheKey {
+            s3_key: "b".into(),
+            etag: ETag::for_tests(),
+        };
 
         let block = cache.get_block(&cache_key_1, 0).expect("cache is accessible");
         assert!(
@@ -144,8 +148,14 @@ mod tests {
         let data_2 = ChecksummedBytes::from_bytes(data_2.clone());
 
         let cache = InMemoryDataCache::new(8 * 1024 * 1024);
-        let cache_key_1: TestCacheKey = String::from("a");
-        let cache_key_2: TestCacheKey = String::from("b");
+        let cache_key_1 = CacheKey {
+            s3_key: "a".into(),
+            etag: ETag::for_tests(),
+        };
+        let cache_key_2 = CacheKey {
+            s3_key: "b".into(),
+            etag: ETag::for_tests(),
+        };
 
         let cached_indices = cache
             .cached_block_indices(&cache_key_1, 0..5)
