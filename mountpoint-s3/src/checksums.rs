@@ -153,7 +153,7 @@ impl ChecksummedBytes {
     }
 
     /// Provide the underlying bytes and the associated checksum,
-    /// which may be recalulated if the checksum covers a larger slice than the current slice.
+    /// which may be recalculated if the checksum covers a larger slice than the current slice.
     /// Validation may or may not be triggered, and **bytes or checksum may be corrupt** even if result returns [Ok].
     ///
     /// If you are only interested in the underlying bytes, **you should use `into_bytes()`**.

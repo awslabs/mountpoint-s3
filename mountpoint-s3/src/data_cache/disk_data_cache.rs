@@ -113,7 +113,7 @@ impl DataCache for DiskDataCache {
             Err(e) => return Err(e.into()),
         };
 
-        let mut indicies = Vec::new();
+        let mut indices = Vec::new();
         for entry in read_dir.into_iter() {
             if let Err(e) = entry {
                 return Err(DataCacheError::IoFailure(e));
@@ -127,7 +127,7 @@ impl DataCache for DiskDataCache {
                 let block_idx = &file_name[..end];
                 if let Ok(block_idx) = block_idx.parse::<BlockIndex>() {
                     if range.contains(&block_idx) {
-                        indicies.push(block_idx);
+                        indices.push(block_idx);
                     }
                 } else {
                     error!(
@@ -143,7 +143,7 @@ impl DataCache for DiskDataCache {
             }
         }
 
-        Ok(indicies)
+        Ok(indices)
     }
 }
 
