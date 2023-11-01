@@ -143,6 +143,8 @@ impl DataCache for DiskDataCache {
             }
         }
 
+        indices.sort();
+
         Ok(indices)
     }
 }
