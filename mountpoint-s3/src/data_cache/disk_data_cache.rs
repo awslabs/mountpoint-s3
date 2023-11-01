@@ -82,6 +82,7 @@ impl DataCache for DiskDataCache {
 
     fn put_block(&self, cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
         let path = self.get_path_for_block(&cache_key, block_idx);
+        trace!(?cache_key, ?path, "new block will be created in data cache");
         fs::create_dir_all(path.parent().expect("path should include cache key in directory name"))?;
         let mut file = fs::File::create(path)?;
         let (bytes, _checksum) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
