@@ -5,7 +5,7 @@ use std::io::{ErrorKind, Write};
 use std::ops::RangeBounds;
 use std::path::PathBuf;
 
-use base64ct::{Base64Url, Encoding};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use bytes::{BufMut, BytesMut};
 use mountpoint_s3_crt::checksums::crc32c;
 use tracing::{error, trace, warn};
@@ -39,7 +39,7 @@ impl DiskDataCache {
 
         // An S3 key may be up to 1024 UTF-8 bytes long, which exceeds the maximum UNIX file name length.
         // Instead, we encode the key and split into 255 character long directory names.
-        let encoded_s3_key = Base64Url::encode_string(cache_key.s3_key.as_bytes());
+        let encoded_s3_key = Base64UrlUnpadded::encode_string(cache_key.s3_key.as_bytes());
         let mut slice = encoded_s3_key.as_str();
         while !slice.is_empty() {
             let (chunk, remaining) = slice.split_at(255.min(slice.len()));
@@ -166,7 +166,7 @@ mod tests {
         let cache_dir = PathBuf::from("mountpoint-cache/");
         let data_cache = DiskDataCache::new(cache_dir, 1024);
 
-        let encoded_s3_key = Base64Url::encode_string(s3_key.as_bytes());
+        let encoded_s3_key = Base64UrlUnpadded::encode_string(s3_key.as_bytes());
         let etag = ETag::for_tests();
         let key = CacheKey {
             etag,
@@ -196,7 +196,7 @@ mod tests {
             "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\
             YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\
             YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWF",
-            "hYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
+            "hYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE",
             key.etag.as_str(),
         ];
         let path = data_cache.get_path_for_key(&key);
