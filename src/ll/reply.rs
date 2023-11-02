@@ -225,6 +225,15 @@ impl<'a> Response<'a> {
         Self::Data(v)
     }
 
+    #[cfg(feature = "abi-7-11")]
+    pub(crate) fn new_poll(revents: u32) -> Self {
+        let r = abi::fuse_poll_out {
+            revents,
+            padding: 0,
+        };
+        Self::from_struct(&r)
+    }
+
     fn new_directory(list: EntListBuf) -> Self {
         assert!(list.buf.len() <= list.max_size);
         Self::Data(list.buf)

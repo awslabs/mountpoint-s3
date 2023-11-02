@@ -22,6 +22,13 @@ impl Notifier {
         Self(cs)
     }
 
+    /// Notify poll clients of I/O readiness
+    #[cfg(feature = "abi-7-11")]
+    pub fn poll(&self, kh: u64) -> io::Result<()> {
+        let notif = Notification::new_poll(kh);
+        self.send(notify_code::FUSE_POLL, &notif)
+    }
+
     /// Invalidate the kernel cache for a given directory entry
     #[cfg(feature = "abi-7-12")]
     pub fn inval_entry(&self, parent: u64, name: &OsStr) -> io::Result<()> {

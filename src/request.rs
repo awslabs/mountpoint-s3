@@ -511,9 +511,16 @@ impl<'a> Request<'a> {
                 }
             }
             #[cfg(feature = "abi-7-11")]
-            ll::Operation::Poll(_) => {
-                // TODO: handle FUSE_POLL
-                return Err(Errno::ENOSYS);
+            ll::Operation::Poll(x) => {
+                se.filesystem.poll(
+                    self,
+                    self.request.nodeid().into(),
+                    x.file_handle().into(),
+                    x.kernel_handle(),
+                    x.events(),
+                    x.flags(),
+                    self.reply(),
+                );
             }
             #[cfg(feature = "abi-7-15")]
             ll::Operation::NotifyReply(_) => {

@@ -29,6 +29,8 @@ pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
 #[cfg(feature = "abi-7-11")]
 pub use notify::Notifier;
+#[cfg(feature = "abi-7-11")]
+pub use reply::ReplyPoll;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
@@ -868,6 +870,25 @@ pub trait Filesystem {
             cmd,
             in_data.len(),
             out_size,
+        );
+        reply.error(ENOSYS);
+    }
+
+    /// Poll for events
+    #[cfg(feature = "abi-7-11")]
+    fn poll(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: u64,
+        kh: u64,
+        events: u32,
+        flags: u32,
+        reply: ReplyPoll,
+    ) {
+        debug!(
+            "[Not Implemented] poll(ino: {:#x?}, fh: {}, kh: {}, events: {}, flags: {})",
+            ino, fh, kh, events, flags
         );
         reply.error(ENOSYS);
     }

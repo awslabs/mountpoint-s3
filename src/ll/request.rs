@@ -1317,7 +1317,7 @@ mod op {
         }
     }
 
-    /// Poll.  TODO: currently unsupported by fuser
+    /// Poll.
     #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
     pub struct Poll<'a> {
@@ -1331,6 +1331,24 @@ mod op {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
+        }
+
+        /// The unique id used for the poll context by the kernel
+        pub fn kernel_handle(&self) -> u64 {
+            self.arg.kh
+        }
+
+        /// The requested poll events
+        pub fn events(&self) -> u32 {
+            #[cfg(feature = "abi-7-21")]
+            return self.arg.events;
+            #[cfg(not(feature = "abi-7-21"))]
+            return 0;
+        }
+
+        /// The poll request's flags
+        pub fn flags(&self) -> u32 {
+            self.arg.flags
         }
     }
 

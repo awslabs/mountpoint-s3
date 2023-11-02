@@ -978,7 +978,7 @@ pub struct fuse_poll_in {
 
 #[cfg(feature = "abi-7-11")]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, AsBytes)]
 pub struct fuse_poll_out {
     pub revents: u32,
     pub padding: u32,
@@ -986,7 +986,7 @@ pub struct fuse_poll_out {
 
 #[cfg(feature = "abi-7-11")]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, AsBytes)]
 pub struct fuse_notify_poll_wakeup_out {
     pub kh: u64,
 }
