@@ -5,10 +5,10 @@ use std::io::{ErrorKind, Write};
 use std::ops::RangeBounds;
 use std::path::PathBuf;
 
-use base64ct::{Base64UrlUnpadded, Encoding};
 use bytes::{BufMut, Bytes, BytesMut};
 use mountpoint_s3_crt::checksums::crc32c::Crc32c;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing::{error, trace};
 
 use crate::data_cache::DataCacheError;
@@ -86,15 +86,10 @@ impl DiskDataCache {
         let mut path = self.cache_directory.join(CACHE_VERSION);
 
         // An S3 key may be up to 1024 UTF-8 bytes long, which exceeds the maximum UNIX file name length.
-        // Instead, we encode the key and split into 255 character long directory names.
-        let encoded_s3_key = Base64UrlUnpadded::encode_string(cache_key.s3_key.as_bytes());
-        let mut slice = encoded_s3_key.as_str();
-        while !slice.is_empty() {
-            let (chunk, remaining) = slice.split_at(255.min(slice.len()));
-            path.push(chunk);
-            slice = remaining;
-        }
-
+        // Instead, we hash the key.
+        // The risk of collisions is mitigated as we will ignore blocks read that contain the wrong S3 key, etc..
+        let encoded_s3_key = hex::encode(Sha256::digest(cache_key.s3_key.as_bytes()));
+        path.push(encoded_s3_key);
         path.push(cache_key.etag.as_str());
         path
     }
@@ -180,7 +175,7 @@ mod tests {
         let cache_dir = PathBuf::from("mountpoint-cache/");
         let data_cache = DiskDataCache::new(cache_dir, 1024);
 
-        let encoded_s3_key = Base64UrlUnpadded::encode_string(s3_key.as_bytes());
+        let encoded_s3_key = hex::encode(Sha256::digest(s3_key.as_bytes()));
         let etag = ETag::for_tests();
         let key = CacheKey {
             etag,
@@ -207,10 +202,7 @@ mod tests {
         let expected = vec![
             "mountpoint-cache",
             CACHE_VERSION,
-            "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\
-            YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\
-            YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWF",
-            "hYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE",
+            "a7bf334bec6f17021671033b243b8689757212496cd525ba9873addde87b0c56",
             key.etag.as_str(),
         ];
         let path = data_cache.get_path_for_key(&key);
