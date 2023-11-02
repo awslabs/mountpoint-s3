@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use base64ct::{Base64UrlUnpadded, Encoding};
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
-use tracing::{error, trace, warn};
+use tracing::{error, trace};
 
 use crate::data_cache::DataCacheError;
 use crate::serde::SerializableCrc32c;
@@ -123,55 +123,10 @@ impl DataCache for DiskDataCache {
 
     fn cached_block_indices<R: RangeBounds<BlockIndex>>(
         &self,
-        cache_key: &CacheKey,
-        range: R,
+        _cache_key: &CacheKey,
+        _range: R,
     ) -> DataCacheResult<Vec<BlockIndex>> {
-        let path_for_cache_key = self.get_path_for_key(cache_key);
-        let read_dir = match fs::read_dir(&path_for_cache_key) {
-            Ok(handle) => handle,
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                trace!(
-                    ?path_for_cache_key,
-                    "no directory for cache key, assuming no block cached yet"
-                );
-                return Ok(Vec::new());
-            }
-            Err(e) => return Err(e.into()),
-        };
-
-        let mut indices = Vec::new();
-        for entry in read_dir.into_iter() {
-            if let Err(e) = entry {
-                return Err(DataCacheError::IoFailure(e));
-            }
-
-            let file_name = entry?.file_name();
-            let file_name = file_name.to_string_lossy();
-            let block_suffix = ".block";
-            if file_name.ends_with(block_suffix) {
-                let end = file_name.len() - block_suffix.len();
-                let block_idx = &file_name[..end];
-                if let Ok(block_idx) = block_idx.parse::<BlockIndex>() {
-                    if range.contains(&block_idx) {
-                        indices.push(block_idx);
-                    }
-                } else {
-                    error!(
-                        path=?path_for_cache_key.join(file_name.as_ref()),
-                        "unexpected file found in cache, name couldn't be parsed for block number"
-                    );
-                };
-            } else {
-                warn!(
-                    path=?path_for_cache_key.join(file_name.as_ref()),
-                    "unexpected file found in cache without \".block\" suffix"
-                );
-            }
-        }
-
-        indices.sort();
-
-        Ok(indices)
+        todo!("implement or deprecate");
     }
 }
 
@@ -304,37 +259,5 @@ mod tests {
             data_1, entry,
             "cache entry returned should match original bytes after put"
         );
-    }
-
-    #[test]
-    fn test_cached_indices() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let block_size = 1024;
-        let data_cache = DiskDataCache::new(temp_dir.into_path(), block_size);
-
-        let cache_key = CacheKey {
-            s3_key: "HelloWorld".into(),
-            etag: ETag::for_tests(),
-        };
-        let bytes = ChecksummedBytes::from_bytes("Hello World".into());
-
-        let cached_block_indices = data_cache.cached_block_indices(&cache_key, 0..).unwrap();
-        assert!(cached_block_indices.is_empty());
-
-        data_cache.put_block(cache_key.clone(), 5, bytes.clone()).unwrap();
-        let cached_block_indices = data_cache.cached_block_indices(&cache_key, 0..).unwrap();
-        assert_eq!(cached_block_indices, vec![5]);
-        let cached_block_indices = data_cache.cached_block_indices(&cache_key, 12..).unwrap();
-        assert!(cached_block_indices.is_empty());
-
-        let another_cache_key = CacheKey {
-            s3_key: "SomeOtherKey".into(),
-            etag: ETag::for_tests(),
-        };
-        data_cache.put_block(another_cache_key, 5, bytes.clone()).unwrap();
-        let cached_block_indices = data_cache.cached_block_indices(&cache_key, 0..).unwrap();
-        assert_eq!(cached_block_indices, vec![5]);
-
-        // TODO: Tests for `remove_block`
     }
 }
