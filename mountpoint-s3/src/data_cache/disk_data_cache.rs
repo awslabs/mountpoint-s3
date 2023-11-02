@@ -34,10 +34,8 @@ pub struct DataBlock {
 }
 
 impl DataBlock {
-    fn new(bytes: ChecksummedBytes) -> Self {
-        let (data, checksum) = bytes
-            .into_inner()
-            .expect("TODO: what to do if there's an integrity issue");
+    fn new(bytes: ChecksummedBytes) -> DataCacheResult<Self> {
+        let (data, checksum) = bytes.into_inner().map_err(|_e| DataCacheError::InvalidBlockContent)?;
         let checksum = checksum.value();
         DataBlock { checksum, data }
     }
