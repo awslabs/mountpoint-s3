@@ -15,6 +15,9 @@ use crate::serde::SerializableCrc32c;
 
 use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 
+/// Disk and file-layout versioning.
+const CACHE_VERSION: &str = "V1";
+
 /// On-disk implementation of [DataCache].
 ///
 /// TODO: Store additional metadata with each block such as expected S3 key, ETag, etc..
@@ -56,7 +59,7 @@ impl DiskDataCache {
 
     /// Get the relative path for the given block.
     fn get_path_for_key(&self, cache_key: &CacheKey) -> PathBuf {
-        let mut path = self.cache_directory.join("v1");
+        let mut path = self.cache_directory.join(CACHE_VERSION);
 
         // An S3 key may be up to 1024 UTF-8 bytes long, which exceeds the maximum UNIX file name length.
         // Instead, we encode the key and split into 255 character long directory names.
@@ -155,7 +158,7 @@ mod tests {
             etag,
             s3_key: s3_key.to_owned(),
         };
-        let expected = vec!["mountpoint-cache", "v1", &encoded_s3_key, key.etag.as_str()];
+        let expected = vec!["mountpoint-cache", CACHE_VERSION, &encoded_s3_key, key.etag.as_str()];
         let path = data_cache.get_path_for_key(&key);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
         assert_eq!(expected, results);
@@ -175,7 +178,7 @@ mod tests {
         };
         let expected = vec![
             "mountpoint-cache",
-            "v1",
+            CACHE_VERSION,
             "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\
             YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh\
             YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWF",
