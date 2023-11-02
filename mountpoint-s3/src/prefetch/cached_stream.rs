@@ -137,40 +137,16 @@ where
         range: RequestRange,
         part_queue_producer: PartQueueProducer<Client::ClientError>,
     ) {
-        let block_size = self.cache.block_size();
-        let block_range = block_indices_for_byte_range(&range, block_size);
-
         let cache_key = CacheKey {
             s3_key: key.to_owned(),
             etag: if_match,
         };
-        let block_indexes = match self.cache.cached_block_indices(&cache_key, block_range.clone()) {
-            Ok(blocks) => blocks,
-            Err(error) => {
-                trace!(?key, ?range, ?error, "error reading from cache");
-                return self
-                    .get_from_client(bucket, &cache_key, range, block_range, part_queue_producer)
-                    .await;
-            }
-        };
 
-        // If the cached blocks do not cover the whole range, fall back to the client.
-        // TODO: consider allowing partial cache hits.
-        let block_range_len = block_range.end.saturating_sub(block_range.start) as usize;
-        if block_indexes.len() < block_range_len {
-            trace!(
-                ?key,
-                ?range,
-                "cache miss - only found {} blocks out of {}",
-                block_indexes.len(),
-                block_range_len
-            );
-            return self
-                .get_from_client(bucket, &cache_key, range, block_range, part_queue_producer)
-                .await;
-        }
+        let block_size = self.cache.block_size();
+        let block_range = block_indices_for_byte_range(&range, block_size);
 
-        for block_index in block_indexes {
+        // TODO: consider starting GetObject requests pre-emptively if cache blocks are missing
+        for block_index in block_range.clone() {
             match self.cache.get_block(&cache_key, block_index) {
                 Ok(Some(block)) => {
                     trace!(?key, ?range, block_index, "cache hit");
