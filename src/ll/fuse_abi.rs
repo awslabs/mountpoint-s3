@@ -1066,10 +1066,10 @@ pub struct fuse_notify_inval_entry_out {
 #[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_delete_out {
-    parent: u64,
-    child: u64,
-    namelen: u32,
-    padding: u32,
+    pub parent: u64,
+    pub child: u64,
+    pub namelen: u32,
+    pub padding: u32,
 }
 
 #[cfg(feature = "abi-7-15")]
