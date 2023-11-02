@@ -37,6 +37,10 @@ pub struct DataBlock {
 }
 
 impl DataBlock {
+    /// Create a new [DataBlock].
+    ///
+    /// This may return an integrity error if the checksummed byte buffer is found to be corrupt.
+    /// However, this check is not guaranteed and it shouldn't be assumed that the data within the block is not corrupt.
     fn new(cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<Self> {
         let (s3_key, etag) = (cache_key.s3_key, cache_key.etag.into_inner());
         let (data, checksum) = bytes.into_inner().map_err(|_e| DataCacheError::InvalidBlockContent)?;
