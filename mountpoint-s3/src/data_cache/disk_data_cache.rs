@@ -1,7 +1,7 @@
 //! Module for the on-disk data cache implementation.
 
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::ops::RangeBounds;
 use std::path::PathBuf;
 
@@ -107,11 +107,18 @@ impl DiskDataCache {
 impl DataCache for DiskDataCache {
     fn get_block(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
         let path = self.get_path_for_block(cache_key, block_idx);
-        let mut file = match fs::File::open(path) {
+        let mut file = match fs::File::open(&path) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(err.into()),
         };
+
+        let mut block_version = [0; CACHE_VERSION.len()];
+        file.read_exact(&mut block_version)?;
+        if block_version != CACHE_VERSION.as_bytes() {
+            error!(found_version = ?block_version, ?path, "stale block format found during reading");
+            return Err(DataCacheError::InvalidBlockContent);
+        }
 
         let block: DataBlock = match bincode::deserialize_from(&file) {
             Ok(block) => block,
@@ -133,6 +140,7 @@ impl DataCache for DiskDataCache {
         let block = DataBlock::new(cache_key, block_idx, bytes)?;
 
         let mut file = fs::File::create(path)?;
+        file.write_all(CACHE_VERSION.as_bytes())?;
         let serialize_result = bincode::serialize_into(&mut file, &block);
         if let Err(err) = serialize_result {
             return match *err {
