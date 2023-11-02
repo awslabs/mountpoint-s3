@@ -54,7 +54,7 @@ impl DataBlock {
         })
     }
 
-    /// Extra the block data, checking that fields such as S3 key, etc. match what we expect.
+    /// Extract the block data, checking that fields such as S3 key, etc. match what we expect.
     ///
     /// Comparing these fields helps ensure we have not corrupted or swapped block data on disk.
     fn data(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<ChecksummedBytes> {
