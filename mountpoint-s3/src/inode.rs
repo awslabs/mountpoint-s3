@@ -242,12 +242,6 @@ impl Superblock {
             return Err(InodeError::SetAttrNotPermittedOnRemoteInode(inode.err()));
         }
 
-        // Should be impossible since local file stat never expire.
-        if !sync.stat.is_valid() {
-            error!(?ino, "local inode stat already expired");
-            return Err(InodeError::SetAttrOnExpiredStat(inode.err()));
-        }
-
         if let Some(t) = atime {
             sync.stat.atime = t;
         }
@@ -334,7 +328,6 @@ impl Superblock {
             return Err(InodeError::FileAlreadyExists(inode.err()));
         }
 
-        // Local inode stats never expire, because they can't be looked up remotely
         let stat = match kind {
             // Objects don't have an ETag until they are uploaded to S3
             InodeKind::File => InodeStat::for_file(
