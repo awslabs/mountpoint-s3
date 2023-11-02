@@ -91,28 +91,19 @@ pub trait PrefetchGetObject: Send {
         &mut self,
         offset: u64,
         length: usize,
-    ) -> ObjectClientResult<ChecksummedBytes, PrefetchReadError, Self::ClientError>;
+    ) -> Result<ChecksummedBytes, PrefetchReadError<Self::ClientError>>;
 }
 
 #[derive(Debug, Error)]
-pub enum PrefetchReadError {
+pub enum PrefetchReadError<E> {
     #[error("get object request failed")]
-    GetRequestFailed(#[from] GetObjectError),
+    GetRequestFailed(#[source] ObjectClientError<GetObjectError, E>),
 
     #[error("get request terminated unexpectedly")]
     GetRequestTerminatedUnexpectedly,
 
     #[error("integrity check failed")]
     Integrity(#[from] IntegrityError),
-}
-
-impl PrefetchReadError {
-    pub fn map<C>(error: ObjectClientError<GetObjectError, C>) -> ObjectClientError<Self, C> {
-        match error {
-            ObjectClientError::ServiceError(s) => ObjectClientError::ServiceError(Self::GetRequestFailed(s)),
-            ObjectClientError::ClientError(c) => ObjectClientError::ClientError(c),
-        }
-    }
 }
 
 #[derive(Debug)]

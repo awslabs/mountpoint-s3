@@ -1,7 +1,5 @@
 use std::time::Instant;
 
-use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::types::ObjectClientResult;
 use tracing::trace;
 
 use crate::prefetch::part::Part;
@@ -15,14 +13,14 @@ use crate::sync::AsyncMutex;
 #[derive(Debug)]
 pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
-    receiver: Receiver<ObjectClientResult<Part, PrefetchReadError, E>>,
+    receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
     failed: AtomicBool,
 }
 
 /// Producer side of the queue of [Part]s.
 #[derive(Debug)]
 pub struct PartQueueProducer<E: std::error::Error> {
-    sender: Sender<ObjectClientResult<Part, PrefetchReadError, E>>,
+    sender: Sender<Result<Part, PrefetchReadError<E>>>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
@@ -44,7 +42,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub async fn read(&self, length: usize) -> ObjectClientResult<Part, PrefetchReadError, E> {
+    pub async fn read(&self, length: usize) -> Result<Part, PrefetchReadError<E>> {
         let mut current_part = self.current_part.lock().await;
 
         assert!(
@@ -63,9 +61,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
                 let part = self.receiver.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us", start.elapsed().as_micros() as f64);
                 match part {
-                    Err(RecvError) => Err(ObjectClientError::ServiceError(
-                        PrefetchReadError::GetRequestTerminatedUnexpectedly,
-                    )),
+                    Err(RecvError) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
                     Ok(part) => part,
                 }
             }
@@ -92,7 +88,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
-    pub fn push(&self, part: ObjectClientResult<Part, PrefetchReadError, E>) {
+    pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
         // Unbounded channel will never actually block
         let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {

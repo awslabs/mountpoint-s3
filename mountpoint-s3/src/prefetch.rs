@@ -19,8 +19,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use metrics::{counter, histogram};
-use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::types::{ETag, ObjectClientResult};
+use mountpoint_s3_client::types::ETag;
 use tracing::trace;
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
@@ -135,7 +134,7 @@ where
         &mut self,
         offset: u64,
         length: usize,
-    ) -> ObjectClientResult<ChecksummedBytes, PrefetchReadError, Self::ClientError> {
+    ) -> Result<ChecksummedBytes, PrefetchReadError<Self::ClientError>> {
         trace!(
             offset,
             length,
@@ -215,7 +214,7 @@ where
                     // cancel inflight tasks
                     self.current_task = None;
                     self.future_tasks.drain(..);
-                    return Err(ObjectClientError::ServiceError(e.into()));
+                    return Err(e.into());
                 }
             }
             to_read -= part_len;
@@ -320,10 +319,7 @@ where
     /// Try to seek within the current inflight requests without restarting them. Returns true if
     /// the seek succeeded, in which case self.next_sequential_read_offset will be updated to the
     /// new offset. If this returns false, the prefetcher is in an unknown state and must be reset.
-    async fn try_seek(
-        &mut self,
-        offset: u64,
-    ) -> Result<bool, ObjectClientError<PrefetchReadError, Stream::ClientError>> {
+    async fn try_seek(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Stream::ClientError>> {
         assert_ne!(offset, self.next_sequential_read_offset);
         trace!(from = self.next_sequential_read_offset, to = offset, "trying to seek");
         if offset > self.next_sequential_read_offset {
@@ -333,10 +329,7 @@ where
         }
     }
 
-    async fn try_seek_forward(
-        &mut self,
-        offset: u64,
-    ) -> Result<bool, ObjectClientError<PrefetchReadError, Stream::ClientError>> {
+    async fn try_seek_forward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Stream::ClientError>> {
         assert!(offset > self.next_sequential_read_offset);
         let total_seek_distance = offset - self.next_sequential_read_offset;
         let Some(current_task) = self.current_task.as_mut() else {
@@ -391,10 +384,7 @@ where
         Ok(true)
     }
 
-    fn try_seek_backward(
-        &mut self,
-        offset: u64,
-    ) -> Result<bool, ObjectClientError<PrefetchReadError, Stream::ClientError>> {
+    fn try_seek_backward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Stream::ClientError>> {
         assert!(offset < self.next_sequential_read_offset);
         let backwards_length_needed = self.next_sequential_read_offset - offset;
         let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize) else {

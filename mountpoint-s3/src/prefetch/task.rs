@@ -1,5 +1,4 @@
 use futures::future::RemoteHandle;
-use mountpoint_s3_client::types::ObjectClientResult;
 
 use crate::store::PrefetchReadError;
 
@@ -45,7 +44,7 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
         }
     }
 
-    pub async fn read(&mut self, length: usize) -> ObjectClientResult<Part, PrefetchReadError, E> {
+    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
         let part = self.part_queue.read(length).await?;
         debug_assert!(part.len() <= self.remaining);
         self.remaining -= part.len();

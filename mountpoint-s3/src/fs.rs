@@ -615,12 +615,10 @@ where
                 Ok(bytes) => reply.data(&bytes),
                 Err(e) => reply.error(err!(libc::EIO, source:e, "integrity error")),
             },
-            Err(ObjectClientError::ServiceError(PrefetchReadError::GetRequestFailed(
+            Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
                 GetObjectError::PreconditionFailed,
             ))) => reply.error(err!(libc::ESTALE, "object was mutated remotely")),
-            Err(ObjectClientError::ServiceError(PrefetchReadError::Integrity(e))) => {
-                reply.error(err!(libc::EIO, source:e, "integrity error"))
-            }
+            Err(PrefetchReadError::Integrity(e)) => reply.error(err!(libc::EIO, source:e, "integrity error")),
             Err(e) => reply.error(err!(libc::EIO, source:e, "get request failed")),
         }
     }
