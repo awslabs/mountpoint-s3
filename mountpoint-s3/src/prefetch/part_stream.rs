@@ -69,9 +69,12 @@ impl RequestRange {
         self.offset + self.size as u64
     }
 
+    /// Trim the start of this range at the given `start_offset`.
+    /// Note `start_offset` is clamped to the original range.
     pub fn trim_start(&self, start_offset: u64) -> Self {
-        let offset = start_offset.max(self.offset);
-        let size = self.end().saturating_sub(offset) as usize;
+        let end = self.end();
+        let offset = start_offset.clamp(self.offset, end);
+        let size = end.saturating_sub(offset) as usize;
         Self {
             object_size: self.object_size,
             offset,
@@ -79,8 +82,10 @@ impl RequestRange {
         }
     }
 
+    /// Trim the end of this range at the given `end_offset`.
+    /// Note `end_offset` is clamped to the original range.
     pub fn trim_end(&self, end_offset: u64) -> Self {
-        let end = end_offset.min(self.end());
+        let end = end_offset.clamp(self.offset, self.end());
         let size = end.saturating_sub(self.offset) as usize;
         Self {
             object_size: self.object_size,
