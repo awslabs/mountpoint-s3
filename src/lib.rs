@@ -27,6 +27,8 @@ use crate::session::MAX_WRITE_SIZE;
 #[cfg(feature = "abi-7-16")]
 pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
+#[cfg(feature = "abi-7-11")]
+pub use notify::Notifier;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
 pub use reply::ReplyXattr;
@@ -45,6 +47,8 @@ use std::cmp::min;
 mod channel;
 mod ll;
 mod mnt;
+#[cfg(feature = "abi-7-11")]
+mod notify;
 mod reply;
 mod request;
 mod session;

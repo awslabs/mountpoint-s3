@@ -2,6 +2,8 @@
 
 mod argument;
 pub mod fuse_abi;
+#[cfg(feature = "abi-7-11")]
+pub(crate) mod notify;
 pub(crate) mod reply;
 mod request;
 

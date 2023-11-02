@@ -1046,7 +1046,7 @@ pub struct fuse_direntplus {
 
 #[cfg(feature = "abi-7-12")]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, AsBytes)]
 pub struct fuse_notify_inval_inode_out {
     pub ino: u64,
     pub off: i64,
@@ -1055,7 +1055,7 @@ pub struct fuse_notify_inval_inode_out {
 
 #[cfg(feature = "abi-7-12")]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, AsBytes)]
 pub struct fuse_notify_inval_entry_out {
     pub parent: u64,
     pub namelen: u32,
@@ -1064,7 +1064,7 @@ pub struct fuse_notify_inval_entry_out {
 
 #[cfg(feature = "abi-7-18")]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, AsBytes)]
 pub struct fuse_notify_delete_out {
     pub parent: u64,
     pub child: u64,
@@ -1074,7 +1074,7 @@ pub struct fuse_notify_delete_out {
 
 #[cfg(feature = "abi-7-15")]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, AsBytes)]
 pub struct fuse_notify_store_out {
     pub nodeid: u64,
     pub offset: u64,
