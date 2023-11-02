@@ -7,11 +7,11 @@ use std::path::PathBuf;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use bytes::{BufMut, Bytes, BytesMut};
+use mountpoint_s3_crt::checksums::crc32c::Crc32c;
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace};
 
 use crate::data_cache::DataCacheError;
-use crate::serde::SerializableCrc32c;
 
 use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 
@@ -29,7 +29,7 @@ pub struct DiskDataCache {
 /// Represents a fixed-size chunk of data that can be serialized.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DataBlock {
-    checksum: SerializableCrc32c,
+    checksum: u32,
     data: Bytes,
 }
 
@@ -38,13 +38,13 @@ impl DataBlock {
         let (data, checksum) = bytes
             .into_inner()
             .expect("TODO: what to do if there's an integrity issue");
-        let checksum: SerializableCrc32c = checksum.into();
+        let checksum = checksum.value();
         DataBlock { checksum, data }
     }
 
     /// TODO: Replace with unpack method taking anything we need for validation?
     fn data(&self) -> ChecksummedBytes {
-        ChecksummedBytes::new(self.data.clone(), self.checksum.into())
+        ChecksummedBytes::new(self.data.clone(), Crc32c::new(self.checksum))
     }
 }
 
