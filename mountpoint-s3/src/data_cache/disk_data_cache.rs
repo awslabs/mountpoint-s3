@@ -5,7 +5,7 @@ use std::io::{ErrorKind, Write};
 use std::ops::RangeBounds;
 use std::path::PathBuf;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use mountpoint_s3_crt::checksums::crc32c::Crc32c;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -113,12 +113,7 @@ impl DataCache for DiskDataCache {
             Err(err) => return Err(err.into()),
         };
 
-        let bytes = BytesMut::with_capacity(self.block_size as usize); // TODO: fix capacity?
-        let mut writer = bytes.writer();
-        std::io::copy(&mut file, &mut writer)?;
-        let encoded = writer.into_inner().freeze();
-
-        let block: DataBlock = match bincode::deserialize(&encoded[..]) {
+        let block: DataBlock = match bincode::deserialize_from(&file) {
             Ok(block) => block,
             Err(e) => {
                 error!("block could not be deserialized: {:?}", e);
@@ -138,9 +133,13 @@ impl DataCache for DiskDataCache {
         let block = DataBlock::new(cache_key, block_idx, bytes)?;
 
         let mut file = fs::File::create(path)?;
-        let encoded: Vec<u8> = bincode::serialize(&block).expect("todo: why do i expect this to work?");
-        file.write_all(&encoded)?;
-        file.sync_data()?;
+        let serialize_result = bincode::serialize_into(&mut file, &block);
+        if let Err(err) = serialize_result {
+            return match *err {
+                bincode::ErrorKind::Io(io_err) => return Err(DataCacheError::from(io_err)),
+                _ => Err(DataCacheError::InvalidBlockContent),
+            };
+        };
         Ok(())
     }
 
