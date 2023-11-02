@@ -31,7 +31,7 @@ impl ETag {
         &self.etag
     }
 
-    /// Unpack the [String] contained by the enum.
+    /// Unpack the [String] contained by the [ETag] wrapper
     pub fn into_inner(self) -> String {
         self.etag
     }
