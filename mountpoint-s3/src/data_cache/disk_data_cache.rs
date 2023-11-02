@@ -89,6 +89,8 @@ impl DiskDataCache {
         // Instead, we hash the key.
         // The risk of collisions is mitigated as we will ignore blocks read that contain the wrong S3 key, etc..
         let encoded_s3_key = hex::encode(Sha256::digest(cache_key.s3_key.as_bytes()));
+        // TODO: Split directory into subdirectories.
+        //       Take the first few chars of hash to avoid hitting any FS-specific maximum number of directory entries.
         path.push(encoded_s3_key);
         path.push(cache_key.etag.as_str());
         path
