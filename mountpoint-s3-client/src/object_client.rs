@@ -31,6 +31,11 @@ impl ETag {
         &self.etag
     }
 
+    /// Unpack the [String] contained by the enum.
+    pub fn into_inner(self) -> String {
+        self.etag
+    }
+
     /// Creating default etag for tests
     #[doc(hidden)]
     pub fn for_tests() -> Self {

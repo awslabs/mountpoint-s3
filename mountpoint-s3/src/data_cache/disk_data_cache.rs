@@ -19,30 +19,56 @@ use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 const CACHE_VERSION: &str = "V1";
 
 /// On-disk implementation of [DataCache].
-///
-/// TODO: Store additional metadata with each block such as expected S3 key, ETag, etc..
 pub struct DiskDataCache {
     block_size: u64,
     cache_directory: PathBuf,
 }
 
 /// Represents a fixed-size chunk of data that can be serialized.
+///
+/// TODO: Add checksum over struct (excl. `data`) to verify block metadata later.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DataBlock {
+    block_idx: BlockIndex,
     checksum: u32,
     data: Bytes,
+    etag: String,
+    s3_key: String,
 }
 
 impl DataBlock {
-    fn new(bytes: ChecksummedBytes) -> DataCacheResult<Self> {
+    fn new(cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<Self> {
+        let (s3_key, etag) = (cache_key.s3_key, cache_key.etag.into_inner());
         let (data, checksum) = bytes.into_inner().map_err(|_e| DataCacheError::InvalidBlockContent)?;
         let checksum = checksum.value();
-        DataBlock { checksum, data }
+        Ok(DataBlock {
+            block_idx,
+            checksum,
+            data,
+            etag,
+            s3_key,
+        })
     }
 
-    /// TODO: Replace with unpack method taking anything we need for validation?
-    fn data(&self) -> ChecksummedBytes {
-        ChecksummedBytes::new(self.data.clone(), Crc32c::new(self.checksum))
+    /// Extra the block data, checking that fields such as S3 key, etc. match what we expect.
+    ///
+    /// Comparing these fields helps ensure we have not corrupted or swapped block data on disk.
+    fn data(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<ChecksummedBytes> {
+        let (s3_key, etag) = (cache_key.s3_key.as_str(), &cache_key.etag);
+
+        let s3_key_match = s3_key == self.s3_key;
+        let etag_match = etag.as_str() == self.etag;
+        let block_idx_match = block_idx == self.block_idx;
+        if s3_key_match && etag_match && block_idx_match {
+            let bytes = ChecksummedBytes::new(self.data.clone(), Crc32c::new(self.checksum));
+            Ok(bytes)
+        } else {
+            error!(
+                s3_key_match,
+                etag_match, block_idx_match, "block data did not match expected values",
+            );
+            Err(DataCacheError::InvalidBlockContent)
+        }
     }
 }
 
@@ -102,16 +128,19 @@ impl DataCache for DiskDataCache {
                 return Err(DataCacheError::InvalidBlockContent);
             }
         };
-
-        Ok(Some(block.data()))
+        let bytes = block.data(cache_key, block_idx)?;
+        Ok(Some(bytes))
     }
 
     fn put_block(&self, cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
         let path = self.get_path_for_block(&cache_key, block_idx);
         trace!(?cache_key, ?path, "new block will be created in data cache");
-        fs::create_dir_all(path.parent().expect("path should include cache key in directory name"))?;
+        let cache_path_for_key = path.parent().expect("path should include cache key in directory name");
+        fs::create_dir_all(cache_path_for_key)?;
+
+        let block = DataBlock::new(cache_key, block_idx, bytes)?;
+
         let mut file = fs::File::create(path)?;
-        let block = DataBlock::new(bytes);
         let encoded: Vec<u8> = bincode::serialize(&block).expect("todo: why do i expect this to work?");
         file.write_all(&encoded)?;
         file.sync_data()?;
@@ -134,6 +163,7 @@ impl DataCache for DiskDataCache {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+    use std::str::FromStr;
 
     use super::*;
 
@@ -260,5 +290,36 @@ mod tests {
             data_1, entry,
             "cache entry returned should match original bytes after put"
         );
+    }
+
+    #[test]
+    fn data_block_extract_checks() {
+        let data_1 = ChecksummedBytes::from_bytes("Foo".into());
+
+        let cache_key_1 = CacheKey {
+            s3_key: "a".into(),
+            etag: ETag::for_tests(),
+        };
+        let cache_key_2 = CacheKey {
+            s3_key: "b".into(),
+            etag: ETag::for_tests(),
+        };
+        let cache_key_3 = CacheKey {
+            s3_key: "a".into(),
+            etag: ETag::from_str("badetag").unwrap(),
+        };
+
+        let block = DataBlock::new(cache_key_1.clone(), 0, data_1.clone()).expect("should have no checksum err");
+        block
+            .data(&cache_key_1, 1)
+            .expect_err("should fail due to incorrect block index");
+        block
+            .data(&cache_key_2, 0)
+            .expect_err("should fail due to incorrect s3 key in cache key");
+        block
+            .data(&cache_key_3, 0)
+            .expect_err("should fail due to incorrect etag in cache key");
+        let unpacked_bytes = block.data(&cache_key_1, 0).expect("should be OK as all fields match");
+        assert_eq!(data_1, unpacked_bytes, "data block should return original bytes");
     }
 }
