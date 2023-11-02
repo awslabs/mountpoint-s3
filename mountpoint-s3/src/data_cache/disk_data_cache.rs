@@ -120,7 +120,10 @@ impl DataCache for DiskDataCache {
         let mut block_version = [0; CACHE_VERSION.len()];
         file.read_exact(&mut block_version)?;
         if block_version != CACHE_VERSION.as_bytes() {
-            error!(found_version = ?block_version, ?path, "stale block format found during reading");
+            error!(
+                found_version = ?block_version, expected_version = ?CACHE_VERSION, ?path,
+                "stale block format found during reading"
+            );
             return Err(DataCacheError::InvalidBlockContent);
         }
 
