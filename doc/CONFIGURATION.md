@@ -223,7 +223,7 @@ ExecStart=/usr/bin/mount-s3 DOC-EXAMPLE-BUCKET /home/ec2-user/s3-bucket-mount
 ExecStop=/usr/bin/fusermount -u /home/ec2-user/s3-bucket-mount
 
 [Install]
-WantedBy=default.target
+WantedBy=remote-fs.target
 ```
 
 ## Logging
