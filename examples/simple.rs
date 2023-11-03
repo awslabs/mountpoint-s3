@@ -5,8 +5,8 @@ use clap::{crate_version, Arg, Command};
 use fuser::consts::FOPEN_DIRECT_IO;
 #[cfg(feature = "abi-7-26")]
 use fuser::consts::FUSE_HANDLE_KILLPRIV;
-#[cfg(feature = "abi-7-31")]
-use fuser::consts::FUSE_WRITE_KILL_PRIV;
+// #[cfg(feature = "abi-7-31")]
+// use fuser::consts::FUSE_WRITE_KILL_PRIV;
 use fuser::TimeOrNow::Now;
 use fuser::{
     Filesystem, KernelConfig, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
@@ -306,7 +306,7 @@ impl SimpleFS {
     fn allocate_next_file_handle(&self, read: bool, write: bool) -> u64 {
         let mut fh = self.next_file_handle.fetch_add(1, Ordering::SeqCst);
         // Assert that we haven't run out of file handles
-        assert!(fh < FILE_HANDLE_WRITE_BIT && fh < FILE_HANDLE_READ_BIT);
+        assert!(fh < FILE_HANDLE_READ_BIT.min(FILE_HANDLE_WRITE_BIT));
         if read {
             fh |= FILE_HANDLE_READ_BIT;
         }
