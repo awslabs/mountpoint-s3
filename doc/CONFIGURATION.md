@@ -6,9 +6,9 @@ In most scenarios, you can use Mountpoint by running the following command, wher
 
 We've tried hard to make this simple command adopt good defaults for most scenarios. However, some scenarios may need additional configuration. This document shows how to configure these elements of Mountpoint:
 * [AWS credentials](#aws-credentials)
-* [Caching configuration](#caching-configuration)
 * [S3 bucket configuration](#s3-bucket-configuration), including mounting a bucket prefix or changing the endpoint to which Mountpoint sends S3 requests
 * [File system configuration](#file-system-configuration), including making a bucket read-only or allowing file deletion
+* [Caching configuration](#caching-configuration), where metadata and object data can be served from a cache
 * [Logging](#logging) for troubleshooting Mountpoint
 
 ## AWS credentials
@@ -80,23 +80,6 @@ Here is an example least-privilege policy document to add to an IAM user or role
 ```
 
 Mountpoint also respects access control lists (ACLs) applied to objects in your S3 bucket, but does not allow you to automatically attach ACLs to objects created with Mountpoint. A majority of modern use cases in Amazon S3 no longer require the use of ACLs. We recommend that you keep ACLs disabled for your S3 bucket, and instead use bucket policies to control access to your objects.
-
-## Caching configuration
-
-Mountpoint now offers caching of metadata and object content allowing for reduced requests when reading files.
-This is particularly useful when reading the same files many times for the same Mountpoint filesystem.
-
-To enable caching, use the `--caching` command-line flag.
-This alone will enable caching of metadata using a default time-to-live (TTL) of 60 minutes.
-Caching of object/file content on disk can also be enabled
-by providing a caching location using the `--data-cache-directory <DIR>` command-line flag.
-
-Enabling caching relaxes the strong read-after-write consistency offered by Mountpoint with default configuration.
-Please read more in the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency).
-
-Mountpoint caching can be further configured,
-such as adjusting the metadata time-to-live (TTL) or the maximum space allowed to be used by the data cache.
-Review the caching options available using `mount-s3 --help`.
 
 ## S3 bucket configuration
 
@@ -244,6 +227,22 @@ ExecStop=/usr/bin/fusermount -u /home/ec2-user/s3-bucket-mount
 [Install]
 WantedBy=remote-fs.target
 ```
+
+## Caching configuration
+
+Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
+
+To enable caching, use the `--cache <CACHE-DIR>` command-line flag.
+This flag will enable caching of metadata using a default time-to-live (TTL) of 60 minutes.
+Object/file content will also be cached within the cache directory specified.
+
+Mountpoint caching can be further configured,
+such as adjusting the metadata time-to-live (TTL) or the maximum space allowed to be used by the data cache.
+Review the caching options available using `mount-s3 --help`.
+
+> [!WARNING]
+> Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
+> See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
 ## Logging
 
