@@ -4,6 +4,7 @@
 //! reducing both the number of requests as well as the latency for the reads.
 //! Ultimately, this means reduced cost in terms of S3 billing as well as compute time.
 
+pub mod disk_data_cache;
 pub mod in_memory_data_cache;
 
 use std::ops::RangeBounds;

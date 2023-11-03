@@ -151,6 +151,16 @@ impl ChecksummedBytes {
         }
         Ok(())
     }
+
+    /// Provide the underlying bytes and the associated checksum,
+    /// which may be recalculated if the checksum covers a larger slice than the current slice.
+    /// Validation may or may not be triggered, and **bytes or checksum may be corrupt** even if result returns [Ok].
+    ///
+    /// If you are only interested in the underlying bytes, **you should use `into_bytes()`**.
+    pub fn into_inner(self) -> Result<(Bytes, Crc32c), IntegrityError> {
+        self.shrink_to_fit()?;
+        Ok((self.curr_slice, self.checksum))
+    }
 }
 
 impl Default for ChecksummedBytes {
