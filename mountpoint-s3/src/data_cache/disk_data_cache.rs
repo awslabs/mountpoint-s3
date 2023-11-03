@@ -28,8 +28,6 @@ pub struct DiskDataCache {
 ///
 /// It should be written alongside the block's data
 /// and used to verify it contains the correct contents to avoid blocks being mixed up.
-///
-/// TODO: Add checksum over struct to verify block metadata later.
 #[derive(Serialize, Deserialize, Debug)]
 struct BlockHeader {
     block_idx: BlockIndex,
