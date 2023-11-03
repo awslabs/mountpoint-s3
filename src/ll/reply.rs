@@ -495,6 +495,7 @@ impl DirEntPlusList {
 mod test {
     use std::num::NonZeroI32;
 
+    use super::super::test::ioslice_to_vec;
     use super::*;
 
     #[test]
@@ -868,13 +869,5 @@ mod test {
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
         );
-    }
-
-    fn ioslice_to_vec(s: &[IoSlice<'_>]) -> Vec<u8> {
-        let mut v = Vec::with_capacity(s.iter().map(|x| x.len()).sum());
-        for x in s {
-            v.extend_from_slice(x);
-        }
-        v
     }
 }
