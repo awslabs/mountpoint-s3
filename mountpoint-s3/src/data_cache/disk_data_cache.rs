@@ -158,13 +158,13 @@ impl DiskDataCache {
         let mut path = self.cache_directory.join(CACHE_VERSION);
 
         // An S3 key may be up to 1024 UTF-8 bytes long, which exceeds the maximum UNIX file name length.
-        // Instead, we hash the key.
-        // The risk of collisions is mitigated as we will ignore blocks read that contain the wrong S3 key, etc..
-        let encoded_s3_key = hex::encode(Sha256::digest(cache_key.s3_key.as_bytes()));
+        // Instead, the path contains a hash of the S3 key and ETag.
+        // The risk of collisions is mitigated as we ignore blocks read that contain the wrong S3 key, etc..
+        let hashed_cache_key = hash_cache_key(cache_key);
+
         // TODO: Split directory into subdirectories.
         //       Take the first few chars of hash to avoid hitting any FS-specific maximum number of directory entries.
-        path.push(encoded_s3_key);
-        path.push(cache_key.etag.as_str());
+        path.push(hashed_cache_key);
         path
     }
 
@@ -174,6 +174,16 @@ impl DiskDataCache {
         path.push(format!("{}.block", block_idx));
         path
     }
+}
+
+/// Hash the cache key using its fields, returning the hash encoded as hexadecimal in a new [String].
+fn hash_cache_key(cache_key: &CacheKey) -> String {
+    let CacheKey { s3_key, etag } = cache_key;
+
+    let mut hasher = Sha256::new();
+    hasher.update(s3_key.as_bytes());
+    hasher.update(etag.as_str().as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 impl DataCache for DiskDataCache {
@@ -254,7 +264,6 @@ mod tests {
     use super::*;
 
     use mountpoint_s3_client::types::ETag;
-    use test_case::test_case;
 
     #[test]
     fn test_block_format_version_requires_update() {
@@ -276,30 +285,8 @@ mod tests {
         );
     }
 
-    #[test_case("hello"; "simple string")]
-    #[test_case("foo/bar/baz"; "with forward slashes")]
-    #[test_case("hello+world"; "with plus char")]
-    #[test_case("hello\\ world"; "backslash")]
-    #[test_case("hello=world"; "equals")]
-    #[test_case("look🎡emoji"; "emoji")]
-    fn test_get_path_for_key(s3_key: &str) {
-        let cache_dir = PathBuf::from("mountpoint-cache/");
-        let data_cache = DiskDataCache::new(cache_dir, 1024);
-
-        let encoded_s3_key = hex::encode(Sha256::digest(s3_key.as_bytes()));
-        let etag = ETag::for_tests();
-        let key = CacheKey {
-            etag,
-            s3_key: s3_key.to_owned(),
-        };
-        let expected = vec!["mountpoint-cache", CACHE_VERSION, &encoded_s3_key, key.etag.as_str()];
-        let path = data_cache.get_path_for_key(&key);
-        let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
-        assert_eq!(expected, results);
-    }
-
     #[test]
-    fn test_get_path_for_key_very_long_key() {
+    fn test_get_path_for_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
         let data_cache = DiskDataCache::new(cache_dir, 1024);
 
@@ -313,10 +300,32 @@ mod tests {
         let expected = vec![
             "mountpoint-cache",
             CACHE_VERSION,
-            "a7bf334bec6f17021671033b243b8689757212496cd525ba9873addde87b0c56",
-            key.etag.as_str(),
+            "5931fd6bf1fe4eb26db321dda8c5a8917750d8e3a8a984fdbf028b3df59e89ae",
         ];
         let path = data_cache.get_path_for_key(&key);
+        let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
+        assert_eq!(expected, results);
+    }
+
+    #[test]
+    fn test_get_path_for_block() {
+        let cache_dir = PathBuf::from("mountpoint-cache/");
+        let data_cache = DiskDataCache::new(cache_dir, 1024);
+
+        let s3_key = "a".repeat(266);
+
+        let etag = ETag::for_tests();
+        let key = CacheKey {
+            etag,
+            s3_key: s3_key.to_owned(),
+        };
+        let expected = vec![
+            "mountpoint-cache",
+            CACHE_VERSION,
+            "5931fd6bf1fe4eb26db321dda8c5a8917750d8e3a8a984fdbf028b3df59e89ae",
+            "5.block",
+        ];
+        let path = data_cache.get_path_for_block(&key, 5);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
         assert_eq!(expected, results);
     }
