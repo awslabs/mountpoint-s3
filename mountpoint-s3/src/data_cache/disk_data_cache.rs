@@ -244,6 +244,26 @@ mod tests {
     use mountpoint_s3_client::types::ETag;
     use test_case::test_case;
 
+    #[test]
+    fn test_block_format_version_requires_update() {
+        let data = ChecksummedBytes::from_bytes("Foo".into());
+        let cache_key = CacheKey {
+            etag: ETag::for_tests(),
+            s3_key: String::from("hello-world"),
+        };
+        let block = DataBlock::new(cache_key, 100, data).expect("should success as data checksum is valid");
+        let expected_bytes: Vec<u8> = vec![
+            100, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101, 116, 97, 103, 11, 0, 0, 0,
+            0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 144, 51, 75, 183, 3, 0, 0, 0, 0, 0, 0, 0,
+            70, 111, 111, 9, 85, 128, 46,
+        ];
+        let serialized_bytes = bincode::serialize(&block).unwrap();
+        assert_eq!(
+            expected_bytes, serialized_bytes,
+            "serialzed disk format appears to have changed, version bump required"
+        );
+    }
+
     #[test_case("hello"; "simple string")]
     #[test_case("foo/bar/baz"; "with forward slashes")]
     #[test_case("hello+world"; "with plus char")]
