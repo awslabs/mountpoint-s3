@@ -201,12 +201,13 @@ In its default configuration, there is no maximum on the size of objects Mountpo
 
 To increase the maximum object size for writes, use the `--part-size` command-line argument to specify a maximum number of bytes per part, which defaults to 8 MiB. The maximum object size will be 10,000 multiplied by the value you provide for this argument. Even with multipart upload, S3 allows a maximum object size of 5 TiB, and so setting this argument higher than 524.3 MiB will not further increase the object size limit.
 
-### Mounting an S3 bucket after reboot
+### Automatically mounting an S3 bucket at boot
 
-A tracking issue is open for _fstab_ support: [#44](https://github.com/awslabs/mountpoint-s3/issues/44).
+Mountpoint does not currently support automatically mounting a bucket at system boot time.
+A tracking issue is open for `fstab` support: [#44](https://github.com/awslabs/mountpoint-s3/issues/44).
 
-Until this support is implemented, we recommend using a system manager like systemd to monitor the mount process and mount during boot.
-Below is an example of a systemd unit for mountpoint-s3.
+Until this support is implemented, we recommend using a service manager like systemd to manage the mount process and mount during boot.
+Below is an example of a systemd unit that launches Mountpoint at boot time.
 Replace `/home/ec2-user/s3-bucket-mount` and `DOC-EXAMPLE-BUCKET` with your mount directory and S3 bucket.
 
 ```ini
