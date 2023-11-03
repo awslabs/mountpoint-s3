@@ -6,7 +6,7 @@ use std::ops::RangeBounds;
 use std::path::PathBuf;
 
 use bytes::Bytes;
-use mountpoint_s3_crt::checksums::crc32c::Crc32c;
+use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{error, trace};
@@ -35,8 +35,10 @@ struct BlockHeader {
     block_idx: BlockIndex,
     etag: String,
     s3_key: String,
+    header_checksum: u32,
 }
 
+#[derive(Debug)]
 enum BlockHeaderError {
     /// The header's fields or its checksum is corrupt
     IntegrityError,
@@ -56,26 +58,38 @@ impl From<BlockHeaderError> for DataCacheError {
 
 impl BlockHeader {
     /// Creates a new [BlockHeader]
-    fn new(block_idx: BlockIndex, etag: String, s3_key: String) -> Self {
+    pub fn new(block_idx: BlockIndex, etag: String, s3_key: String) -> Self {
+        let header_checksum = Self::compute_checksum(block_idx, &etag, &s3_key).value();
         BlockHeader {
             block_idx,
             etag,
             s3_key,
+            header_checksum,
         }
+    }
+
+    fn compute_checksum(block_idx: BlockIndex, etag: &str, s3_key: &str) -> Crc32c {
+        let mut hasher = crc32c::Hasher::new();
+        hasher.update(block_idx.to_be_bytes().as_ref());
+        hasher.update(etag.as_bytes());
+        hasher.update(s3_key.as_bytes());
+        hasher.finalize()
     }
 
     /// Validate the integrity of the contained data.
     ///
     /// Execute this method before acting on the data contained within.
-    ///
-    /// TODO: Validate a checksum associated with the header content.
-    fn validate(&self, s3_key: &str, etag: &str, block_idx: BlockIndex) -> Result<(), BlockHeaderError> {
+    pub fn validate(&self, s3_key: &str, etag: &str, block_idx: BlockIndex) -> Result<(), BlockHeaderError> {
         let s3_key_match = s3_key == self.s3_key;
         let etag_match = etag == self.etag;
         let block_idx_match = block_idx == self.block_idx;
 
         if s3_key_match && etag_match && block_idx_match {
-            Ok(())
+            if Self::compute_checksum(block_idx, etag, s3_key).value() != self.header_checksum {
+                Err(BlockHeaderError::IntegrityError)
+            } else {
+                Ok(())
+            }
         } else {
             error!(
                 s3_key_match,
@@ -380,5 +394,38 @@ mod tests {
             .expect_err("should fail due to incorrect etag in cache key");
         let unpacked_bytes = block.data(&cache_key_1, 0).expect("should be OK as all fields match");
         assert_eq!(data_1, unpacked_bytes, "data block should return original bytes");
+    }
+
+    #[test]
+    fn validate_block_header() {
+        let block_idx = 0;
+        let etag = ETag::for_tests();
+        let s3_key = String::from("s3/key");
+        let mut header = BlockHeader::new(block_idx, etag.as_str().to_owned(), s3_key.clone());
+
+        header
+            .validate(&s3_key, etag.as_str(), block_idx)
+            .expect("should be OK with valid fields and checksum");
+
+        // Bad fields
+        let err = header
+            .validate("hello", etag.as_str(), block_idx)
+            .expect_err("should fail with invalid s3_key");
+        assert!(matches!(err, BlockHeaderError::FieldMismatchError));
+        let err = header
+            .validate(&s3_key, "bad etag", block_idx)
+            .expect_err("should fail with invalid etag");
+        assert!(matches!(err, BlockHeaderError::FieldMismatchError));
+        let err = header
+            .validate(&s3_key, etag.as_str(), 5)
+            .expect_err("should fail with invalid block idx");
+        assert!(matches!(err, BlockHeaderError::FieldMismatchError));
+
+        // Bad checksum
+        header.header_checksum = 23;
+        let err = header
+            .validate(&s3_key, etag.as_str(), block_idx)
+            .expect_err("should fail with invalid checksum");
+        assert!(matches!(err, BlockHeaderError::IntegrityError));
     }
 }
