@@ -20,7 +20,6 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.71
           target: x86_64-unknown-linux-musl
           default: true
 
@@ -46,7 +45,6 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.71
           components: rustfmt, clippy
           default: true
 
