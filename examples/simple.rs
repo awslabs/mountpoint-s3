@@ -1,7 +1,7 @@
 #![allow(clippy::needless_return)]
 #![allow(clippy::unnecessary_cast)] // libc::S_* are u16 or u32 depending on the platform
 
-use clap::{crate_version, Arg, Command};
+use clap::{crate_version, Arg, ArgAction, Command};
 use fuser::consts::FOPEN_DIRECT_IO;
 #[cfg(feature = "abi-7-26")]
 use fuser::consts::FUSE_HANDLE_KILLPRIV;
@@ -1960,38 +1960,43 @@ fn main() {
                 .long("data-dir")
                 .value_name("DIR")
                 .default_value("/tmp/fuser")
-                .help("Set local directory used to store data")
-                .takes_value(true),
+                .help("Set local directory used to store data"),
         )
         .arg(
             Arg::new("mount-point")
                 .long("mount-point")
                 .value_name("MOUNT_POINT")
                 .default_value("")
-                .help("Act as a client, and mount FUSE at given path")
-                .takes_value(true),
+                .help("Act as a client, and mount FUSE at given path"),
         )
         .arg(
             Arg::new("direct-io")
                 .long("direct-io")
+                .action(ArgAction::SetTrue)
                 .requires("mount-point")
                 .help("Mount FUSE with direct IO"),
         )
-        .arg(Arg::new("fsck").long("fsck").help("Run a filesystem check"))
+        .arg(
+            Arg::new("fsck")
+                .long("fsck")
+                .action(ArgAction::SetTrue)
+                .help("Run a filesystem check"),
+        )
         .arg(
             Arg::new("suid")
                 .long("suid")
+                .action(ArgAction::SetTrue)
                 .help("Enable setuid support when run as root"),
         )
         .arg(
             Arg::new("v")
                 .short('v')
-                .multiple_occurrences(true)
+                .action(ArgAction::Count)
                 .help("Sets the level of verbosity"),
         )
         .get_matches();
 
-    let verbosity: u64 = matches.occurrences_of("v");
+    let verbosity = matches.get_count("v");
     let log_level = match verbosity {
         0 => LevelFilter::Error,
         1 => LevelFilter::Warn,
@@ -2008,7 +2013,7 @@ fn main() {
 
     #[cfg(feature = "abi-7-26")]
     {
-        if matches.is_present("suid") {
+        if matches.get_flag("suid") {
             info!("setuid bit support enabled");
             options.push(MountOption::Suid);
         } else {
@@ -2027,18 +2032,18 @@ fn main() {
         eprintln!("Unable to read /etc/fuse.conf");
     }
 
-    let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
+    let data_dir = matches.get_one::<String>("data-dir").unwrap().to_string();
 
     let mountpoint: String = matches
-        .value_of("mount-point")
-        .unwrap_or_default()
+        .get_one::<String>("mount-point")
+        .unwrap()
         .to_string();
 
     let result = fuser::mount2(
         SimpleFS::new(
             data_dir,
-            matches.is_present("direct-io"),
-            matches.is_present("suid"),
+            matches.get_flag("direct-io"),
+            matches.get_flag("suid"),
         ),
         mountpoint,
         &options,

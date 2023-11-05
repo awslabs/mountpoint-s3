@@ -1,4 +1,4 @@
-use clap::{crate_version, Arg, Command};
+use clap::{crate_version, Arg, ArgAction, Command};
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
@@ -126,21 +126,23 @@ fn main() {
         .arg(
             Arg::new("auto_unmount")
                 .long("auto_unmount")
+                .action(ArgAction::SetTrue)
                 .help("Automatically unmount on process exit"),
         )
         .arg(
             Arg::new("allow-root")
                 .long("allow-root")
+                .action(ArgAction::SetTrue)
                 .help("Allow root user to access filesystem"),
         )
         .get_matches();
     env_logger::init();
-    let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
+    let mountpoint = matches.get_one::<String>("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
-    if matches.is_present("auto_unmount") {
+    if matches.get_flag("auto_unmount") {
         options.push(MountOption::AutoUnmount);
     }
-    if matches.is_present("allow-root") {
+    if matches.get_flag("allow-root") {
         options.push(MountOption::AllowRoot);
     }
     fuser::mount2(HelloFS, mountpoint, &options).unwrap();
