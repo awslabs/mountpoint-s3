@@ -116,6 +116,10 @@ Most features of libfuse up to 3.10.3 are implemented. Feel free to contribute. 
 
 Developed and tested on Linux. Tested under [Linux][FUSE for Linux] and [FreeBSD][FUSE for FreeBSD] using stable [Rust] (see CI for details).
 
+## License
+
+Licensed under [MIT License](LICENSE.md), except for those files in `examples/` that explicitly contain a different license.
+
 ## Contribution
 
 Fork, hack, submit pull request. Make sure to make it useful for the target audience, keep the project's philosophy and Rust coding standards in mind. For larger or essential changes, you may want to open an issue for discussion first. Also remember to update the [Changelog] if your changes are relevant to the users.
