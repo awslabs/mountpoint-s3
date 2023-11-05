@@ -24,7 +24,7 @@
 #[cfg(feature = "abi-7-9")]
 use crate::consts::{FATTR_ATIME_NOW, FATTR_MTIME_NOW};
 use std::convert::TryFrom;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
@@ -130,7 +130,7 @@ pub struct fuse_kstatfs {
 }
 
 #[repr(C)]
-#[derive(Debug, AsBytes, FromBytes)]
+#[derive(Debug, AsBytes, FromBytes, FromZeroes)]
 pub struct fuse_file_lock {
     pub start: u64,
     pub end: u64,
@@ -511,14 +511,14 @@ pub struct fuse_entry_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_forget_in {
     pub nlookup: u64,
 }
 
 #[cfg(feature = "abi-7-16")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_forget_one {
     pub nodeid: u64,
     pub nlookup: u64,
@@ -526,7 +526,7 @@ pub struct fuse_forget_one {
 
 #[cfg(feature = "abi-7-16")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_batch_forget_in {
     pub count: u32,
     pub dummy: u32,
@@ -534,7 +534,7 @@ pub struct fuse_batch_forget_in {
 
 #[cfg(feature = "abi-7-9")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_getattr_in {
     pub getattr_flags: u32,
     pub dummy: u32,
@@ -561,7 +561,7 @@ pub struct fuse_getxtimes_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_mknod_in {
     pub mode: u32,
     pub rdev: u32,
@@ -572,7 +572,7 @@ pub struct fuse_mknod_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_mkdir_in {
     pub mode: u32,
     #[cfg(not(feature = "abi-7-12"))]
@@ -582,13 +582,13 @@ pub struct fuse_mkdir_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_rename_in {
     pub newdir: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_rename2_in {
     pub newdir: u64,
     pub flags: u32,
@@ -597,7 +597,7 @@ pub struct fuse_rename2_in {
 
 #[cfg(target_os = "macos")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_exchange_in {
     pub olddir: u64,
     pub newdir: u64,
@@ -605,13 +605,13 @@ pub struct fuse_exchange_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_link_in {
     pub oldnodeid: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_setattr_in {
     pub valid: u32,
     pub padding: u32,
@@ -683,7 +683,7 @@ impl fuse_setattr_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_open_in {
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
     // to an i32 when invoking the filesystem's open method and this matches the open() syscall
@@ -692,7 +692,7 @@ pub struct fuse_open_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_create_in {
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
     // to an i32 when invoking the filesystem's create method and this matches the open() syscall
@@ -717,7 +717,7 @@ pub struct fuse_open_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_release_in {
     pub fh: u64,
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
@@ -728,7 +728,7 @@ pub struct fuse_release_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_flush_in {
     pub fh: u64,
     pub unused: u32,
@@ -737,7 +737,7 @@ pub struct fuse_flush_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_read_in {
     pub fh: u64,
     // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is then cast
@@ -757,7 +757,7 @@ pub struct fuse_read_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_write_in {
     pub fh: u64,
     // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is then cast
@@ -789,7 +789,7 @@ pub struct fuse_statfs_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_fsync_in {
     pub fh: u64,
     pub fsync_flags: u32,
@@ -797,7 +797,7 @@ pub struct fuse_fsync_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_setxattr_in {
     pub size: u32,
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
@@ -810,7 +810,7 @@ pub struct fuse_setxattr_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_getxattr_in {
     pub size: u32,
     pub padding: u32,
@@ -828,7 +828,7 @@ pub struct fuse_getxattr_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_lk_in {
     pub fh: u64,
     pub owner: u64,
@@ -846,7 +846,7 @@ pub struct fuse_lk_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_access_in {
     // NOTE: this field is defined as u32 in fuse_kernel.h in libfuse. However, it is then cast
     // to an i32 when invoking the filesystem's access method
@@ -855,7 +855,7 @@ pub struct fuse_access_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_init_in {
     pub major: u32,
     pub minor: u32,
@@ -891,7 +891,7 @@ pub struct fuse_init_out {
 
 #[cfg(feature = "abi-7-12")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct cuse_init_in {
     pub major: u32,
     pub minor: u32,
@@ -915,13 +915,13 @@ pub struct cuse_init_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_interrupt_in {
     pub unique: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_bmap_in {
     pub block: u64,
     pub blocksize: u32,
@@ -936,7 +936,7 @@ pub struct fuse_bmap_out {
 
 #[cfg(feature = "abi-7-11")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_ioctl_in {
     pub fh: u64,
     pub flags: u32,
@@ -965,7 +965,7 @@ pub struct fuse_ioctl_out {
 
 #[cfg(feature = "abi-7-11")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_poll_in {
     pub fh: u64,
     pub kh: u64,
@@ -993,7 +993,7 @@ pub struct fuse_notify_poll_wakeup_out {
 
 #[cfg(feature = "abi-7-19")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_fallocate_in {
     pub fh: u64,
     // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
@@ -1006,7 +1006,7 @@ pub struct fuse_fallocate_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_in_header {
     pub len: u32,
     pub opcode: u32,
@@ -1095,7 +1095,7 @@ pub struct fuse_notify_retrieve_out {
 
 #[cfg(feature = "abi-7-15")]
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_notify_retrieve_in {
     // matches the size of fuse_write_in
     pub dummy1: u64,
@@ -1107,7 +1107,7 @@ pub struct fuse_notify_retrieve_in {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_lseek_in {
     pub fh: u64,
     pub offset: i64,
@@ -1123,7 +1123,7 @@ pub struct fuse_lseek_out {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 pub struct fuse_copy_file_range_in {
     pub fh_in: u64,
     // NOTE: this field is defined as u64 in fuse_kernel.h in libfuse. However, it is treated as signed
