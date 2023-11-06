@@ -2,6 +2,8 @@
 
 mod argument;
 pub mod fuse_abi;
+#[cfg(feature = "abi-7-11")]
+pub(crate) mod notify;
 pub(crate) mod reply;
 mod request;
 
@@ -267,6 +269,7 @@ impl From<Generation> for u64 {
 
 #[cfg(test)]
 mod test {
+    use std::io::IoSlice;
     use std::ops::{Deref, DerefMut};
     /// If we want to be able to cast bytes to our fuse C struct types we need it
     /// to be aligned.  This struct helps getting &[u8]s which are 8 byte aligned.
@@ -284,5 +287,13 @@ mod test {
         fn deref_mut(&mut self) -> &mut Self::Target {
             &mut self.0
         }
+    }
+
+    pub fn ioslice_to_vec(s: &[IoSlice<'_>]) -> Vec<u8> {
+        let mut v = Vec::with_capacity(s.iter().map(|x| x.len()).sum());
+        for x in s {
+            v.extend_from_slice(x);
+        }
+        v
     }
 }

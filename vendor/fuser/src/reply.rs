@@ -474,6 +474,37 @@ impl ReplyIoctl {
 }
 
 ///
+/// Poll Reply
+///
+#[derive(Debug)]
+#[cfg(feature = "abi-7-11")]
+pub struct ReplyPoll {
+    reply: ReplyRaw,
+}
+
+#[cfg(feature = "abi-7-11")]
+impl Reply for ReplyPoll {
+    fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyPoll {
+        ReplyPoll {
+            reply: Reply::new(unique, sender),
+        }
+    }
+}
+
+#[cfg(feature = "abi-7-11")]
+impl ReplyPoll {
+    /// Reply to a request with the given poll result
+    pub fn poll(self, revents: u32) {
+        self.reply.send_ll(&ll::Response::new_poll(revents))
+    }
+
+    /// Reply to a request with the given error code
+    pub fn error(self, err: c_int) {
+        self.reply.error(err);
+    }
+}
+
+///
 /// Directory reply
 ///
 #[derive(Debug)]

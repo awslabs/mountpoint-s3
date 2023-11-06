@@ -2,6 +2,7 @@
 !src/
 !examples/
 !./Cargo.*
+!./rust-toolchain
 !./build.rs
 !./pjdfs.sh
 !./xfstests.sh

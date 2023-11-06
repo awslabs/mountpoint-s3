@@ -1,5 +1,10 @@
 # FUSE for Rust - Changelog
 
+## 0.14.0 - 2023-11-04
+* Add support for poll
+* Add support for notifications
+* ABI 7.11 support is now complete
+
 ## 0.13.0 - 2023-08-16
 * Remove dependency on `users` crate
 * Performance optimizations
