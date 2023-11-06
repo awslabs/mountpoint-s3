@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, Parser};
 use fuser::{MountOption, Session};
-use mountpoint_s3::fs::{CacheConfig, S3FilesystemConfig};
+use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::instance::InstanceInfo;
@@ -504,6 +504,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     #[cfg(feature = "caching")]
     {
+        use mountpoint_s3::fs::CacheConfig;
+
         if args.enable_metadata_caching {
             // TODO: Review default for TTL
             let metadata_cache_ttl = args.metadata_cache_ttl.unwrap_or(Duration::from_secs(3600));
@@ -632,6 +634,7 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     Ok(bucket_name.to_owned())
 }
 
+#[cfg(feature = "caching")]
 fn parse_duration_seconds(seconds_str: &str) -> anyhow::Result<Duration> {
     let seconds = seconds_str.parse()?;
     let duration = Duration::from_secs(seconds);

@@ -1,5 +1,3 @@
-use aws_sdk_s3::config::Region;
-use aws_sdk_s3::primitives::ByteStream;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};
@@ -8,10 +6,7 @@ use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use std::collections::VecDeque;
-use std::future::Future;
 use std::sync::Arc;
 
 pub fn make_test_filesystem(
@@ -40,58 +35,6 @@ where
 {
     let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
     S3Filesystem::new(client, runtime, bucket, prefix, config)
-}
-
-pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
-    let bucket = std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests");
-
-    // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
-
-    // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
-    let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
-    assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
-
-    let prefix = format!("{prefix}{test_name}/{nonce}/");
-
-    (bucket, prefix)
-}
-
-pub fn get_test_bucket_forbidden() -> String {
-    std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
-}
-
-pub fn get_test_region() -> String {
-    std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
-}
-
-pub fn get_subsession_iam_role() -> String {
-    std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
-}
-
-pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
-    let config = tokio_block_on(aws_config::from_env().region(Region::new(region.to_string())).load());
-    let sdk_client = aws_sdk_s3::Client::new(&config);
-    let full_key = format!("{prefix}{key}");
-    tokio_block_on(async move {
-        sdk_client
-            .put_object()
-            .bucket(bucket)
-            .key(full_key)
-            .body(ByteStream::from(value.to_vec()))
-            .send()
-            .await
-            .unwrap()
-    });
-}
-
-pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .unwrap();
-    runtime.block_on(future)
 }
 
 #[track_caller]

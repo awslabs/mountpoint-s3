@@ -1648,7 +1648,6 @@ mod tests {
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let ts = OffsetDateTime::now_utc();
         let ttl = if cached {
             std::time::Duration::from_secs(60 * 60 * 24 * 7) // 7 days should be enough
         } else {
