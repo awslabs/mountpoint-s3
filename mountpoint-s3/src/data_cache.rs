@@ -4,8 +4,8 @@
 //! reducing both the number of requests as well as the latency for the reads.
 //! Ultimately, this means reduced cost in terms of S3 billing as well as compute time.
 
-pub mod disk_data_cache;
-pub mod in_memory_data_cache;
+mod disk_data_cache;
+mod in_memory_data_cache;
 
 use std::ops::RangeBounds;
 
@@ -13,12 +13,14 @@ use mountpoint_s3_client::types::ETag;
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
+pub use crate::data_cache::disk_data_cache::DiskDataCache;
+pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 
 /// Struct representing a key for accessing an entry in a [DataCache].
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CacheKey {
-    s3_key: String,
-    etag: ETag,
+    pub s3_key: String,
+    pub etag: ETag,
 }
 
 /// Indexes blocks within a given object.
