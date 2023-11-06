@@ -219,8 +219,7 @@ impl<Client: ObjectClient> UploadState<Client> {
 /// Returns `None` if unable to find or parse the task status.
 /// Not supported on macOS.
 fn get_tgid(pid: u32) -> Option<u32> {
-    #[cfg(not(target_os = "macos"))]
-    {
+    if cfg!(not(target_os = "macos")) {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
 

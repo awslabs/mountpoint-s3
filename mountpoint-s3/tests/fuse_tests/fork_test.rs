@@ -9,11 +9,10 @@ use std::process::Stdio;
 use std::{path::PathBuf, process::Command};
 use test_case::test_case;
 
-use crate::common::{
+use crate::fuse_tests::{
     create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
-    tokio_block_on,
+    read_dir_to_entry_names, tokio_block_on,
 };
-use crate::fuse_tests::read_dir_to_entry_names;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
