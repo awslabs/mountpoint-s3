@@ -1,7 +1,7 @@
 [package]
 name = "fuser"
 edition = "2018"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
 description = "Filesystem in Userspace (FUSE) for Rust"
 documentation = "https://docs.rs/fuser"
@@ -20,17 +20,18 @@ travis-ci = { repository = "cberner/fuser" }
 libc = "0.2.51"
 log = "0.4.6"
 memchr = "2"
-page_size = "0.5.0"
+page_size = "0.6.0"
 serde = { version = "1.0.102", features = ["std", "derive"], optional = true }
 smallvec = "1.6.1"
-zerocopy = "0.6"
+zerocopy = { version = "0.7", features = ["derive"] }
 
 [dev-dependencies]
-env_logger = "0.9"
-clap = { version = "3.0", features = ["cargo"] }
+env_logger = "0.10"
+clap = { version = "4.4", features = ["cargo", "derive"] }
 bincode = "1.3.1"
 serde = { version = "1.0.102", features = ["std", "derive"] }
 tempfile = "3"
+nix = { version = "0.27.1", features = ["poll", "fs"] }
 
 [build-dependencies]
 pkg-config = { version = "0.3.14", optional = true }
@@ -62,3 +63,19 @@ abi-7-28 = ["abi-7-27"]
 abi-7-29 = ["abi-7-28"]
 abi-7-30 = ["abi-7-29"]
 abi-7-31 = ["abi-7-30"]
+
+[[example]]
+name = "poll"
+required-features = ["abi-7-11"]
+
+[[example]]
+name = "poll_client"
+required-features = ["abi-7-11"]
+
+[[example]]
+name = "notify_inval_entry"
+required-features = ["abi-7-12"]
+
+[[example]]
+name = "notify_inval_inode"
+required-features = ["abi-7-12"]

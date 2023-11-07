@@ -31,7 +31,7 @@ impl<'a> ArgumentIterator<'a> {
 
     /// Fetch a typed argument. Returns `None` if there's not enough data left.
     pub fn fetch<T: zerocopy::FromBytes>(&mut self) -> Option<&'a T> {
-        match zerocopy::LayoutVerified::<_, T>::new_from_prefix(self.data) {
+        match zerocopy::Ref::<_, T>::new_from_prefix(self.data) {
             None => {
                 if self.data.as_ptr() as usize % core::mem::align_of::<T>() != 0 {
                     // Panic on alignment errors as this is under the control
@@ -53,7 +53,7 @@ impl<'a> ArgumentIterator<'a> {
     /// Fetch a slice of typed of arguments. Returns `None` if there's not enough data left.
     #[cfg(feature = "abi-7-16")]
     pub fn fetch_slice<T: zerocopy::FromBytes>(&mut self, count: usize) -> Option<&'a [T]> {
-        match zerocopy::LayoutVerified::<_, [T]>::new_slice_from_prefix(self.data, count) {
+        match zerocopy::Ref::<_, [T]>::new_slice_from_prefix(self.data, count) {
             None => {
                 if self.data.as_ptr() as usize % core::mem::align_of::<T>() != 0 {
                     // Panic on alignment errors as this is under the control
@@ -88,13 +88,13 @@ pub mod tests {
 
     use super::super::test::AlignedData;
     use super::*;
-    use zerocopy::FromBytes;
+    use zerocopy::{FromBytes, FromZeroes};
 
     const TEST_DATA: AlignedData<[u8; 10]> =
         AlignedData([0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72, 0x00, 0x62, 0x61]);
 
     #[repr(C)]
-    #[derive(FromBytes)]
+    #[derive(FromBytes, FromZeroes)]
     struct TestArgument {
         p1: u8,
         p2: u8,
