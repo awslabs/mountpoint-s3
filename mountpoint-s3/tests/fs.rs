@@ -704,7 +704,12 @@ async fn test_upload_aborted_on_write_failure() {
         Default::default(),
         put_failures,
     );
-    let fs = make_test_filesystem_with_client(failure_client, BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_test_filesystem_with_client(
+        Arc::new(failure_client),
+        BUCKET_NAME,
+        &Default::default(),
+        Default::default(),
+    );
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
@@ -775,7 +780,12 @@ async fn test_upload_aborted_on_fsync_failure() {
         Default::default(),
         put_failures,
     );
-    let fs = make_test_filesystem_with_client(failure_client, BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_test_filesystem_with_client(
+        Arc::new(failure_client),
+        BUCKET_NAME,
+        &Default::default(),
+        Default::default(),
+    );
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();
@@ -831,7 +841,12 @@ async fn test_upload_aborted_on_release_failure() {
         Default::default(),
         put_failures,
     );
-    let fs = make_test_filesystem_with_client(failure_client, BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_test_filesystem_with_client(
+        Arc::new(failure_client),
+        BUCKET_NAME,
+        &Default::default(),
+        Default::default(),
+    );
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(FUSE_ROOT_INODE, FILE_NAME.as_ref(), mode, 0, 0).await.unwrap();

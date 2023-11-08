@@ -1,7 +1,7 @@
 //! Links _fuser_ method calls into Mountpoint's filesystem code in [crate::fs].
 
 use futures::executor::block_on;
-use futures::task::Spawn;
+use mountpoint_s3_client::ObjectClient;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::SystemTime;
@@ -11,6 +11,7 @@ use tracing::{instrument, Instrument};
 use crate::fs::{
     self, DirectoryEntry, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno,
 };
+use crate::prefetch::Prefetch;
 use crate::prefix::Prefix;
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
@@ -18,7 +19,6 @@ use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
     ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
-use mountpoint_s3_client::ObjectClient;
 
 pub mod session;
 
@@ -48,26 +48,36 @@ macro_rules! fuse_unsupported {
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
 /// so that we can test our actual filesystem implementation without having actual FUSE in the loop.
-pub struct S3FuseFilesystem<Client: ObjectClient, Runtime> {
-    fs: S3Filesystem<Client, Runtime>,
-}
-
-impl<Client, Runtime> S3FuseFilesystem<Client, Runtime>
+pub struct S3FuseFilesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync,
+    Prefetcher: Prefetch,
 {
-    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
-        let fs = S3Filesystem::new(client, runtime, bucket, prefix, config);
+    fs: S3Filesystem<Client, Prefetcher>,
+}
+
+impl<Client, Prefetcher> S3FuseFilesystem<Client, Prefetcher>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Prefetcher: Prefetch,
+{
+    pub fn new(
+        client: Client,
+        prefetcher: Prefetcher,
+        bucket: &str,
+        prefix: &Prefix,
+        config: S3FilesystemConfig,
+    ) -> Self {
+        let fs = S3Filesystem::new(client, prefetcher, bucket, prefix, config);
 
         Self { fs }
     }
 }
 
-impl<Client, Runtime> Filesystem for S3FuseFilesystem<Client, Runtime>
+impl<Client, Prefetcher> Filesystem for S3FuseFilesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync,
+    Prefetcher: Prefetch,
 {
     #[instrument(level="warn", skip_all, fields(req=_req.unique()))]
     fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {

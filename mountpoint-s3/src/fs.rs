@@ -1,6 +1,5 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
-use futures::task::Spawn;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -15,7 +14,7 @@ use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
-use crate::prefetch::{PrefetchGetObject, PrefetchReadError, Prefetcher, PrefetcherConfig};
+use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
@@ -49,30 +48,54 @@ impl DirHandle {
 }
 
 #[derive(Debug)]
-struct FileHandle<Client: ObjectClient, Runtime> {
+struct FileHandle<Client, Prefetcher>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Prefetcher: Prefetch,
+{
     inode: Inode,
     full_key: String,
     object_size: u64,
-    typ: FileHandleType<Client, Runtime>,
+    typ: FileHandleType<Client, Prefetcher>,
 }
 
-#[derive(Debug)]
-enum FileHandleType<Client: ObjectClient, Runtime> {
+enum FileHandleType<Client, Prefetcher>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Prefetcher: Prefetch,
+{
     Read {
-        request: AsyncMutex<Option<PrefetchGetObject<Client, Runtime>>>,
+        request: AsyncMutex<Option<Prefetcher::PrefetchResult<Client>>>,
         etag: ETag,
     },
     Write(AsyncMutex<UploadState<Client>>),
 }
 
-impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
+impl<Client, Prefetcher> std::fmt::Debug for FileHandleType<Client, Prefetcher>
+where
+    Client: ObjectClient + Send + Sync + 'static + std::fmt::Debug,
+    Prefetcher: Prefetch,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { request: _, etag } => f.debug_struct("Read").field("etag", etag).finish(),
+            Self::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
+        }
+    }
+}
+
+impl<Client, Prefetcher> FileHandleType<Client, Prefetcher>
+where
+    Client: ObjectClient + Send + Sync,
+    Prefetcher: Prefetch,
+{
     async fn new_write_handle(
         lookup: &LookedUp,
         ino: InodeNo,
         flags: i32,
         pid: u32,
-        fs: &S3Filesystem<Client, Runtime>,
-    ) -> Result<FileHandleType<Client, Runtime>, Error> {
+        fs: &S3Filesystem<Client, Prefetcher>,
+    ) -> Result<FileHandleType<Client, Prefetcher>, Error> {
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
         if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
@@ -96,7 +119,7 @@ impl<Client: ObjectClient, Runtime> FileHandleType<Client, Runtime> {
         Ok(handle)
     }
 
-    async fn new_read_handle(lookup: &LookedUp) -> Result<FileHandleType<Client, Runtime>, Error> {
+    async fn new_read_handle(lookup: &LookedUp) -> Result<FileHandleType<Client, Prefetcher>, Error> {
         if !lookup.stat.is_readable {
             return Err(err!(
                 libc::EACCES,
@@ -302,8 +325,6 @@ pub struct S3FilesystemConfig {
     pub dir_mode: u16,
     /// File permissions
     pub file_mode: u16,
-    /// Prefetcher configuration
-    pub prefetcher_config: PrefetcherConfig,
     /// Allow delete
     pub allow_delete: bool,
     /// Storage class to be used for new object uploads
@@ -322,7 +343,6 @@ impl Default for S3FilesystemConfig {
             gid,
             dir_mode: 0o755,
             file_mode: 0o644,
-            prefetcher_config: PrefetcherConfig::default(),
             allow_delete: false,
             storage_class: None,
         }
@@ -330,31 +350,38 @@ impl Default for S3FilesystemConfig {
 }
 
 #[derive(Debug)]
-pub struct S3Filesystem<Client: ObjectClient, Runtime> {
+pub struct S3Filesystem<Client, Prefetcher>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+    Prefetcher: Prefetch,
+{
     config: S3FilesystemConfig,
     client: Arc<Client>,
     superblock: Superblock,
-    prefetcher: Prefetcher<Client, Runtime>,
+    prefetcher: Prefetcher,
     uploader: Uploader<Client>,
     bucket: String,
     #[allow(unused)]
     prefix: Prefix,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
-    file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Runtime>>>>,
+    file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Prefetcher>>>>,
 }
 
-impl<Client, Runtime> S3Filesystem<Client, Runtime>
+impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync,
+    Prefetcher: Prefetch,
 {
-    pub fn new(client: Client, runtime: Runtime, bucket: &str, prefix: &Prefix, config: S3FilesystemConfig) -> Self {
-        let superblock = Superblock::new(bucket, prefix, config.cache_config.clone());
-
+    pub fn new(
+        client: Client,
+        prefetcher: Prefetcher,
+        bucket: &str,
+        prefix: &Prefix,
+        config: S3FilesystemConfig,
+    ) -> Self {
         let client = Arc::new(client);
-
-        let prefetcher = Prefetcher::new(client.clone(), runtime, config.prefetcher_config);
+        let superblock = Superblock::new(bucket, prefix, config.cache_config.clone());
         let uploader = Uploader::new(client.clone(), config.storage_class.to_owned());
 
         Self {
@@ -429,10 +456,10 @@ pub trait ReadReplier {
     fn error(self, error: Error) -> Self::Replied;
 }
 
-impl<Client, Runtime> S3Filesystem<Client, Runtime>
+impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync,
+    Prefetcher: Prefetch,
 {
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
@@ -608,10 +635,13 @@ where
         };
 
         if request.is_none() {
-            *request = Some(
-                self.prefetcher
-                    .get(&self.bucket, &handle.full_key, handle.object_size, file_etag),
-            );
+            *request = Some(self.prefetcher.prefetch(
+                self.client.clone(),
+                &self.bucket,
+                &handle.full_key,
+                handle.object_size,
+                file_etag,
+            ));
         }
 
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {

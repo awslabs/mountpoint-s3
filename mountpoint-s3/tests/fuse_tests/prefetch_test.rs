@@ -1,6 +1,5 @@
 use fuser::BackgroundSession;
 use mountpoint_s3::prefetch::PrefetcherConfig;
-use mountpoint_s3::S3FilesystemConfig;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use tempfile::TempDir;
@@ -60,15 +59,10 @@ where
         ..Default::default()
     };
 
-    let filesystem_config = S3FilesystemConfig {
-        prefetcher_config,
-        ..Default::default()
-    };
-
     let (mount_point, _session, mut test_client) = creator_fn(
         prefix,
         TestSessionConfig {
-            filesystem_config,
+            prefetcher_config,
             ..Default::default()
         },
     );

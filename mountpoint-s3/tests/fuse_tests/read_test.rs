@@ -66,14 +66,10 @@ fn basic_read_test_s3() {
     basic_read_test(crate::fuse_tests::s3_session::new, "basic_read_test");
 }
 
-#[test]
-fn basic_read_test_mock() {
-    basic_read_test(crate::fuse_tests::mock_session::new, "");
-}
-
-#[test]
-fn basic_read_test_mock_prefix() {
-    basic_read_test(crate::fuse_tests::mock_session::new, "basic_read_test");
+#[test_case("")]
+#[test_case("basic_read_test")]
+fn basic_read_test_mock(prefix: &str) {
+    basic_read_test(crate::fuse_tests::mock_session::new, prefix);
 }
 
 #[derive(PartialEq)]

@@ -1,6 +1,7 @@
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};
+use mountpoint_s3::prefetch::{default_prefetch, DefaultPrefetcher};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
@@ -9,18 +10,20 @@ use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+pub type TestS3Filesystem<Client> = S3Filesystem<Client, DefaultPrefetcher<ThreadPool>>;
+
 pub fn make_test_filesystem(
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
-) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>, ThreadPool>) {
+) -> (Arc<MockClient>, TestS3Filesystem<Arc<MockClient>>) {
     let client_config = MockClientConfig {
         bucket: bucket.to_string(),
         part_size: 1024 * 1024,
     };
 
     let client = Arc::new(MockClient::new(client_config));
-    let fs = make_test_filesystem_with_client(Arc::clone(&client), bucket, prefix, config);
+    let fs = make_test_filesystem_with_client(client.clone(), bucket, prefix, config);
     (client, fs)
 }
 
@@ -29,12 +32,13 @@ pub fn make_test_filesystem_with_client<Client>(
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
-) -> S3Filesystem<Client, ThreadPool>
+) -> TestS3Filesystem<Client>
 where
     Client: ObjectClient + Send + Sync + 'static,
 {
     let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-    S3Filesystem::new(client, runtime, bucket, prefix, config)
+    let prefetcher = default_prefetch(runtime, Default::default());
+    S3Filesystem::new(client, prefetcher, bucket, prefix, config)
 }
 
 #[track_caller]
