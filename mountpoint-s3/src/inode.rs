@@ -242,6 +242,15 @@ impl Superblock {
             return Err(InodeError::SetAttrNotPermittedOnRemoteInode(inode.err()));
         }
 
+        let validiy = match inode.kind() {
+            InodeKind::File => self.inner.cache_config.file_ttl,
+            InodeKind::Directory => self.inner.cache_config.dir_ttl,
+        };
+
+        sync.stat.expiry = Instant::now()
+            .checked_add(validiy)
+            .expect("64-bit time shouldn't overflow");
+
         if let Some(t) = atime {
             sync.stat.atime = t;
         }
@@ -2482,51 +2491,6 @@ mod tests {
             .setattr(&client, new_inode.inode.ino(), Some(atime), Some(mtime))
             .await;
         assert!(matches!(result, Err(InodeError::SetAttrNotPermittedOnRemoteInode(_))));
-    }
-
-    #[tokio::test]
-    async fn test_setattr_invalid_stat() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-        };
-        let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
-
-        let ino: u64 = 42;
-        let inode_name = "made-up-inode";
-        let mut hasher = crc32c::Hasher::new();
-        hasher.update(ino.to_be_bytes().as_ref());
-        hasher.update(inode_name.as_bytes());
-        let checksum = hasher.finalize();
-        let inode = Inode {
-            inner: Arc::new(InodeInner {
-                ino,
-                parent: ROOT_INODE_NO,
-                name: inode_name.to_owned(),
-                full_key: inode_name.to_owned(),
-                kind: InodeKind::File,
-                checksum,
-                sync: RwLock::new(InodeState {
-                    write_status: WriteStatus::LocalOpen,
-                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
-                    kind_data: InodeKindData::File {},
-                    lookup_count: 5,
-                }),
-            }),
-        };
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
-
-        // Verify that the stat is invalid
-        let inode = superblock.inner.get(ino).unwrap();
-        let stat = inode.get_inode_state().unwrap().stat.clone();
-        assert!(!stat.is_valid());
-
-        // Should get an error back when calling setattr
-        let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
-        let result = superblock.setattr(&client, ino, Some(atime), Some(mtime)).await;
-        assert!(matches!(result, Err(InodeError::SetAttrOnExpiredStat(_))));
     }
 
     #[test]
