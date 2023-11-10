@@ -11,7 +11,7 @@ use mountpoint_s3_client::types::ETag;
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
-pub use crate::data_cache::disk_data_cache::DiskDataCache;
+pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 
 /// Struct representing a key for accessing an entry in a [DataCache].
