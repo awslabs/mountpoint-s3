@@ -246,7 +246,7 @@ Review the caching options available using `mount-s3 --help`.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
 > [!WARNING]
-> With caching enabled, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at launch.
+> If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.
 > In order to protect your data, we recommend you restrict access to the data cache location.
 
 ## Logging
