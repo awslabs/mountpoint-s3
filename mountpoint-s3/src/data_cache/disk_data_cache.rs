@@ -286,6 +286,18 @@ mod tests {
     }
 
     #[test]
+    fn test_hash_cache_key() {
+        let s3_key = "a".repeat(266);
+        let etag = ETag::for_tests();
+        let key = CacheKey {
+            etag,
+            s3_key: s3_key.to_owned(),
+        };
+        let expected_hash = "5931fd6bf1fe4eb26db321dda8c5a8917750d8e3a8a984fdbf028b3df59e89ae";
+        assert_eq!(expected_hash, hash_cache_key(&key));
+    }
+
+    #[test]
     fn test_get_path_for_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
         let data_cache = DiskDataCache::new(cache_dir, 1024);
@@ -297,11 +309,8 @@ mod tests {
             etag,
             s3_key: s3_key.to_owned(),
         };
-        let expected = vec![
-            "mountpoint-cache",
-            CACHE_VERSION,
-            "5931fd6bf1fe4eb26db321dda8c5a8917750d8e3a8a984fdbf028b3df59e89ae",
-        ];
+        let hashed_cache_key = hash_cache_key(&key);
+        let expected = vec!["mountpoint-cache", CACHE_VERSION, hashed_cache_key.as_str()];
         let path = data_cache.get_path_for_key(&key);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
         assert_eq!(expected, results);
@@ -319,12 +328,8 @@ mod tests {
             etag,
             s3_key: s3_key.to_owned(),
         };
-        let expected = vec![
-            "mountpoint-cache",
-            CACHE_VERSION,
-            "5931fd6bf1fe4eb26db321dda8c5a8917750d8e3a8a984fdbf028b3df59e89ae",
-            "5.block",
-        ];
+        let hashed_cache_key = hash_cache_key(&key);
+        let expected = vec!["mountpoint-cache", CACHE_VERSION, hashed_cache_key.as_str(), "5.block"];
         let path = data_cache.get_path_for_block(&key, 5);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
         assert_eq!(expected, results);
