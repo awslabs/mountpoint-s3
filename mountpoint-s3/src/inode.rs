@@ -242,14 +242,12 @@ impl Superblock {
             return Err(InodeError::SetAttrNotPermittedOnRemoteInode(inode.err()));
         }
 
-        let validiy = match inode.kind() {
+        let validity = match inode.kind() {
             InodeKind::File => self.inner.cache_config.file_ttl,
             InodeKind::Directory => self.inner.cache_config.dir_ttl,
         };
 
-        sync.stat.expiry = Instant::now()
-            .checked_add(validiy)
-            .expect("64-bit time shouldn't overflow");
+        sync.stat.update_validity(validity);
 
         if let Some(t) = atime {
             sync.stat.atime = t;
@@ -1483,8 +1481,6 @@ pub enum InodeError {
     CorruptedMetadata(InodeErrorInfo),
     #[error("inode {0} is a remote inode and its attributes cannot be modified")]
     SetAttrNotPermittedOnRemoteInode(InodeErrorInfo),
-    #[error("inode {0} stat is already expired")]
-    SetAttrOnExpiredStat(InodeErrorInfo),
     #[error("inode {old_inode} for remote key {remote_key:?} is stale, replaced by inode {new_inode}")]
     StaleInode {
         remote_key: String,
@@ -2491,6 +2487,65 @@ mod tests {
             .setattr(&client, new_inode.inode.ino(), Some(atime), Some(mtime))
             .await;
         assert!(matches!(result, Err(InodeError::SetAttrNotPermittedOnRemoteInode(_))));
+    }
+
+    #[tokio::test]
+    async fn test_setattr_invalid_stat() {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+        };
+        let client = Arc::new(MockClient::new(client_config));
+        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+
+        let ino: u64 = 42;
+        let inode_name = "made-up-inode";
+        let mut hasher = crc32c::Hasher::new();
+        hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(inode_name.as_bytes());
+        let checksum = hasher.finalize();
+        let inode = Inode {
+            inner: Arc::new(InodeInner {
+                ino,
+                parent: ROOT_INODE_NO,
+                name: inode_name.to_owned(),
+                full_key: inode_name.to_owned(),
+                kind: InodeKind::File,
+                checksum,
+                sync: RwLock::new(InodeState {
+                    write_status: WriteStatus::LocalOpen,
+                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
+                    kind_data: InodeKindData::File {},
+                    lookup_count: 5,
+                }),
+            }),
+        };
+        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
+
+        // Verify that the stat is invalid
+        let inode = superblock.inner.get(ino).unwrap();
+        let stat = inode.get_inode_state().unwrap().stat.clone();
+        assert!(!stat.is_valid());
+
+        // Should be able to reset expiry back and make stat valid when calling setattr
+        let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
+        let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
+        let lookup = superblock
+            .setattr(&client, ino, Some(atime), Some(mtime))
+            .await
+            .expect("setattr should be successful");
+        let stat = lookup.stat;
+        assert_eq!(stat.atime, atime);
+        assert_eq!(stat.mtime, mtime);
+
+        // getattr() validates that InodeStat is not expired as the Inode is still Local and it would have not been able to lookup stat remotely.
+        let lookup = superblock
+            .getattr(&client, ino, false)
+            .await
+            .expect("getattr should be successful");
+        let stat = lookup.stat;
+        assert_eq!(stat.atime, atime);
+        assert_eq!(stat.mtime, mtime);
     }
 
     #[test]
