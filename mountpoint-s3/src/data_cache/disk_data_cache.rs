@@ -176,11 +176,13 @@ impl DiskDataCache {
     }
 }
 
-/// Hash the cache key using its fields, returning the hash encoded as hexadecimal in a new [String].
+/// Hash the cache key using its fields as well as the [CACHE_VERSION],
+/// returning the hash encoded as hexadecimal in a new [String].
 fn hash_cache_key(cache_key: &CacheKey) -> String {
     let CacheKey { s3_key, etag } = cache_key;
 
     let mut hasher = Sha256::new();
+    hasher.update(CACHE_VERSION.as_bytes());
     hasher.update(s3_key.as_bytes());
     hasher.update(etag.as_str().as_bytes());
     hex::encode(hasher.finalize())
@@ -293,7 +295,7 @@ mod tests {
             etag,
             s3_key: s3_key.to_owned(),
         };
-        let expected_hash = "5931fd6bf1fe4eb26db321dda8c5a8917750d8e3a8a984fdbf028b3df59e89ae";
+        let expected_hash = "b717d5a78ed63238b0778e7295d83e963758aa54db6e969a822f2b13ce9a3067";
         assert_eq!(expected_hash, hash_cache_key(&key));
     }
 
