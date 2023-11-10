@@ -244,6 +244,10 @@ Review the caching options available using `mount-s3 --help`.
 > Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
+> [!WARNING]
+> With caching enabled, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at launch.
+> In order to protect your data, we recommend you restrict access to the data cache location.
+
 ## Logging
 
 By default, Mountpoint emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. You can change what level of information is logged, and to where it is logged. See [LOGGING.md](LOGGING.md) for more details on configuring logging.
