@@ -834,9 +834,18 @@ impl SuperblockInner {
                     unreachable!("we know parent is a directory");
                 };
                 if writing_children.contains(&existing_inode.ino()) {
-                    let stat = existing_inode.get_inode_state()?.stat.clone();
+                    let mut sync = existing_inode.get_mut_inode_state()?;
+
+                    let validity = match existing_inode.kind() {
+                        InodeKind::File => self.cache_config.file_ttl,
+                        InodeKind::Directory => self.cache_config.dir_ttl,
+                    };
+                    sync.stat.update_validity(validity);
+                    let stat = sync.stat.clone();
+                    drop(sync);
+
                     Ok(LookedUp {
-                        inode: existing_inode,
+                        inode: existing_inode.clone(),
                         stat,
                     })
                 } else {
@@ -2537,15 +2546,7 @@ mod tests {
         let stat = lookup.stat;
         assert_eq!(stat.atime, atime);
         assert_eq!(stat.mtime, mtime);
-
-        // getattr() validates that InodeStat is not expired as the Inode is still Local and it would have not been able to lookup stat remotely.
-        let lookup = superblock
-            .getattr(&client, ino, false)
-            .await
-            .expect("getattr should be successful");
-        let stat = lookup.stat;
-        assert_eq!(stat.atime, atime);
-        assert_eq!(stat.mtime, mtime);
+        assert!(stat.is_valid());
     }
 
     #[test]
