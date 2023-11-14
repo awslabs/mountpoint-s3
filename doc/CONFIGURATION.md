@@ -236,6 +236,8 @@ To enable caching, use the `--cache <CACHE_DIR>` command-line flag.
 This flag will enable caching of metadata using a default time-to-live (TTL) of 60 minutes.
 Object content will also be cached within the cache directory specified.
 Mountpoint will create a directory within this path, removing any files or directories within it at mount time and exit.
+When running multiple Mountpoint processes on the same host,
+you should use unique cache directories to avoid different processes interfering with the others' cache content.
 
 Mountpoint caching can be further configured,
 such as adjusting the metadata time-to-live (TTL) or the maximum space allowed to be used by the data cache.
