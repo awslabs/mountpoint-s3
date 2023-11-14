@@ -247,6 +247,7 @@ impl Superblock {
             InodeKind::Directory => self.inner.cache_config.dir_ttl,
         };
 
+        // Resetting the InodeStat expiry because the new InodeStat should have new validity
         sync.stat.update_validity(validity);
 
         if let Some(t) = atime {
