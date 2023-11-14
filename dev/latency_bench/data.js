@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1699964231920,
+  "lastUpdate": 1699964773129,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dbfa87caef3f6d037d7bf64e2b3729d427441955",
-          "message": "Expand a few documentation things (#569)\n\nCapturing answers to a few common questions we've had recently that\nweren't obvious from the docs. I also learned about [highlights][]\nand had some fun with them.\n\n[highlights]: https://github.com/orgs/community/discussions/16925\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-10-20T16:02:43Z",
-          "tree_id": "f817bc58452be9165e65fb7c20c6217ae9fd1905",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/dbfa87caef3f6d037d7bf64e2b3729d427441955"
-        },
-        "date": 1697820051313,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.074,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.188,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.129,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.022,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 129.8291458,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 95.2353278,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 75.36829759999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d38d45fd6e68568839c62a71d1d70996947854f5",
+          "message": "Change local file/directory expiry TTL from NEVER_EXPIRE to 100ms (#584)\n\n* Change validity of files and directory from NEVER_EXPIRE to 100 ms while create()\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Used cache config value instead to set validity\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Trying to check if removing file validity assertions works as no way to test on local system\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Removed Invalid Inode Stat test for setattr\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Modified test for setattr on invalid stat as now it should be able to reset the stat expiry\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Added validity update of local inode for lookup\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Added resetting of InodeStat expiry in setattr as well\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Added the change in Changelog\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Removed unnecessary cloning of inode\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n---------\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2023-11-14T11:54:11Z",
+          "tree_id": "add3dba664a949801d27f5e92e6cd520df7299d6",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d38d45fd6e68568839c62a71d1d70996947854f5"
+        },
+        "date": 1699964772616,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.079,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.177,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.144,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11.679,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 98.1410102,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 66.8655558,
             "unit": "milliseconds"
           }
         ]
