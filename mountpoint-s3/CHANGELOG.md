@@ -1,11 +1,14 @@
 ## Unreleased
-* Future creates for file that are deleted remotely should now succeed. ([#584](https://github.com/awslabs/mountpoint-s3/pull/584))
+
+## v1.1.1 (November 14, 2023)
 
 ### Breaking changes
 * No breaking changes.
 
 ### Other changes
 * Some applications that read directory entries out of order (for example, [PHP](https://github.com/awslabs/mountpoint-s3/issues/477)) will now work correctly. ([#581](https://github.com/awslabs/mountpoint-s3/pull/581))
+* Fixed a bug that caused file creation to fail if a file with the same name had previously been created with Mountpoint and then deleted remotely. ([#584](https://github.com/awslabs/mountpoint-s3/pull/584))
+* Fixed an issue where Mountpoint could time out or hang on launch if IMDS was not available. ([#601](https://github.com/awslabs/mountpoint-s3/pull/601))
 
 ## v1.1.0 (October 23, 2023)
 
