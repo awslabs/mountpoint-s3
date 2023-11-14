@@ -242,11 +242,13 @@ impl Superblock {
             return Err(InodeError::SetAttrNotPermittedOnRemoteInode(inode.err()));
         }
 
-        // Should be impossible since local file stat never expire.
-        if !sync.stat.is_valid() {
-            error!(?ino, "local inode stat already expired");
-            return Err(InodeError::SetAttrOnExpiredStat(inode.err()));
-        }
+        let validity = match inode.kind() {
+            InodeKind::File => self.inner.cache_config.file_ttl,
+            InodeKind::Directory => self.inner.cache_config.dir_ttl,
+        };
+
+        // Resetting the InodeStat expiry because the new InodeStat should have new validity
+        sync.stat.update_validity(validity);
 
         if let Some(t) = atime {
             sync.stat.atime = t;
@@ -334,11 +336,17 @@ impl Superblock {
             return Err(InodeError::FileAlreadyExists(inode.err()));
         }
 
-        // Local inode stats never expire, because they can't be looked up remotely
         let stat = match kind {
             // Objects don't have an ETag until they are uploaded to S3
-            InodeKind::File => InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, NEVER_EXPIRE_TTL),
-            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, NEVER_EXPIRE_TTL),
+            InodeKind::File => InodeStat::for_file(
+                0,
+                OffsetDateTime::now_utc(),
+                None,
+                None,
+                None,
+                self.inner.cache_config.file_ttl,
+            ),
+            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl),
         };
 
         let state = InodeState {
@@ -827,7 +835,16 @@ impl SuperblockInner {
                     unreachable!("we know parent is a directory");
                 };
                 if writing_children.contains(&existing_inode.ino()) {
-                    let stat = existing_inode.get_inode_state()?.stat.clone();
+                    let mut sync = existing_inode.get_mut_inode_state()?;
+
+                    let validity = match existing_inode.kind() {
+                        InodeKind::File => self.cache_config.file_ttl,
+                        InodeKind::Directory => self.cache_config.dir_ttl,
+                    };
+                    sync.stat.update_validity(validity);
+                    let stat = sync.stat.clone();
+                    drop(sync);
+
                     Ok(LookedUp {
                         inode: existing_inode,
                         stat,
@@ -1474,8 +1491,6 @@ pub enum InodeError {
     CorruptedMetadata(InodeErrorInfo),
     #[error("inode {0} is a remote inode and its attributes cannot be modified")]
     SetAttrNotPermittedOnRemoteInode(InodeErrorInfo),
-    #[error("inode {0} stat is already expired")]
-    SetAttrOnExpiredStat(InodeErrorInfo),
     #[error("inode {old_inode} for remote key {remote_key:?} is stale, replaced by inode {new_inode}")]
     StaleInode {
         remote_key: String,
@@ -2522,11 +2537,17 @@ mod tests {
         let stat = inode.get_inode_state().unwrap().stat.clone();
         assert!(!stat.is_valid());
 
-        // Should get an error back when calling setattr
+        // Should be able to reset expiry back and make stat valid when calling setattr
         let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
         let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
-        let result = superblock.setattr(&client, ino, Some(atime), Some(mtime)).await;
-        assert!(matches!(result, Err(InodeError::SetAttrOnExpiredStat(_))));
+        let lookup = superblock
+            .setattr(&client, ino, Some(atime), Some(mtime))
+            .await
+            .expect("setattr should be successful");
+        let stat = lookup.stat;
+        assert_eq!(stat.atime, atime);
+        assert_eq!(stat.mtime, mtime);
+        assert!(stat.is_valid());
     }
 
     #[test]

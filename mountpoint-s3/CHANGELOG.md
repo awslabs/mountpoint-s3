@@ -1,4 +1,5 @@
 ## Unreleased
+* Future creates for file that are deleted remotely should now succeed. ([#584](https://github.com/awslabs/mountpoint-s3/pull/584))
 
 ### Breaking changes
 * No breaking changes.
