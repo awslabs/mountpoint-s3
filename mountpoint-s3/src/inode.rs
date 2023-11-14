@@ -846,7 +846,7 @@ impl SuperblockInner {
                     drop(sync);
 
                     Ok(LookedUp {
-                        inode: existing_inode.clone(),
+                        inode: existing_inode,
                         stat,
                     })
                 } else {
