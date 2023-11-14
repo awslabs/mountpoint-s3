@@ -67,10 +67,7 @@ where
                 part_queue_producer,
             );
             let span = debug_span!("prefetch", ?range);
-            async move {
-                request.get_from_cache(range).await;
-            }
-            .instrument(span)
+            request.get_from_cache(range).instrument(span)
         };
 
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
@@ -111,12 +108,16 @@ where
         }
     }
 
-    async fn get_from_cache(&self, range: RequestRange) {
-        let key = &self.cache_key.s3_key;
+    async fn get_from_cache(self, range: RequestRange) {
+        let key = self.cache_key.s3_key.as_str();
         let block_size = self.cache.block_size();
         let block_range = self.block_indices_for_byte_range(&range);
 
-        // TODO: consider starting GetObject requests pre-emptively if cache blocks are missing
+        // Scan the blocks and feed them from the cache. If a block is missing or invalid,
+        // start a GetObject request on the client for the remainder of the stream.
+        // We could check for missing blocks in advance and pre-emptively start a GetObject
+        // request, but since this stream is already behind the prefetcher, the delay is
+        // already likely negligible.
         for block_index in block_range.clone() {
             match self.cache.get_block(&self.cache_key, block_index) {
                 Ok(Some(block)) => {
@@ -124,20 +125,15 @@ where
                     let part = self.make_part(block, block_index, &range);
                     metrics::counter!("cache.total_bytes", part.len() as u64, "type" => "read");
                     self.part_queue_producer.push(Ok(part));
+                    continue;
                 }
-                Ok(None) => {
-                    trace!(?key, ?range, block_index, "cache miss - no data for block");
-                    return self
-                        .get_from_client(range.trim_start(block_index * block_size), block_index..block_range.end)
-                        .await;
-                }
-                Err(error) => {
-                    trace!(?key, ?range, block_index, ?error, "error reading block from cache");
-                    return self
-                        .get_from_client(range.trim_start(block_index * block_size), block_index..block_range.end)
-                        .await;
-                }
+                Ok(None) => trace!(?key, ?range, block_index, "cache miss - no data for block"),
+                Err(error) => error!(?key, ?range, block_index, ?error, "error reading block from cache"),
             }
+            // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
+            return self
+                .get_from_client(range.trim_start(block_index * block_size), block_index..block_range.end)
+                .await;
         }
     }
 
@@ -176,11 +172,23 @@ where
 
         pin_mut!(get_object_result);
         let mut block_index = block_range.start;
+        let mut block_offset = block_range.start * block_size;
         let mut buffer = ChecksummedBytes::default();
         loop {
             match get_object_result.next().await {
                 Some(Ok((offset, body))) => {
                     trace!(offset, length = body.len(), "received GetObject part");
+
+                    let expected_offset = block_offset + buffer.len() as u64;
+                    if offset != expected_offset {
+                        error!(key, offset, expected_offset, "wrong offset for GetObject body part");
+                        self.part_queue_producer
+                            .push(Err(PrefetchReadError::GetRequestReturnedWrongOffset {
+                                offset,
+                                expected_offset,
+                            }));
+                        break;
+                    }
 
                     // Split the body into blocks.
                     let mut body: Bytes = body.into();
@@ -188,17 +196,18 @@ where
                         let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
                         let chunk = body.split_to(remaining);
                         if let Err(e) = buffer.extend(chunk.into()) {
-                            error!(key, error=?e, "Integrity check failed");
+                            error!(key, error=?e, "integrity check for body part failed");
                             self.part_queue_producer.push(Err(e.into()));
                             return;
                         }
                         if buffer.len() < block_size as usize {
                             break;
                         }
-                        self.update_cache(block_index, &buffer);
+                        self.update_cache(block_index, block_offset, &buffer);
                         self.part_queue_producer
                             .push(Ok(self.make_part(buffer, block_index, &range)));
                         block_index += 1;
+                        block_offset += block_size;
                         buffer = ChecksummedBytes::default();
                     }
                 }
@@ -210,9 +219,10 @@ where
                 }
                 None => {
                     if !buffer.is_empty() {
-                        if buffer.len() + (block_index * block_size) as usize == range.object_size() {
+                        // Check whether we are at the end of the object
+                        if block_offset as usize + buffer.len() == range.object_size() {
                             // Write last block to the cache.
-                            self.update_cache(block_index, &buffer);
+                            self.update_cache(block_index, block_offset, &buffer);
                         }
                         self.part_queue_producer
                             .push(Ok(self.make_part(buffer, block_index, &range)));
@@ -224,7 +234,13 @@ where
         trace!("request finished");
     }
 
-    fn update_cache(&self, block_index: u64, block: &ChecksummedBytes) {
+    fn update_cache(&self, block_index: u64, block_offset: u64, block: &ChecksummedBytes) {
+        assert_eq!(
+            block_offset,
+            block_index * self.cache.block_size(),
+            "invalid block offset"
+        );
+
         // TODO: consider updating the cache asynchronously
         let start = Instant::now();
         match self.cache.put_block(self.cache_key.clone(), block_index, block.clone()) {
@@ -238,6 +254,8 @@ where
         };
     }
 
+    /// Creates a Part that can be streamed to the prefetcher from the given cache block.
+    /// If required, trims the block bytes to the request range.
     fn make_part(&self, block: ChecksummedBytes, block_index: u64, range: &RequestRange) -> Part {
         let key = &self.cache_key.s3_key;
         let block_offset = block_index * self.cache.block_size();

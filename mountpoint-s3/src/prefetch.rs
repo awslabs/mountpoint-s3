@@ -70,6 +70,9 @@ pub enum PrefetchReadError<E> {
     #[error("get object request failed")]
     GetRequestFailed(#[source] ObjectClientError<GetObjectError, E>),
 
+    #[error("get object request returned wrong offset")]
+    GetRequestReturnedWrongOffset { offset: u64, expected_offset: u64 },
+
     #[error("get request terminated unexpectedly")]
     GetRequestTerminatedUnexpectedly,
 
@@ -79,6 +82,7 @@ pub enum PrefetchReadError<E> {
 
 pub type DefaultPrefetcher<Runtime> = Prefetcher<ClientPartStream<Runtime>>;
 
+/// Creates an instance of the default [Prefetch].
 pub fn default_prefetch<Runtime>(runtime: Runtime, prefetcher_config: PrefetcherConfig) -> DefaultPrefetcher<Runtime>
 where
     Runtime: Spawn + Send + Sync + 'static,
@@ -89,6 +93,7 @@ where
 
 pub type CachingPrefetcher<Cache, Runtime> = Prefetcher<CachingPartStream<Cache, Runtime>>;
 
+/// Creates an instance of a caching [Prefetch].
 pub fn caching_prefetch<Cache, Runtime>(
     cache: Cache,
     runtime: Runtime,
@@ -748,6 +753,7 @@ mod tests {
 
         #[test]
         fn proptest_sequential_read_small_read_size(size in 1u64..1 * 1024 * 1024, read_factor in 1usize..10, config: TestConfig) {
+            // Pick read size smaller than the object size
             let read_size = (size as usize / read_factor).max(1);
             run_sequential_read_test(default_stream(), size, read_size, config);
         }
@@ -765,6 +771,7 @@ mod tests {
         #[test]
         fn proptest_sequential_read_small_read_size_with_cache(size in 1u64..1 * 1024 * 1024, read_factor in 1usize..10,
             block_size in 16usize..1 * 1024 * 1024, config: TestConfig) {
+            // Pick read size smaller than the object size
             let read_size = (size as usize / read_factor).max(1);
             run_sequential_read_test(caching_stream(block_size), size, read_size, config);
         }
