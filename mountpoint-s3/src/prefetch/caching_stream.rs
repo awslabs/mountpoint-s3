@@ -49,7 +49,7 @@ where
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let range = get_aligned_request_range(range, self.cache.block_size());
+        let range = range.align(self.cache.block_size(), false);
 
         let start = range.start();
         let size = range.len();
@@ -77,35 +77,6 @@ where
 
         RequestTask::from_handle(task_handle, size, start, part_queue)
     }
-}
-
-fn get_aligned_request_range(range: RequestRange, block_size: u64) -> RequestRange {
-    let object_size = range.object_size();
-    let offset = range.start();
-    let preferred_size = range.len();
-
-    // If the request size is bigger than a block size we will try to align it to block boundaries.
-    let offset_in_part = offset % block_size;
-    let size = if offset_in_part != 0 {
-        // if the offset is not at the start of the part we will drain all the bytes from that part first
-        let remaining_in_part = block_size - offset_in_part;
-        preferred_size.min(remaining_in_part as usize)
-    } else {
-        // if the request size is smaller than the block size, just return the block size
-        if preferred_size < block_size as usize {
-            block_size as usize
-        } else {
-            // if it exceeds block boundaries, trim it to the block boundaries
-            let request_boundary = offset + preferred_size as u64;
-            let remainder = request_boundary % block_size;
-            if remainder != 0 {
-                preferred_size + (block_size - remainder) as usize
-            } else {
-                preferred_size
-            }
-        }
-    };
-    RequestRange::new(object_size, offset, size)
 }
 
 #[derive(Debug)]
