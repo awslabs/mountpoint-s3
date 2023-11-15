@@ -654,7 +654,8 @@ where
             ))) => reply.error(err!(libc::ESTALE, "object was mutated remotely")),
             Err(PrefetchReadError::Integrity(e)) => reply.error(err!(libc::EIO, source:e, "integrity error")),
             Err(e @ PrefetchReadError::GetRequestFailed(_))
-            | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly) => {
+            | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly)
+            | Err(e @ PrefetchReadError::GetRequestReturnedWrongOffset { .. }) => {
                 reply.error(err!(libc::EIO, source:e, "get request failed"))
             }
         }

@@ -239,6 +239,28 @@ struct CliArgs {
     )]
     pub metadata_cache_ttl: Option<Duration>,
 
+    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Enable caching of object data in a directory",
+        help_heading = CACHING_OPTIONS_HEADER,
+        value_name = "DIRECTORY",
+    )]
+    pub data_caching_directory: Option<PathBuf>,
+
+    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Block size for the data cache",
+        default_value = "1048576",
+        value_parser = value_parser!(u64).range(1..),
+        help_heading = CACHING_OPTIONS_HEADER,
+        requires = "data_caching_directory",
+    )]
+    pub data_cache_block_size: u64,
+
     #[clap(
         long,
         help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
@@ -537,7 +559,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     #[cfg(feature = "caching")]
     {
+        use mountpoint_s3::data_cache::DiskDataCache;
         use mountpoint_s3::fs::CacheConfig;
+        use mountpoint_s3::prefetch::caching_prefetch;
 
         if args.enable_metadata_caching {
             // TODO: Review default for TTL
@@ -547,6 +571,20 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
                 dir_ttl: metadata_cache_ttl,
                 file_ttl: metadata_cache_ttl,
             };
+        }
+
+        if let Some(path) = args.data_caching_directory {
+            let cache = DiskDataCache::new(path, args.data_cache_block_size);
+            let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
+            return create_filesystem(
+                client,
+                prefetcher,
+                &args.bucket_name,
+                &prefix,
+                filesystem_config,
+                fuse_config,
+                &bucket_description,
+            );
         }
     }
 

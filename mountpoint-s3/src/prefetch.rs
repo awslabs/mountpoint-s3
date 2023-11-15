@@ -7,6 +7,7 @@
 //! we increase the size of the GetObject requests up to some maximum. If the reader ever makes a
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
+mod caching_stream;
 mod part;
 mod part_queue;
 mod part_stream;
@@ -27,6 +28,8 @@ use thiserror::Error;
 use tracing::trace;
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
+use crate::data_cache::DataCache;
+use crate::prefetch::caching_stream::CachingPartStream;
 use crate::prefetch::part_stream::{ClientPartStream, ObjectPartStream, RequestRange};
 use crate::prefetch::seek_window::SeekWindow;
 use crate::prefetch::task::RequestTask;
@@ -67,6 +70,9 @@ pub enum PrefetchReadError<E> {
     #[error("get object request failed")]
     GetRequestFailed(#[source] ObjectClientError<GetObjectError, E>),
 
+    #[error("get object request returned wrong offset")]
+    GetRequestReturnedWrongOffset { offset: u64, expected_offset: u64 },
+
     #[error("get request terminated unexpectedly")]
     GetRequestTerminatedUnexpectedly,
 
@@ -76,11 +82,28 @@ pub enum PrefetchReadError<E> {
 
 pub type DefaultPrefetcher<Runtime> = Prefetcher<ClientPartStream<Runtime>>;
 
+/// Creates an instance of the default [Prefetch].
 pub fn default_prefetch<Runtime>(runtime: Runtime, prefetcher_config: PrefetcherConfig) -> DefaultPrefetcher<Runtime>
 where
     Runtime: Spawn + Send + Sync + 'static,
 {
     let part_stream = ClientPartStream::new(runtime);
+    Prefetcher::new(part_stream, prefetcher_config)
+}
+
+pub type CachingPrefetcher<Cache, Runtime> = Prefetcher<CachingPartStream<Cache, Runtime>>;
+
+/// Creates an instance of a caching [Prefetch].
+pub fn caching_prefetch<Cache, Runtime>(
+    cache: Cache,
+    runtime: Runtime,
+    prefetcher_config: PrefetcherConfig,
+) -> CachingPrefetcher<Cache, Runtime>
+where
+    Cache: DataCache + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync + 'static,
+{
+    let part_stream = CachingPartStream::new(runtime, cache);
     Prefetcher::new(part_stream, prefetcher_config)
 }
 
@@ -504,6 +527,10 @@ mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
 
+    use crate::data_cache::InMemoryDataCache;
+    use crate::prefetch::part_stream::ClientPartStream;
+
+    use super::caching_stream::CachingPartStream;
     use super::*;
     use futures::executor::{block_on, ThreadPool};
     use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
@@ -514,6 +541,8 @@ mod tests {
     use proptest_derive::Arbitrary;
     use std::collections::HashMap;
     use test_case::test_case;
+
+    const MB: usize = 1024 * 1024;
 
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
@@ -534,6 +563,12 @@ mod tests {
     fn default_stream() -> ClientPartStream<ThreadPool> {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         ClientPartStream::new(runtime)
+    }
+
+    fn caching_stream(block_size: usize) -> CachingPartStream<InMemoryDataCache, ThreadPool> {
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let cache = InMemoryDataCache::new(block_size as u64);
+        CachingPartStream::new(runtime, cache)
     }
 
     fn run_sequential_read_test<Stream: ObjectPartStream + Send + Sync + 'static>(
@@ -578,8 +613,12 @@ mod tests {
         assert_eq!(next_offset, size);
     }
 
-    #[test]
-    fn sequential_read_small() {
+    #[test_case(default_stream())]
+    #[test_case(caching_stream(1 * MB))]
+    fn sequential_read_small<Stream>(part_stream: Stream)
+    where
+        Stream: ObjectPartStream + Send + Sync + 'static,
+    {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 1024 * 1024 * 1024,
@@ -588,11 +627,15 @@ mod tests {
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
-        run_sequential_read_test(default_stream(), 1024 * 1024 + 111, 1024 * 1024, config);
+        run_sequential_read_test(part_stream, 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
-    #[test]
-    fn sequential_read_medium() {
+    #[test_case(default_stream())]
+    #[test_case(caching_stream(1 * MB))]
+    fn sequential_read_medium<Stream>(part_stream: Stream)
+    where
+        Stream: ObjectPartStream + Send + Sync + 'static,
+    {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 64 * 1024 * 1024,
@@ -601,11 +644,15 @@ mod tests {
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
-        run_sequential_read_test(default_stream(), 16 * 1024 * 1024 + 111, 1024 * 1024, config);
+        run_sequential_read_test(part_stream, 16 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
-    #[test]
-    fn sequential_read_large() {
+    #[test_case(default_stream())]
+    #[test_case(caching_stream(1 * MB))]
+    fn sequential_read_large<Stream>(part_stream: Stream)
+    where
+        Stream: ObjectPartStream + Send + Sync + 'static,
+    {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 64 * 1024 * 1024,
@@ -614,7 +661,8 @@ mod tests {
             max_forward_seek_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
-        run_sequential_read_test(default_stream(), 256 * 1024 * 1024 + 111, 1024 * 1024, config);
+
+        run_sequential_read_test(part_stream, 256 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
     fn fail_sequential_read_test<Stream: ObjectPartStream + Send + Sync + 'static>(
@@ -664,10 +712,15 @@ mod tests {
         assert!(next_offset < size); // Since we're injecting failures, shouldn't make it to the end
     }
 
-    #[test_case("invalid range; length=42")]
+    #[test_case("invalid range; length=42", default_stream())]
+    #[test_case("invalid range; length=42", caching_stream(1 * MB))]
     // test case for the request failure due to etag not matching
-    #[test_case("At least one of the pre-conditions you specified did not hold")]
-    fn fail_request_sequential_small(err_value: &str) {
+    #[test_case("At least one of the pre-conditions you specified did not hold", default_stream())]
+    #[test_case("At least one of the pre-conditions you specified did not hold", caching_stream(1 * MB))]
+    fn fail_request_sequential_small<Stream>(err_value: &str, part_stream: Stream)
+    where
+        Stream: ObjectPartStream + Send + Sync + 'static,
+    {
         let config = TestConfig {
             first_request_size: 256 * 1024,
             max_request_size: 1024 * 1024 * 1024,
@@ -685,7 +738,7 @@ mod tests {
             ))),
         );
 
-        fail_sequential_read_test(default_stream(), 1024 * 1024 + 111, 1024 * 1024, config, get_failures);
+        fail_sequential_read_test(part_stream, 1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
 
     proptest! {
@@ -700,8 +753,27 @@ mod tests {
 
         #[test]
         fn proptest_sequential_read_small_read_size(size in 1u64..1 * 1024 * 1024, read_factor in 1usize..10, config: TestConfig) {
+            // Pick read size smaller than the object size
             let read_size = (size as usize / read_factor).max(1);
             run_sequential_read_test(default_stream(), size, read_size, config);
+        }
+
+        #[test]
+        fn proptest_sequential_read_with_cache(
+            size in 1u64..1 * 1024 * 1024,
+            read_size in 1usize..1 * 1024 * 1024,
+            block_size in 16usize..1 * 1024 * 1024,
+            config: TestConfig,
+        ) {
+            run_sequential_read_test(caching_stream(block_size), size, read_size, config);
+        }
+
+        #[test]
+        fn proptest_sequential_read_small_read_size_with_cache(size in 1u64..1 * 1024 * 1024, read_factor in 1usize..10,
+            block_size in 16usize..1 * 1024 * 1024, config: TestConfig) {
+            // Pick read size smaller than the object size
+            let read_size = (size as usize / read_factor).max(1);
+            run_sequential_read_test(caching_stream(block_size), size, read_size, config);
         }
     }
 
@@ -791,6 +863,16 @@ mod tests {
         ) {
             let (object_size, reads) = reads;
             run_random_read_test(default_stream(), object_size, reads, config);
+        }
+
+        #[test]
+        fn proptest_random_read_with_cache(
+            reads in random_read_strategy(1 * 1024 * 1024),
+            block_size in 16usize..1 * 1024 * 1024,
+            config: TestConfig,
+        ) {
+            let (object_size, reads) = reads;
+            run_random_read_test(caching_stream(block_size), object_size, reads, config);
         }
     }
 

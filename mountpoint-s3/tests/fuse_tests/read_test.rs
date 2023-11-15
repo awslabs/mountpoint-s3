@@ -4,6 +4,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use fuser::BackgroundSession;
+use mountpoint_s3::data_cache::InMemoryDataCache;
 use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
 use rand::SeedableRng as _;
@@ -66,10 +67,28 @@ fn basic_read_test_s3() {
     basic_read_test(crate::fuse_tests::s3_session::new, "basic_read_test");
 }
 
+#[cfg(feature = "s3_tests")]
+#[test]
+fn basic_read_test_s3_with_cache() {
+    basic_read_test(
+        crate::fuse_tests::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        "basic_read_test",
+    );
+}
+
 #[test_case("")]
 #[test_case("basic_read_test")]
 fn basic_read_test_mock(prefix: &str) {
     basic_read_test(crate::fuse_tests::mock_session::new, prefix);
+}
+
+#[test_case("")]
+#[test_case("basic_read_test")]
+fn basic_read_test_mock_with_cache(prefix: &str) {
+    basic_read_test(
+        crate::fuse_tests::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        prefix,
+    );
 }
 
 #[derive(PartialEq)]

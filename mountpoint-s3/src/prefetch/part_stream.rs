@@ -94,6 +94,42 @@ impl RequestRange {
             size,
         }
     }
+
+    /// Try to align the end of this range to the given part boundaries.
+    /// The `trim_only` flags controls whether the range is only trimmed down to
+    /// part boundaries or is allowed to grow wider.
+    pub fn align(&self, part_alignment: u64, trim_only: bool) -> RequestRange {
+        let offset_in_part = self.offset % part_alignment;
+        let size = if offset_in_part != 0 {
+            // if the offset is not at the start of the part we will drain all the bytes from that part first
+            let remaining_in_part = part_alignment - offset_in_part;
+            if trim_only {
+                self.size.min(remaining_in_part as usize)
+            } else {
+                remaining_in_part as usize
+            }
+        } else if self.size < part_alignment as usize {
+            // if the size is smaller than the part size,
+            if trim_only {
+                // just return the original size
+                self.size
+            } else {
+                // return the whole part
+                part_alignment as usize
+            }
+        } else {
+            // if it exceeds part boundaries,
+            let remainder = self.end() % part_alignment;
+            if trim_only || remainder == 0 {
+                // trim it to the previous part boundary
+                self.size - (remainder as usize)
+            } else {
+                // extend it to the next part boundary
+                self.size + (part_alignment - remainder) as usize
+            }
+        };
+        RequestRange::new(self.object_size, self.offset, size)
+    }
 }
 
 impl From<RequestRange> for Range<u64> {
@@ -140,7 +176,7 @@ where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         assert!(preferred_part_size > 0);
-        let request_range = get_aligned_request_range(range, client.part_size().unwrap_or(8 * 1024 * 1024));
+        let request_range = range.align(client.part_size().unwrap_or(8 * 1024 * 1024) as u64, true);
         let start = request_range.start();
         let size = request_range.len();
 
@@ -209,31 +245,6 @@ where
     }
 }
 
-fn get_aligned_request_range(range: RequestRange, part_alignment: usize) -> RequestRange {
-    let object_size = range.object_size();
-    let offset = range.start();
-    let preferred_length = range.len();
-
-    // If the request size is bigger than a part size we will try to align it to part boundaries.
-    let offset_in_part = (offset % part_alignment as u64) as usize;
-    let size = if offset_in_part != 0 {
-        // if the offset is not at the start of the part we will drain all the bytes from that part first
-        let remaining_in_part = part_alignment - offset_in_part;
-        preferred_length.min(remaining_in_part)
-    } else {
-        // if the request size is smaller than the part size, just return that value
-        if preferred_length < part_alignment {
-            preferred_length
-        } else {
-            // if it exceeds part boundaries, trim it to the part boundaries
-            let request_boundary = offset + preferred_length as u64;
-            let remainder = (request_boundary % part_alignment as u64) as usize;
-            preferred_length - remainder
-        }
-    };
-    RequestRange::new(object_size, offset, size)
-}
-
 #[cfg(test)]
 mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
@@ -246,26 +257,38 @@ mod tests {
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
 
-    #[test_case(256 * KB, 256 * KB, 8, 100 * MB, 8 * MB, 2 * MB; "next request size is smaller than part size")]
-    #[test_case(7 * MB, 256 * KB, 8, 100 * MB, 8 * MB, 1 * MB; "next request size is remaining bytes in the part")]
-    #[test_case(9 * MB, (2 * MB) + 11, 11, 100 * MB, 9 * MB, 18 * MB; "next request size is trimmed to part boundaries")]
-    #[test_case(8 * MB, 2 * MB, 8, 100 * MB, 8 * MB, 16 * MB; "next request size is multiple of the part size")]
-    #[test_case(8 * MB, 2 * MB, 100, 20 * MB, 8 * MB, 16 * MB; "max request size is trimmed to part boundaries")]
-    #[test_case(8 * MB, 2 * MB, 100, 24 * MB, 8 * MB, 24 * MB; "max request size is multiple of the part size")]
-    #[test_case(8 * MB, 2 * MB, 8, 3 * MB, 8 * MB, 3 * MB; "max request size is less than part size")]
-    fn test_get_aligned_request_range(
-        next_request_offset: usize,
-        current_request_size: usize,
-        prefetch_multiplier: usize,
-        max_request_size: usize,
+    #[test_case(256 * KB, 2 * MB, 100 * MB, 8 * MB, true, 2 * MB; "mid-part offset, small size, unchanged")]
+    #[test_case(256 * KB, 2 * MB, 100 * MB, 8 * MB, false, 8 * MB - 256 * KB; "mid-part offset, small size, grow up to part boundary")]
+    #[test_case(7 * MB, 2 * MB, 100 * MB, 8 * MB, true, 1 * MB; "mid-part offset, trim to remaining bytes in the part (trim_only)")]
+    #[test_case(7 * MB, 2 * MB, 100 * MB, 8 * MB, false, 1 * MB; "mid-part offset, trim to remaining bytes in the part")]
+    #[test_case(9 * MB, (22 * MB) + 11, 100 * MB, 9 * MB, true, 18 * MB; "trim to part boundaries")]
+    #[test_case(9 * MB, (22 * MB) + 11, 100 * MB, 9 * MB, false, 27 * MB; "grow to part boundaries")]
+    #[test_case(8 * MB, 16 * MB, 100 * MB, 8 * MB, true, 16 * MB; "already aligned (trim_only)")]
+    #[test_case(8 * MB, 16 * MB, 100 * MB, 8 * MB, false, 16 * MB; "already aligned")]
+    fn test_request_range_align(
+        offset: usize,
+        request_size: usize,
+        object_size: usize,
         part_size: usize,
+        trim_only: bool,
         expected_size: usize,
     ) {
-        let object_size = 50 * 1024 * 1024;
-        let request_size = (current_request_size * prefetch_multiplier).min(max_request_size);
-        let range = RequestRange::new(object_size, next_request_offset as u64, request_size);
+        let range = RequestRange::new(object_size, offset as u64, request_size);
+        let aligned_range = range.align(part_size as u64, trim_only);
 
-        let aligned_range = get_aligned_request_range(range, part_size);
+        assert_eq!(range.start(), aligned_range.start());
+        assert_eq!(range.object_size(), aligned_range.object_size());
+        if range.start() as usize % part_size == 0 {
+            assert!(
+                aligned_range.end() as usize == aligned_range.object_size() || aligned_range.end() as usize % part_size == 0,
+                "ranges starting on a part boundary should be aligned to another part boundary, or to the end of the object"
+            );
+        }
+
+        if trim_only {
+            assert!(aligned_range.len() <= range.len());
+        }
+
         assert_eq!(aligned_range.len(), expected_size);
     }
 }
