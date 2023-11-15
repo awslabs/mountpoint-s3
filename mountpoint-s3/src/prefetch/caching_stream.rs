@@ -142,6 +142,7 @@ where
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
+        // Always request a range aligned with block boundaries (or to the end of the object).
         let block_aligned_byte_range =
             (block_range.start * block_size)..(block_range.end * block_size).min(range.object_size() as u64);
 
@@ -175,6 +176,10 @@ where
         let mut block_offset = block_range.start * block_size;
         let mut buffer = ChecksummedBytes::default();
         loop {
+            assert!(
+                buffer.len() < block_size as usize,
+                "buffer should be flushed when we get a full block"
+            );
             match get_object_result.next().await {
                 Some(Ok((offset, body))) => {
                     trace!(offset, length = body.len(), "received GetObject part");
@@ -203,6 +208,8 @@ where
                         if buffer.len() < block_size as usize {
                             break;
                         }
+
+                        // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
                         self.update_cache(block_index, block_offset, &buffer);
                         self.part_queue_producer
                             .push(Ok(self.make_part(buffer, block_index, &range)));
@@ -219,11 +226,15 @@ where
                 }
                 None => {
                     if !buffer.is_empty() {
-                        // Check whether we are at the end of the object
-                        if block_offset as usize + buffer.len() == range.object_size() {
-                            // Write last block to the cache.
-                            self.update_cache(block_index, block_offset, &buffer);
-                        }
+                        // If we still have data in the buffer, this must be the last block for this object,
+                        // which can be smaller than block_size (and ends at the end of the object).
+                        assert_eq!(
+                            block_offset as usize + buffer.len(),
+                            range.object_size(),
+                            "a partial block is only allowed at the end of the object"
+                        );
+                        // Write the last block to the cache.
+                        self.update_cache(block_index, block_offset, &buffer);
                         self.part_queue_producer
                             .push(Ok(self.make_part(buffer, block_index, &range)));
                     }
@@ -235,16 +246,15 @@ where
     }
 
     fn update_cache(&self, block_index: u64, block_offset: u64, block: &ChecksummedBytes) {
-        assert_eq!(
-            block_offset,
-            block_index * self.cache.block_size(),
-            "invalid block offset"
-        );
-
         // TODO: consider updating the cache asynchronously
         let start = Instant::now();
         match self.cache.put_block(self.cache_key.clone(), block_index, block.clone()) {
             Ok(()) => {
+                assert_eq!(
+                    block_offset,
+                    block_index * self.cache.block_size(),
+                    "invalid block offset"
+                );
                 metrics::histogram!("cache.write_duration_us", start.elapsed().as_micros() as f64);
                 metrics::counter!("cache.total_bytes", block.len() as u64, "type" => "write");
             }
