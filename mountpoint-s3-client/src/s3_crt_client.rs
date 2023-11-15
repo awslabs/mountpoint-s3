@@ -35,10 +35,10 @@ use tracing::{debug, error, trace, Span};
 
 use self::get_object::S3GetObjectRequest;
 use self::put_object::S3PutObjectRequest;
-use crate::build_info;
 use crate::endpoint_config::EndpointConfig;
 use crate::endpoint_config::EndpointError;
 use crate::object_client::*;
+use crate::user_agent::UserAgent;
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -84,7 +84,7 @@ pub struct S3ClientConfig {
     throughput_target_gbps: f64,
     part_size: usize,
     endpoint_config: EndpointConfig,
-    user_agent_prefix: Option<String>,
+    user_agent: Option<UserAgent>,
     request_payer: Option<String>,
     bucket_owner: Option<String>,
 }
@@ -96,7 +96,7 @@ impl Default for S3ClientConfig {
             throughput_target_gbps: 10.0,
             part_size: 8 * 1024 * 1024,
             endpoint_config: EndpointConfig::new("us-east-1"),
-            user_agent_prefix: None,
+            user_agent: None,
             request_payer: None,
             bucket_owner: None,
         }
@@ -136,10 +136,10 @@ impl S3ClientConfig {
         self
     }
 
-    /// Set a prefix to prepend to the User-agent HTTP header for S3 requests
+    /// Set a constructor for the HTTP User-agent header for S3 requests
     #[must_use = "S3ClientConfig follows a builder pattern"]
-    pub fn user_agent_prefix(mut self, user_agent_prefix: &str) -> Self {
-        self.user_agent_prefix = Some(user_agent_prefix.to_owned());
+    pub fn user_agent(mut self, user_agent: UserAgent) -> Self {
+        self.user_agent = Some(user_agent);
         self
     }
 
@@ -291,11 +291,8 @@ impl S3CrtClientInner {
         }
         client_config.part_size(config.part_size);
 
-        let client_agent = format!("mountpoint-s3-client/{}", build_info::FULL_VERSION);
-        let user_agent_header = match config.user_agent_prefix {
-            Some(prefix) => format!("{prefix} {client_agent}"),
-            None => client_agent,
-        };
+        let user_agent = config.user_agent.unwrap_or_else(|| UserAgent::new(None));
+        let user_agent_header = user_agent.build();
 
         let s3_client = Client::new(&allocator, client_config).unwrap();
 
@@ -1031,7 +1028,7 @@ mod tests {
         let expected_user_agent = "someprefix mountpoint-s3-client/";
 
         let config = S3ClientConfig {
-            user_agent_prefix: Some(user_agent_prefix),
+            user_agent: Some(UserAgent::new(Some(user_agent_prefix))),
             ..Default::default()
         };
 

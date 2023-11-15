@@ -49,10 +49,13 @@ mod endpoint_config;
 #[doc(hidden)]
 pub mod failure_client;
 pub mod imds_crt_client;
+pub mod instance_info;
 #[doc(hidden)]
 pub mod mock_client;
 mod object_client;
 mod s3_crt_client;
+#[doc(hidden)]
+pub mod user_agent;
 mod util;
 
 pub use object_client::{ObjectClient, PutObjectRequest};
