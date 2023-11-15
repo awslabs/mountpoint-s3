@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1699972353415,
+  "lastUpdate": 1700076470217,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "15bec263971818398093ebc6de55bfa18aeaf421",
-          "message": "Release v1.1.0 (#565)\n\n* Release v1.1.0\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n* Update release date\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\nCo-authored-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-10-23T12:56:58Z",
-          "tree_id": "db57cef5b833c2abce92c9dd56d1aef62c84a8f9",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/15bec263971818398093ebc6de55bfa18aeaf421"
-        },
-        "date": 1698068010306,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.072,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.188,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.155,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.88,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 101.7355927,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 67.1178386,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 81.97185040000001,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1e4d861b92ff30db2153b327bebd8fcf11b8308",
+          "message": "Add caching Prefetch implementation (#598)\n\n* Integrate cache in Prefetcher\n\nIntroduce a new implementation of the Prefetch trait which uses a DataCache. This change also adds CLI args to Mountpoint to enable the on-disk data cache. The new args are only available under the \"caching\" feature and are subject to change.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Introduce unified RequestRange::align\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add comments and address other feedback\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Assert invariants when populating the cache from the GetObject result\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-11-15T18:55:49Z",
+          "tree_id": "67b2a661ce3b7110d8e14fcd1cb956b44cb7ae01",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/a1e4d861b92ff30db2153b327bebd8fcf11b8308"
+        },
+        "date": 1700076469708,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.076,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.17,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.072,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.636,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 89.0491659,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 72.9451263,
             "unit": "milliseconds"
           }
         ]
