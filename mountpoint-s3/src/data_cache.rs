@@ -7,8 +7,6 @@
 mod disk_data_cache;
 mod in_memory_data_cache;
 
-use std::ops::RangeBounds;
-
 use mountpoint_s3_client::types::ETag;
 use thiserror::Error;
 
@@ -52,16 +50,4 @@ pub trait DataCache {
 
     /// Returns the block size for the data cache.
     fn block_size(&self) -> u64;
-
-    /// For the given range of blocks, which are present in the cache?
-    /// Indices in the vector are already sorted.
-    ///
-    /// It is possible that the **blocks may be deleted before reading**, or may be corrupted or inaccessible.
-    /// This method only indicates that a cache entry was present at the time of calling.
-    /// There is no guarantee that the data will still be available at the time of reading.
-    fn cached_block_indices<R: RangeBounds<BlockIndex>>(
-        &self,
-        cache_key: &CacheKey,
-        range: R,
-    ) -> DataCacheResult<Vec<BlockIndex>>;
 }
