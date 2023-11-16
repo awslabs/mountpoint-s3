@@ -10,6 +10,7 @@ use thiserror::Error;
 /// Data transformations will either fail returning an [IntegrityError], or propagate the checksum
 /// so that it can be validated on access.
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct ChecksummedBytes {
     orig_bytes: Bytes,
     /// Always a subslice of `orig_bytes`
@@ -354,8 +355,8 @@ mod tests {
         let expected = Bytes::from_static(b"some ext");
         let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
         let mut extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
-        checksummed_bytes.split_off(split_off_at);
-        extend.split_off(split_off_at);
+        _ = checksummed_bytes.split_off(split_off_at);
+        _ = extend.split_off(split_off_at);
         checksummed_bytes.extend(extend).unwrap();
         let actual = checksummed_bytes.curr_slice;
         assert_eq!(expected, actual);
@@ -390,7 +391,7 @@ mod tests {
             checksummed_bytes.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
-        checksummed_bytes.split_off(4);
+        _ = checksummed_bytes.split_off(4);
 
         let extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
@@ -441,7 +442,7 @@ mod tests {
         let corrupted_bytes = Bytes::from_static(b"corrupted data");
         let extend_checksum = crc32c::checksum(b" extended");
         let mut extend = ChecksummedBytes::new(corrupted_bytes, extend_checksum);
-        extend.split_off(4);
+        _ = extend.split_off(4);
         assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
 
         let result = checksummed_bytes.extend(extend);
