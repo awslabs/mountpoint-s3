@@ -29,6 +29,7 @@ pub struct DiskDataCache {
     block_size: u64,
     cache_directory: PathBuf,
     limit: CacheLimit,
+    /// Tracks blocks usage. `None` when no cache limit was set.
     usage: Option<Mutex<UsageInfo<DiskBlockKey>>>,
 }
 
@@ -159,7 +160,7 @@ impl DiskBlock {
 }
 
 impl DiskDataCache {
-    /// Create a new instance of an [DiskDataCache] with the specified `block_size`.
+    /// Create a new instance of an [DiskDataCache] with the specified configuration.
     pub fn new(cache_directory: PathBuf, block_size: u64, limit: CacheLimit) -> Self {
         let usage = match limit {
             CacheLimit::Unbounded => None,
@@ -243,6 +244,10 @@ impl DiskDataCache {
             CacheLimit::TotalSize { max_size } => size > max_size,
             CacheLimit::AvailableSpace { min_ratio } => {
                 let stats = match fs2::statvfs(&self.cache_directory) {
+                    Ok(stats) if stats.total_space() == 0 => {
+                        warn!("unable to determine available space");
+                        return false;
+                    }
                     Ok(stats) => stats,
                     Err(error) => {
                         warn!(?error, "unable to determine available space");
@@ -335,7 +340,7 @@ impl DataCache for DiskDataCache {
 
 /// Key to identify a block in the disk cache, composed of a hash of the S3 key and Etag, and the block index.
 /// An S3 key may be up to 1024 UTF-8 bytes long, which exceeds the maximum UNIX file name length.
-/// Instead, the path contains a hash of the S3 key and ETag.
+/// Instead, this key contains a hash of the S3 key and ETag to avoid the limit when used in paths.
 /// The risk of collisions is mitigated as we ignore blocks read that contain the wrong S3 key, etc..        
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 struct DiskBlockKey {
@@ -386,10 +391,13 @@ where
         }
     }
 
+    /// Refresh the given key if present, marking it as the most recently used.
+    /// Returns `false` if the key is not in the cache.
     fn refresh(&mut self, key: &K) -> bool {
         self.entries.get_refresh(key).is_some()
     }
 
+    /// Add or replace a key and update the total size.
     fn add(&mut self, key: K, size: usize) {
         if let Some(previous_size) = self.entries.insert(key, size) {
             self.size = self.size.saturating_sub(previous_size);
@@ -398,12 +406,15 @@ where
         self.size = self.size.saturating_add(size);
     }
 
+    /// Remove a key if present and update the total size.
     fn remove(&mut self, key: &K) {
         if let Some(size) = self.entries.remove(key) {
             self.size = self.size.saturating_sub(size);
         }
     }
 
+    /// Remove the least recently used key and update the total size.
+    /// Return `None` if empty.
     fn evict_lru(&mut self) -> Option<K> {
         let Some((key, size)) = self.entries.pop_front() else {
             return None;
@@ -587,7 +598,7 @@ mod tests {
     #[test]
     fn test_eviction() {
         fn create_random(seed: u64, size: usize) -> ChecksummedBytes {
-            let mut rng = ChaCha20Rng::seed_from_u64(seed + size as u64);
+            let mut rng = ChaCha20Rng::seed_from_u64(seed);
             let mut body = vec![0u8; size];
             rng.fill(&mut body[..]);
 
