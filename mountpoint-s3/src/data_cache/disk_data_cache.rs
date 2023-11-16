@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
-use std::ops::RangeBounds;
 use std::path::PathBuf;
 
 use bytes::Bytes;
@@ -247,14 +246,6 @@ impl DataCache for DiskDataCache {
 
     fn block_size(&self) -> u64 {
         self.block_size
-    }
-
-    fn cached_block_indices<R: RangeBounds<BlockIndex>>(
-        &self,
-        _cache_key: &CacheKey,
-        _range: R,
-    ) -> DataCacheResult<Vec<BlockIndex>> {
-        todo!("implement or deprecate");
     }
 }
 

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::default::Default;
-use std::ops::RangeBounds;
 
 use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 use crate::sync::RwLock;
@@ -39,21 +38,6 @@ impl DataCache for InMemoryDataCache {
 
     fn block_size(&self) -> u64 {
         self.block_size
-    }
-
-    fn cached_block_indices<R: RangeBounds<BlockIndex>>(
-        &self,
-        cache_key: &CacheKey,
-        range: R,
-    ) -> DataCacheResult<Vec<BlockIndex>> {
-        let data = self.data.read().unwrap();
-        let mut result = match data.get(cache_key) {
-            None => Vec::new(),
-            Some(blocks) => blocks.keys().filter(|idx| range.contains(idx)).copied().collect(),
-        };
-        result.sort();
-
-        Ok(result)
     }
 }
 
@@ -138,44 +122,5 @@ mod tests {
             data_1, entry,
             "cache entry returned should match original bytes after put"
         );
-    }
-
-    #[test]
-    fn test_cached_indices() {
-        let data_1 = Bytes::from_static(b"Hello world");
-        let data_1 = ChecksummedBytes::from_bytes(data_1.clone());
-        let data_2 = Bytes::from_static(b"Foo bar");
-        let data_2 = ChecksummedBytes::from_bytes(data_2.clone());
-
-        let cache = InMemoryDataCache::new(8 * 1024 * 1024);
-        let cache_key_1 = CacheKey {
-            s3_key: "a".into(),
-            etag: ETag::for_tests(),
-        };
-        let cache_key_2 = CacheKey {
-            s3_key: "b".into(),
-            etag: ETag::for_tests(),
-        };
-
-        let cached_indices = cache
-            .cached_block_indices(&cache_key_1, 0..5)
-            .expect("should not error");
-        let expected: Vec<BlockIndex> = Vec::new();
-        assert_eq!(cached_indices, expected);
-
-        cache
-            .put_block(cache_key_1.clone(), 2, data_1.clone())
-            .expect("no reason to error, cache is accessible");
-        cache
-            .put_block(cache_key_1.clone(), 3, data_2.clone())
-            .expect("no reason to error, cache is accessible");
-        cache
-            .put_block(cache_key_2.clone(), 5, data_2.clone())
-            .expect("no reason to error, cache is accessible");
-
-        let cached_indices = cache
-            .cached_block_indices(&cache_key_1, 0..12)
-            .expect("should not error");
-        assert_eq!(cached_indices, vec![2, 3]);
     }
 }
