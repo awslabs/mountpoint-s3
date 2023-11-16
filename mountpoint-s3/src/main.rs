@@ -261,6 +261,30 @@ struct CliArgs {
     )]
     pub data_cache_block_size: u64,
 
+    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Maximum size for the data cache in MB",
+        value_parser = value_parser!(u64).range(1..),
+        help_heading = CACHING_OPTIONS_HEADER,
+        requires = "data_caching_directory",
+        conflicts_with = "data_cache_free_space",
+    )]
+    pub data_cache_size_limit: Option<u64>,
+
+    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Minimum available space to maintain (%)",
+        value_parser = value_parser!(u64).range(0..100),
+        help_heading = CACHING_OPTIONS_HEADER,
+        requires = "data_caching_directory",
+        conflicts_with = "data_cache_size_limit",
+    )]
+    pub data_cache_free_space: Option<u64>,
+
     #[clap(
         long,
         help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
@@ -559,7 +583,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     #[cfg(feature = "caching")]
     {
-        use mountpoint_s3::data_cache::DiskDataCache;
+        use mountpoint_s3::data_cache::{CacheLimit, DiskDataCache};
         use mountpoint_s3::fs::CacheConfig;
         use mountpoint_s3::prefetch::caching_prefetch;
 
@@ -574,7 +598,19 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         }
 
         if let Some(path) = args.data_caching_directory {
-            let cache = DiskDataCache::new(path, args.data_cache_block_size);
+            let limit = {
+                if let Some(max_size_in_mb) = args.data_cache_size_limit {
+                    let max_size = (max_size_in_mb * 1024 * 1024) as usize;
+                    CacheLimit::TotalSize { max_size }
+                } else if let Some(per_cent) = args.data_cache_free_space {
+                    let min_ratio = (per_cent as f64) * 0.01;
+                    CacheLimit::AvailableSpace { min_ratio }
+                } else {
+                    CacheLimit::Unbounded
+                }
+            };
+
+            let cache = DiskDataCache::new(path, args.data_cache_block_size, limit);
             let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
             return create_filesystem(
                 client,
