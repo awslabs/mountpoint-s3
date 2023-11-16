@@ -48,8 +48,10 @@ pub enum CacheLimit {
 #[derive(Serialize, Deserialize, Debug)]
 struct DiskBlockHeader {
     block_idx: BlockIndex,
+    block_offset: u64,
     etag: String,
     s3_key: String,
+    data_checksum: u32,
     header_checksum: u32,
 }
 
@@ -72,37 +74,58 @@ enum DiskBlockAccessError {
 
 impl DiskBlockHeader {
     /// Creates a new [DiskBlockHeader]
-    pub fn new(block_idx: BlockIndex, etag: String, s3_key: String) -> Self {
-        let header_checksum = Self::compute_checksum(block_idx, &etag, &s3_key).value();
+    pub fn new(block_idx: BlockIndex, block_offset: u64, etag: String, s3_key: String, data_checksum: Crc32c) -> Self {
+        let data_checksum = data_checksum.value();
+        let header_checksum = Self::compute_checksum(block_idx, block_offset, &etag, &s3_key, data_checksum).value();
         DiskBlockHeader {
             block_idx,
+            block_offset,
             etag,
             s3_key,
+            data_checksum,
             header_checksum,
         }
     }
 
-    fn compute_checksum(block_idx: BlockIndex, etag: &str, s3_key: &str) -> Crc32c {
+    fn compute_checksum(
+        block_idx: BlockIndex,
+        block_offset: u64,
+        etag: &str,
+        s3_key: &str,
+        data_checksum: u32,
+    ) -> Crc32c {
         let mut hasher = crc32c::Hasher::new();
-        hasher.update(block_idx.to_be_bytes().as_ref());
+        hasher.update(&block_idx.to_be_bytes());
+        hasher.update(&block_offset.to_be_bytes());
         hasher.update(etag.as_bytes());
         hasher.update(s3_key.as_bytes());
+        hasher.update(&data_checksum.to_be_bytes());
         hasher.finalize()
     }
 
-    /// Validate the integrity of the contained data.
+    /// Validate the integrity of the contained data and return the stored data checksum.
     ///
     /// Execute this method before acting on the data contained within.
-    pub fn validate(&self, s3_key: &str, etag: &str, block_idx: BlockIndex) -> Result<(), DiskBlockAccessError> {
+    pub fn validate(
+        &self,
+        s3_key: &str,
+        etag: &str,
+        block_idx: BlockIndex,
+        block_offset: u64,
+    ) -> Result<Crc32c, DiskBlockAccessError> {
         let s3_key_match = s3_key == self.s3_key;
         let etag_match = etag == self.etag;
         let block_idx_match = block_idx == self.block_idx;
+        let block_offset_match = block_offset == self.block_offset;
 
-        if s3_key_match && etag_match && block_idx_match {
-            if Self::compute_checksum(block_idx, etag, s3_key).value() != self.header_checksum {
+        let data_checksum = self.data_checksum;
+        if s3_key_match && etag_match && block_idx_match && block_offset_match {
+            if Self::compute_checksum(block_idx, block_offset, etag, s3_key, data_checksum).value()
+                != self.header_checksum
+            {
                 Err(DiskBlockAccessError::ChecksumError)
             } else {
-                Ok(())
+                Ok(Crc32c::new(data_checksum))
             }
         } else {
             error!(
@@ -121,8 +144,6 @@ struct DiskBlock {
     header: DiskBlockHeader,
     /// Cached bytes
     data: Bytes,
-    /// Checksum over the bytes in `data`
-    data_checksum: u32,
 }
 
 impl DiskBlock {
@@ -133,28 +154,32 @@ impl DiskBlock {
     fn new(
         cache_key: CacheKey,
         block_idx: BlockIndex,
+        block_offset: u64,
         bytes: ChecksummedBytes,
     ) -> Result<Self, DiskBlockCreationError> {
         let (s3_key, etag) = (cache_key.s3_key, cache_key.etag.into_inner());
-        let header = DiskBlockHeader::new(block_idx, etag, s3_key);
-
         let (data, data_checksum) = bytes.into_inner()?;
-        let data_checksum = data_checksum.value();
+        let header = DiskBlockHeader::new(block_idx, block_offset, etag, s3_key, data_checksum);
 
-        Ok(DiskBlock {
-            data,
-            data_checksum,
-            header,
-        })
+        Ok(DiskBlock { data, header })
     }
 
     /// Extract the block data, checking that fields such as S3 key, etc. match what we expect.
     ///
     /// Comparing these fields helps ensure we have not corrupted or swapped block data on disk.
-    fn data(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> Result<ChecksummedBytes, DiskBlockAccessError> {
-        self.header
-            .validate(cache_key.s3_key.as_str(), cache_key.etag.as_str(), block_idx)?;
-        let bytes = ChecksummedBytes::new(self.data.clone(), Crc32c::new(self.data_checksum));
+    fn data(
+        &self,
+        cache_key: &CacheKey,
+        block_idx: BlockIndex,
+        block_offset: u64,
+    ) -> Result<ChecksummedBytes, DiskBlockAccessError> {
+        let data_checksum = self.header.validate(
+            cache_key.s3_key.as_str(),
+            cache_key.etag.as_str(),
+            block_idx,
+            block_offset,
+        )?;
+        let bytes = ChecksummedBytes::new(self.data.clone(), data_checksum);
         Ok(bytes)
     }
 }
@@ -186,6 +211,7 @@ impl DiskDataCache {
         path: impl AsRef<Path>,
         cache_key: &CacheKey,
         block_idx: BlockIndex,
+        block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let mut file = match fs::File::open(path.as_ref()) {
             Ok(file) => file,
@@ -210,11 +236,13 @@ impl DiskDataCache {
                 return Err(DataCacheError::InvalidBlockContent);
             }
         };
-        let bytes = block.data(cache_key, block_idx).map_err(|err| match err {
-            DiskBlockAccessError::ChecksumError | DiskBlockAccessError::FieldMismatchError => {
-                DataCacheError::InvalidBlockContent
-            }
-        })?;
+        let bytes = block
+            .data(cache_key, block_idx, block_offset)
+            .map_err(|err| match err {
+                DiskBlockAccessError::ChecksumError | DiskBlockAccessError::FieldMismatchError => {
+                    DataCacheError::InvalidBlockContent
+                }
+            })?;
 
         Ok(Some(bytes))
     }
@@ -293,7 +321,8 @@ impl DataCache for DiskDataCache {
     fn get_block(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        match self.read_block(&path, cache_key, block_idx) {
+        let block_offset = block_idx * self.block_size;
+        match self.read_block(&path, cache_key, block_idx, block_offset) {
             Ok(None) => Ok(None),
             Ok(Some(bytes)) => {
                 if let Some(usage) = &self.usage {
@@ -320,7 +349,8 @@ impl DataCache for DiskDataCache {
         let path = self.get_path_for_block_key(&block_key);
         trace!(?cache_key, ?path, "new block will be created in disk cache");
 
-        let block = DiskBlock::new(cache_key, block_idx, bytes).map_err(|err| match err {
+        let block_offset = block_idx * self.block_size;
+        let block = DiskBlock::new(cache_key, block_idx, block_offset, bytes).map_err(|err| match err {
             DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
         })?;
 
@@ -443,11 +473,10 @@ mod tests {
             etag: ETag::for_tests(),
             s3_key: String::from("hello-world"),
         };
-        let block = DiskBlock::new(cache_key, 100, data).expect("should success as data checksum is valid");
+        let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should success as data checksum is valid");
         let expected_bytes: Vec<u8> = vec![
-            100, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101, 116, 97, 103, 11, 0, 0, 0,
-            0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 144, 51, 75, 183, 3, 0, 0, 0, 0, 0, 0, 0,
-            70, 111, 111, 9, 85, 128, 46,
+            100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101, 116, 97, 103, 11, 0, 0, 0,
+            0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 9, 85, 128, 46, 29, 32, 6, 192, 3, 0, 0, 0, 0, 0, 0, 0, 70, 111, 111,
         ];
         let serialized_bytes = bincode::serialize(&block).unwrap();
         assert_eq!(
@@ -714,49 +743,59 @@ mod tests {
             etag: ETag::from_str("badetag").unwrap(),
         };
 
-        let block = DiskBlock::new(cache_key_1.clone(), 0, data_1.clone()).expect("should have no checksum err");
+        let block = DiskBlock::new(cache_key_1.clone(), 0, 0, data_1.clone()).expect("should have no checksum err");
         block
-            .data(&cache_key_1, 1)
+            .data(&cache_key_1, 1, 0)
             .expect_err("should fail due to incorrect block index");
         block
-            .data(&cache_key_2, 0)
+            .data(&cache_key_1, 0, 1024)
+            .expect_err("should fail due to incorrect block offset");
+        block
+            .data(&cache_key_2, 0, 0)
             .expect_err("should fail due to incorrect s3 key in cache key");
         block
-            .data(&cache_key_3, 0)
+            .data(&cache_key_3, 0, 0)
             .expect_err("should fail due to incorrect etag in cache key");
-        let unpacked_bytes = block.data(&cache_key_1, 0).expect("should be OK as all fields match");
+        let unpacked_bytes = block.data(&cache_key_1, 0, 0).expect("should be OK as all fields match");
         assert_eq!(data_1, unpacked_bytes, "data block should return original bytes");
     }
 
     #[test]
     fn validate_block_header() {
         let block_idx = 0;
+        let block_offset = 0;
         let etag = ETag::for_tests();
         let s3_key = String::from("s3/key");
-        let mut header = DiskBlockHeader::new(block_idx, etag.as_str().to_owned(), s3_key.clone());
+        let data_checksum = Crc32c::new(42);
+        let mut header = DiskBlockHeader::new(block_idx, block_offset, etag.as_str().to_owned(), s3_key.clone(), data_checksum);
 
-        header
-            .validate(&s3_key, etag.as_str(), block_idx)
+        let checksum = header
+            .validate(&s3_key, etag.as_str(), block_idx, block_offset)
             .expect("should be OK with valid fields and checksum");
+        assert_eq!(data_checksum, checksum);
 
         // Bad fields
         let err = header
-            .validate("hello", etag.as_str(), block_idx)
+            .validate("hello", etag.as_str(), block_idx, block_offset)
             .expect_err("should fail with invalid s3_key");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
         let err = header
-            .validate(&s3_key, "bad etag", block_idx)
+            .validate(&s3_key, "bad etag", block_idx, block_offset)
             .expect_err("should fail with invalid etag");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
         let err = header
-            .validate(&s3_key, etag.as_str(), 5)
+            .validate(&s3_key, etag.as_str(), 5, block_offset)
             .expect_err("should fail with invalid block idx");
+        assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
+        let err = header
+            .validate(&s3_key, etag.as_str(), block_idx, 1024)
+            .expect_err("should fail with invalid block offset");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
 
         // Bad checksum
         header.header_checksum = 23;
         let err = header
-            .validate(&s3_key, etag.as_str(), block_idx)
+            .validate(&s3_key, etag.as_str(), block_idx, block_offset)
             .expect_err("should fail with invalid checksum");
         assert!(matches!(err, DiskBlockAccessError::ChecksumError));
     }
