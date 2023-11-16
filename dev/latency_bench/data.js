@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1700133408772,
+  "lastUpdate": 1700134921052,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "71277e796bde3b729ed2a52814ab29fe47e91f78",
-          "message": "Replace use of Range with RangeBounds for DataCache trait (#579)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-10-26T15:06:24Z",
-          "tree_id": "d7bdfea0c1c9ff00ee015b298f738b6c9639e2b4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/71277e796bde3b729ed2a52814ab29fe47e91f78"
-        },
-        "date": 1698335364666,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.076,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.194,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.138,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.049,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 121.14648240000001,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 74.3893315,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 62.8219484,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "68e36c90f36c7debebfc0df3b9ab25b8113674ba",
+          "message": "Fix bug in ChecksummedBytes::into_inner (#609)\n\n* Fix bug in ChecksummedBytes::into_inner\n\n`ChecksummedBytes::into_inner()` was returning data from `self` rather than from the `shrink_to_fit` result. Added regression tests for `ChecksummedBytes` and for `DiskDataCache` (only caller of the `into_inner()`).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Mark ChecksummedBytes as must_use\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-11-16T11:10:09Z",
+          "tree_id": "f155471568093b77865f062dd3f0efc7cbfb7358",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/68e36c90f36c7debebfc0df3b9ab25b8113674ba"
+        },
+        "date": 1700134920513,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.075,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.177,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.154,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.291,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 81.252362,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 51.6211172,
             "unit": "milliseconds"
           }
         ]
