@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1700157213809,
+  "lastUpdate": 1700164314371,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04f7499f6e7ac01ff340f4edf2ba09a073ffe5e0",
-          "message": "Fix readme links (#580)\n\nThe GitHub highlights thing seems to break relative links.\n\nFixes #578.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-10-26T18:54:27Z",
-          "tree_id": "cd6a012cba5ada8149056662c5db353f2134748c",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/04f7499f6e7ac01ff340f4edf2ba09a073ffe5e0"
-        },
-        "date": 1698348888366,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.08,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.196,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.124,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.093,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 127.29028659999999,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 61.222796100000004,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 63.308432200000006,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "06a1d7d78388344621cbc4d94f96a2883e64fad8",
+          "message": "Add instance and config metadata to user agent (#608)\n\n* Add instance and config metadata to user agent\n\nWe'd like to record the same metadata that AWS SDKs gather so we can\nbetter understand how different Mountpoint features are used. This\nchange adds support for detecting platform and instance metadata and\nincluding it in HTTP User-agents. We follow the SDK template for\nserializing this metadata.\n\nTo make this cleaner, I moved the instance info logic into the client\ncrate so that all users can get this kind of user agent. The new\n`UserAgent` struct supports addings arbitrary key/value pairs, and we\nuse that in Mountpoint to record basic configurations.\n\nUser agents are always a bit annoying to test, but I manually verified\nin a few cases (caching enabled/disabled) that this change was sending\nthe expected headers.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n* Fix typo\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n---------\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-11-16T19:20:04Z",
+          "tree_id": "a68e805c59fe657df916a6547ab12ac2c1185d73",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/06a1d7d78388344621cbc4d94f96a2883e64fad8"
+        },
+        "date": 1700164313871,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.073,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.171,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.113,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.476,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 90.8073345,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 56.213719,
             "unit": "milliseconds"
           }
         ]
