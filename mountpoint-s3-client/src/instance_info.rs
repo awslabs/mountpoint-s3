@@ -16,7 +16,7 @@ pub struct InstanceInfo {
 }
 
 impl InstanceInfo {
-    /// Create a new instance. The IMDS client will only be queried when a methon on the instance is
+    /// Create a new instance. The IMDS client will only be queried when a method on the instance is
     /// called, and only if the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
     pub fn new() -> Self {
         Self {
