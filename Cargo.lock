@@ -1944,7 +1944,6 @@ dependencies = [
  "mountpoint-s3-client",
  "mountpoint-s3-crt",
  "nix 0.26.2",
- "once_cell",
  "predicates 2.1.5",
  "procfs",
  "proptest",
@@ -1994,8 +1993,10 @@ dependencies = [
  "md-5",
  "metrics",
  "mountpoint-s3-crt",
+ "once_cell",
  "percent-encoding",
  "pin-project",
+ "platform-info",
  "proptest",
  "rand",
  "rand_chacha",
@@ -2255,6 +2256,16 @@ name = "pkg-config"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26072860ba924cbfa98ea39c8c19b4dd6a4a25423dbdf219c1eca91aa0cf6964"
+
+[[package]]
+name = "platform-info"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6259c4860e53bf665016f1b2f46a8859cadfa717581dc9d597ae4069de6300f"
+dependencies = [
+ "libc",
+ "winapi",
+]
 
 [[package]]
 name = "plotters"

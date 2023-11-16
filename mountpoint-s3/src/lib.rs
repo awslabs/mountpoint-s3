@@ -1,9 +1,9 @@
+pub mod autoconfigure;
 mod checksums;
 pub mod data_cache;
 pub mod fs;
 pub mod fuse;
 mod inode;
-pub mod instance;
 pub mod logging;
 pub mod metrics;
 pub mod prefetch;

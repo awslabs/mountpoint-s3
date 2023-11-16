@@ -12,13 +12,14 @@ use fuser::{MountOption, Session};
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
-use mountpoint_s3::instance::InstanceInfo;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
-use mountpoint_s3::metrics;
 use mountpoint_s3::prefetch::{default_prefetch, Prefetch};
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::{autoconfigure, metrics};
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::instance_info::InstanceInfo;
+use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
@@ -510,16 +511,15 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         .use_dual_stack(args.dual_stack);
 
     let instance_info = InstanceInfo::new();
-    let throughput_target_gbps = args
-        .maximum_throughput_gbps
-        .map(|t| t as f64)
-        .unwrap_or_else(|| match instance_info.network_throughput() {
+    let throughput_target_gbps = args.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
+        match autoconfigure::network_throughput(&instance_info) {
             Ok(throughput) => throughput,
             Err(e) => {
                 tracing::warn!("failed to detect network throughput: {:?}", e);
                 DEFAULT_TARGET_THROUGHPUT
             }
-        });
+        }
+    });
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
     let auth_config = if args.no_sign_request {
@@ -535,12 +535,26 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     } else {
         format!("mountpoint-s3/{}", build_info::FULL_VERSION)
     };
+    let mut user_agent = UserAgent::new_with_instance_info(Some(user_agent_prefix), &instance_info);
+    if args.read_only {
+        user_agent.value("mp-readonly");
+    }
+    #[cfg(feature = "caching")]
+    {
+        // TODO review this when we finalize the available configs
+        if args.enable_metadata_caching && args.data_caching_directory.is_some() {
+            user_agent.value("mp-cache");
+            if let Some(ttl) = args.metadata_cache_ttl {
+                user_agent.key_value("mp-cache-ttl", &ttl.as_secs().to_string());
+            }
+        }
+    }
 
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
         .part_size(args.part_size as usize)
-        .user_agent_prefix(&user_agent_prefix);
+        .user_agent(user_agent);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
     }
@@ -787,7 +801,7 @@ fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (Str
     }
 
     // Use instance region, if available.
-    if let Some(region) = instance_info.region() {
+    if let Ok(region) = instance_info.region() {
         tracing::debug!("using instance region {}", region);
         return (region.to_owned(), false);
     }
