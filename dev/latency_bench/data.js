@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1700076470217,
+  "lastUpdate": 1700102857808,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "eac02e6a77eae78a7e66f04362c313d9372067bd",
-          "message": "Rename CacheConfig field 'prefer_s3' to 'serve_lookup_from_cache' (#573)\n\n* Rename internal CacheConfig field 'prefer_s3' to 'serve_lookup_from_cache'\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Add trace log when inode cannot be updated in place\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-10-24T16:17:02Z",
-          "tree_id": "ddaf4274cd6987f66e7b864bba87b8f1ed3da46b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/eac02e6a77eae78a7e66f04362c313d9372067bd"
-        },
-        "date": 1698166563077,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.083,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.179,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.145,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.908,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 103.82980590000001,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 84.9003507,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 72.9451263,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "52dfe2970d1fc2a7c68822bf3a4ef4ecb80c6d3d",
+          "message": "Remove unused 'cached_block_indices' method in DataCache trait (#607)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-11-16T02:15:28Z",
+          "tree_id": "bbe52e4431a3c2490524d4882c839cccc941521f",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/52dfe2970d1fc2a7c68822bf3a4ef4ecb80c6d3d"
+        },
+        "date": 1700102857319,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.071,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.179,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.143,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.567,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 123.3952723,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 79.58642640000001,
             "unit": "milliseconds"
           }
         ]
