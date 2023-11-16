@@ -259,21 +259,22 @@ impl DiskDataCache {
         }
     }
 
-    fn evict_if_needed(&self) {
+    fn evict_if_needed(&self) -> DataCacheResult<()> {
         let Some(usage) = &self.usage else {
-            return;
+            return Ok(());
         };
 
         while self.is_limit_exceeded(usage.lock().unwrap().size) {
             let Some(to_remove) = usage.lock().unwrap().evict_lru() else {
                 error!("cache limit exceeded but nothing to evict");
-                break;
+                return Err(DataCacheError::EvictionFailure);
             };
             let path_to_remove = self.get_path_for_block_key(&to_remove);
             if let Err(remove_err) = fs::remove_file(&path_to_remove) {
                 error!("unable to remove invalid block: {:?}", remove_err);
             }
         }
+        Ok(())
     }
 }
 
@@ -323,7 +324,7 @@ impl DataCache for DiskDataCache {
             DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
         })?;
 
-        self.evict_if_needed();
+        self.evict_if_needed()?;
 
         let size = self.write_block(path, block)?;
         if let Some(usage) = &self.usage {

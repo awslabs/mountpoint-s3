@@ -31,6 +31,8 @@ pub enum DataCacheError {
     IoFailure(#[from] std::io::Error),
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
+    #[error("Error while trying to evict cache content")]
+    EvictionFailure,
 }
 
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
