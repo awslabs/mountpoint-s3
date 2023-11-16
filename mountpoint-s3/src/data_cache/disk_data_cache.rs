@@ -403,6 +403,32 @@ mod tests {
     }
 
     #[test]
+    fn test_checksummed_bytes_slice() {
+        let data = ChecksummedBytes::from_bytes("0123456789".into());
+        let slice = data.slice(1..5);
+
+        let cache_directory = tempfile::tempdir().unwrap();
+        let cache = DiskDataCache::new(cache_directory.into_path(), 8 * 1024 * 1024);
+        let cache_key = CacheKey {
+            s3_key: "a".into(),
+            etag: ETag::for_tests(),
+        };
+
+        cache
+            .put_block(cache_key.clone(), 0, slice.clone())
+            .expect("cache should be accessible");
+        let entry = cache
+            .get_block(&cache_key, 0)
+            .expect("cache should be accessible")
+            .expect("cache entry should be returned");
+        assert_eq!(
+            slice.into_bytes().expect("original slice should be valid"),
+            entry.into_bytes().expect("returned entry should be valid"),
+            "cache entry returned should match original slice after put"
+        );
+    }
+
+    #[test]
     fn data_block_extract_checks() {
         let data_1 = ChecksummedBytes::from_bytes("Foo".into());
 
