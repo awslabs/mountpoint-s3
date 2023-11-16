@@ -19,6 +19,9 @@ use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
 /// Disk and file-layout versioning.
 const CACHE_VERSION: &str = "V1";
 
+/// Index where hashed directory names for the cache are split to avoid FS-specific limits.
+const HASHED_DIR_SPLIT_INDEX: usize = 2;
+
 /// On-disk implementation of [DataCache].
 pub struct DiskDataCache {
     block_size: u64,
@@ -161,9 +164,11 @@ impl DiskDataCache {
         // The risk of collisions is mitigated as we ignore blocks read that contain the wrong S3 key, etc..
         let hashed_cache_key = hash_cache_key(cache_key);
 
-        // TODO: Split directory into subdirectories.
-        //       Take the first few chars of hash to avoid hitting any FS-specific maximum number of directory entries.
-        path.push(hashed_cache_key);
+        // Split directories by taking the first few chars of hash to avoid hitting any FS-specific maximum number of directory entries.
+        let (first, second) = hashed_cache_key.split_at(HASHED_DIR_SPLIT_INDEX);
+        path.push(first);
+        path.push(second);
+
         path
     }
 
@@ -303,7 +308,13 @@ mod tests {
             s3_key: s3_key.to_owned(),
         };
         let hashed_cache_key = hash_cache_key(&key);
-        let expected = vec!["mountpoint-cache", CACHE_VERSION, hashed_cache_key.as_str()];
+        let split_hashed_key = hashed_cache_key.split_at(HASHED_DIR_SPLIT_INDEX);
+        let expected = vec![
+            "mountpoint-cache",
+            CACHE_VERSION,
+            split_hashed_key.0,
+            split_hashed_key.1,
+        ];
         let path = data_cache.get_path_for_key(&key);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
         assert_eq!(expected, results);
@@ -322,7 +333,14 @@ mod tests {
             s3_key: s3_key.to_owned(),
         };
         let hashed_cache_key = hash_cache_key(&key);
-        let expected = vec!["mountpoint-cache", CACHE_VERSION, hashed_cache_key.as_str(), "5.block"];
+        let split_hashed_key = hashed_cache_key.split_at(HASHED_DIR_SPLIT_INDEX);
+        let expected = vec![
+            "mountpoint-cache",
+            CACHE_VERSION,
+            split_hashed_key.0,
+            split_hashed_key.1,
+            "5.block",
+        ];
         let path = data_cache.get_path_for_block(&key, 5);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
         assert_eq!(expected, results);
