@@ -232,18 +232,16 @@ WantedBy=remote-fs.target
 
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
 
-To enable caching, use the `--cache <CACHE_DIR>` command-line flag.
-This flag will enable caching of metadata using a default time-to-live (TTL) of 1 second.
-Object content will also be cached within the cache directory specified.
-Mountpoint will create a directory within this path, removing any files or directories within it at mount time and exit.
-When available space for the cache on disk is limited,
-content of files least recently accessed will be evicted to allow new data to be cached.
+To enable caching, use the `--cache <CACHE_DIR>` command-line flag, specifying the directory in which to store cached object content.
+This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second.
+Mountpoint will create a new subdirectory within the path that you specify,
+and will remove any existing files or directories within that subdirectory at mount time and at exit.
+By default, Mountpoint will limit the maximum size of the cache such that the free space on the file system does not fall below 5%,
+and will automatically evict the least recently used content from the cache when caching new content.
+You can instead manually configure the maximum size of the cache with the `--max-cache-size <MiB>` command-line argument.
+
 When running multiple Mountpoint processes on the same host,
 you should use unique cache directories to avoid different processes interfering with the others' cache content.
-
-Mountpoint caching can be further configured,
-such as adjusting the metadata time-to-live (TTL) or the maximum space allowed to be used by the data cache.
-Review the caching options available using `mount-s3 --help`.
 
 > [!WARNING]
 > Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
