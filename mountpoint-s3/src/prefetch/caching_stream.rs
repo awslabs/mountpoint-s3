@@ -118,13 +118,15 @@ where
         // We could check for missing blocks in advance and pre-emptively start a GetObject
         // request, but since this stream is already behind the prefetcher, the delay is
         // already likely negligible.
+        let mut block_offset = block_range.start * block_size;
         for block_index in block_range.clone() {
-            match self.cache.get_block(&self.cache_key, block_index) {
+            match self.cache.get_block(&self.cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?key, ?range, block_index, "cache hit");
-                    let part = self.make_part(block, block_index, &range);
+                    let part = self.make_part(block, block_index, block_offset, &range);
                     metrics::counter!("cache.total_bytes", part.len() as u64, "type" => "read");
                     self.part_queue_producer.push(Ok(part));
+                    block_offset += block_size;
                     continue;
                 }
                 Ok(None) => trace!(?key, ?range, block_index, "cache miss - no data for block"),
@@ -132,7 +134,7 @@ where
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
             return self
-                .get_from_client(range.trim_start(block_index * block_size), block_index..block_range.end)
+                .get_from_client(range.trim_start(block_offset), block_index..block_range.end)
                 .await;
         }
     }
@@ -212,7 +214,7 @@ where
                         // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
                         self.update_cache(block_index, block_offset, &buffer);
                         self.part_queue_producer
-                            .push(Ok(self.make_part(buffer, block_index, &range)));
+                            .push(Ok(self.make_part(buffer, block_index, block_offset, &range)));
                         block_index += 1;
                         block_offset += block_size;
                         buffer = ChecksummedBytes::default();
@@ -236,7 +238,7 @@ where
                         // Write the last block to the cache.
                         self.update_cache(block_index, block_offset, &buffer);
                         self.part_queue_producer
-                            .push(Ok(self.make_part(buffer, block_index, &range)));
+                            .push(Ok(self.make_part(buffer, block_index, block_offset, &range)));
                     }
                     break;
                 }
@@ -248,13 +250,11 @@ where
     fn update_cache(&self, block_index: u64, block_offset: u64, block: &ChecksummedBytes) {
         // TODO: consider updating the cache asynchronously
         let start = Instant::now();
-        match self.cache.put_block(self.cache_key.clone(), block_index, block.clone()) {
+        match self
+            .cache
+            .put_block(self.cache_key.clone(), block_index, block_offset, block.clone())
+        {
             Ok(()) => {
-                assert_eq!(
-                    block_offset,
-                    block_index * self.cache.block_size(),
-                    "invalid block offset"
-                );
                 metrics::histogram!("cache.write_duration_us", start.elapsed().as_micros() as f64);
                 metrics::counter!("cache.total_bytes", block.len() as u64, "type" => "write");
             }
@@ -266,9 +266,14 @@ where
 
     /// Creates a Part that can be streamed to the prefetcher from the given cache block.
     /// If required, trims the block bytes to the request range.
-    fn make_part(&self, block: ChecksummedBytes, block_index: u64, range: &RequestRange) -> Part {
+    fn make_part(&self, block: ChecksummedBytes, block_index: u64, block_offset: u64, range: &RequestRange) -> Part {
+        assert_eq!(
+            block_offset,
+            block_index * self.cache.block_size(),
+            "invalid block offset"
+        );
+
         let key = &self.cache_key.s3_key;
-        let block_offset = block_index * self.cache.block_size();
         let block_size = block.len();
         let part_range = range
             .trim_start(block_offset)
