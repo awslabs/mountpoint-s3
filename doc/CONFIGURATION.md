@@ -246,7 +246,7 @@ such as adjusting the metadata time-to-live (TTL) or the maximum space allowed t
 Review the caching options available using `mount-s3 --help`.
 
 To avoid using the cache, an application can use the `O_DIRECT` option (or language equivalent) when opening a file for reading.
-When this option is provided, Mountpoint will check for the latest object in S3 and read object content from S3 rather than cached data.
+When this option is provided, Mountpoint will check S3 when opening the file to ensure the latest object content is returned to the application.
 
 > [!WARNING]
 > Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
