@@ -329,7 +329,6 @@ impl DataCache for DiskDataCache {
         }
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        let block_offset = block_idx * self.block_size;
         match self.read_block(&path, cache_key, block_idx, block_offset) {
             Ok(None) => Ok(None),
             Ok(Some(bytes)) => {
