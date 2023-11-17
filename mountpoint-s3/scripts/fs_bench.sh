@@ -153,7 +153,7 @@ write_benchmark () {
     fi
 
     # set bench file
-    bench_file=${mount_dir}/${job_name}_${RANDOM}.dat
+    bench_file=${job_name}_${RANDOM}.dat
 
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
