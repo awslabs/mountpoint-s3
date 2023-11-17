@@ -233,7 +233,8 @@ WantedBy=remote-fs.target
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
 
 To enable caching, use the `--cache <CACHE_DIR>` command-line flag, specifying the directory in which to store cached object content.
-This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second.
+This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second,
+which can be extended with the `--metadata-ttl <SECONDS>` command-line argument.
 Mountpoint will create a new subdirectory within the path that you specify,
 and will remove any existing files or directories within that subdirectory at mount time and at exit.
 By default, Mountpoint will limit the maximum size of the cache such that the free space on the file system does not fall below 5%,
