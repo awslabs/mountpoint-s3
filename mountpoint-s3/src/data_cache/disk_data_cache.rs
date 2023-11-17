@@ -318,7 +318,15 @@ fn hash_cache_key_raw(cache_key: &CacheKey) -> [u8; 32] {
 }
 
 impl DataCache for DiskDataCache {
-    fn get_block(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>> {
+    fn get_block(
+        &self,
+        cache_key: &CacheKey,
+        block_idx: BlockIndex,
+        block_offset: u64,
+    ) -> DataCacheResult<Option<ChecksummedBytes>> {
+        if block_offset != block_idx * self.block_size {
+            return Err(DataCacheError::InvalidBlockOffset);
+        }
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
         let block_offset = block_idx * self.block_size;
@@ -344,12 +352,21 @@ impl DataCache for DiskDataCache {
         }
     }
 
-    fn put_block(&self, cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()> {
+    fn put_block(
+        &self,
+        cache_key: CacheKey,
+        block_idx: BlockIndex,
+        block_offset: u64,
+        bytes: ChecksummedBytes,
+    ) -> DataCacheResult<()> {
+        if block_offset != block_idx * self.block_size {
+            return Err(DataCacheError::InvalidBlockOffset);
+        }
+
         let block_key = DiskBlockKey::new(&cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
         trace!(?cache_key, ?path, "new block will be created in disk cache");
 
-        let block_offset = block_idx * self.block_size;
         let block = DiskBlock::new(cache_key, block_idx, block_offset, bytes).map_err(|err| match err {
             DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
         })?;
@@ -475,8 +492,9 @@ mod tests {
         };
         let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should success as data checksum is valid");
         let expected_bytes: Vec<u8> = vec![
-            100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101, 116, 97, 103, 11, 0, 0, 0,
-            0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 9, 85, 128, 46, 29, 32, 6, 192, 3, 0, 0, 0, 0, 0, 0, 0, 70, 111, 111,
+            100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101,
+            116, 97, 103, 11, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 9, 85, 128,
+            46, 29, 32, 6, 192, 3, 0, 0, 0, 0, 0, 0, 0, 70, 111, 111,
         ];
         let serialized_bytes = bincode::serialize(&block).unwrap();
         assert_eq!(
@@ -531,8 +549,9 @@ mod tests {
         let data_2 = ChecksummedBytes::from_bytes("Bar".into());
         let data_3 = ChecksummedBytes::from_bytes("Baz".into());
 
+        let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(cache_directory.into_path(), 8 * 1024 * 1024, CacheLimit::Unbounded);
+        let cache = DiskDataCache::new(cache_directory.into_path(), block_size, CacheLimit::Unbounded);
         let cache_key_1 = CacheKey {
             s3_key: "a".into(),
             etag: ETag::for_tests(),
@@ -542,7 +561,7 @@ mod tests {
             etag: ETag::for_tests(),
         };
 
-        let block = cache.get_block(&cache_key_1, 0).expect("cache should be accessible");
+        let block = cache.get_block(&cache_key_1, 0, 0).expect("cache should be accessible");
         assert!(
             block.is_none(),
             "no entry should be available to return but got {:?}",
@@ -551,10 +570,10 @@ mod tests {
 
         // PUT and GET, OK?
         cache
-            .put_block(cache_key_1.clone(), 0, data_1.clone())
+            .put_block(cache_key_1.clone(), 0, 0, data_1.clone())
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 0)
+            .get_block(&cache_key_1, 0, 0)
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -564,10 +583,10 @@ mod tests {
 
         // PUT AND GET a second file, OK?
         cache
-            .put_block(cache_key_2.clone(), 0, data_2.clone())
+            .put_block(cache_key_2.clone(), 0, 0, data_2.clone())
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_2, 0)
+            .get_block(&cache_key_2, 0, 0)
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -577,10 +596,10 @@ mod tests {
 
         // PUT AND GET a second block in a cache entry, OK?
         cache
-            .put_block(cache_key_1.clone(), 1, data_3.clone())
+            .put_block(cache_key_1.clone(), 1, block_size, data_3.clone())
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 1)
+            .get_block(&cache_key_1, 1, block_size)
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -590,7 +609,7 @@ mod tests {
 
         // Entry 1's first block still intact
         let entry = cache
-            .get_block(&cache_key_1, 0)
+            .get_block(&cache_key_1, 0, 0)
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -612,10 +631,10 @@ mod tests {
         };
 
         cache
-            .put_block(cache_key.clone(), 0, slice.clone())
+            .put_block(cache_key.clone(), 0, 0, slice.clone())
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key, 0)
+            .get_block(&cache_key, 0, 0)
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -627,6 +646,11 @@ mod tests {
 
     #[test]
     fn test_eviction() {
+        const BLOCK_SIZE: usize = 100 * 1024;
+        const LARGE_OBJECT_SIZE: usize = 1024 * 1024;
+        const SMALL_OBJECT_SIZE: usize = LARGE_OBJECT_SIZE / 2;
+        const CACHE_LIMIT: usize = LARGE_OBJECT_SIZE;
+
         fn create_random(seed: u64, size: usize) -> ChecksummedBytes {
             let mut rng = ChaCha20Rng::seed_from_u64(seed);
             let mut body = vec![0u8; size];
@@ -642,7 +666,7 @@ mod tests {
             expected_bytes: &ChecksummedBytes,
         ) -> bool {
             if let Some(retrieved) = cache
-                .get_block(cache_key, block_idx)
+                .get_block(cache_key, block_idx, block_idx * (BLOCK_SIZE) as u64)
                 .expect("cache should be accessible")
             {
                 assert_eq!(
@@ -657,11 +681,6 @@ mod tests {
                 false
             }
         }
-
-        const BLOCK_SIZE: usize = 100 * 1024;
-        const LARGE_OBJECT_SIZE: usize = 1024 * 1024;
-        const SMALL_OBJECT_SIZE: usize = LARGE_OBJECT_SIZE / 2;
-        const CACHE_LIMIT: usize = LARGE_OBJECT_SIZE;
 
         let large_object = create_random(0x12345678, LARGE_OBJECT_SIZE);
         let large_object_blocks: Vec<_> = (0..large_object.len())
@@ -693,14 +712,24 @@ mod tests {
         // Put all of large_object
         for (block_idx, bytes) in large_object_blocks.iter().enumerate() {
             cache
-                .put_block(large_object_key.clone(), block_idx as u64, bytes.clone())
+                .put_block(
+                    large_object_key.clone(),
+                    block_idx as u64,
+                    (block_idx * BLOCK_SIZE) as u64,
+                    bytes.clone(),
+                )
                 .unwrap();
         }
 
         // Put all of small_object
         for (block_idx, bytes) in small_object_blocks.iter().enumerate() {
             cache
-                .put_block(small_object_key.clone(), block_idx as u64, bytes.clone())
+                .put_block(
+                    small_object_key.clone(),
+                    block_idx as u64,
+                    (block_idx * BLOCK_SIZE) as u64,
+                    bytes.clone(),
+                )
                 .unwrap();
         }
 
@@ -756,7 +785,9 @@ mod tests {
         block
             .data(&cache_key_3, 0, 0)
             .expect_err("should fail due to incorrect etag in cache key");
-        let unpacked_bytes = block.data(&cache_key_1, 0, 0).expect("should be OK as all fields match");
+        let unpacked_bytes = block
+            .data(&cache_key_1, 0, 0)
+            .expect("should be OK as all fields match");
         assert_eq!(data_1, unpacked_bytes, "data block should return original bytes");
     }
 
@@ -767,7 +798,13 @@ mod tests {
         let etag = ETag::for_tests();
         let s3_key = String::from("s3/key");
         let data_checksum = Crc32c::new(42);
-        let mut header = DiskBlockHeader::new(block_idx, block_offset, etag.as_str().to_owned(), s3_key.clone(), data_checksum);
+        let mut header = DiskBlockHeader::new(
+            block_idx,
+            block_offset,
+            etag.as_str().to_owned(),
+            s3_key.clone(),
+            data_checksum,
+        );
 
         let checksum = header
             .validate(&s3_key, etag.as_str(), block_idx, block_offset)

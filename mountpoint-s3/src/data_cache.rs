@@ -31,6 +31,8 @@ pub enum DataCacheError {
     IoFailure(#[from] std::io::Error),
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
+    #[error("Block offset does not match block index")]
+    InvalidBlockOffset,
     #[error("Error while trying to evict cache content")]
     EvictionFailure,
 }
@@ -45,10 +47,21 @@ pub trait DataCache {
     /// Get block of data from the cache for the given [CacheKey] and [BlockIndex], if available.
     ///
     /// Operation may fail due to errors, or return [None] if the block was not available in the cache.
-    fn get_block(&self, cache_key: &CacheKey, block_idx: BlockIndex) -> DataCacheResult<Option<ChecksummedBytes>>;
+    fn get_block(
+        &self,
+        cache_key: &CacheKey,
+        block_idx: BlockIndex,
+        block_offset: u64,
+    ) -> DataCacheResult<Option<ChecksummedBytes>>;
 
     /// Put block of data to the cache for the given [CacheKey] and [BlockIndex].
-    fn put_block(&self, cache_key: CacheKey, block_idx: BlockIndex, bytes: ChecksummedBytes) -> DataCacheResult<()>;
+    fn put_block(
+        &self,
+        cache_key: CacheKey,
+        block_idx: BlockIndex,
+        block_offset: u64,
+        bytes: ChecksummedBytes,
+    ) -> DataCacheResult<()>;
 
     /// Returns the block size for the data cache.
     fn block_size(&self) -> u64;
