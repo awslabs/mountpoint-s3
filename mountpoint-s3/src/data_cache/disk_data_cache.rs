@@ -490,7 +490,7 @@ mod tests {
             etag: ETag::for_tests(),
             s3_key: String::from("hello-world"),
         };
-        let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should success as data checksum is valid");
+        let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should succeed as data checksum is valid");
         let expected_bytes: Vec<u8> = vec![
             100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101,
             116, 97, 103, 11, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 9, 85, 128,
