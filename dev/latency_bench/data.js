@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1700237229153,
+  "lastUpdate": 1700241559931,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "301ee162bf9a325b46988f6fce7d2f4c5cf5627c",
-          "message": "Use O_APPEND for logs and log version number (#588)\n\nIn background mode we have two processes both racing on the log file,\nand they can scribble each other's log entries (I saw this in #566).\nO_APPEND should fix that. We should also log the version number as a\npoint of reference.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-10-31T09:38:02Z",
-          "tree_id": "95e586464e43be39ca5537a6cd23193971482dff",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/301ee162bf9a325b46988f6fce7d2f4c5cf5627c"
-        },
-        "date": 1698747173840,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.078,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.178,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.14,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.015,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 140.5511171,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 92.0800454,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 77.1083469,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d38be79f3a41ad7c60539be027790c3c553a94c",
+          "message": "Simplify and rename cache configuration flags (#612)\n\n* Simplify and rename cache configuration flags\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add details to the cache flag help\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Shorten help text\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Use MiB and change default to 5% of available space\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-11-17T16:47:24Z",
+          "tree_id": "5aeb159c4f632fd3dd701594805bf55f264e9300",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7d38be79f3a41ad7c60539be027790c3c553a94c"
+        },
+        "date": 1700241559415,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.08,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.18,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.136,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.364,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 99.9839374,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 57.913483,
             "unit": "milliseconds"
           }
         ]
