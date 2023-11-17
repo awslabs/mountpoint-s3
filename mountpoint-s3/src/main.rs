@@ -223,68 +223,33 @@ struct CliArgs {
     #[cfg(feature = "caching")]
     #[clap(
         long,
-        help = "Enable caching of file and directory metadata for a configurable time-to-live (TTL)",
-        help_heading = CACHING_OPTIONS_HEADER,
-    )]
-    pub enable_metadata_caching: bool,
-
-    // TODO: What is a sensible default? Should TTL even be configurable?
-    #[cfg(feature = "caching")]
-    #[clap(
-        long,
-        help = "Override time-to-live (TTL) for cached metadata entries in seconds",
-        value_name = "SECONDS",
-        value_parser = parse_duration_seconds,
-        help_heading = CACHING_OPTIONS_HEADER,
-        requires = "enable_metadata_caching",
-    )]
-    pub metadata_cache_ttl: Option<Duration>,
-
-    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
-    #[cfg(feature = "caching")]
-    #[clap(
-        long,
-        help = "Enable caching of object data in a directory",
+        help = "Enable caching of object metadata and content. Requires a directory path",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
     )]
-    pub data_caching_directory: Option<PathBuf>,
+    pub cache: Option<PathBuf>,
 
-    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
     #[cfg(feature = "caching")]
     #[clap(
         long,
-        help = "Block size for the data cache",
-        default_value = "1048576",
+        help = "Set time-to-live (TTL) for cached metadata in seconds [default: 1s]",
+        value_name = "SECONDS",
+        value_parser = parse_duration_seconds,
+        help_heading = CACHING_OPTIONS_HEADER,
+        requires = "cache",
+    )]
+    pub metadata_ttl: Option<Duration>,
+
+    #[cfg(feature = "caching")]
+    #[clap(
+        long,
+        help = "Maximum size of the cache directory in MB [default: preserve 1% of available space]",
+        value_name = "MB",
         value_parser = value_parser!(u64).range(1..),
         help_heading = CACHING_OPTIONS_HEADER,
-        requires = "data_caching_directory",
+        requires = "cache",
     )]
-    pub data_cache_block_size: u64,
-
-    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
-    #[cfg(feature = "caching")]
-    #[clap(
-        long,
-        help = "Maximum size for the data cache in MB",
-        value_parser = value_parser!(u64).range(1..),
-        help_heading = CACHING_OPTIONS_HEADER,
-        requires = "data_caching_directory",
-        conflicts_with = "data_cache_free_space",
-    )]
-    pub data_cache_size_limit: Option<u64>,
-
-    // TODO: Temporary for testing. Review before exposing outside "caching" feature.
-    #[cfg(feature = "caching")]
-    #[clap(
-        long,
-        help = "Minimum available space to maintain (%)",
-        value_parser = value_parser!(u64).range(0..100),
-        help_heading = CACHING_OPTIONS_HEADER,
-        requires = "data_caching_directory",
-        conflicts_with = "data_cache_size_limit",
-    )]
-    pub data_cache_free_space: Option<u64>,
+    pub max_cache_size: Option<u64>,
 
     #[clap(
         long,
@@ -541,10 +506,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     }
     #[cfg(feature = "caching")]
     {
-        // TODO review this when we finalize the available configs
-        if args.enable_metadata_caching && args.data_caching_directory.is_some() {
+        if args.cache.is_some() {
             user_agent.value("mp-cache");
-            if let Some(ttl) = args.metadata_cache_ttl {
+            if let Some(ttl) = args.metadata_ttl {
                 user_agent.key_value("mp-cache-ttl", &ttl.as_secs().to_string());
             }
         }
@@ -597,34 +561,25 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     #[cfg(feature = "caching")]
     {
-        use mountpoint_s3::data_cache::{CacheLimit, DiskDataCache};
+        use mountpoint_s3::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
         use mountpoint_s3::fs::CacheConfig;
         use mountpoint_s3::prefetch::caching_prefetch;
 
-        if args.enable_metadata_caching {
-            // TODO: Review default for TTL
-            let metadata_cache_ttl = args.metadata_cache_ttl.unwrap_or(Duration::from_secs(3600));
+        if let Some(path) = args.cache {
+            let metadata_cache_ttl = args.metadata_ttl.unwrap_or(Duration::from_secs(1));
             filesystem_config.cache_config = CacheConfig {
                 serve_lookup_from_cache: true,
                 dir_ttl: metadata_cache_ttl,
                 file_ttl: metadata_cache_ttl,
             };
-        }
 
-        if let Some(path) = args.data_caching_directory {
-            let limit = {
-                if let Some(max_size_in_mb) = args.data_cache_size_limit {
-                    let max_size = (max_size_in_mb * 1024 * 1024) as usize;
-                    CacheLimit::TotalSize { max_size }
-                } else if let Some(per_cent) = args.data_cache_free_space {
-                    let min_ratio = (per_cent as f64) * 0.01;
-                    CacheLimit::AvailableSpace { min_ratio }
-                } else {
-                    CacheLimit::Unbounded
-                }
-            };
-
-            let cache = DiskDataCache::new(path, args.data_cache_block_size, limit);
+            let mut cache_config = DiskDataCacheConfig::default();
+            if let Some(max_size_in_mb) = args.max_cache_size {
+                cache_config.limit = CacheLimit::TotalSize {
+                    max_size: (max_size_in_mb * 1_000_000) as usize,
+                };
+            }
+            let cache = DiskDataCache::new(path, cache_config);
             let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
             return create_filesystem(
                 client,

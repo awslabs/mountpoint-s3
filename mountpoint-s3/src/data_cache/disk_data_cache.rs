@@ -26,11 +26,28 @@ const HASHED_DIR_SPLIT_INDEX: usize = 2;
 
 /// On-disk implementation of [DataCache].
 pub struct DiskDataCache {
-    block_size: u64,
     cache_directory: PathBuf,
-    limit: CacheLimit,
+    config: DiskDataCacheConfig,
     /// Tracks blocks usage. `None` when no cache limit was set.
     usage: Option<Mutex<UsageInfo<DiskBlockKey>>>,
+}
+
+/// Configuration for a [DiskDataCache].
+#[derive(Debug)]
+pub struct DiskDataCacheConfig {
+    /// Size of data blocks.
+    pub block_size: u64,
+    /// How to limit the cache size.
+    pub limit: CacheLimit,
+}
+
+impl Default for DiskDataCacheConfig {
+    fn default() -> Self {
+        Self {
+            block_size: 1024 * 1024,                               // 1 MiB block size
+            limit: CacheLimit::AvailableSpace { min_ratio: 0.01 }, // Preserve 1% available space
+        }
+    }
 }
 
 /// Limit the cache size.
@@ -186,15 +203,14 @@ impl DiskBlock {
 
 impl DiskDataCache {
     /// Create a new instance of an [DiskDataCache] with the specified configuration.
-    pub fn new(cache_directory: PathBuf, block_size: u64, limit: CacheLimit) -> Self {
-        let usage = match limit {
+    pub fn new(cache_directory: PathBuf, config: DiskDataCacheConfig) -> Self {
+        let usage = match config.limit {
             CacheLimit::Unbounded => None,
             CacheLimit::TotalSize { .. } | CacheLimit::AvailableSpace { .. } => Some(Mutex::new(UsageInfo::new())),
         };
         DiskDataCache {
-            block_size,
             cache_directory,
-            limit,
+            config,
             usage,
         }
     }
@@ -267,7 +283,7 @@ impl DiskDataCache {
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
-        match self.limit {
+        match self.config.limit {
             CacheLimit::Unbounded => false,
             CacheLimit::TotalSize { max_size } => size > max_size,
             CacheLimit::AvailableSpace { min_ratio } => {
@@ -324,7 +340,7 @@ impl DataCache for DiskDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        if block_offset != block_idx * self.block_size {
+        if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
         let block_key = DiskBlockKey::new(cache_key, block_idx);
@@ -358,7 +374,7 @@ impl DataCache for DiskDataCache {
         block_offset: u64,
         bytes: ChecksummedBytes,
     ) -> DataCacheResult<()> {
-        if block_offset != block_idx * self.block_size {
+        if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
 
@@ -381,7 +397,7 @@ impl DataCache for DiskDataCache {
     }
 
     fn block_size(&self) -> u64 {
-        self.block_size
+        self.config.block_size
     }
 }
 
@@ -518,7 +534,13 @@ mod tests {
     #[test]
     fn get_path_for_block_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let data_cache = DiskDataCache::new(cache_dir, 1024, CacheLimit::Unbounded);
+        let data_cache = DiskDataCache::new(
+            cache_dir,
+            DiskDataCacheConfig {
+                block_size: 1024,
+                limit: CacheLimit::Unbounded,
+            },
+        );
 
         let s3_key = "a".repeat(266);
 
@@ -550,7 +572,13 @@ mod tests {
 
         let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(cache_directory.into_path(), block_size, CacheLimit::Unbounded);
+        let cache = DiskDataCache::new(
+            cache_directory.into_path(),
+            DiskDataCacheConfig {
+                block_size,
+                limit: CacheLimit::Unbounded,
+            },
+        );
         let cache_key_1 = CacheKey {
             s3_key: "a".into(),
             etag: ETag::for_tests(),
@@ -623,7 +651,13 @@ mod tests {
         let slice = data.slice(1..5);
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(cache_directory.into_path(), 8 * 1024 * 1024, CacheLimit::Unbounded);
+        let cache = DiskDataCache::new(
+            cache_directory.into_path(),
+            DiskDataCacheConfig {
+                block_size: 8 * 1024 * 1024,
+                limit: CacheLimit::Unbounded,
+            },
+        );
         let cache_key = CacheKey {
             s3_key: "a".into(),
             etag: ETag::for_tests(),
@@ -704,8 +738,10 @@ mod tests {
         let cache_directory = tempfile::tempdir().unwrap();
         let cache = DiskDataCache::new(
             cache_directory.into_path(),
-            BLOCK_SIZE as u64,
-            CacheLimit::TotalSize { max_size: CACHE_LIMIT },
+            DiskDataCacheConfig {
+                block_size: BLOCK_SIZE as u64,
+                limit: CacheLimit::TotalSize { max_size: CACHE_LIMIT },
+            },
         );
 
         // Put all of large_object
