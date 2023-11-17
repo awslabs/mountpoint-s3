@@ -45,7 +45,7 @@ impl Default for DiskDataCacheConfig {
     fn default() -> Self {
         Self {
             block_size: 1024 * 1024,                               // 1 MiB block size
-            limit: CacheLimit::AvailableSpace { min_ratio: 0.01 }, // Preserve 1% available space
+            limit: CacheLimit::AvailableSpace { min_ratio: 0.05 }, // Preserve 5% available space
         }
     }
 }

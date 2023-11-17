@@ -243,8 +243,8 @@ struct CliArgs {
     #[cfg(feature = "caching")]
     #[clap(
         long,
-        help = "Maximum size of the cache directory in MB [default: preserve 1% of available space]",
-        value_name = "MB",
+        help = "Maximum size of the cache directory in MiB [default: preserve 5% of available space]",
+        value_name = "MiB",
         value_parser = value_parser!(u64).range(1..),
         help_heading = CACHING_OPTIONS_HEADER,
         requires = "cache",
@@ -574,9 +574,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
             };
 
             let mut cache_config = DiskDataCacheConfig::default();
-            if let Some(max_size_in_mb) = args.max_cache_size {
+            if let Some(max_size_in_mib) = args.max_cache_size {
                 cache_config.limit = CacheLimit::TotalSize {
-                    max_size: (max_size_in_mb * 1_000_000) as usize,
+                    max_size: (max_size_in_mib * 1024 * 1024) as usize,
                 };
             }
             let cache = DiskDataCache::new(path, cache_config);
