@@ -223,7 +223,7 @@ struct CliArgs {
     #[cfg(feature = "caching")]
     #[clap(
         long,
-        help = "Enable caching of object metadata and content. Requires a directory path",
+        help = "Enable caching of object metadata and content. Directory provided will be used for caching object content. If running multiple Mountpoint processes concurrently, use a unique value for this argument",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
     )]
