@@ -560,7 +560,7 @@ where
     }
 
     pub async fn open(&self, ino: InodeNo, flags: i32, pid: u32) -> Result<Opened, Error> {
-        trace!("fs:open with ino {:?} flags {:?} pid {:?}", ino, flags, pid);
+        trace!("fs:open with ino {:?} flags {:#b} pid {:?}", ino, flags, pid);
 
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache;
         let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
@@ -594,6 +594,7 @@ where
             object_size: lookup.stat.size as u64,
             typ: handle_type,
         };
+        debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
         Ok(Opened { fh, flags: 0 })
@@ -742,7 +743,7 @@ where
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
-        trace!("fs:opendir with parent {:?} flags {:?}", parent, _flags);
+        trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
 
         let inode_handle = self.superblock.readdir(&self.client, parent, 1000).await?;
 
