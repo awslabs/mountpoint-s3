@@ -46,7 +46,7 @@ macro_rules! request_span {
         // I have confused myself at least 4 times about how to choose the level for tracing spans.
         // We want this span to be constructed whenever events at WARN or lower severity (INFO,
         // DEBUG, TRACE) are emitted. So we set its severity to WARN too.
-        let span = tracing::warn_span!($method, id = counter, $($field)*);
+        let span = tracing::warn_span!(target: "mountpoint_s3_client::s3_crt_client::request", $method, id = counter, $($field)*);
         span.in_scope(|| tracing::debug!("new request"));
         span
     }};
