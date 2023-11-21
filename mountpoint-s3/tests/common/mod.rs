@@ -1,3 +1,5 @@
+//! Functions and types shared across integration test modules.
+//! Allow for unused code since this is included independently in each module.
 #![allow(unused)]
 
 #[cfg(feature = "fuse_tests")]
