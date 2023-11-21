@@ -270,6 +270,12 @@ impl DiskDataCache {
             .expect("path should include cache key in directory name");
         fs::create_dir_all(cache_path_for_key)?;
 
+        trace!(
+            key = block.header.s3_key,
+            offset = block.header.block_offset,
+            "writing block at {}",
+            path.as_ref().display()
+        );
         let mut file = fs::File::create(path.as_ref())?;
         file.write_all(CACHE_VERSION.as_bytes())?;
         let serialize_result = bincode::serialize_into(&mut file, &block);
@@ -314,6 +320,7 @@ impl DiskDataCache {
                 return Err(DataCacheError::EvictionFailure);
             };
             let path_to_remove = self.get_path_for_block_key(&to_remove);
+            trace!("evicting block at {}", path_to_remove.display());
             if let Err(remove_err) = fs::remove_file(&path_to_remove) {
                 error!("unable to remove invalid block: {:?}", remove_err);
             }

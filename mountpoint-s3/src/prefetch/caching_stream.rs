@@ -109,7 +109,7 @@ where
     }
 
     async fn get_from_cache(self, range: RequestRange) {
-        let key = self.cache_key.s3_key.as_str();
+        let cache_key = &self.cache_key;
         let block_size = self.cache.block_size();
         let block_range = self.block_indices_for_byte_range(&range);
 
@@ -120,17 +120,23 @@ where
         // already likely negligible.
         let mut block_offset = block_range.start * block_size;
         for block_index in block_range.clone() {
-            match self.cache.get_block(&self.cache_key, block_index, block_offset) {
+            match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
-                    trace!(?key, ?range, block_index, "cache hit");
+                    trace!(?cache_key, ?range, block_index, "cache hit");
                     let part = self.make_part(block, block_index, block_offset, &range);
                     metrics::counter!("cache.total_bytes", part.len() as u64, "type" => "read");
                     self.part_queue_producer.push(Ok(part));
                     block_offset += block_size;
                     continue;
                 }
-                Ok(None) => trace!(?key, ?range, block_index, "cache miss - no data for block"),
-                Err(error) => error!(?key, ?range, block_index, ?error, "error reading block from cache"),
+                Ok(None) => trace!(?cache_key, block_index, ?range, "cache miss - no data for block"),
+                Err(error) => error!(
+                    ?cache_key,
+                    block_index,
+                    ?range,
+                    ?error,
+                    "error reading block from cache",
+                ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
             return self
@@ -273,24 +279,24 @@ where
             "invalid block offset"
         );
 
-        let key = &self.cache_key.s3_key;
+        let cache_key = &self.cache_key;
         let block_size = block.len();
         let part_range = range
             .trim_start(block_offset)
             .trim_end(block_offset + block_size as u64);
         trace!(
-            key,
-            ?part_range,
+            ?cache_key,
             block_index,
+            ?part_range,
             block_offset,
             block_size,
-            "creating part from block"
+            "creating part from block data",
         );
 
         let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
         let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
         let bytes = block.slice(trim_start..trim_end);
-        Part::new(key, part_range.start(), bytes)
+        Part::new(cache_key.s3_key.as_str(), part_range.start(), bytes)
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {

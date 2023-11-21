@@ -247,7 +247,7 @@ struct CliArgs {
         long,
         help = "Maximum size of the cache directory in MiB [default: preserve 5% of available space]",
         value_name = "MiB",
-        value_parser = value_parser!(u64).range(1..),
+        value_parser = value_parser!(u64),
         help_heading = CACHING_OPTIONS_HEADER,
         requires = "cache",
     )]
@@ -575,37 +575,45 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
                 file_ttl: metadata_cache_ttl,
             };
 
-            let mut cache_config = DiskDataCacheConfig::default();
-            if let Some(max_size_in_mib) = args.max_cache_size {
-                cache_config.limit = CacheLimit::TotalSize {
-                    max_size: (max_size_in_mib * 1024 * 1024) as usize,
-                };
-            }
-            let managed_cache_dir =
-                ManagedCacheDir::new_from_parent(path).context("failed to create cache directory")?;
-            let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
-            let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
-            let mut fuse_session = create_filesystem(
-                client,
-                prefetcher,
-                &args.bucket_name,
-                &prefix,
-                filesystem_config,
-                fuse_config,
-                &bucket_description,
-            );
+            let cache_config = match args.max_cache_size {
+                // Fallback to no data cache.
+                Some(0) => None,
+                Some(max_size_in_mib) => Some(DiskDataCacheConfig {
+                    limit: CacheLimit::TotalSize {
+                        max_size: (max_size_in_mib * 1024 * 1024) as usize,
+                    },
+                    ..Default::default()
+                }),
+                None => Some(DiskDataCacheConfig::default()),
+            };
 
-            if let Ok(session) = &mut fuse_session {
-                let handler = Box::new(move || {
-                    let path = managed_cache_dir.as_path_buf();
-                    if let Err(err) = managed_cache_dir.close() {
-                        tracing::error!(?path, "failed to clean cache directory: {err}");
-                    }
-                });
-                session.run_on_close(handler);
-            }
+            if let Some(cache_config) = cache_config {
+                let managed_cache_dir =
+                    ManagedCacheDir::new_from_parent(path).context("failed to create cache directory")?;
+                let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
+                let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
+                let mut fuse_session = create_filesystem(
+                    client,
+                    prefetcher,
+                    &args.bucket_name,
+                    &prefix,
+                    filesystem_config,
+                    fuse_config,
+                    &bucket_description,
+                );
 
-            return fuse_session;
+                if let Ok(session) = &mut fuse_session {
+                    let handler = Box::new(move || {
+                        let path = managed_cache_dir.as_path_buf();
+                        if let Err(err) = managed_cache_dir.close() {
+                            tracing::error!(?path, "failed to clean cache directory: {err}");
+                        }
+                    });
+                    session.run_on_close(handler);
+                }
+
+                return fuse_session;
+            }
         }
     }
 
@@ -629,7 +637,7 @@ fn create_filesystem<Client, Prefetcher>(
     filesystem_config: S3FilesystemConfig,
     fuse_session_config: FuseSessionConfig,
     bucket_description: &str,
-) -> Result<FuseSession, anyhow::Error>
+) -> anyhow::Result<FuseSession>
 where
     Client: ObjectClient + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
