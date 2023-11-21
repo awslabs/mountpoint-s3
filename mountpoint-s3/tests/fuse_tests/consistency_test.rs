@@ -5,9 +5,8 @@ use fuser::BackgroundSession;
 use tempfile::TempDir;
 use test_case::test_case;
 
+use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
 use mountpoint_s3::data_cache::InMemoryDataCache;
-
-use crate::fuse_tests::{TestClientBox, TestSessionConfig};
 
 fn page_cache_sharing_test<F>(creator_fn: F, prefix: &str)
 where
@@ -57,14 +56,14 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn page_cache_sharing_test_s3() {
-    page_cache_sharing_test(crate::fuse_tests::s3_session::new, "page_cache_sharing_test");
+    page_cache_sharing_test(fuse::s3_session::new, "page_cache_sharing_test");
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn page_cache_sharing_test_s3_with_cache() {
     page_cache_sharing_test(
-        crate::fuse_tests::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
         "page_cache_sharing_test",
     );
 }
@@ -72,14 +71,14 @@ fn page_cache_sharing_test_s3_with_cache() {
 #[test_case(""; "no prefix")]
 #[test_case("page_cache_sharing_test"; "prefix")]
 fn page_cache_sharing_test_mock(prefix: &str) {
-    page_cache_sharing_test(crate::fuse_tests::mock_session::new, prefix);
+    page_cache_sharing_test(fuse::mock_session::new, prefix);
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("page_cache_sharing_test"; "prefix")]
 fn page_cache_sharing_test_mock_with_cache(prefix: &str) {
     page_cache_sharing_test(
-        crate::fuse_tests::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
         prefix,
     );
 }

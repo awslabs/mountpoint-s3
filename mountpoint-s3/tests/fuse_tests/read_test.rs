@@ -12,7 +12,7 @@ use rand_chacha::ChaChaRng;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn basic_read_test<F>(creator_fn: F, prefix: &str)
 where
@@ -64,14 +64,14 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn basic_read_test_s3() {
-    basic_read_test(crate::fuse_tests::s3_session::new, "basic_read_test");
+    basic_read_test(fuse::s3_session::new, "basic_read_test");
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn basic_read_test_s3_with_cache() {
     basic_read_test(
-        crate::fuse_tests::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
         "basic_read_test",
     );
 }
@@ -79,14 +79,14 @@ fn basic_read_test_s3_with_cache() {
 #[test_case("")]
 #[test_case("basic_read_test")]
 fn basic_read_test_mock(prefix: &str) {
-    basic_read_test(crate::fuse_tests::mock_session::new, prefix);
+    basic_read_test(fuse::mock_session::new, prefix);
 }
 
 #[test_case("")]
 #[test_case("basic_read_test")]
 fn basic_read_test_mock_with_cache(prefix: &str) {
     basic_read_test(
-        crate::fuse_tests::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
         prefix,
     );
 }
@@ -160,7 +160,7 @@ where
 fn read_flexible_retrieval_test_s3() {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
-        crate::fuse_tests::s3_session::new,
+        fuse::s3_session::new,
         "read_flexible_retrieval_test",
         FILES,
         RestorationOptions::None,
@@ -171,12 +171,7 @@ fn read_flexible_retrieval_test_s3() {
 #[test_case("read_flexible_retrieval_test"; "prefix")]
 fn read_flexible_retrieval_test_mock(prefix: &str) {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
-    read_flexible_retrieval_test(
-        crate::fuse_tests::mock_session::new,
-        prefix,
-        FILES,
-        RestorationOptions::None,
-    );
+    read_flexible_retrieval_test(fuse::mock_session::new, prefix, FILES, RestorationOptions::None);
 }
 
 #[test_case(""; "no prefix")]
@@ -184,7 +179,7 @@ fn read_flexible_retrieval_test_mock(prefix: &str) {
 fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
     const FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
-        crate::fuse_tests::mock_session::new,
+        fuse::mock_session::new,
         prefix,
         FILES,
         RestorationOptions::RestoreAndWait,
@@ -199,7 +194,7 @@ fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
 fn read_flexible_retrieval_restored_test_s3() {
     const RESTORED_FILES: &[&str] = &["GLACIER"];
     read_flexible_retrieval_test(
-        crate::fuse_tests::s3_session::new,
+        fuse::s3_session::new,
         "read_flexible_retrieval_restored_test_s3",
         RESTORED_FILES,
         RestorationOptions::RestoreAndWait,
@@ -211,7 +206,7 @@ fn read_flexible_retrieval_restored_test_s3() {
 fn read_flexible_retrieval_restoring_test_s3() {
     const RESTORING_FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
-        crate::fuse_tests::s3_session::new,
+        fuse::s3_session::new,
         "read_flexible_retrieval_restoring_test_s3",
         RESTORING_FILES,
         RestorationOptions::RestoreInProgress,

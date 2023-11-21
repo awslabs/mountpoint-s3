@@ -8,6 +8,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use time::OffsetDateTime;
 use tracing::{debug, error, trace};
 
+use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
@@ -562,7 +563,12 @@ where
     pub async fn open(&self, ino: InodeNo, flags: i32, pid: u32) -> Result<Opened, Error> {
         trace!("fs:open with ino {:?} flags {:#b} pid {:?}", ino, flags, pid);
 
-        let force_revalidate = !self.config.cache_config.serve_lookup_from_cache;
+        #[cfg(not(target_os = "linux"))]
+        let direct_io = false;
+        #[cfg(target_os = "linux")]
+        let direct_io = flags & libc::O_DIRECT != 0;
+
+        let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
         let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
 
         match lookup.inode.kind() {
@@ -597,7 +603,9 @@ where
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
-        Ok(Opened { fh, flags: 0 })
+        let reply_flags = if direct_io { FOPEN_DIRECT_IO } else { 0 };
+
+        Ok(Opened { fh, flags: reply_flags })
     }
 
     #[allow(clippy::too_many_arguments)] // We don't get to choose this interface

@@ -1,4 +1,4 @@
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
@@ -137,14 +137,14 @@ where
 #[test]
 fn readdir_s3() {
     let rng_seed = rand::thread_rng().gen();
-    readdir(crate::fuse_tests::s3_session::new, "", rng_seed);
+    readdir(fuse::s3_session::new, "", rng_seed);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn readdir_while_writing_s3() {
     let rng_seed = rand::thread_rng().gen();
-    readdir_while_writing(crate::fuse_tests::s3_session::new, "", rng_seed);
+    readdir_while_writing(fuse::s3_session::new, "", rng_seed);
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn readdir_mock() {
     let iteration = 10;
     for _ in 0..iteration {
         let rng_seed = rand::thread_rng().gen();
-        readdir(crate::fuse_tests::mock_session::new, "", rng_seed);
+        readdir(fuse::mock_session::new, "", rng_seed);
     }
 }
 
@@ -161,6 +161,6 @@ fn readdir_while_writing_mock() {
     let iteration = 10;
     for _ in 0..iteration {
         let rng_seed = rand::thread_rng().gen();
-        readdir_while_writing(crate::fuse_tests::mock_session::new, "", rng_seed);
+        readdir_while_writing(fuse::mock_session::new, "", rng_seed);
     }
 }

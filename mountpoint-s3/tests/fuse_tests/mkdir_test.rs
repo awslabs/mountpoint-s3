@@ -4,7 +4,7 @@ use fuser::BackgroundSession;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn mkdir_test<F>(creator_fn: F, prefix: &str)
 where
@@ -43,11 +43,11 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn mkdir_test_s3() {
-    mkdir_test(crate::fuse_tests::s3_session::new, "mkdir_test");
+    mkdir_test(fuse::s3_session::new, "mkdir_test");
 }
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
 fn mkdir_test_mock(prefix: &str) {
-    mkdir_test(crate::fuse_tests::mock_session::new, prefix);
+    mkdir_test(fuse::mock_session::new, prefix);
 }

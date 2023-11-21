@@ -9,7 +9,7 @@ use std::process::Stdio;
 use std::{path::PathBuf, process::Command};
 use test_case::test_case;
 
-use crate::fuse_tests::{
+use crate::common::fuse::{
     create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
     read_dir_to_entry_names, tokio_block_on,
 };

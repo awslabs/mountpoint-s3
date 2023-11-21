@@ -1,11 +1,9 @@
-use crate::fuse_tests::{read_dir_to_entry_names, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 use fuser::BackgroundSession;
 use std::fs::{self, DirBuilder, File};
 use std::io::Write;
 use tempfile::TempDir;
 use test_case::test_case;
-
-use crate::fuse_tests::TestClientBox;
 
 fn rmdir_local_dir_test<F>(creator_fn: F, prefix: &str)
 where
@@ -71,14 +69,14 @@ where
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_local_dir_test_mock(prefix: &str) {
-    rmdir_local_dir_test(crate::fuse_tests::mock_session::new, prefix);
+    rmdir_local_dir_test(fuse::mock_session::new, prefix);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_local_dir_test_s3(prefix: &str) {
-    rmdir_local_dir_test(crate::fuse_tests::s3_session::new, prefix);
+    rmdir_local_dir_test(fuse::s3_session::new, prefix);
 }
 
 fn rmdir_remote_dir_test<F>(creator_fn: F, prefix: &str)
@@ -132,14 +130,14 @@ where
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_remote_dir_test_mock(prefix: &str) {
-    rmdir_remote_dir_test(crate::fuse_tests::mock_session::new, prefix);
+    rmdir_remote_dir_test(fuse::mock_session::new, prefix);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn rmdir_remote_dir_test_s3(prefix: &str) {
-    rmdir_remote_dir_test(crate::fuse_tests::s3_session::new, prefix);
+    rmdir_remote_dir_test(fuse::s3_session::new, prefix);
 }
 
 fn create_after_rmdir_test<F>(creator_fn: F, prefix: &str)
@@ -176,12 +174,12 @@ where
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn create_after_rmdir_test_mock(prefix: &str) {
-    create_after_rmdir_test(crate::fuse_tests::mock_session::new, prefix);
+    create_after_rmdir_test(fuse::mock_session::new, prefix);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
 #[test_case("rmdir_test"; "prefix")]
 fn create_after_rmdir_test_s3(prefix: &str) {
-    create_after_rmdir_test(crate::fuse_tests::s3_session::new, prefix);
+    create_after_rmdir_test(fuse::s3_session::new, prefix);
 }

@@ -1,3 +1,10 @@
+//! Functions and types shared across integration test modules.
+//! Allow for unused code since this is included independently in each module.
+#![allow(unused)]
+
+#[cfg(feature = "fuse_tests")]
+pub mod fuse;
+
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};
