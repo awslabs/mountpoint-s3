@@ -738,7 +738,7 @@ impl SuperblockInner {
         // If we reach here, the ListObjects didn't find a shadowing directory, so we know we either
         // have a valid file, or both requests failed to find the object so the file must not exist remotely
         if let Some(mut stat) = file_state {
-            trace!(parent = ?parent_ino, ?name, "found a regular file");
+            trace!(parent = ?parent_ino, ?name, etag =? stat.etag, "found a regular file in S3");
             // Update the validity of the stat in case the racing ListObjects took a long time
             stat.update_validity(self.cache_config.file_ttl);
             Ok(Some(RemoteLookup {
@@ -1174,7 +1174,11 @@ impl Inode {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         *lookup_count += 1;
-        trace!(new_lookup_count = lookup_count, "incremented lookup count");
+        trace!(
+            ino = self.ino(),
+            new_lookup_count = lookup_count,
+            "incremented lookup count",
+        );
         *lookup_count
     }
 
@@ -1186,7 +1190,11 @@ impl Inode {
         let lookup_count = &mut state.lookup_count;
         debug_assert!(n <= *lookup_count, "lookup count cannot go negative");
         *lookup_count = lookup_count.saturating_sub(n);
-        trace!(new_lookup_count = lookup_count, "decremented lookup count");
+        trace!(
+            ino = self.ino(),
+            new_lookup_count = lookup_count,
+            "decremented lookup count",
+        );
         *lookup_count
     }
 

@@ -21,27 +21,23 @@ pub type GetBodyPart = (u64, Box<[u8]>);
 ///
 /// New ETags can be created with the [`FromStr`] implementation.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ETag {
-    etag: String,
-}
+pub struct ETag(String);
 
 impl ETag {
     /// Get the ETag as a string
     pub fn as_str(&self) -> &str {
-        &self.etag
+        &self.0
     }
 
     /// Unpack the [String] contained by the [ETag] wrapper
     pub fn into_inner(self) -> String {
-        self.etag
+        self.0
     }
 
     /// Creating default etag for tests
     #[doc(hidden)]
     pub fn for_tests() -> Self {
-        Self {
-            etag: "test_etag".to_string(),
-        }
+        Self("test_etag".to_string())
     }
 
     /// Creating unique etag from bytes
@@ -52,16 +48,15 @@ impl ETag {
 
         let hash = hasher.finalize();
         let result = format!("{:x}", hash);
-        Self { etag: result }
+        Self(result)
     }
 }
 
 impl FromStr for ETag {
     type Err = ParseError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(ETag {
-            etag: value.to_string(),
-        })
+        let etag = value.to_string();
+        Ok(ETag(etag))
     }
 }
 
