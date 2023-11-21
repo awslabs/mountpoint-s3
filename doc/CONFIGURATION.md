@@ -241,9 +241,6 @@ By default, Mountpoint will limit the maximum size of the cache such that the fr
 and will automatically evict the least recently used content from the cache when caching new content.
 You can instead manually configure the maximum size of the cache with the `--max-cache-size <MiB>` command-line argument.
 
-When running multiple Mountpoint processes on the same host,
-you should use unique cache directories to avoid different processes interfering with the others' cache content.
-
 > [!WARNING]
 > Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
@@ -251,6 +248,12 @@ you should use unique cache directories to avoid different processes interfering
 > [!WARNING]
 > If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.
 > In order to protect your data, we recommend you restrict access to the data cache location.
+
+### Using multiple Mountpoint processes on a host
+
+The cache directory is not reusable by other Mountpoint processes and will be cleaned at mount time and exit.
+When running multiple Mountpoint processes concurrently on the same host,
+you should use unique cache directories to avoid different processes interfering with the others' cache content.
 
 ## Logging
 
