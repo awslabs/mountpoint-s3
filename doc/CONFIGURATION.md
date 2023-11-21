@@ -255,6 +255,28 @@ The cache directory is not reusable by other Mountpoint processes and will be cl
 When running multiple Mountpoint processes concurrently on the same host,
 you should use unique cache directories to avoid different processes interfering with the others' cache content.
 
+### Caching object content to random access memory
+
+Mountpoint can instead cache object content to random access memory (RAM) using a RAM disk.
+
+To create a RAM disk on Linux, you can use [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html) as shown below.
+Replace the mount directory for tmpfs if required.
+
+```
+sudo mkdir /mnt/mp-cache-tmpfs
+sudo mount -o uid=$(id --user),mode=700 -t tmpfs none /mnt/mp-cache-tmpfs
+```
+
+This will create a RAM disk mounted at `/mnt/mp-cache-tmpfs` with access restricted to the current user.
+By default, Linux limits it's size to 50% of the physical memory available on the system.
+The size is configurable using the `size` option.
+
+You can then start Mountpoint using the directory where the RAM disk was mounted.
+
+```
+mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/tmpfs
+```
+
 ## Logging
 
 By default, Mountpoint emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. You can change what level of information is logged, and to where it is logged. See [LOGGING.md](LOGGING.md) for more details on configuring logging.
