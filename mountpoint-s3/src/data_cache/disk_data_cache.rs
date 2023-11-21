@@ -440,7 +440,7 @@ impl DiskBlockKey {
         path.push(second);
 
         // Append the block index.
-        path.push(format!("{}.block", self.block_index));
+        path.push(format!("{:010}", self.block_index));
     }
 }
 
@@ -564,7 +564,40 @@ mod tests {
             CACHE_VERSION,
             split_hashed_key.0,
             split_hashed_key.1,
-            "5.block",
+            "0000000005",
+        ];
+        let path = data_cache.get_path_for_block_key(&block_key);
+        let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
+        assert_eq!(expected, results);
+    }
+
+    #[test]
+    fn get_path_for_block_key_huge_block_index() {
+        let cache_dir = PathBuf::from("mountpoint-cache/");
+        let data_cache = DiskDataCache::new(
+            cache_dir,
+            DiskDataCacheConfig {
+                block_size: 1024,
+                limit: CacheLimit::Unbounded,
+            },
+        );
+
+        let s3_key = "a".repeat(266);
+
+        let etag = ETag::for_tests();
+        let key = CacheKey {
+            etag,
+            s3_key: s3_key.to_owned(),
+        };
+        let block_key = DiskBlockKey::new(&key, 1000000000000000);
+        let hashed_cache_key = hex::encode(hash_cache_key_raw(&key));
+        let split_hashed_key = hashed_cache_key.split_at(HASHED_DIR_SPLIT_INDEX);
+        let expected = vec![
+            "mountpoint-cache",
+            CACHE_VERSION,
+            split_hashed_key.0,
+            split_hashed_key.1,
+            "1000000000000000",
         ];
         let path = data_cache.get_path_for_block_key(&block_key);
         let results: Vec<OsString> = path.iter().map(ToOwned::to_owned).collect();
