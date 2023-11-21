@@ -217,7 +217,7 @@ impl DiskDataCache {
 
     /// Get the relative path for the given block.
     fn get_path_for_block_key(&self, block_key: &DiskBlockKey) -> PathBuf {
-        let mut path = self.cache_directory.as_path().join(CACHE_VERSION);
+        let mut path = self.cache_directory.join(CACHE_VERSION);
         block_key.append_to_path(&mut path);
         path
     }
@@ -293,7 +293,7 @@ impl DiskDataCache {
             CacheLimit::Unbounded => false,
             CacheLimit::TotalSize { max_size } => size > max_size,
             CacheLimit::AvailableSpace { min_ratio } => {
-                let stats = match fs2::statvfs(self.cache_directory.as_path()) {
+                let stats = match fs2::statvfs(&self.cache_directory) {
                     Ok(stats) if stats.total_space() == 0 => {
                         warn!("unable to determine available space");
                         return false;

@@ -603,13 +603,9 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
                 );
 
                 if let Ok(session) = &mut fuse_session {
-                    let handler = Box::new(move || {
-                        let path = managed_cache_dir.as_path_buf();
-                        if let Err(err) = managed_cache_dir.close() {
-                            tracing::error!(?path, "failed to clean cache directory: {err}");
-                        }
-                    });
-                    session.run_on_close(handler);
+                    session.run_on_close(Box::new(move || {
+                        drop(managed_cache_dir);
+                    }));
                 }
 
                 return fuse_session;

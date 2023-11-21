@@ -16,8 +16,6 @@ use thiserror::Error;
 #[derive(Debug)]
 pub struct ManagedCacheDir {
     managed_path: PathBuf,
-    /// Used to prevent double cleanup with `close(self)` and [Drop]
-    closed: bool,
 }
 
 #[derive(Debug, Error)]
@@ -40,10 +38,7 @@ impl ManagedCacheDir {
             }
         }
 
-        let managed_cache_dir = Self {
-            managed_path,
-            closed: false,
-        };
+        let managed_cache_dir = Self { managed_path };
         managed_cache_dir.clean()?;
 
         Ok(managed_cache_dir)
@@ -65,17 +60,6 @@ impl ManagedCacheDir {
         Ok(())
     }
 
-    /// Clear the managed cache directory, waiting until complete.
-    ///
-    /// This directory should also be cleaned as part of [Drop], however this is not always guaranteed.
-    pub fn close(mut self) -> Result<(), ManagedCacheDirError> {
-        let result = self.clean();
-        if result.is_ok() {
-            self.closed = true;
-        }
-        result
-    }
-
     /// Retrieve a reference to the managed path
     pub fn as_path(&self) -> &Path {
         self.managed_path.as_path()
@@ -89,10 +73,8 @@ impl ManagedCacheDir {
 
 impl Drop for ManagedCacheDir {
     fn drop(&mut self) {
-        if !self.closed {
-            if let Err(err) = self.clean() {
-                tracing::error!(managed_cache_path = ?self.managed_path, "failed to clean cache directory: {err}");
-            }
+        if let Err(err) = self.clean() {
+            tracing::error!(managed_cache_path = ?self.managed_path, "failed to clean cache directory: {err}");
         }
     }
 }
