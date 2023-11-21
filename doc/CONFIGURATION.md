@@ -268,13 +268,13 @@ sudo mount -o uid=$(id --user),mode=700 -t tmpfs none /mnt/mp-cache-tmpfs
 ```
 
 This will create a RAM disk mounted at `/mnt/mp-cache-tmpfs` with access restricted to the current user.
-By default, Linux limits it's size to 50% of the physical memory available on the system.
+By default, Linux will limit the size to 50% of the physical memory available on the system.
 The size is configurable using the `size` option.
 
 You can then start Mountpoint using the directory where the RAM disk was mounted.
 
 ```
-mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/tmpfs
+mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/mp-cache-tmpfs
 ```
 
 ## Logging
