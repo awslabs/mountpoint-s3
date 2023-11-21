@@ -1,3 +1,8 @@
+#![allow(unused)]
+
+#[cfg(feature = "fuse_tests")]
+pub mod fuse;
+
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};

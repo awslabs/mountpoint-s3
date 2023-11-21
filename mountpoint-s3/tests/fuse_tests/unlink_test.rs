@@ -6,7 +6,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)
@@ -52,13 +52,13 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn simple_unlink_test_s3() {
-    simple_unlink_tests(crate::fuse_tests::s3_session::new, "simple_unlink_tests");
+    simple_unlink_tests(fuse::s3_session::new, "simple_unlink_tests");
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("simple_unlink_test"; "prefix")]
 fn simple_unlink_test_mock(prefix: &str) {
-    simple_unlink_tests(crate::fuse_tests::mock_session::new, prefix);
+    simple_unlink_tests(fuse::mock_session::new, prefix);
 }
 
 /// Testing behavior when a file is unlinked in the middle of reading
@@ -108,13 +108,13 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn unlink_readhandle_test_s3() {
-    unlink_readhandle_test(crate::fuse_tests::s3_session::new, "unlink_readhandle_test");
+    unlink_readhandle_test(fuse::s3_session::new, "unlink_readhandle_test");
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("unlink_readhandle_test"; "prefix")]
 fn unlink_readhandle_test_mock(prefix: &str) {
-    unlink_readhandle_test(crate::fuse_tests::mock_session::new, prefix);
+    unlink_readhandle_test(fuse::mock_session::new, prefix);
 }
 
 /// Testing behavior when a file is unlinked during and after writing
@@ -176,13 +176,13 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn unlink_writehandle_test_s3() {
-    unlink_writehandle_test(crate::fuse_tests::s3_session::new, "unlink_writehandle_test");
+    unlink_writehandle_test(fuse::s3_session::new, "unlink_writehandle_test");
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("unlink_writehandle_test"; "prefix")]
 fn unlink_writehandle_test_mock(prefix: &str) {
-    unlink_writehandle_test(crate::fuse_tests::mock_session::new, prefix);
+    unlink_writehandle_test(fuse::mock_session::new, prefix);
 }
 
 fn unlink_fail_on_delete_not_allowed_test<F>(creator_fn: F)
@@ -210,10 +210,10 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn unlink_fail_on_delete_not_allowed_test_s3() {
-    unlink_fail_on_delete_not_allowed_test(crate::fuse_tests::s3_session::new);
+    unlink_fail_on_delete_not_allowed_test(fuse::s3_session::new);
 }
 
 #[test]
 fn unlink_fail_on_delete_not_allowed_test_mock() {
-    unlink_fail_on_delete_not_allowed_test(crate::fuse_tests::mock_session::new);
+    unlink_fail_on_delete_not_allowed_test(fuse::mock_session::new);
 }

@@ -4,7 +4,7 @@ use fuser::BackgroundSession;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
-use crate::fuse_tests::{TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
 
 /// Recursively list the contents of a directory and return the paths of all entries, with the
 /// initial `path` stripped. If `files` is true, the list contains only files; if false, it contains
@@ -72,13 +72,13 @@ where
 
 #[test]
 fn basic_directory_structure_mock() {
-    basic_directory_structure(crate::fuse_tests::mock_session::new);
+    basic_directory_structure(fuse::mock_session::new);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn basic_directory_structure_s3() {
-    basic_directory_structure(crate::fuse_tests::s3_session::new);
+    basic_directory_structure(fuse::s3_session::new);
 }
 
 /// Object keys that end in the path delimiter (`/`) will not be accessible. Instead, a directory of
@@ -111,13 +111,13 @@ where
 
 #[test]
 fn keys_ending_in_delimiter_mock() {
-    keys_ending_in_delimiter(crate::fuse_tests::mock_session::new);
+    keys_ending_in_delimiter(fuse::mock_session::new);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn keys_ending_in_delimiter_s3() {
-    keys_ending_in_delimiter(crate::fuse_tests::s3_session::new);
+    keys_ending_in_delimiter(fuse::s3_session::new);
 }
 
 /// Files will be shadowed by directories with the same name. For example, if your bucket has the
@@ -147,11 +147,11 @@ where
 
 #[test]
 fn files_shadowed_by_directories_mock() {
-    files_shadowed_by_directories(crate::fuse_tests::mock_session::new);
+    files_shadowed_by_directories(fuse::mock_session::new);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test]
 fn files_shadowed_by_directories_s3() {
-    files_shadowed_by_directories(crate::fuse_tests::s3_session::new);
+    files_shadowed_by_directories(fuse::s3_session::new);
 }

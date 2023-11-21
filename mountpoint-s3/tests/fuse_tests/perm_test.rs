@@ -10,7 +10,7 @@ use nix::unistd::{getgid, getuid};
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn perm_test<F>(creator_fn: F, uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>)
 where
@@ -164,7 +164,7 @@ fn assert_perm(m: Metadata, uid: u32, gid: u32, perm: u32) {
 #[test_case(Some(500), Some(20), None, None; "non default gid and uid")]
 #[test_case(Some(500), Some(20), Some(0o555), Some(0o444); "non default gid, uid and permissions")]
 fn permission_config_test_s3(uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>) {
-    perm_test(crate::fuse_tests::s3_session::new, uid, gid, dir_mode, file_mode);
+    perm_test(fuse::s3_session::new, uid, gid, dir_mode, file_mode);
 }
 
 #[test_case(None, None, None, None; "default config")]
@@ -173,7 +173,7 @@ fn permission_config_test_s3(uid: Option<u32>, gid: Option<u32>, dir_mode: Optio
 #[test_case(Some(500), Some(20), None, None; "non default gid and uid")]
 #[test_case(Some(500), Some(20), Some(0o555), Some(0o444); "non default gid, uid and permissions")]
 fn permission_config_test_mock(uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>) {
-    perm_test(crate::fuse_tests::mock_session::new, uid, gid, dir_mode, file_mode);
+    perm_test(fuse::mock_session::new, uid, gid, dir_mode, file_mode);
 }
 
 #[cfg(feature = "s3_tests")]
@@ -185,7 +185,7 @@ fn permission_config_test_negative_s3(
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) {
-    perm_test_negative(crate::fuse_tests::s3_session::new, uid, gid, dir_mode, file_mode);
+    perm_test_negative(fuse::s3_session::new, uid, gid, dir_mode, file_mode);
 }
 
 #[test_case(None, None, Some(0o000), Some(0o000); "no permissions")]
@@ -196,5 +196,5 @@ fn permission_config_test_negative_mock(
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
 ) {
-    perm_test_negative(crate::fuse_tests::mock_session::new, uid, gid, dir_mode, file_mode);
+    perm_test_negative(fuse::mock_session::new, uid, gid, dir_mode, file_mode);
 }

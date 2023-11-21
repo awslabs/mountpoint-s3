@@ -8,7 +8,7 @@ use fuser::BackgroundSession;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -68,11 +68,11 @@ where
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
 fn setattr_test_s3(append: bool) {
-    setattr_test(crate::fuse_tests::s3_session::new, "setattr_test_s3", append);
+    setattr_test(fuse::s3_session::new, "setattr_test_s3", append);
 }
 
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
 fn setattr_test_mock(append: bool) {
-    setattr_test(crate::fuse_tests::mock_session::new, "setattr_test_mock", append);
+    setattr_test(fuse::mock_session::new, "setattr_test_mock", append);
 }

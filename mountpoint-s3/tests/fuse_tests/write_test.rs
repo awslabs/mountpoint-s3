@@ -13,7 +13,7 @@ use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -136,7 +136,7 @@ where
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
 fn sequential_write_test_s3(append: bool) {
-    sequential_write_test(crate::fuse_tests::s3_session::new, "sequential_write_test", append);
+    sequential_write_test(fuse::s3_session::new, "sequential_write_test", append);
 }
 
 #[test_case("", true; "no prefix append")]
@@ -144,7 +144,7 @@ fn sequential_write_test_s3(append: bool) {
 #[test_case("sequential_write_test", true; "prefix append")]
 #[test_case("sequential_write_test", false; "prefix no append")]
 fn sequential_write_test_mock(prefix: &str, append: bool) {
-    sequential_write_test(crate::fuse_tests::mock_session::new, prefix, append);
+    sequential_write_test(fuse::mock_session::new, prefix, append);
 }
 
 fn write_errors_test<F>(creator_fn: F, prefix: &str)
@@ -192,13 +192,13 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn write_errors_test_s3() {
-    write_errors_test(crate::fuse_tests::s3_session::new, "write_errors_test");
+    write_errors_test(fuse::s3_session::new, "write_errors_test");
 }
 
 #[test_case(""; "no prefix append")]
 #[test_case("sequential_write_test"; "prefix")]
 fn write_errors_test_mock(prefix: &str) {
-    write_errors_test(crate::fuse_tests::mock_session::new, prefix);
+    write_errors_test(fuse::mock_session::new, prefix);
 }
 
 fn sequential_write_streaming_test<F>(creator_fn: F, object_size: usize, write_chunk_size: usize)
@@ -257,7 +257,7 @@ where
 #[test_case(32, 32)]
 #[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
 fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size: usize) {
-    sequential_write_streaming_test(crate::fuse_tests::s3_session::new, object_size, write_chunk_size);
+    sequential_write_streaming_test(fuse::s3_session::new, object_size, write_chunk_size);
 }
 
 #[test_case(0, 1)]
@@ -265,7 +265,7 @@ fn sequential_write_streaming_test_s3(object_size: usize, write_chunk_size: usiz
 #[test_case(32, 32)]
 #[test_case(32 * 1024 * 1024, 1024 * 1024 + 1)]
 fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: usize) {
-    sequential_write_streaming_test(crate::fuse_tests::mock_session::new, object_size, write_chunk_size);
+    sequential_write_streaming_test(fuse::mock_session::new, object_size, write_chunk_size);
 }
 
 fn fsync_test<F>(creator_fn: F)
@@ -314,12 +314,12 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn fsync_test_s3() {
-    fsync_test(crate::fuse_tests::s3_session::new);
+    fsync_test(fuse::s3_session::new);
 }
 
 #[test]
 fn fsync_test_mock() {
-    fsync_test(crate::fuse_tests::mock_session::new);
+    fsync_test(fuse::mock_session::new);
 }
 
 fn write_too_big_test<F>(creator_fn: F, write_size: usize)
@@ -369,7 +369,7 @@ where
 #[test_case(7000; "not divisible by max size")]
 #[test_case(640001; "single write too big")]
 fn write_too_big_test_mock(write_size: usize) {
-    write_too_big_test(crate::fuse_tests::mock_session::new, write_size);
+    write_too_big_test(fuse::mock_session::new, write_size);
 }
 
 fn out_of_order_write_test<F>(creator_fn: F, offset: i64)
@@ -415,13 +415,13 @@ where
 #[test_case(-1; "earlier offset")]
 #[test_case(1; "later offset")]
 fn out_of_order_write_test_s3(offset: i64) {
-    out_of_order_write_test(crate::fuse_tests::s3_session::new, offset);
+    out_of_order_write_test(fuse::s3_session::new, offset);
 }
 
 #[test_case(-1; "earlier offset")]
 #[test_case(1; "later offset")]
 fn out_of_order_write_test_mock(offset: i64) {
-    out_of_order_write_test(crate::fuse_tests::mock_session::new, offset);
+    out_of_order_write_test(fuse::mock_session::new, offset);
 }
 
 fn write_with_storage_class_test<F>(creator_fn: F, storage_class: Option<&str>)
@@ -453,14 +453,14 @@ where
 #[test_case(Some("INTELLIGENT_TIERING"))]
 #[test_case(Some("GLACIER"))]
 fn write_with_storage_class_test_s3(storage_class: Option<&str>) {
-    write_with_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
-    write_with_storage_class_test(crate::fuse_tests::mock_session::new, storage_class);
+    write_with_storage_class_test(fuse::s3_session::new, storage_class);
+    write_with_storage_class_test(fuse::mock_session::new, storage_class);
 }
 
 #[test_case(Some("INTELLIGENT_TIERING"))]
 #[test_case(Some("GLACIER"))]
 fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {
-    write_with_storage_class_test(crate::fuse_tests::mock_session::new, storage_class);
+    write_with_storage_class_test(fuse::mock_session::new, storage_class);
 }
 
 #[cfg_attr(not(feature = "s3_tests"), allow(unused))] // Mock client doesn't validate storage classes
@@ -494,7 +494,7 @@ fn write_file(path: impl AsRef<Path>) -> std::io::Result<()> {
 #[cfg(feature = "s3_tests")]
 #[test_case("INVALID_CLASS")]
 fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
-    write_with_invalid_storage_class_test(crate::fuse_tests::s3_session::new, storage_class);
+    write_with_invalid_storage_class_test(fuse::s3_session::new, storage_class);
 }
 
 fn flush_test<F>(creator_fn: F, append: bool)
@@ -538,13 +538,13 @@ where
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
 fn flush_test_s3(append: bool) {
-    flush_test(crate::fuse_tests::s3_session::new, append);
+    flush_test(fuse::s3_session::new, append);
 }
 
 #[test_case(true; "append")]
 #[test_case(false; "no append")]
 fn flush_test_mock(append: bool) {
-    flush_test(crate::fuse_tests::mock_session::new, append);
+    flush_test(fuse::mock_session::new, append);
 }
 
 fn touch_test<F>(creator_fn: F)
@@ -583,12 +583,12 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn touch_test_s3() {
-    touch_test(crate::fuse_tests::s3_session::new);
+    touch_test(fuse::s3_session::new);
 }
 
 #[test]
 fn touch_test_mock() {
-    touch_test(crate::fuse_tests::mock_session::new);
+    touch_test(fuse::mock_session::new);
 }
 
 fn dd_test<F>(creator_fn: F)
@@ -621,18 +621,18 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn dd_test_s3() {
-    dd_test(crate::fuse_tests::s3_session::new);
+    dd_test(fuse::s3_session::new);
 }
 
 #[test]
 fn dd_test_mock() {
-    dd_test(crate::fuse_tests::mock_session::new);
+    dd_test(fuse::mock_session::new);
 }
 
 #[test]
 fn spawn_test() {
     const KEY: &str = "new.txt";
-    let (mount_point, _session, _test_client) = crate::fuse_tests::mock_session::new("spawn_test", Default::default());
+    let (mount_point, _session, _test_client) = fuse::mock_session::new("spawn_test", Default::default());
 
     let path = mount_point.path().join(KEY);
     let mut f = open_for_write(&path, false).unwrap();
@@ -654,7 +654,7 @@ fn spawn_test() {
 #[test]
 fn multi_thread_test() {
     const KEY: &str = "new.txt";
-    let (mount_point, _session, test_client) = crate::fuse_tests::mock_session::new("spawn_test", Default::default());
+    let (mount_point, _session, test_client) = fuse::mock_session::new("spawn_test", Default::default());
 
     let path = mount_point.path().join(KEY);
     let mut f = open_for_write(&path, false).unwrap();

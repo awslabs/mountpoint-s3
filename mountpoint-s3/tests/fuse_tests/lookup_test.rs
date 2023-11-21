@@ -10,7 +10,7 @@ use mountpoint_s3::{fs::CacheConfig, S3FilesystemConfig};
 use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::fuse_tests::{read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
 /// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test<F>(creator_fn: F, prefix: &str, subdir: &str)
@@ -40,7 +40,7 @@ where
 #[test_case(""; "no subdirectory")]
 #[test_case("subdir/"; "with subdirectory")]
 fn lookup_directory_overlap_test_s3(subdir: &str) {
-    lookup_directory_overlap_test(crate::fuse_tests::s3_session::new, "lookup_dirrectory_overlap", subdir);
+    lookup_directory_overlap_test(fuse::s3_session::new, "lookup_dirrectory_overlap", subdir);
 }
 
 #[test_case("", ""; "no prefix no subdirectory")]
@@ -48,7 +48,7 @@ fn lookup_directory_overlap_test_s3(subdir: &str) {
 #[test_case("", "subdir/"; "no prefix subdirectory")]
 #[test_case("lookup_dirrectory_overlap", "subdir/"; "prefix subdirectory")]
 fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
-    lookup_directory_overlap_test(crate::fuse_tests::mock_session::new, prefix, subdir);
+    lookup_directory_overlap_test(fuse::mock_session::new, prefix, subdir);
 }
 
 fn lookup_weird_characters_test<F>(creator_fn: F, prefix: &str)
@@ -97,12 +97,12 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn lookup_directory_weird_characters_s3() {
-    lookup_weird_characters_test(crate::fuse_tests::s3_session::new, "lookup_weird_characters_test");
+    lookup_weird_characters_test(fuse::s3_session::new, "lookup_weird_characters_test");
 }
 
 #[test]
 fn lookup_directory_weird_characters_mock() {
-    lookup_weird_characters_test(crate::fuse_tests::mock_session::new, "lookup_weird_characters_test");
+    lookup_weird_characters_test(fuse::mock_session::new, "lookup_weird_characters_test");
 }
 
 fn lookup_previously_shadowed_file_test<F>(creator_fn: F)
@@ -143,12 +143,12 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn lookup_previously_shadowed_file_test_s3() {
-    lookup_previously_shadowed_file_test(crate::fuse_tests::s3_session::new);
+    lookup_previously_shadowed_file_test(fuse::s3_session::new);
 }
 
 #[test]
 fn lookup_previously_shadowed_file_test_mock() {
-    lookup_previously_shadowed_file_test(crate::fuse_tests::mock_session::new);
+    lookup_previously_shadowed_file_test(fuse::mock_session::new);
 }
 
 fn lookup_unicode_keys_test<F>(creator_fn: F, prefix: &str)
@@ -191,10 +191,10 @@ where
 #[cfg(feature = "s3_tests")]
 #[test]
 fn lookup_unicode_keys_s3() {
-    lookup_unicode_keys_test(crate::fuse_tests::s3_session::new, "lookup_unicode_keys_test");
+    lookup_unicode_keys_test(fuse::s3_session::new, "lookup_unicode_keys_test");
 }
 
 #[test]
 fn lookup_unicode_keys_mock() {
-    lookup_unicode_keys_test(crate::fuse_tests::mock_session::new, "lookup_unicode_keys_test");
+    lookup_unicode_keys_test(fuse::mock_session::new, "lookup_unicode_keys_test");
 }
