@@ -49,20 +49,23 @@ impl ManagedCacheDir {
         Ok(managed_cache_dir)
     }
 
-    /// Remove the cache sub-directory
+    /// Clear the cache sub-directory
     fn clean(&self) -> Result<(), ManagedCacheDirError> {
         tracing::debug!(cache_subdirectory = ?self.managed_path, "cleaning up contents of cache sub-directory");
-        if let Err(e) = fs::remove_dir_all(&self.managed_path) {
-            match e.kind() {
-                io::ErrorKind::NotFound => (),
-                _kind => return Err(ManagedCacheDirError::CleanupFailure(e)),
+        let read_dir = fs::read_dir(self.managed_path.as_path()).map_err(ManagedCacheDirError::CleanupFailure)?;
+        for entry in read_dir {
+            let path = entry.map_err(ManagedCacheDirError::CleanupFailure)?.path();
+            if path.is_dir() {
+                fs::remove_dir_all(path).map_err(ManagedCacheDirError::CleanupFailure)?;
+            } else {
+                fs::remove_file(path).map_err(ManagedCacheDirError::CleanupFailure)?;
             }
         }
         tracing::trace!(cache_subdirectory = ?self.managed_path, "cleanup complete");
         Ok(())
     }
 
-    /// Delete the managed cache directory, waiting until complete.
+    /// Clear the managed cache directory, waiting until complete.
     ///
     /// This directory should also be cleaned as part of [Drop], however this is not always guaranteed.
     pub fn close(mut self) -> Result<(), ManagedCacheDirError> {
@@ -110,10 +113,10 @@ mod tests {
         assert!(expected_path.try_exists().unwrap(), "{expected_path:?} should exist");
 
         drop(managed_dir);
-        assert!(
-            !expected_path.try_exists().unwrap(),
-            "{expected_path:?} should not exist"
-        );
+        let dir_entries = fs::read_dir(&expected_path)
+            .expect("cache dir should still exist")
+            .count();
+        assert!(dir_entries == 0, "directory should be empty");
 
         temp_dir.close().unwrap();
     }
@@ -134,10 +137,10 @@ mod tests {
             .expect("should be able to create file within subdirectory");
 
         drop(managed_dir);
-        assert!(
-            !expected_path.try_exists().unwrap(),
-            "{expected_path:?} should not exist"
-        );
+        let dir_entries = fs::read_dir(&expected_path)
+            .expect("cache dir should still exist")
+            .count();
+        assert!(dir_entries == 0, "directory should be empty");
 
         temp_dir.close().unwrap();
     }
@@ -158,10 +161,10 @@ mod tests {
         assert!(dir_entries == 0, "directory should be empty");
 
         drop(managed_dir);
-        assert!(
-            !expected_path.try_exists().unwrap(),
-            "{expected_path:?} should not exist"
-        );
+        let dir_entries = fs::read_dir(&expected_path)
+            .expect("cache dir should still exist")
+            .count();
+        assert!(dir_entries == 0, "directory should be empty");
 
         temp_dir.close().unwrap();
     }
