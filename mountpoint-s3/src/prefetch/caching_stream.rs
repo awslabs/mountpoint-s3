@@ -5,7 +5,7 @@ use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::{types::ETag, ObjectClient};
-use tracing::{debug_span, error, trace, warn, Instrument};
+use tracing::{debug_span, trace, warn, Instrument};
 
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, CacheKey, DataCache};
@@ -124,13 +124,12 @@ where
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     let part = self.make_part(block, block_index, block_offset, &range);
-                    metrics::counter!("cache.total_bytes", part.len() as u64, "type" => "read");
                     self.part_queue_producer.push(Ok(part));
                     block_offset += block_size;
                     continue;
                 }
                 Ok(None) => trace!(?cache_key, block_index, ?range, "cache miss - no data for block"),
-                Err(error) => error!(
+                Err(error) => warn!(
                     ?cache_key,
                     block_index,
                     ?range,
@@ -139,10 +138,14 @@ where
                 ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
+            metrics::counter!("prefetch.blocks_served_from_cache", block_index - block_range.start);
+            metrics::counter!("prefetch.blocks_requested_to_client", block_range.end - block_index);
             return self
                 .get_from_client(range.trim_start(block_offset), block_index..block_range.end)
                 .await;
         }
+        // We served the whole range from cache.
+        metrics::counter!("prefetch.blocks_served_from_cache", block_range.end - block_range.start);
     }
 
     async fn get_from_client(&self, range: RequestRange, block_range: Range<u64>) {
@@ -172,7 +175,7 @@ where
         {
             Ok(get_object_result) => get_object_result,
             Err(e) => {
-                error!(key, error=?e, "GetObject request failed");
+                warn!(key, error=?e, "GetObject request failed");
                 self.part_queue_producer
                     .push(Err(PrefetchReadError::GetRequestFailed(e)));
                 return;
@@ -194,7 +197,7 @@ where
 
                     let expected_offset = block_offset + buffer.len() as u64;
                     if offset != expected_offset {
-                        error!(key, offset, expected_offset, "wrong offset for GetObject body part");
+                        warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
                         self.part_queue_producer
                             .push(Err(PrefetchReadError::GetRequestReturnedWrongOffset {
                                 offset,
@@ -209,7 +212,7 @@ where
                         let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
                         let chunk = body.split_to(remaining);
                         if let Err(e) = buffer.extend(chunk.into()) {
-                            error!(key, error=?e, "integrity check for body part failed");
+                            warn!(key, error=?e, "integrity check for body part failed");
                             self.part_queue_producer.push(Err(e.into()));
                             return;
                         }
@@ -227,7 +230,7 @@ where
                     }
                 }
                 Some(Err(e)) => {
-                    error!(key, error=?e, "GetObject body part failed");
+                    warn!(key, error=?e, "GetObject body part failed");
                     self.part_queue_producer
                         .push(Err(PrefetchReadError::GetRequestFailed(e)));
                     break;
@@ -260,14 +263,12 @@ where
             .cache
             .put_block(self.cache_key.clone(), block_index, block_offset, block.clone())
         {
-            Ok(()) => {
-                metrics::histogram!("cache.write_duration_us", start.elapsed().as_micros() as f64);
-                metrics::counter!("cache.total_bytes", block.len() as u64, "type" => "write");
-            }
+            Ok(()) => {}
             Err(error) => {
                 warn!(key=?self.cache_key.s3_key, block_index, ?error, "failed to update cache");
             }
         };
+        metrics::histogram!("prefetch.cache_update_duration_us", start.elapsed().as_micros() as f64);
     }
 
     /// Creates a Part that can be streamed to the prefetcher from the given cache block.
