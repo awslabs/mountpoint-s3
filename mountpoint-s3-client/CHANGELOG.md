@@ -1,3 +1,16 @@
+## v0.5.0 (November 21, 2023)
+
+### Breaking changes
+
+* The `user_agent_prefix` string field of `S3ClientConfig` has been replaced with a new `user_agent` field of type `UserAgent` to allow more flexible construction of user agent headers that fit the pattern of AWS SDKs ([#608](https://github.com/awslabs/mountpoint-s3/pull/608))
+
+### Other changes
+
+* Request tracing spans are now created with a unique target to allow them to be filtered out ([#615](https://github.com/awslabs/mountpoint-s3/pull/615))
+* Added `InstanceInfo`, a higher-level IMDS client that can retrieve metadata about an EC2 instance ([#608](https://github.com/awslabs/mountpoint-s3/pull/608))
+* `ETag`s can now be unwrapped with `into_inner()`, and now implement `Hash` and `Eq` ([#589](https://github.com/awslabs/mountpoint-s3/pull/589), [#593](https://github.com/awslabs/mountpoint-s3/pull/593))
+* The `MockClient` now supports counting the number of requests performed, for use in tests that need to make assertions about requests ([#567](https://github.com/awslabs/mountpoint-s3/pull/567))
+
 ## v0.4.0 (September 26, 2023)
 
 ### Breaking changes

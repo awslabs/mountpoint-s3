@@ -1,3 +1,8 @@
+## v0.4.0 (November 21, 2023)
+
+* Update to latest CRT dependencies
+* Allow constructing custom signing configurations ([#545](https://github.com/awslabs/mountpoint-s3/pull/545))
+
 ## v0.3.0 (September 26, 2023)
 
 * Update to latest CRT dependencies
