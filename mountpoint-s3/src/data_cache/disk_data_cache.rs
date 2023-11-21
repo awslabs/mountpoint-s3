@@ -3,6 +3,7 @@
 use std::fs;
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use bytes::Bytes;
 use linked_hash_map::LinkedHashMap;
@@ -10,7 +11,7 @@ use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
@@ -145,7 +146,7 @@ impl DiskBlockHeader {
                 Ok(Crc32c::new(data_checksum))
             }
         } else {
-            error!(
+            warn!(
                 s3_key_match,
                 etag_match, block_idx_match, "block data did not match expected values",
             );
@@ -238,7 +239,7 @@ impl DiskDataCache {
         let mut block_version = [0; CACHE_VERSION.len()];
         file.read_exact(&mut block_version)?;
         if block_version != CACHE_VERSION.as_bytes() {
-            error!(
+            warn!(
                 found_version = ?block_version, expected_version = ?CACHE_VERSION, path = ?path.as_ref(),
                 "stale block format found during reading"
             );
@@ -248,7 +249,7 @@ impl DiskDataCache {
         let block: DiskBlock = match bincode::deserialize_from(&file) {
             Ok(block) => block,
             Err(e) => {
-                error!("block could not be deserialized: {:?}", e);
+                warn!("block could not be deserialized: {:?}", e);
                 return Err(DataCacheError::InvalidBlockContent);
             }
         };
@@ -316,13 +317,13 @@ impl DiskDataCache {
 
         while self.is_limit_exceeded(usage.lock().unwrap().size) {
             let Some(to_remove) = usage.lock().unwrap().evict_lru() else {
-                error!("cache limit exceeded but nothing to evict");
+                warn!("cache limit exceeded but nothing to evict");
                 return Err(DataCacheError::EvictionFailure);
             };
             let path_to_remove = self.get_path_for_block_key(&to_remove);
             trace!("evicting block at {}", path_to_remove.display());
             if let Err(remove_err) = fs::remove_file(&path_to_remove) {
-                error!("unable to remove invalid block: {:?}", remove_err);
+                warn!("unable to remove invalid block: {:?}", remove_err);
             }
         }
         Ok(())
@@ -350,24 +351,36 @@ impl DataCache for DiskDataCache {
         if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
+        let start = Instant::now();
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
         match self.read_block(&path, cache_key, block_idx, block_offset) {
-            Ok(None) => Ok(None),
+            Ok(None) => {
+                // Cache miss.
+                metrics::counter!("disk_data_cache.block_hit", 0);
+                Ok(None)
+            }
             Ok(Some(bytes)) => {
+                // Cache hit.
+                metrics::counter!("disk_data_cache.block_hit", 1);
+                metrics::counter!("disk_data_cache.total_bytes", bytes.len() as u64, "type" => "read");
+                metrics::histogram!("disk_data_cache.read_duration_us", start.elapsed().as_micros() as f64);
                 if let Some(usage) = &self.usage {
                     usage.lock().unwrap().refresh(&block_key);
                 }
                 Ok(Some(bytes))
             }
             Err(err) => {
+                // Invalid block. Count as cache miss.
+                metrics::counter!("disk_data_cache.block_hit", 0);
+                metrics::counter!("disk_data_cache.block_err", 1);
                 match fs::remove_file(&path) {
                     Ok(()) => {
                         if let Some(usage) = &self.usage {
                             usage.lock().unwrap().remove(&block_key);
                         }
                     }
-                    Err(remove_err) => error!("unable to remove invalid block: {:?}", remove_err),
+                    Err(remove_err) => warn!("unable to remove invalid block: {:?}", remove_err),
                 }
                 Err(err)
             }
@@ -385,6 +398,7 @@ impl DataCache for DiskDataCache {
             return Err(DataCacheError::InvalidBlockOffset);
         }
 
+        let bytes_len = bytes.len();
         let block_key = DiskBlockKey::new(&cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
         trace!(?cache_key, ?path, "new block will be created in disk cache");
@@ -393,9 +407,23 @@ impl DataCache for DiskDataCache {
             DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
         })?;
 
-        self.evict_if_needed()?;
+        {
+            let eviction_start = Instant::now();
+            let result = self.evict_if_needed();
+            metrics::histogram!(
+                "disk_data_cache.eviction_duration_us",
+                eviction_start.elapsed().as_micros() as f64
+            );
+            result
+        }?;
 
+        let write_start = Instant::now();
         let size = self.write_block(path, block)?;
+        metrics::histogram!(
+            "disk_data_cache.write_duration_us",
+            write_start.elapsed().as_micros() as f64
+        );
+        metrics::counter!("disk_data_cache.total_bytes", bytes_len as u64, "type" => "write");
         if let Some(usage) = &self.usage {
             usage.lock().unwrap().add(block_key, size);
         }
