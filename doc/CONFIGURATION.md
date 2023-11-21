@@ -249,8 +249,7 @@ You can instead manually configure the maximum size of the cache with the `--max
 > If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.
 > In order to protect your data, we recommend you restrict access to the data cache location.
 
-
-### Using multiple Mountpoint processes on a host
+### Using multiple Mountpoint processes on a host
 
 The cache directory is not reusable by other Mountpoint processes and will be cleaned at mount time and exit.
 When running multiple Mountpoint processes concurrently on the same host,
