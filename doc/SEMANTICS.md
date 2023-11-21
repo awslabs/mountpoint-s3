@@ -77,18 +77,19 @@ Mountpoint allows multiple readers to access the same object at the same time. H
 
 ### Optional metadata and object content caching
 
-Mountpoint also offers optional metadata and object content caching which can be enabled using CLI flags:
-see the [caching section of the configuration documentation](./CONFIGURATION.md#caching) for more information.
-When opting into caching, the consistency model is relaxed and you may see stale entries until they have expired.
-Stale entries may live as long as the cache's metadata time-to-live (TTL).
+Mountpoint also offers optional metadata and object content caching.
+See the [caching section of the configuration documentation](./CONFIGURATION.md#caching) for more information.
+When opting into caching, the strong read-after-write consistency model is relaxed,
+and you may see stale metadata or object data for up to the cache's metadata time-to-live (TTL),
+which defaults to 1 second but can be configured higher.
 
-For example, without caching it was not possible to read stale data if the file was opened after it was updated or deleted.
-With caching, it is possible to open a file for a stale object.
-Reads may either succeed returning any cached object content or return I/O errors for accesses to uncached object content.
-However, it is not possible for object content from two different objects to be returned for the same file handle.
+For example, with caching enabled, you can successfully open and read a file that has been deleted from S3 if it is already cached.
+Reads to that file will either return the cached data or an error for data that is not cached,
+but will never return corrupt data or combine data from two versions of the file.
 
-To avoid reading data from an old object, an application can use the `O_DIRECT` option (or language equivalent) when opening a file for reading.
-When this option is provided, Mountpoint will check S3 when opening the file to ensure the latest object content is returned to the application.
+To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the file for reading.
+When this option is provided, Mountpoint will check S3 to ensure the object exists and return the latest object content.
+Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
 ## Durability
 

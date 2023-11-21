@@ -255,9 +255,9 @@ The cache directory is not reusable by other Mountpoint processes and will be cl
 When running multiple Mountpoint processes concurrently on the same host,
 you should use unique cache directories to avoid different processes interfering with the others' cache content.
 
-### Caching object content to random access memory
+### Caching object content to memory
 
-Mountpoint can instead cache object content to random access memory (RAM) using a RAM disk.
+Mountpoint can instead cache object content to instance memory using a RAM disk.
 
 To create a RAM disk on Linux, you can use [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html) as shown below.
 Replace the mount directory for tmpfs if required.
@@ -268,7 +268,7 @@ sudo mount -o uid=$(id --user),mode=700 -t tmpfs none /mnt/mp-cache-tmpfs
 ```
 
 This will create a RAM disk mounted at `/mnt/mp-cache-tmpfs` with access restricted to the current user.
-By default, Linux will limit the size to 50% of the physical memory available on the system.
+By default, Linux will set the size of the RAM disk to 50% of the physical memory available on the system.
 The size is configurable using the `size` option.
 
 You can then start Mountpoint using the directory where the RAM disk was mounted.
