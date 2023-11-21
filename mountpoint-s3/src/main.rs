@@ -9,6 +9,8 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, Parser};
 use fuser::{MountOption, Session};
+#[cfg(feature = "caching")]
+use mountpoint_s3::data_cache::ManagedCacheDir;
 use mountpoint_s3::fs::S3FilesystemConfig;
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
@@ -586,9 +588,11 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
             };
 
             if let Some(cache_config) = cache_config {
-                let cache = DiskDataCache::new(path, cache_config);
+                let managed_cache_dir =
+                    ManagedCacheDir::new_from_parent(path).context("failed to create cache directory")?;
+                let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
                 let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
-                return create_filesystem(
+                let mut fuse_session = create_filesystem(
                     client,
                     prefetcher,
                     &args.bucket_name,
@@ -597,6 +601,14 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
                     fuse_config,
                     &bucket_description,
                 );
+
+                if let Ok(session) = &mut fuse_session {
+                    session.run_on_close(Box::new(move || {
+                        drop(managed_cache_dir);
+                    }));
+                }
+
+                return fuse_session;
             }
         }
     }

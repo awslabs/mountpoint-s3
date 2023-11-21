@@ -13,8 +13,13 @@ use crate::sync::Arc;
 /// this process to be interrupted.
 pub struct FuseSession {
     unmounter: SessionUnmounter,
+    /// Waits for messages from threads or signal handler.
     receiver: mpsc::Receiver<Message>,
+    /// List of closures or functions to call when session is exiting.
+    on_close: Vec<OnClose>,
 }
+
+type OnClose = Box<dyn FnOnce()>;
 
 impl FuseSession {
     /// Create worker threads to dispatch requests for a FUSE session.
@@ -50,6 +55,8 @@ impl FuseSession {
                             Ok(thd_result) => {
                                 if let Err(fuse_worker_error) = thd_result {
                                     error!(thread_name, "worker thread failed: {fuse_worker_error:?}");
+                                } else {
+                                    trace!(thread_name, "worker thread exited OK");
                                 }
                             }
                         };
@@ -70,15 +77,27 @@ impl FuseSession {
         Ok(Self {
             unmounter,
             receiver: rx,
+            on_close: Default::default(),
         })
+    }
+
+    /// Add a new handler which is executed when this session is shutting down.
+    pub fn run_on_close(&mut self, handler: OnClose) {
+        self.on_close.push(handler);
     }
 
     /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT.
     /// When that happens, unmount the file system (if it hasn't been already unmounted).
     pub fn join(mut self) -> anyhow::Result<()> {
         let msg = self.receiver.recv();
-        trace!("received message {msg:?}, unmounting filesystem");
+        trace!("received message {msg:?}, closing filesystem session");
 
+        trace!("executing {} handler(s) on close", self.on_close.len());
+        for handler in self.on_close {
+            handler();
+        }
+
+        trace!("unmounting filesystem");
         self.unmounter.unmount().context("failed to unmount FUSE session")
     }
 }

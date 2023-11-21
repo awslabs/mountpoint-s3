@@ -4,6 +4,7 @@
 //! reducing both the number of requests as well as the latency for the reads.
 //! Ultimately, this means reduced cost in terms of S3 billing as well as compute time.
 
+mod cache_directory;
 mod disk_data_cache;
 mod in_memory_data_cache;
 
@@ -11,6 +12,7 @@ use mountpoint_s3_client::types::ETag;
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
+pub use crate::data_cache::cache_directory::ManagedCacheDir;
 pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 
