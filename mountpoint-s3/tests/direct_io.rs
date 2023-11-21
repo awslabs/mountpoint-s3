@@ -3,7 +3,7 @@
 //! with a fork, and FUSE tests involve a fork to spawn fusermount.
 
 #![cfg(target_os = "linux")]
-#![cfg(feature = "s3_tests")]
+#![cfg(feature = "fuse_tests")]
 
 mod common;
 
