@@ -37,152 +37,98 @@ impl ObjectId {
     }
 }
 
-/// A self-identifying part of an S3 object. Users can only retrieve the bytes from this part if
-/// they can prove they have the correct offset and object Id (key + etag).
+/// A part of an S3 object. The implementation guarantees that integrity will be validated before
+/// the part's content can be accessed.
+/// Data transformations will either fail returning a [PartValidationError], or propagate the
+/// data checksum so that it can be validated on access.
+/// [ObjectPart]s can internally reference a buffer which is larger than the slice they represent.
+/// This allows to implement a number of operations (e.g. `slice`, `split_off`) without forcing a
+/// re-calculation of the integrity checksum on the part content (`buffer_checksum`). A separate
+/// `metadata_checksum` is always re-calculated based on all other fields.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct ObjectPart {
-    id: ObjectId,
+    object_id: ObjectId,
+    /// Offset in the object
     offset: u64,
-    checksummed_bytes: ChecksummedBytes,
+    /// Underlying buffer
+    buffer: Bytes,
+    /// Checksum for the whole [Self::buffer]
+    buffer_checksum: Crc32c,
+    /// Range over `buffer`
+    range: Range<usize>,
+    /// Checksum for this part metadata.
+    /// Computed over [Self::object_id], [Self::offset], [Self::buffer_checksum], and [Self::range] (but not [Self::buffer]).
+    metadata_checksum: Crc32c,
 }
 
 impl ObjectPart {
-    pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes) -> Self {
-        Self {
-            id,
-            offset,
-            checksummed_bytes,
-        }
-    }
-
-    pub fn into_bytes(self, id: &ObjectId, offset: u64) -> Result<ChecksummedBytes, PartMismatchError> {
-        self.check(id, offset).map(|_| self.checksummed_bytes)
-    }
-
-    /// Split the part into two at the given index.
-    ///
-    /// Returns a newly allocated part containing the range [at, len). After the call, the original
-    /// part will be left containing the elements [0, at).
-    pub fn split_off(&mut self, at: usize) -> ObjectPart {
-        let new_bytes = self.checksummed_bytes.split_off(at);
-        ObjectPart {
-            id: self.id.clone(),
-            offset: self.offset + at as u64,
-            checksummed_bytes: new_bytes,
-        }
-    }
-
-    pub(super) fn len(&self) -> usize {
-        self.checksummed_bytes.len()
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.checksummed_bytes.is_empty()
-    }
-
-    fn check(&self, id: &ObjectId, offset: u64) -> Result<(), PartMismatchError> {
-        if self.id != *id {
-            return Err(PartMismatchError::Id {
-                actual: self.id.clone(),
-                requested: id.to_owned(),
-            });
-        }
-        if self.offset != offset {
-            return Err(PartMismatchError::Offset {
-                actual: self.offset,
-                requested: offset,
-            });
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PartMismatchError {
-    #[error("wrong part id: actual={actual:?}, requested={requested:?}")]
-    Id { actual: ObjectId, requested: ObjectId },
-
-    #[error("wrong part offset: actual={actual}, requested={requested}")]
-    Offset { actual: u64, requested: u64 },
-}
-
-/// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
-/// The implementation guarantees that integrity will be validated before the data can be accessed.
-/// Data transformations will either fail returning an [IntegrityError], or propagate the checksum
-/// so that it can be validated on access.
-#[derive(Clone, Debug)]
-#[must_use]
-pub struct ChecksummedBytes {
-    /// Underlying buffer
-    buffer: Bytes,
-    /// Range over [Self::buffer]
-    range: Range<usize>,
-    /// Checksum for [Self::buffer]
-    checksum: Crc32c,
-}
-
-impl ChecksummedBytes {
-    /// Create a new [ChecksummedBytes] from the given [Bytes] and pre-calculated checksum.
+    /// Create a new [ObjectPart] from the given [Bytes] and pre-calculated checksum.
     /// To be used for de-serialization.
-    pub fn new_from_inner_data(bytes: Bytes, checksum: Crc32c) -> Self {
+    pub fn new_from_inner_data(object_id: ObjectId, offset: u64, bytes: Bytes, bytes_checksum: Crc32c) -> Self {
         let full_range = 0..bytes.len();
+        let metadata_checksum = compute_part_checksum(&object_id, offset, bytes_checksum, &full_range);
         Self {
+            object_id,
+            offset,
             buffer: bytes,
+            buffer_checksum: bytes_checksum,
             range: full_range,
-            checksum,
+            metadata_checksum,
         }
     }
 
-    /// Create [ChecksummedBytes] from [Bytes], calculating its checksum.
-    pub fn new(bytes: Bytes) -> Self {
-        let checksum = crc32c::checksum(&bytes);
-        Self::new_from_inner_data(bytes, checksum)
+    /// Create a new [ObjectPart] from the given [Bytes].
+    pub fn new(object_id: ObjectId, offset: u64, bytes: Bytes) -> Self {
+        let bytes_checksum = crc32c::checksum(&bytes);
+        Self::new_from_inner_data(object_id, offset, bytes, bytes_checksum)
     }
 
-    /// Convert the [ChecksummedBytes] into [Bytes], data integrity will be validated before converting.
-    ///
-    /// Return [IntegrityError] on data corruption.
-    pub fn into_bytes(self) -> Result<Bytes, IntegrityError> {
+    /// Returns the bytes in this part, if its integrity can be validated.
+    pub fn into_bytes(self) -> Result<Bytes, PartValidationError> {
         self.validate()?;
         Ok(self.buffer_slice())
     }
 
-    /// Returns the number of bytes contained in this [ChecksummedBytes].
+    /// Returns the [ObjectId] of this [ObjectPart].
+    pub fn object_id(&self) -> &ObjectId {
+        &self.object_id
+    }
+
+    /// Returns the offset of this [ObjectPart] in the object.
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// Returns the number of bytes contained in this [ObjectPart].
     pub fn len(&self) -> usize {
         self.range.len()
     }
 
-    /// Returns true if the [ChecksummedBytes] has a length of 0.
+    /// Returns true if this [ObjectPart] is empty.
     pub fn is_empty(&self) -> bool {
         self.range.is_empty()
     }
 
-    /// Split off the checksummed bytes at the given index.
+    /// Split off the part at the given index.
     ///
-    /// Afterwards self contains elements [0, at), and the returned Bytes contains elements [at, len).
-    ///
-    /// This operation just increases the reference count and sets a few indices,
-    /// so there will be no validation and the checksum will not be recomputed.
-    pub fn split_off(&mut self, at: usize) -> ChecksummedBytes {
+    /// Returns a new part containing the range [at, len). After the call, the original
+    /// part will be left containing the elements [0, at).
+    pub fn split_off(&mut self, at: usize) -> Result<Self, PartValidationError> {
         assert!(at < self.len());
 
         let start = self.range.start;
         let prefix_range = start..(start + at);
         let suffix_range = (start + at)..self.range.end;
 
-        self.range = prefix_range;
-        Self {
-            buffer: self.buffer.clone(),
-            range: suffix_range,
-            checksum: self.checksum,
-        }
+        let mut split_off = self.clone();
+        self.replace_range(prefix_range)?;
+        split_off.replace_range(suffix_range)?;
+        Ok(split_off)
     }
 
     /// Returns a slice of self for the provided range.
-    ///
-    /// This operation just increases the reference count and sets a few indices,
-    /// so there will be no validation and the checksum will not be recomputed.
-    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Result<Self, PartValidationError> {
         let sliced_range = {
             let original_len = self.len();
             let original_start = self.range.start;
@@ -215,67 +161,79 @@ impl ChecksummedBytes {
             (original_start + slice_start_offset)..(original_start + slice_end_offset)
         };
 
-        Self {
-            buffer: self.buffer.clone(),
-            range: sliced_range,
-            checksum: self.checksum,
-        }
+        let mut sliced = self.clone();
+        sliced.replace_range(sliced_range)?;
+        Ok(sliced)
     }
 
     /// Guarantees that the checksum is computed exactly
     /// on the slice, rather than on a larger containing buffer.
     ///
-    /// Return [IntegrityError] if data corruption is detected.
-    pub fn shrink_to_fit(&mut self) -> Result<(), IntegrityError> {
-        if self.len() == self.buffer.len() {
+    /// Return [PartValidationError] if data corruption is detected.
+    pub fn shrink_to_fit(&mut self) -> Result<(), PartValidationError> {
+        if self.range.len() == self.buffer.len() {
             return Ok(());
         }
 
         // Note that no data is copied: `bytes` still points to a subslice of `buffer`.
         let bytes = self.buffer_slice();
-        let checksum = crc32c::checksum(&bytes);
+        let bytes_checksum = crc32c::checksum(&bytes);
+        let new_range = 0..bytes.len();
+        let part_checksum = compute_part_checksum(&self.object_id, self.offset, bytes_checksum, &new_range);
 
         // Check the integrity of the whole buffer.
         self.validate()?;
 
+        // Replace with the slice.
         *self = Self {
+            object_id: self.object_id.clone(),
+            offset: self.offset,
             buffer: bytes,
-            range: 0..self.len(),
-            checksum,
+            buffer_checksum: bytes_checksum,
+            range: new_range,
+            metadata_checksum: part_checksum,
         };
         Ok(())
     }
 
-    /// Append the given checksummed bytes to current [ChecksummedBytes]. Will combine the
+    /// Append the given part to current [ObjectPart]. Will combine the
     /// existing checksums if possible, or compute a new one and validate data integrity.
     ///
-    /// Return [IntegrityError] if data corruption is detected.
-    pub fn extend(&mut self, mut extend: ChecksummedBytes) -> Result<(), IntegrityError> {
+    /// Return [PartValidationError] if data corruption is detected.
+    pub fn extend(&mut self, mut extend: ObjectPart) -> Result<(), PartValidationError> {
+        let expected_offset = self.offset + self.len() as u64;
+        if expected_offset != extend.offset {
+            return Err(PartValidationError::NonContiguousOffset {
+                actual: extend.offset,
+                expected: expected_offset,
+            });
+        }
+
         if extend.is_empty() {
             // No op, but check that `extend` was not corrupted
-            extend.validate()?;
+            extend.validate_metadata()?;
             return Ok(());
         }
 
         if self.is_empty() {
             // Replace with `extend`, but check that `self` was not corrupted
-            self.validate()?;
+            self.validate_metadata()?;
             *self = extend;
             return Ok(());
         }
 
         // When appending two slices, we can combine their checksums and obtain the new checksum
         // without having to recompute it from the data.
-        // However, since a `ChecksummedBytes` potentially holds the checksum of some larger buffer,
+        // However, since an `ObjectPart` potentially holds the checksum of some larger buffer,
         // rather than the exact one for the slice, we need to first invoke `shrink_to_fit` on each
         // slice and use the resulting exact checksums.
         self.shrink_to_fit()?;
-        assert_eq!(self.buffer.len(), self.len());
+        assert_eq!(self.buffer.len(), self.range.len());
         extend.shrink_to_fit()?;
-        assert_eq!(extend.buffer.len(), extend.len());
+        assert_eq!(extend.buffer.len(), extend.range.len());
 
         // Combine the checksums.
-        let new_checksum = combine_checksums(self.checksum, extend.checksum, extend.len());
+        let new_checksum = combine_checksums(self.buffer_checksum, extend.buffer_checksum, extend.len());
 
         // Combine the slices.
         let new_bytes = {
@@ -286,21 +244,66 @@ impl ChecksummedBytes {
         };
 
         let new_range = 0..(new_bytes.len());
+        let new_metadata_checksum = compute_part_checksum(&self.object_id, self.offset, new_checksum, &new_range);
         *self = Self {
+            object_id: self.object_id.clone(),
+            offset: self.offset,
             buffer: new_bytes,
+            buffer_checksum: new_checksum,
             range: new_range,
-            checksum: new_checksum,
+            metadata_checksum: new_metadata_checksum,
         };
         Ok(())
     }
 
-    /// Validate data integrity in this [ChecksummedBytes].
+    /// Validate data and metadata integrity in this [ObjectPart].
     ///
-    /// Return [IntegrityError] on data corruption.
-    pub fn validate(&self) -> Result<(), IntegrityError> {
+    /// Return an error if part data and metadata integrity could not be verified.
+    fn validate(&self) -> Result<(), PartValidationError> {
+        self.validate_metadata()?;
         let checksum = crc32c::checksum(&self.buffer);
-        if self.checksum != checksum {
-            return Err(IntegrityError::ChecksumMismatch(self.checksum, checksum));
+        if self.buffer_checksum != checksum {
+            return Err(PartValidationError::DataChecksumMismatch {
+                expected: self.buffer_checksum,
+                actual: checksum,
+            });
+        }
+        Ok(())
+    }
+
+    /// Validate metadata integrity in this [ObjectPart].
+    ///
+    /// Return an error if part metadata integrity could not be verified.
+    fn validate_metadata(&self) -> Result<(), PartValidationError> {
+        let part_checksum = compute_part_checksum(&self.object_id, self.offset, self.buffer_checksum, &self.range);
+        if self.metadata_checksum != part_checksum {
+            return Err(PartValidationError::MetadataChecksumMismatch {
+                expected: self.metadata_checksum,
+                actual: part_checksum,
+            });
+        }
+        Ok(())
+    }
+
+    /// Check whether this part matches the given identifier and offset.
+    pub fn check(&self, object_id: &ObjectId, offset: u64) -> Result<(), PartMismatchError> {
+        if self.object_id.key() != object_id.key() {
+            return Err(PartMismatchError::Key {
+                actual: self.object_id.key().to_owned(),
+                requested: object_id.key().to_owned(),
+            });
+        }
+        if self.object_id.etag() != object_id.etag() {
+            return Err(PartMismatchError::ETag {
+                actual: self.object_id.etag().to_owned(),
+                requested: object_id.etag().to_owned(),
+            });
+        }
+        if self.offset != offset {
+            return Err(PartMismatchError::Offset {
+                actual: self.offset,
+                requested: offset,
+            });
         }
         Ok(())
     }
@@ -310,9 +313,9 @@ impl ChecksummedBytes {
     /// Validation may or may not be triggered, and **bytes or checksum may be corrupt** even if result returns [Ok].
     ///
     /// If you are only interested in the underlying bytes, **you should use `into_bytes()`**.
-    pub fn into_inner(mut self) -> Result<(Bytes, Crc32c), IntegrityError> {
+    pub fn into_inner_data(mut self) -> Result<(Bytes, Crc32c), PartValidationError> {
         self.shrink_to_fit()?;
-        Ok((self.buffer, self.checksum))
+        Ok((self.buffer, self.buffer_checksum))
     }
 
     /// Return the slice of `buffer` corresponding to `range`.
@@ -321,43 +324,65 @@ impl ChecksummedBytes {
     fn buffer_slice(&self) -> Bytes {
         self.buffer.slice(self.range.clone())
     }
-}
 
-impl Default for ChecksummedBytes {
-    fn default() -> Self {
-        Self {
-            buffer: Default::default(),
-            range: Default::default(),
-            checksum: Crc32c::new(0),
-        }
+    /// Replace the range and recompute the offset and the metadata checksum.
+    /// Ensures metadata is valid before any modification is performed.
+    fn replace_range(&mut self, new_range: Range<usize>) -> Result<(), PartValidationError> {
+        self.validate_metadata()?;
+        self.offset += (new_range.start - self.range.start) as u64;
+        self.range = new_range;
+        self.metadata_checksum = compute_part_checksum(&self.object_id, self.offset, self.buffer_checksum, &self.range);
+        Ok(())
     }
 }
 
-impl From<Bytes> for ChecksummedBytes {
-    fn from(value: Bytes) -> Self {
-        Self::new(value)
-    }
-}
-
-impl TryFrom<ChecksummedBytes> for Bytes {
-    type Error = IntegrityError;
-
-    fn try_from(value: ChecksummedBytes) -> Result<Self, Self::Error> {
-        value.into_bytes()
-    }
+fn compute_part_checksum(
+    object_id: &ObjectId,
+    offset: u64,
+    buffer_checksum: Crc32c,
+    buffer_range: &Range<usize>,
+) -> Crc32c {
+    let mut hasher = crc32c::Hasher::new();
+    hasher.update(object_id.key().as_bytes());
+    hasher.update(object_id.etag().as_str().as_bytes());
+    hasher.update(&offset.to_be_bytes());
+    hasher.update(&buffer_checksum.value().to_be_bytes());
+    hasher.update(&buffer_range.start.to_be_bytes());
+    hasher.update(&buffer_range.end.to_be_bytes());
+    hasher.finalize()
 }
 
 #[derive(Debug, Error)]
-pub enum IntegrityError {
-    #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
-    ChecksumMismatch(Crc32c, Crc32c),
+pub enum PartValidationError {
+    #[error("part offset not contiguous. actual={actual}, expected={expected}")]
+    NonContiguousOffset { actual: u64, expected: u64 },
+
+    #[error("data checksum mismatch. expected: {expected:?}, actual: {actual:?}")]
+    DataChecksumMismatch { actual: Crc32c, expected: Crc32c },
+
+    #[error("metadata checksum mismatch. expected: {expected:?}, actual: {actual:?}")]
+    MetadataChecksumMismatch { actual: Crc32c, expected: Crc32c },
+}
+
+#[derive(Debug, Error)]
+pub enum PartMismatchError {
+    #[error("wrong part key: actual={actual:?}, requested={requested:?}")]
+    Key { actual: String, requested: String },
+
+    #[error("wrong part etag: actual={actual:?}, requested={requested:?}")]
+    ETag { actual: ETag, requested: ETag },
+
+    #[error("wrong part offset: actual={actual}, requested={requested}")]
+    Offset { actual: u64, requested: u64 },
 }
 
 // Implement equality for tests only. We implement equality, and will panic if the data is corrupted.
 #[cfg(test)]
-impl PartialEq for ChecksummedBytes {
+impl PartialEq for ObjectPart {
     fn eq(&self, other: &Self) -> bool {
-        let result = self.buffer_slice() == other.buffer_slice();
+        let result = self.object_id == other.object_id
+            && self.offset == other.offset
+            && self.buffer_slice() == other.buffer_slice();
         self.validate().expect("should be valid");
         other.validate().expect("should be valid");
         result
@@ -377,22 +402,77 @@ mod tests {
     fn test_into_bytes() {
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
-        let checksummed_bytes = ChecksummedBytes::new(bytes);
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let offset = 64;
+        let part = ObjectPart::new(object_id.clone(), offset, bytes);
 
-        let actual = checksummed_bytes.into_bytes().unwrap();
+        let actual = part.into_bytes().unwrap();
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_into_bytes_integrity_error() {
         let bytes = Bytes::from_static(b"some bytes");
-        let mut checksummed_bytes = ChecksummedBytes::new(bytes);
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let offset = 64;
+        let mut part = ObjectPart::new(object_id.clone(), offset, bytes);
 
         // alter the content
-        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
+        part.buffer = Bytes::from_static(b"otherbytes");
 
-        let actual = checksummed_bytes.into_bytes();
-        assert!(matches!(actual, Err(IntegrityError::ChecksumMismatch(_, _))));
+        let actual = part.into_bytes();
+        assert!(matches!(actual, Err(PartValidationError::DataChecksumMismatch { .. })));
+    }
+
+    #[test]
+    fn test_into_bytes_metadata_integrity_error_offset() {
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let offset = 64;
+        let mut part = ObjectPart::new(object_id.clone(), offset, bytes);
+
+        // alter the offset
+        part.offset += 1;
+
+        let actual = part.into_bytes();
+        assert!(matches!(
+            actual,
+            Err(PartValidationError::MetadataChecksumMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_into_bytes_metadata_integrity_error_key() {
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let offset = 64;
+        let mut part = ObjectPart::new(object_id.clone(), offset, bytes);
+
+        // alter the key
+        part.object_id = ObjectId::new("key2".to_owned(), object_id.etag().clone());
+
+        let actual = part.into_bytes();
+        assert!(matches!(
+            actual,
+            Err(PartValidationError::MetadataChecksumMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_into_bytes_metadata_integrity_error_etag() {
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let offset = 64;
+        let mut part = ObjectPart::new(object_id.clone(), offset, bytes);
+
+        // alter the etag
+        part.object_id = ObjectId::new(object_id.key().to_owned(), ETag::from_object_bytes(b"data"));
+
+        let actual = part.into_bytes();
+        assert!(matches!(
+            actual,
+            Err(PartValidationError::MetadataChecksumMismatch { .. })
+        ));
     }
 
     #[test]
@@ -401,18 +481,19 @@ mod tests {
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
         let expected_checksum = crc32c::checksum(&expected);
-        let mut checksummed_bytes = ChecksummedBytes::new(bytes);
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id, 0, bytes);
 
-        let mut expected_part1 = expected.clone();
-        let expected_part2 = expected_part1.split_off(split_off_at);
-        let new_checksummed_bytes = checksummed_bytes.split_off(split_off_at);
+        let mut expected_bytes_1 = expected.clone();
+        let expected_bytes_2 = expected_bytes_1.split_off(split_off_at);
+        let new_part = part.split_off(split_off_at).unwrap();
 
-        assert_eq!(expected, checksummed_bytes.buffer);
-        assert_eq!(expected, new_checksummed_bytes.buffer);
-        assert_eq!(expected_part1, checksummed_bytes.buffer_slice());
-        assert_eq!(expected_part2, new_checksummed_bytes.buffer_slice());
-        assert_eq!(expected_checksum, checksummed_bytes.checksum);
-        assert_eq!(expected_checksum, new_checksummed_bytes.checksum);
+        assert_eq!(expected, part.buffer);
+        assert_eq!(expected, new_part.buffer);
+        assert_eq!(expected_bytes_1, part.buffer_slice());
+        assert_eq!(expected_bytes_2, new_part.buffer_slice());
+        assert_eq!(expected_checksum, part.buffer_checksum);
+        assert_eq!(expected_checksum, new_part.buffer_checksum);
     }
 
     #[test]
@@ -421,25 +502,33 @@ mod tests {
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
         let expected_slice = bytes.slice(range.clone());
-        let expected_checksum = crc32c::checksum(&expected);
-        let original = ChecksummedBytes::new(bytes);
-        let slice = original.slice(range);
+        let expected_checksum = crc32c::checksum(&bytes);
+
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let original = ObjectPart::new(object_id, 0, bytes);
+        let slice = original.slice(range).unwrap();
 
         assert_eq!(expected, original.buffer);
         assert_eq!(expected, original.buffer_slice());
         assert_eq!(expected, slice.buffer);
         assert_eq!(expected_slice, slice.buffer_slice());
-        assert_eq!(expected_checksum, original.checksum);
-        assert_eq!(expected_checksum, slice.checksum);
+        assert_eq!(expected_checksum, original.buffer_checksum);
+        assert_eq!(expected_checksum, slice.buffer_checksum);
     }
 
-    fn create_checksummed_bytes_with_range(range: Range<usize>) -> ChecksummedBytes {
+    fn create_part_with_range(range: Range<usize>) -> ObjectPart {
         let buffer = Bytes::copy_from_slice(&vec![0; range.len()]);
-        let checksum = crc32c::checksum(&buffer);
-        ChecksummedBytes {
+        let buffer_checksum = crc32c::checksum(&buffer);
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let offset = range.start as u64;
+        let metadata_checksum = compute_part_checksum(&object_id, offset, buffer_checksum, &range);
+        ObjectPart {
+            object_id,
+            offset,
             buffer,
+            buffer_checksum,
             range,
-            checksum,
+            metadata_checksum,
         }
     }
 
@@ -447,8 +536,8 @@ mod tests {
     #[test_case(0..10, 5..6, 5..6)]
     #[test_case(5..10, 2..4, 7..9)]
     fn test_slice_range(original: Range<usize>, range: Range<usize>, expected: Range<usize>) {
-        let bytes = create_checksummed_bytes_with_range(original);
-        let slice = bytes.slice(range);
+        let part = create_part_with_range(original);
+        let slice = part.slice(range).unwrap();
         assert_eq!(slice.range, expected);
     }
 
@@ -457,16 +546,16 @@ mod tests {
     #[test_case(5..10, 4..2; "start greater than end")]
     #[test_case(5..10, 4..12; "out of bounds")]
     fn test_slice_range_fail(original: Range<usize>, range: Range<usize>) {
-        let bytes = create_checksummed_bytes_with_range(original);
-        _ = bytes.slice(range);
+        let part = create_part_with_range(original);
+        _ = part.slice(range);
     }
 
     #[test_case(0..10, ..10, 0..10)]
     #[test_case(0..10, ..6, 0..6)]
     #[test_case(5..10, ..4, 5..9)]
     fn test_slice_range_to(original: Range<usize>, range: RangeTo<usize>, expected: Range<usize>) {
-        let bytes = create_checksummed_bytes_with_range(original);
-        let slice = bytes.slice(range);
+        let part = create_part_with_range(original);
+        let slice = part.slice(range).unwrap();
         assert_eq!(slice.range, expected);
     }
 
@@ -474,212 +563,239 @@ mod tests {
     #[test_case(0..10, 4.., 4..10)]
     #[test_case(5..10, 2.., 7..10)]
     fn test_slice_range_from(original: Range<usize>, range: RangeFrom<usize>, expected: Range<usize>) {
-        let bytes = create_checksummed_bytes_with_range(original);
-        let slice = bytes.slice(range);
+        let part = create_part_with_range(original);
+        let slice = part.slice(range).unwrap();
         assert_eq!(slice.range, expected);
     }
 
     #[test]
     fn test_shrink_to_fit() {
-        let original = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let bytes = Bytes::from_static(b"some bytes");
+        let original = ObjectPart::new(object_id, 0, bytes);
         let mut unchanged = original.clone();
         unchanged.shrink_to_fit().unwrap();
         assert_eq!(original.buffer_slice(), unchanged.buffer_slice());
         assert_eq!(original.buffer, unchanged.buffer);
-        assert_eq!(original.checksum, unchanged.checksum);
+        assert_eq!(original.buffer_checksum, unchanged.buffer_checksum);
 
-        let slice = original.clone().split_off(5);
-        let mut shrunken = slice.clone();
-        shrunken.shrink_to_fit().unwrap();
-        assert_eq!(slice.buffer_slice(), shrunken.buffer_slice());
-        assert_ne!(slice.buffer, shrunken.buffer);
-        assert_ne!(slice.checksum, shrunken.checksum);
+        let slice = original.slice(2..6).unwrap();
+        let mut fit_slice = slice.clone();
+        fit_slice.shrink_to_fit().unwrap();
+        assert_eq!(slice.buffer_slice(), fit_slice.buffer_slice());
+        assert_ne!(slice.buffer, fit_slice.buffer);
+        assert_ne!(slice.buffer_checksum, fit_slice.buffer_checksum);
     }
 
     #[test]
     fn test_shrink_to_fit_corrupted() {
-        let mut original = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-
-        // alter the content
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut original = ObjectPart::new(object_id, 0, bytes);
         original.buffer = Bytes::from_static(b"otherbytes");
 
         assert!(matches!(
             original.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
 
         let mut unchanged = original.clone();
         unchanged.shrink_to_fit().unwrap();
         assert_eq!(original.buffer_slice(), unchanged.buffer_slice());
         assert_eq!(original.buffer, unchanged.buffer);
-        assert_eq!(original.checksum, unchanged.checksum);
+        assert_eq!(original.buffer_checksum, unchanged.buffer_checksum);
         assert!(matches!(
             unchanged.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
 
-        let mut slice = original.clone().split_off(5);
-        assert!(matches!(slice.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
+        let mut slice = original.clone().split_off(5).unwrap();
+        assert!(matches!(
+            slice.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
+        ));
 
         let result = slice.shrink_to_fit();
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+        assert!(matches!(result, Err(PartValidationError::DataChecksumMismatch { .. })));
     }
 
     #[test]
-    fn test_into_inner() {
-        let original = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        let (unchanged_bytes, unchanged_checksum) = original.clone().into_inner().unwrap();
+    fn test_into_inner_data() {
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let bytes = Bytes::from_static(b"some bytes");
+        let original = ObjectPart::new(object_id, 0, bytes);
+        let (unchanged_bytes, unchanged_checksum) = original.clone().into_inner_data().unwrap();
         assert_eq!(original.buffer_slice(), unchanged_bytes);
         assert_eq!(original.buffer, unchanged_bytes);
-        assert_eq!(original.checksum, unchanged_checksum);
+        assert_eq!(original.buffer_checksum, unchanged_checksum);
 
-        let slice = original.clone().split_off(5);
-        let (shrunken_bytes, shrunken_checksum) = slice.clone().into_inner().unwrap();
+        let slice = original.clone().split_off(5).unwrap();
+        let (shrunken_bytes, shrunken_checksum) = slice.clone().into_inner_data().unwrap();
         assert_eq!(slice.buffer_slice(), shrunken_bytes);
         assert_ne!(slice.buffer, shrunken_bytes);
-        assert_ne!(slice.checksum, shrunken_checksum);
+        assert_ne!(slice.buffer_checksum, shrunken_checksum);
     }
 
     #[test]
     fn test_extend() {
         let expected = Bytes::from_static(b"some bytes extended");
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        let extend_bytes = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-        checksummed_bytes.extend(extend_bytes).unwrap();
-        let actual = checksummed_bytes.buffer_slice();
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, Bytes::from_static(b"some bytes"));
+        let extend_part = ObjectPart::new(object_id.clone(), part.len() as u64, Bytes::from_static(b" extended"));
+        part.extend(extend_part).unwrap();
+        let actual = part.buffer_slice();
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_extend_after_split() {
         let expected = Bytes::from_static(b"some bytes extended");
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        let mut extend = ChecksummedBytes::new(Bytes::from_static(b"bytes extended"));
-        _ = checksummed_bytes.split_off(7);
-        extend = extend.split_off(2);
-        checksummed_bytes.extend(extend).unwrap();
-        let actual = checksummed_bytes.buffer_slice();
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, Bytes::from_static(b"some bytes"));
+        let mut extend = ObjectPart::new(object_id.clone(), 5, Bytes::from_static(b"bytes extended"));
+        _ = part.split_off(7);
+        extend = extend.split_off(2).unwrap();
+        part.extend(extend).unwrap();
+        let actual = part.buffer_slice();
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_extend_self_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, bytes);
 
         // alter the content
-        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
+        part.buffer = Bytes::from_static(b"otherbytes");
 
         assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            part.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
 
-        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+        let extend = ObjectPart::new(object_id.clone(), 10, Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
 
-        checksummed_bytes.extend(extend).unwrap();
+        part.extend(extend).unwrap();
         assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            part.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
     }
 
     #[test]
     fn test_extend_after_split_self_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, bytes);
 
         // alter the content
-        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
+        part.buffer = Bytes::from_static(b"otherbytes");
 
         assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            part.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
 
-        _ = checksummed_bytes.split_off(4);
+        _ = part.split_off(4);
 
-        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+        let extend = ObjectPart::new(object_id.clone(), 4, Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
 
-        let result = checksummed_bytes.extend(extend);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+        let result = part.extend(extend);
+        assert!(matches!(result, Err(PartValidationError::DataChecksumMismatch { .. })));
     }
 
     #[test]
     fn test_extend_split_off_self_corrupted() {
-        let mut split_off = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut split_off = ObjectPart::new(object_id.clone(), 0, bytes);
 
         // alter the content
         split_off.buffer = Bytes::from_static(b"otherbytes");
 
-        split_off = split_off.split_off(4);
+        split_off = split_off.split_off(4).unwrap();
 
         assert!(matches!(
             split_off.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
 
-        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+        let extend = ObjectPart::new(object_id.clone(), 10, Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
 
         let result = split_off.extend(extend);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+        assert!(matches!(result, Err(PartValidationError::DataChecksumMismatch { .. })));
     }
 
     #[test]
     fn test_extend_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        assert!(matches!(checksummed_bytes.validate(), Ok(())));
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, bytes);
+        assert!(matches!(part.validate(), Ok(())));
 
-        let mut extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+        let mut extend = ObjectPart::new(object_id.clone(), 10, Bytes::from_static(b" extended"));
 
         // alter the content
         extend.buffer = Bytes::from_static(b"corrupted");
 
-        assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
-
-        checksummed_bytes.extend(extend).unwrap();
         assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            extend.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
+        ));
+
+        part.extend(extend).unwrap();
+        assert!(matches!(
+            part.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
     }
 
     #[test]
     fn test_extend_after_split_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        assert!(matches!(checksummed_bytes.validate(), Ok(())));
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, bytes);
+        assert!(matches!(part.validate(), Ok(())));
 
-        let mut extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+        let mut extend = ObjectPart::new(object_id.clone(), 10, Bytes::from_static(b" extended"));
 
         // alter the content
         extend.buffer = Bytes::from_static(b"corrupted");
 
-        assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
+        assert!(matches!(
+            extend.validate(),
+            Err(PartValidationError::DataChecksumMismatch { .. })
+        ));
 
         _ = extend.split_off(4);
 
-        let result = checksummed_bytes.extend(extend);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+        let result = part.extend(extend);
+        assert!(matches!(result, Err(PartValidationError::DataChecksumMismatch { .. })));
     }
 
     #[test]
     fn test_extend_split_off_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        assert!(matches!(checksummed_bytes.validate(), Ok(())));
+        let bytes = Bytes::from_static(b"some bytes");
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let mut part = ObjectPart::new(object_id.clone(), 0, bytes);
+        assert!(matches!(part.validate(), Ok(())));
 
-        let mut split_off = ChecksummedBytes::new(Bytes::from_static(b"bytes extended"));
+        let mut split_off = ObjectPart::new(object_id.clone(), 5, Bytes::from_static(b"bytes extended"));
 
         // alter the content
         split_off.buffer = Bytes::from_static(b"bytescorrupted");
 
-        split_off = split_off.split_off(5);
+        split_off = split_off.split_off(5).unwrap();
         assert!(matches!(
             split_off.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
+            Err(PartValidationError::DataChecksumMismatch { .. })
         ));
 
-        let result = checksummed_bytes.extend(split_off);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
+        let result = part.extend(split_off);
+        assert!(matches!(result, Err(PartValidationError::DataChecksumMismatch { .. })));
     }
 }

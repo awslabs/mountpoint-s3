@@ -86,7 +86,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         debug_assert!(!part.is_empty(), "parts must not be empty");
 
         if length < part.len() {
-            let tail = part.split_off(length);
+            let tail = part.split_off(length)?;
             *current_part = Some(tail);
         }
         metrics::gauge!("prefetch.bytes_in_queue").decrement(part.len() as f64);
@@ -136,7 +136,7 @@ impl<E: std::error::Error> Drop for PartQueue<E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::object::{ChecksummedBytes, ObjectId};
+    use crate::object::ObjectId;
 
     use super::*;
 
@@ -158,7 +158,7 @@ mod tests {
     enum DummyError {}
 
     async fn run_test(ops: Vec<Op>) {
-        let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
+        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
         let (part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
         let mut current_offset = 0;
         let mut current_length = 0;
@@ -170,8 +170,7 @@ mod tests {
                         continue;
                     }
                     let part = part_queue.read(n).await.unwrap();
-                    let checksummed_bytes = part.into_bytes(&part_id, current_offset).unwrap();
-                    let bytes = checksummed_bytes.into_bytes().unwrap();
+                    let bytes = part.into_bytes().unwrap();
                     assert_eq!(bytes[0], current_offset as u8);
                     current_offset += bytes.len() as u64;
                     current_length -= bytes.len();
@@ -180,8 +179,7 @@ mod tests {
                     let first_part_length = part_queue.current_part.lock().await.as_ref().map(|p| p.len());
                     if let Some(n) = first_part_length {
                         let part = part_queue.read(n).await.unwrap();
-                        let checksummed_bytes = part.into_bytes(&part_id, current_offset).unwrap();
-                        let bytes = checksummed_bytes.into_bytes().unwrap();
+                        let bytes = part.into_bytes().unwrap();
                         assert_eq!(bytes[0], current_offset as u8);
                         assert_eq!(bytes.len(), n);
                         current_offset += n as u64;
@@ -196,8 +194,7 @@ mod tests {
                     let offset = current_offset + current_length as u64;
                     let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
                     let bytes: Bytes = body.into();
-                    let checksummed_bytes = ChecksummedBytes::new(bytes);
-                    let part = ObjectPart::new(part_id.clone(), offset, checksummed_bytes);
+                    let part = ObjectPart::new(object_id.clone(), offset, bytes);
                     part_queue_producer.push(Ok(part));
                     current_length += n;
                 }

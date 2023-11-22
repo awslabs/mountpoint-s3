@@ -13,9 +13,8 @@ use thiserror::Error;
 pub use crate::data_cache::cache_directory::ManagedCacheDir;
 pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
-pub use crate::object::ChecksummedBytes;
 
-use crate::object::ObjectId;
+use crate::object::{ObjectId, ObjectPart};
 
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;
@@ -48,16 +47,10 @@ pub trait DataCache {
         cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
-    ) -> DataCacheResult<Option<ChecksummedBytes>>;
+    ) -> DataCacheResult<Option<ObjectPart>>;
 
-    /// Put block of data to the cache for the given [ObjectId] and [BlockIndex].
-    fn put_block(
-        &self,
-        cache_key: ObjectId,
-        block_idx: BlockIndex,
-        block_offset: u64,
-        bytes: ChecksummedBytes,
-    ) -> DataCacheResult<()>;
+    /// Put block of data to the cache.
+    fn put_block(&self, bytes: ObjectPart, block_idx: BlockIndex) -> DataCacheResult<()>;
 
     /// Returns the block size for the data cache.
     fn block_size(&self) -> u64;

@@ -8,7 +8,7 @@ use mountpoint_s3_client::{types::ETag, ObjectClient};
 use tracing::{debug_span, trace, warn, Instrument};
 
 use crate::data_cache::{BlockIndex, DataCache};
-use crate::object::{ChecksummedBytes, ObjectId, ObjectPart};
+use crate::object::{ObjectId, ObjectPart, PartValidationError};
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::part_stream::{ObjectPartStream, RequestRange};
 use crate::prefetch::task::RequestTask;
@@ -122,8 +122,9 @@ where
             match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
-                    let part = self.make_part(block, block_index, block_offset, &range);
-                    self.part_queue_producer.push(Ok(part));
+                    if !self.push_part(&block, block_index, &range) {
+                        break;
+                    }
                     block_offset += block_size;
                     continue;
                 }
@@ -183,35 +184,23 @@ where
 
         pin_mut!(get_object_result);
         let mut block_index = block_range.start;
-        let mut block_offset = block_range.start * block_size;
-        let mut buffer = ChecksummedBytes::default();
+        let mut buffer = ObjectPart::new(self.cache_key.clone(), block_index * block_size, Default::default());
         loop {
             assert!(
                 buffer.len() < block_size as usize,
                 "buffer should be flushed when we get a full block"
             );
             match get_object_result.next().await {
-                Some(Ok((offset, body))) => {
+                Some(Ok((mut offset, body))) => {
                     trace!(offset, length = body.len(), "received GetObject part");
                     metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
-
-                    let expected_offset = block_offset + buffer.len() as u64;
-                    if offset != expected_offset {
-                        warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
-                        self.part_queue_producer
-                            .push(Err(PrefetchReadError::GetRequestReturnedWrongOffset {
-                                offset,
-                                expected_offset,
-                            }));
-                        break;
-                    }
 
                     // Split the body into blocks.
                     let mut body: Bytes = body.into();
                     while !body.is_empty() {
                         let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
-                        let chunk = body.split_to(remaining);
-                        if let Err(e) = buffer.extend(chunk.into()) {
+                        let chunk = ObjectPart::new(self.cache_key.clone(), offset, body.split_to(remaining));
+                        if let Err(e) = buffer.extend(chunk) {
                             warn!(key, error=?e, "integrity check for body part failed");
                             self.part_queue_producer.push(Err(e.into()));
                             return;
@@ -220,13 +209,15 @@ where
                             break;
                         }
 
+                        offset += remaining as u64;
+
                         // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                        self.update_cache(block_index, block_offset, &buffer);
-                        self.part_queue_producer
-                            .push(Ok(self.make_part(buffer, block_index, block_offset, &range)));
+                        self.update_cache(block_index, &buffer);
+                        if !self.push_part(&buffer, block_index, &range) {
+                            break;
+                        }
                         block_index += 1;
-                        block_offset += block_size;
-                        buffer = ChecksummedBytes::default();
+                        buffer = ObjectPart::new(self.cache_key.clone(), block_index * block_size, Default::default());
                     }
                 }
                 Some(Err(e)) => {
@@ -240,14 +231,13 @@ where
                         // If we still have data in the buffer, this must be the last block for this object,
                         // which can be smaller than block_size (and ends at the end of the object).
                         assert_eq!(
-                            block_offset as usize + buffer.len(),
+                            buffer.offset() as usize + buffer.len(),
                             range.object_size(),
                             "a partial block is only allowed at the end of the object"
                         );
                         // Write the last block to the cache.
-                        self.update_cache(block_index, block_offset, &buffer);
-                        self.part_queue_producer
-                            .push(Ok(self.make_part(buffer, block_index, block_offset, &range)));
+                        self.update_cache(block_index, &buffer);
+                        self.push_part(&buffer, block_index, &range);
                     }
                     break;
                 }
@@ -256,16 +246,27 @@ where
         trace!("request finished");
     }
 
-    fn update_cache(&self, block_index: u64, block_offset: u64, block: &ChecksummedBytes) {
+    fn push_part(&self, block: &ObjectPart, block_index: u64, range: &RequestRange) -> bool {
+        match self.make_part(block, block_index, range) {
+            Ok(part) => {
+                self.part_queue_producer.push(Ok(part));
+                true
+            }
+            Err(error) => {
+                warn!(key=?self.cache_key, block_index, ?error, "integrity check for body part failed");
+                self.part_queue_producer.push(Err(error.into()));
+                false
+            }
+        }
+    }
+
+    fn update_cache(&self, block_index: u64, block: &ObjectPart) {
         // TODO: consider updating the cache asynchronously
         let start = Instant::now();
-        match self
-            .cache
-            .put_block(self.cache_key.clone(), block_index, block_offset, block.clone())
-        {
+        match self.cache.put_block(block.clone(), block_index) {
             Ok(()) => {}
             Err(error) => {
-                warn!(key=?self.cache_key.key(), block_index, ?error, "failed to update cache");
+                warn!(key=?self.cache_key, block_index, ?error, "failed to update cache");
             }
         };
         metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
@@ -275,13 +276,12 @@ where
     /// If required, trims the block bytes to the request range.
     fn make_part(
         &self,
-        block: ChecksummedBytes,
+        block: &ObjectPart,
         block_index: u64,
-        block_offset: u64,
         range: &RequestRange,
-    ) -> ObjectPart {
+    ) -> Result<ObjectPart, PartValidationError> {
         assert_eq!(
-            block_offset,
+            block.offset(),
             block_index * self.cache.block_size(),
             "invalid block offset"
         );
@@ -289,21 +289,20 @@ where
         let cache_key = &self.cache_key;
         let block_size = block.len();
         let part_range = range
-            .trim_start(block_offset)
-            .trim_end(block_offset + block_size as u64);
+            .trim_start(block.offset())
+            .trim_end(block.offset() + block_size as u64);
         trace!(
             ?cache_key,
             block_index,
             ?part_range,
-            block_offset,
+            block_offset = block.offset(),
             block_size,
             "creating part from block data",
         );
 
-        let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
-        let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
-        let bytes = block.slice(trim_start..trim_end);
-        ObjectPart::new(cache_key.clone(), part_range.start(), bytes)
+        let trim_start = (part_range.start().saturating_sub(block.offset())) as usize;
+        let trim_end = (part_range.end().saturating_sub(block.offset())) as usize;
+        block.slice(trim_start..trim_end)
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -430,10 +429,10 @@ mod tests {
         let mut remaining = request_task.total_size();
         while remaining > 0 {
             let part = block_on(request_task.read(remaining)).unwrap();
-            let bytes = part.into_bytes(id, offset).unwrap();
+            part.check(id, offset).unwrap();
+            let bytes = part.into_bytes().unwrap();
 
             let expected = object.read(offset, bytes.len());
-            let bytes = bytes.into_bytes().unwrap();
             assert_eq!(bytes, *expected);
 
             offset += bytes.len() as u64;
