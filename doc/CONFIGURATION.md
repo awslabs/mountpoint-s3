@@ -249,18 +249,24 @@ You can instead manually configure the maximum size of the cache with the `--max
 > If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.
 > In order to protect your data, we recommend you restrict access to the data cache location.
 
-### Using multiple Mountpoint processes on a host
+### Caching object content to local storage
 
-The cache directory is not reusable by other Mountpoint processes and will be cleaned at mount time and exit.
-When running multiple Mountpoint processes concurrently on the same host,
-you should use unique cache directories to avoid different processes interfering with the others' cache content.
+We recommend using local storage, such as Amazon EC2 instance storage or an Amazon EBS volume, as the target of the Mountpoint cache.
+When caching to EBS, you can use your instance's root EBS volume, or create and attach a new volume just for caching.
+If you create a new EBS volume or use EC2 instance storage, you will first need to [create a file system](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/add-instance-store-volumes.html#making-instance-stores-available-on-your-instances) on that storage and mount it at a path such as `/mnt/mp-cache`.
+The user running Mountpoint needs write access to the mounted file system,
+and we recommend setting the permissions on the file system to not allow reads by any other users (e.g., `chmod 0700 /mnt/mp-cache`).
+You can then start Mountpoint using the cache directory you mounted:
+
+```
+mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/mp-cache
+```
 
 ### Caching object content to memory
 
-Mountpoint can instead cache object content to instance memory using a RAM disk.
-
-To create a RAM disk on Linux, you can use [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html) as shown below.
-Replace the mount directory for tmpfs if required.
+Rather than caching to local storage, you can configure Mountpoint to cache to instance memory by using a RAM disk.
+To create a RAM disk on Linux, you can use [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html)
+to mount a temporary file system at a path such as `/mnt/mp-cache-tmpfs`:
 
 ```
 sudo mkdir /mnt/mp-cache-tmpfs
@@ -276,6 +282,12 @@ You can then start Mountpoint using the directory where the RAM disk was mounted
 ```
 mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/mp-cache-tmpfs
 ```
+
+### Using multiple Mountpoint processes on a host
+
+The cache directory is not reusable by other Mountpoint processes and will be cleaned at mount time and exit.
+When running multiple Mountpoint processes concurrently on the same host,
+you should use unique cache directories to avoid different processes interfering with the others' cache content.
 
 ## Logging
 
