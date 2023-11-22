@@ -1,30 +1,28 @@
 use thiserror::Error;
 
 use crate::checksums::ChecksummedBytes;
+use crate::object::ObjectId;
 
 /// A self-identifying part of an S3 object. Users can only retrieve the bytes from this part if
-/// they can prove they have the correct offset and key.
-// TODO this is not very efficient right now -- it forces a lot of copying around of Strings. If
-// that's a bottleneck, let's think about either carrying &str (hard to make lifetimes work?) or
-// the etag or some kind of "cookie" (like the hash of the key).
+/// they can prove they have the correct offset and object Id (key + etag).
 #[derive(Debug, Clone)]
 pub struct Part {
-    key: String,
+    id: ObjectId,
     offset: u64,
     checksummed_bytes: ChecksummedBytes,
 }
 
 impl Part {
-    pub fn new(key: &str, offset: u64, checksummed_bytes: ChecksummedBytes) -> Self {
+    pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes) -> Self {
         Self {
-            key: key.to_owned(),
+            id,
             offset,
             checksummed_bytes,
         }
     }
 
-    pub fn into_bytes(self, key: &str, offset: u64) -> Result<ChecksummedBytes, PartMismatchError> {
-        self.check(key, offset).map(|_| self.checksummed_bytes)
+    pub fn into_bytes(self, id: &ObjectId, offset: u64) -> Result<ChecksummedBytes, PartMismatchError> {
+        self.check(id, offset).map(|_| self.checksummed_bytes)
     }
 
     /// Split the part into two at the given index.
@@ -34,7 +32,7 @@ impl Part {
     pub fn split_off(&mut self, at: usize) -> Part {
         let new_bytes = self.checksummed_bytes.split_off(at);
         Part {
-            key: self.key.clone(),
+            id: self.id.clone(),
             offset: self.offset + at as u64,
             checksummed_bytes: new_bytes,
         }
@@ -48,11 +46,11 @@ impl Part {
         self.checksummed_bytes.is_empty()
     }
 
-    fn check(&self, key: &str, offset: u64) -> Result<(), PartMismatchError> {
-        if self.key != key {
-            return Err(PartMismatchError::Key {
-                actual: self.key.clone(),
-                requested: key.to_owned(),
+    fn check(&self, id: &ObjectId, offset: u64) -> Result<(), PartMismatchError> {
+        if self.id != *id {
+            return Err(PartMismatchError::Id {
+                actual: self.id.clone(),
+                requested: id.to_owned(),
             });
         }
         if self.offset != offset {
@@ -67,8 +65,8 @@ impl Part {
 
 #[derive(Debug, Error)]
 pub enum PartMismatchError {
-    #[error("wrong part key: actual={actual:?}, requested={requested:?}")]
-    Key { actual: String, requested: String },
+    #[error("wrong part id: actual={actual:?}, requested={requested:?}")]
+    Id { actual: ObjectId, requested: ObjectId },
 
     #[error("wrong part offset: actual={actual}, requested={requested}")]
     Offset { actual: u64, requested: u64 },

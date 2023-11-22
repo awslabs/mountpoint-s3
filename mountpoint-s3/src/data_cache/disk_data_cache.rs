@@ -16,9 +16,10 @@ use tracing::{trace, warn};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
+use crate::object::ObjectId;
 use crate::sync::Mutex;
 
-use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheResult};
+use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// Disk and file-layout versioning.
 const CACHE_VERSION: &str = "V1";
@@ -171,12 +172,13 @@ impl DiskBlock {
     /// This may return an integrity error if the checksummed byte buffer is found to be corrupt.
     /// However, this check is not guaranteed and it shouldn't be assumed that the data within the block is not corrupt.
     fn new(
-        cache_key: CacheKey,
+        cache_key: ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
         bytes: ChecksummedBytes,
     ) -> Result<Self, DiskBlockCreationError> {
-        let (s3_key, etag) = (cache_key.s3_key, cache_key.etag.into_inner());
+        let s3_key = cache_key.key().to_owned();
+        let etag = cache_key.etag().as_str().to_owned();
         let (data, data_checksum) = bytes.into_inner()?;
         let header = DiskBlockHeader::new(block_idx, block_offset, etag, s3_key, data_checksum);
 
@@ -188,16 +190,13 @@ impl DiskBlock {
     /// Comparing these fields helps ensure we have not corrupted or swapped block data on disk.
     fn data(
         &self,
-        cache_key: &CacheKey,
+        cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> Result<ChecksummedBytes, DiskBlockAccessError> {
-        let data_checksum = self.header.validate(
-            cache_key.s3_key.as_str(),
-            cache_key.etag.as_str(),
-            block_idx,
-            block_offset,
-        )?;
+        let data_checksum =
+            self.header
+                .validate(cache_key.key(), cache_key.etag().as_str(), block_idx, block_offset)?;
         let bytes = ChecksummedBytes::new(self.data.clone(), data_checksum);
         Ok(bytes)
     }
@@ -227,7 +226,7 @@ impl DiskDataCache {
     fn read_block(
         &self,
         path: impl AsRef<Path>,
-        cache_key: &CacheKey,
+        cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
@@ -340,8 +339,9 @@ impl DiskDataCache {
 }
 
 /// Hash the cache key using its fields as well as the [CACHE_VERSION].
-fn hash_cache_key_raw(cache_key: &CacheKey) -> [u8; 32] {
-    let CacheKey { s3_key, etag } = cache_key;
+fn hash_cache_key_raw(cache_key: &ObjectId) -> [u8; 32] {
+    let s3_key = cache_key.key();
+    let etag = cache_key.etag();
 
     let mut hasher = Sha256::new();
     hasher.update(CACHE_VERSION.as_bytes());
@@ -353,7 +353,7 @@ fn hash_cache_key_raw(cache_key: &CacheKey) -> [u8; 32] {
 impl DataCache for DiskDataCache {
     fn get_block(
         &self,
-        cache_key: &CacheKey,
+        cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
@@ -398,7 +398,7 @@ impl DataCache for DiskDataCache {
 
     fn put_block(
         &self,
-        cache_key: CacheKey,
+        cache_key: ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
         bytes: ChecksummedBytes,
@@ -456,7 +456,7 @@ struct DiskBlockKey {
 }
 
 impl DiskBlockKey {
-    fn new(cache_key: &CacheKey, block_index: BlockIndex) -> Self {
+    fn new(cache_key: &ObjectId, block_index: BlockIndex) -> Self {
         let hashed_key = hash_cache_key_raw(cache_key);
         Self {
             hashed_key,
@@ -544,11 +544,8 @@ mod tests {
 
     #[test]
     fn test_block_format_version_requires_update() {
+        let cache_key = ObjectId::new("hello-world".to_string(), ETag::for_tests());
         let data = ChecksummedBytes::from_bytes("Foo".into());
-        let cache_key = CacheKey {
-            etag: ETag::for_tests(),
-            s3_key: String::from("hello-world"),
-        };
         let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should succeed as data checksum is valid");
         let expected_bytes: Vec<u8> = vec![
             100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101,
@@ -566,10 +563,7 @@ mod tests {
     fn test_hash_cache_key_raw() {
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
-        let key = CacheKey {
-            etag,
-            s3_key: s3_key.to_owned(),
-        };
+        let key = ObjectId::new(s3_key, etag);
         let expected_hash = "b717d5a78ed63238b0778e7295d83e963758aa54db6e969a822f2b13ce9a3067";
         let actual_hash = hex::encode(hash_cache_key_raw(&key));
         assert_eq!(expected_hash, actual_hash);
@@ -587,12 +581,9 @@ mod tests {
         );
 
         let s3_key = "a".repeat(266);
-
         let etag = ETag::for_tests();
-        let key = CacheKey {
-            etag,
-            s3_key: s3_key.to_owned(),
-        };
+        let key = ObjectId::new(s3_key.to_owned(), etag);
+
         let block_key = DiskBlockKey::new(&key, 5);
         let hashed_cache_key = hex::encode(hash_cache_key_raw(&key));
         let split_hashed_key = hashed_cache_key.split_at(HASHED_DIR_SPLIT_INDEX);
@@ -620,12 +611,9 @@ mod tests {
         );
 
         let s3_key = "a".repeat(266);
-
         let etag = ETag::for_tests();
-        let key = CacheKey {
-            etag,
-            s3_key: s3_key.to_owned(),
-        };
+        let key = ObjectId::new(s3_key.to_owned(), etag);
+
         let block_key = DiskBlockKey::new(&key, 1000000000000000);
         let hashed_cache_key = hex::encode(hash_cache_key_raw(&key));
         let split_hashed_key = hashed_cache_key.split_at(HASHED_DIR_SPLIT_INDEX);
@@ -656,14 +644,11 @@ mod tests {
                 limit: CacheLimit::Unbounded,
             },
         );
-        let cache_key_1 = CacheKey {
-            s3_key: "a".into(),
-            etag: ETag::for_tests(),
-        };
-        let cache_key_2 = CacheKey {
-            s3_key: "long-key_".repeat(100), // at least 900 chars, exceeding easily 255 chars (UNIX filename limit)
-            etag: ETag::for_tests(),
-        };
+        let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
+        let cache_key_2 = ObjectId::new(
+            "long-key_".repeat(100), // at least 900 chars, exceeding easily 255 chars (UNIX filename limit)
+            ETag::for_tests(),
+        );
 
         let block = cache.get_block(&cache_key_1, 0, 0).expect("cache should be accessible");
         assert!(
@@ -735,10 +720,7 @@ mod tests {
                 limit: CacheLimit::Unbounded,
             },
         );
-        let cache_key = CacheKey {
-            s3_key: "a".into(),
-            etag: ETag::for_tests(),
-        };
+        let cache_key = ObjectId::new("a".into(), ETag::for_tests());
 
         cache
             .put_block(cache_key.clone(), 0, 0, slice.clone())
@@ -771,7 +753,7 @@ mod tests {
 
         fn is_block_in_cache(
             cache: &DiskDataCache,
-            cache_key: &CacheKey,
+            cache_key: &ObjectId,
             block_idx: u64,
             expected_bytes: &ChecksummedBytes,
         ) -> bool {
@@ -797,20 +779,14 @@ mod tests {
             .step_by(BLOCK_SIZE)
             .map(|offset| large_object.slice(offset..(large_object.len().min(offset + BLOCK_SIZE))))
             .collect();
-        let large_object_key = CacheKey {
-            s3_key: "large".into(),
-            etag: ETag::for_tests(),
-        };
+        let large_object_key = ObjectId::new("large".into(), ETag::for_tests());
 
         let small_object = create_random(0x23456789, SMALL_OBJECT_SIZE);
         let small_object_blocks: Vec<_> = (0..small_object.len())
             .step_by(BLOCK_SIZE)
             .map(|offset| small_object.slice(offset..(small_object.len().min(offset + BLOCK_SIZE))))
             .collect();
-        let small_object_key = CacheKey {
-            s3_key: "small".into(),
-            etag: ETag::for_tests(),
-        };
+        let small_object_key = ObjectId::new("small".into(), ETag::for_tests());
 
         let cache_directory = tempfile::tempdir().unwrap();
         let cache = DiskDataCache::new(
@@ -871,18 +847,9 @@ mod tests {
     fn data_block_extract_checks() {
         let data_1 = ChecksummedBytes::from_bytes("Foo".into());
 
-        let cache_key_1 = CacheKey {
-            s3_key: "a".into(),
-            etag: ETag::for_tests(),
-        };
-        let cache_key_2 = CacheKey {
-            s3_key: "b".into(),
-            etag: ETag::for_tests(),
-        };
-        let cache_key_3 = CacheKey {
-            s3_key: "a".into(),
-            etag: ETag::from_str("badetag").unwrap(),
-        };
+        let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
+        let cache_key_2 = ObjectId::new("b".into(), ETag::for_tests());
+        let cache_key_3 = ObjectId::new("a".into(), ETag::from_str("badetag").unwrap());
 
         let block = DiskBlock::new(cache_key_1.clone(), 0, 0, data_1.clone()).expect("should have no checksum err");
         block

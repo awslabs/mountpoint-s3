@@ -8,7 +8,6 @@ mod cache_directory;
 mod disk_data_cache;
 mod in_memory_data_cache;
 
-use mountpoint_s3_client::types::ETag;
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
@@ -16,12 +15,7 @@ pub use crate::data_cache::cache_directory::ManagedCacheDir;
 pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 
-/// Struct representing a key for accessing an entry in a [DataCache].
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct CacheKey {
-    pub s3_key: String,
-    pub etag: ETag,
-}
+use crate::object::ObjectId;
 
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;
@@ -44,22 +38,22 @@ pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
 /// Data cache for fixed-size checksummed buffers.
 ///
 /// TODO: Deletion and eviction of cache entries.
-/// TODO: Some version information (ETag) independent from [CacheKey] to allow smarter eviction?
+/// TODO: Some version information (ETag) independent from [ObjectId] to allow smarter eviction?
 pub trait DataCache {
-    /// Get block of data from the cache for the given [CacheKey] and [BlockIndex], if available.
+    /// Get block of data from the cache for the given [ObjectId] and [BlockIndex], if available.
     ///
     /// Operation may fail due to errors, or return [None] if the block was not available in the cache.
     fn get_block(
         &self,
-        cache_key: &CacheKey,
+        cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>>;
 
-    /// Put block of data to the cache for the given [CacheKey] and [BlockIndex].
+    /// Put block of data to the cache for the given [ObjectId] and [BlockIndex].
     fn put_block(
         &self,
-        cache_key: CacheKey,
+        cache_key: ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
         bytes: ChecksummedBytes,

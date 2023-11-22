@@ -8,7 +8,8 @@ use mountpoint_s3_client::{types::ETag, ObjectClient};
 use tracing::{debug_span, trace, warn, Instrument};
 
 use crate::checksums::ChecksummedBytes;
-use crate::data_cache::{BlockIndex, CacheKey, DataCache};
+use crate::data_cache::{BlockIndex, DataCache};
+use crate::object::ObjectId;
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::part_stream::{ObjectPartStream, RequestRange};
@@ -81,7 +82,7 @@ struct CachingRequest<Client: ObjectClient, Cache> {
     client: Client,
     cache: Arc<Cache>,
     bucket: String,
-    cache_key: CacheKey,
+    cache_key: ObjectId,
     part_queue_producer: PartQueueProducer<Client::ClientError>,
 }
 
@@ -98,7 +99,7 @@ where
         etag: ETag,
         part_queue_producer: PartQueueProducer<Client::ClientError>,
     ) -> Self {
-        let cache_key = CacheKey { s3_key: key, etag };
+        let cache_key = ObjectId::new(key, etag);
         Self {
             client,
             cache,
@@ -149,7 +150,7 @@ where
     }
 
     async fn get_from_client(&self, range: RequestRange, block_range: Range<u64>) {
-        let key = &self.cache_key.s3_key;
+        let key = self.cache_key.key();
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
@@ -169,7 +170,7 @@ where
                 &self.bucket,
                 key,
                 Some(block_aligned_byte_range),
-                Some(self.cache_key.etag.clone()),
+                Some(self.cache_key.etag().clone()),
             )
             .await
         {
@@ -265,7 +266,7 @@ where
         {
             Ok(()) => {}
             Err(error) => {
-                warn!(key=?self.cache_key.s3_key, block_index, ?error, "failed to update cache");
+                warn!(key=?self.cache_key.key(), block_index, ?error, "failed to update cache");
             }
         };
         metrics::histogram!("prefetch.cache_update_duration_us", start.elapsed().as_micros() as f64);
@@ -297,7 +298,7 @@ where
         let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
         let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
         let bytes = block.slice(trim_start..trim_end);
-        Part::new(cache_key.s3_key.as_str(), part_range.start(), bytes)
+        Part::new(cache_key.clone(), part_range.start(), bytes)
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -346,6 +347,7 @@ mod tests {
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let etag = object.etag();
+        let id = ObjectId::new(key.to_owned(), object.etag());
 
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
@@ -365,7 +367,7 @@ mod tests {
             // First request (from client)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let request_task = stream.spawn_get_object_request(&mock_client, bucket, key, etag.clone(), range, 0);
-            compare_read(key, &object, request_task);
+            compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
         assert!(first_read_count > 0);
@@ -374,7 +376,7 @@ mod tests {
             // Second request (from cache)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let request_task = stream.spawn_get_object_request(&mock_client, bucket, key, etag.clone(), range, 0);
-            compare_read(key, &object, request_task);
+            compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
         assert_eq!(second_read_count, 0);
@@ -390,6 +392,7 @@ mod tests {
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let etag = object.etag();
+        let id = ObjectId::new(key.to_owned(), object.etag());
 
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
@@ -408,13 +411,13 @@ mod tests {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
                 let range = RequestRange::new(object_size, offset as u64, preferred_size);
                 let request_task = stream.spawn_get_object_request(&mock_client, bucket, key, etag.clone(), range, 0);
-                compare_read(key, &object, request_task);
+                compare_read(&id, &object, request_task);
             }
         }
     }
 
     fn compare_read<E: std::error::Error + Send + Sync>(
-        key: &str,
+        id: &ObjectId,
         object: &MockObject,
         mut request_task: RequestTask<E>,
     ) {
@@ -422,7 +425,7 @@ mod tests {
         let mut remaining = request_task.total_size();
         while remaining > 0 {
             let part = block_on(request_task.read(remaining)).unwrap();
-            let bytes = part.into_bytes(key, offset).unwrap();
+            let bytes = part.into_bytes(id, offset).unwrap();
 
             let expected = object.read(offset, bytes.len());
             let bytes = bytes.into_bytes().unwrap();
