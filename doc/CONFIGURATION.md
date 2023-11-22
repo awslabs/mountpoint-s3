@@ -8,6 +8,7 @@ We've tried hard to make this simple command adopt good defaults for most scenar
 * [AWS credentials](#aws-credentials)
 * [S3 bucket configuration](#s3-bucket-configuration), including mounting a bucket prefix or changing the endpoint to which Mountpoint sends S3 requests
 * [File system configuration](#file-system-configuration), including making a bucket read-only or allowing file deletion
+* [Caching configuration](#caching-configuration), where metadata and object data can be served from a cache
 * [Logging](#logging) for troubleshooting Mountpoint
 
 ## AWS credentials
@@ -225,6 +226,55 @@ ExecStop=/usr/bin/fusermount -u /home/ec2-user/s3-bucket-mount
 
 [Install]
 WantedBy=remote-fs.target
+```
+
+## Caching configuration
+
+Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
+
+To enable caching, use the `--cache <CACHE_DIR>` command-line flag, specifying the directory in which to store cached object content.
+This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second,
+which can be extended with the `--metadata-ttl <SECONDS>` command-line argument.
+Mountpoint will create a new subdirectory within the path that you specify,
+and will remove any existing files or directories within that subdirectory at mount time and at exit.
+By default, Mountpoint will limit the maximum size of the cache such that the free space on the file system does not fall below 5%,
+and will automatically evict the least recently used content from the cache when caching new content.
+You can instead manually configure the maximum size of the cache with the `--max-cache-size <MiB>` command-line argument.
+
+> [!WARNING]
+> Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
+> See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
+
+> [!WARNING]
+> If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.
+> In order to protect your data, we recommend you restrict access to the data cache location.
+
+### Using multiple Mountpoint processes on a host
+
+The cache directory is not reusable by other Mountpoint processes and will be cleaned at mount time and exit.
+When running multiple Mountpoint processes concurrently on the same host,
+you should use unique cache directories to avoid different processes interfering with the others' cache content.
+
+### Caching object content to memory
+
+Mountpoint can instead cache object content to instance memory using a RAM disk.
+
+To create a RAM disk on Linux, you can use [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html) as shown below.
+Replace the mount directory for tmpfs if required.
+
+```
+sudo mkdir /mnt/mp-cache-tmpfs
+sudo mount -o uid=$(id --user),mode=700 -t tmpfs none /mnt/mp-cache-tmpfs
+```
+
+This will create a RAM disk mounted at `/mnt/mp-cache-tmpfs` with access restricted to the current user.
+By default, Linux will set the size of the RAM disk to 50% of the physical memory available on the system.
+The size is configurable using the `size` option.
+
+You can then start Mountpoint using the directory where the RAM disk was mounted.
+
+```
+mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/mp-cache-tmpfs
 ```
 
 ## Logging

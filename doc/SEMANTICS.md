@@ -63,11 +63,33 @@ Mountpoint has limited support for other file and directory metadata, including 
 
 ## Consistency and concurrency
 
-Amazon S3 provides [strong read-after-write consistency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel) for PUT and DELETE requests of objects in your S3 bucket. Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. Mountpoint also ensures that new file uploads to a single key are atomic. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
+Amazon S3 provides [strong read-after-write consistency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel) for PUT and DELETE requests of objects in your S3 bucket.
+By default, Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. Mountpoint also ensures that new file uploads to a single key are atomic. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
 
-However, Mountpoint may return stale metadata for an existing object within 1 second of the object being modified or deleted in your S3 bucket by another client. This occurs only if the object was accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
+However, Mountpoint may return stale metadata for an existing object within 1 second of the object being modified or deleted in your S3 bucket by another client.
+This occurs only if the object was accessed through Mountpoint immediately before being modified or deleted in your S3 bucket.
+The stale metadata will only be visible through metadata operations such as `stat` on individual files.
+Directory listings will never be stale and always reflect the current metadata.
+These cases do not apply to newly created objects, which are always immediately visible through Mountpoint.
+Stale metadata can be refreshed by either opening the file or listing its parent directory.
 
 Mountpoint allows multiple readers to access the same object at the same time. However, a new file can only be written to sequentially and by one writer at a time. New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3. If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object. We recommend that your application does not write to the same object from multiple instances at the same time.
+
+### Optional metadata and object content caching
+
+Mountpoint also offers optional metadata and object content caching.
+See the [caching section of the configuration documentation](./CONFIGURATION.md#caching) for more information.
+When opting into caching, the strong read-after-write consistency model is relaxed,
+and you may see stale metadata or object data for up to the cache's metadata time-to-live (TTL),
+which defaults to 1 second but can be configured higher.
+
+For example, with caching enabled, you can successfully open and read a file that has been deleted from S3 if it is already cached.
+Reads to that file will either return the cached data or an error for data that is not cached,
+but will never return corrupt data or combine data from two versions of the file.
+
+To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the file for reading.
+When this option is provided, Mountpoint will check S3 to ensure the object exists and return the latest object content.
+Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
 ## Durability
 
