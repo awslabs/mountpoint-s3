@@ -1,7 +1,9 @@
 ## Unreleased
 
-### New features 
-* Introduced optional caching of object metadata and content, in order to allow reduced cost and improved performance for repeated reads to the same files. ([#622](https://github.com/awslabs/mountpoint-s3/pull/622))
+## v1.2.0 (November 22, 2023)
+
+### New features
+* Introduced optional caching of object metadata and content, in order to allow reduced cost and improved performance for repeated reads to the same files. To get started, see the [caching section of the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#caching-configuration). ([#622](https://github.com/awslabs/mountpoint-s3/pull/622))
 
 ### Breaking changes
 * No breaking changes.
