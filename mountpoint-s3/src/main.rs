@@ -9,13 +9,12 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, Parser};
 use fuser::{MountOption, Session};
-#[cfg(feature = "caching")]
-use mountpoint_s3::data_cache::ManagedCacheDir;
-use mountpoint_s3::fs::S3FilesystemConfig;
+use mountpoint_s3::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
+use mountpoint_s3::fs::{CacheConfig, S3FilesystemConfig};
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
-use mountpoint_s3::prefetch::{default_prefetch, Prefetch};
+use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{autoconfigure, metrics};
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
@@ -37,7 +36,6 @@ const MOUNT_OPTIONS_HEADER: &str = "Mount options";
 const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
 const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
 const LOGGING_OPTIONS_HEADER: &str = "Logging options";
-#[cfg(feature = "caching")]
 const CACHING_OPTIONS_HEADER: &str = "Caching options";
 const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
@@ -222,7 +220,6 @@ struct CliArgs {
     )]
     pub no_log: bool,
 
-    #[cfg(feature = "caching")]
     #[clap(
         long,
         help = "Enable caching of object metadata and content to the given directory",
@@ -231,7 +228,6 @@ struct CliArgs {
     )]
     pub cache: Option<PathBuf>,
 
-    #[cfg(feature = "caching")]
     #[clap(
         long,
         help = "Time-to-live (TTL) for cached metadata in seconds [default: 1s]",
@@ -242,7 +238,6 @@ struct CliArgs {
     )]
     pub metadata_ttl: Option<Duration>,
 
-    #[cfg(feature = "caching")]
     #[clap(
         long,
         help = "Maximum size of the cache directory in MiB [default: preserve 5% of available space]",
@@ -506,13 +501,11 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     if args.read_only {
         user_agent.value("mp-readonly");
     }
-    #[cfg(feature = "caching")]
-    {
-        if args.cache.is_some() {
-            user_agent.value("mp-cache");
-            if let Some(ttl) = args.metadata_ttl {
-                user_agent.key_value("mp-cache-ttl", &ttl.as_secs().to_string());
-            }
+
+    if args.cache.is_some() {
+        user_agent.value("mp-cache");
+        if let Some(ttl) = args.metadata_ttl {
+            user_agent.key_value("mp-cache-ttl", &ttl.as_secs().to_string());
         }
     }
 
@@ -561,55 +554,46 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     let prefetcher_config = Default::default();
 
-    #[cfg(feature = "caching")]
-    {
-        use mountpoint_s3::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
-        use mountpoint_s3::fs::CacheConfig;
-        use mountpoint_s3::prefetch::caching_prefetch;
+    if let Some(path) = args.cache {
+        let metadata_cache_ttl = args.metadata_ttl.unwrap_or(Duration::from_secs(1));
+        filesystem_config.cache_config = CacheConfig {
+            serve_lookup_from_cache: true,
+            dir_ttl: metadata_cache_ttl,
+            file_ttl: metadata_cache_ttl,
+        };
 
-        if let Some(path) = args.cache {
-            let metadata_cache_ttl = args.metadata_ttl.unwrap_or(Duration::from_secs(1));
-            filesystem_config.cache_config = CacheConfig {
-                serve_lookup_from_cache: true,
-                dir_ttl: metadata_cache_ttl,
-                file_ttl: metadata_cache_ttl,
-            };
+        let cache_config = match args.max_cache_size {
+            // Fallback to no data cache.
+            Some(0) => None,
+            Some(max_size_in_mib) => Some(DiskDataCacheConfig {
+                limit: CacheLimit::TotalSize {
+                    max_size: (max_size_in_mib * 1024 * 1024) as usize,
+                },
+                ..Default::default()
+            }),
+            None => Some(DiskDataCacheConfig::default()),
+        };
 
-            let cache_config = match args.max_cache_size {
-                // Fallback to no data cache.
-                Some(0) => None,
-                Some(max_size_in_mib) => Some(DiskDataCacheConfig {
-                    limit: CacheLimit::TotalSize {
-                        max_size: (max_size_in_mib * 1024 * 1024) as usize,
-                    },
-                    ..Default::default()
-                }),
-                None => Some(DiskDataCacheConfig::default()),
-            };
+        if let Some(cache_config) = cache_config {
+            let managed_cache_dir =
+                ManagedCacheDir::new_from_parent(path).context("failed to create cache directory")?;
+            let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
+            let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
+            let mut fuse_session = create_filesystem(
+                client,
+                prefetcher,
+                &args.bucket_name,
+                &prefix,
+                filesystem_config,
+                fuse_config,
+                &bucket_description,
+            )?;
 
-            if let Some(cache_config) = cache_config {
-                let managed_cache_dir =
-                    ManagedCacheDir::new_from_parent(path).context("failed to create cache directory")?;
-                let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
-                let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
-                let mut fuse_session = create_filesystem(
-                    client,
-                    prefetcher,
-                    &args.bucket_name,
-                    &prefix,
-                    filesystem_config,
-                    fuse_config,
-                    &bucket_description,
-                );
+            fuse_session.run_on_close(Box::new(move || {
+                drop(managed_cache_dir);
+            }));
 
-                if let Ok(session) = &mut fuse_session {
-                    session.run_on_close(Box::new(move || {
-                        drop(managed_cache_dir);
-                    }));
-                }
-
-                return fuse_session;
-            }
+            return Ok(fuse_session);
         }
     }
 
@@ -742,7 +726,6 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     Ok(bucket_name.to_owned())
 }
 
-#[cfg(feature = "caching")]
 fn parse_duration_seconds(seconds_str: &str) -> anyhow::Result<Duration> {
     let seconds = seconds_str.parse()?;
     let duration = Duration::from_secs(seconds);
