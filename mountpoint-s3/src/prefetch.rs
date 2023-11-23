@@ -217,6 +217,8 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     key: String,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
+    /// Start offset for sequential read, used for calculating contiguous read metric
+    sequential_read_start_offset: u64,
     next_sequential_read_offset: u64,
     next_request_size: usize,
     next_request_offset: u64,
@@ -273,6 +275,10 @@ where
                     "out-of-order read, resetting prefetch"
                 );
                 counter!("prefetch.out_of_order", 1);
+                histogram!(
+                    "prefetch.contiguous_read_len",
+                    (self.next_sequential_read_offset - self.sequential_read_start_offset) as f64
+                );
                 self.reset_prefetch_to_offset(offset);
             }
         }
@@ -426,6 +432,7 @@ where
         self.current_task = None;
         self.future_tasks.drain(..);
         self.backward_seek_window.clear();
+        self.sequential_read_start_offset = offset;
         self.next_sequential_read_offset = offset;
         self.next_request_size = self.config.first_request_size;
         self.next_request_offset = offset;
