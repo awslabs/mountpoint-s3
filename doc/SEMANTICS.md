@@ -91,6 +91,10 @@ To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the 
 When this option is provided, Mountpoint will check S3 to ensure the object exists and return the latest object content.
 Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
+With caching enabled, new files that are being written to remain unavailable for reading until the file is closed, consistent with behavior without caching.
+After the new file is closed, it is possible to open it for reading.
+Parts of the file that are read from S3 will then be cached and available for subsequent repeated reads.
+
 ## Durability
 
 Mountpoint translates file operations like `read` and `write` into API calls to Amazon S3, which uses a combination of Content-MD5 checksums, secure hash algorithms (SHAs), and cyclic redundancy checks (CRCs) to verify data integrity. S3 performs these checksums on data at rest and repairs any disparity using redundant data. In addition, S3 calculates checksums on all internal network traffic to detect alterations of data packets when storing or retrieving data. However, POSIX file operations like `read` and `write` do not offer a built-in integrity mechanism. Like any file system operation, it is possible for data integrity to be lost in transit between your application and Mountpoint. If your application needs to verify data integrity, we recommend you use an AWS SDK instead of Mountpoint, and use [end-to-end checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/) for all object read and write operations.
