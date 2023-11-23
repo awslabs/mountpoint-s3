@@ -356,6 +356,7 @@ where
             future_tasks: Default::default(),
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
             preferred_part_size: 128 * 1024,
+            sequential_read_start_offset: 0,
             next_sequential_read_offset: 0,
             next_request_size: config.first_request_size,
             next_request_offset: 0,
