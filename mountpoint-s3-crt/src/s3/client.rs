@@ -1007,8 +1007,8 @@ impl Debug for RequestMetrics {
 /// multiple requests to various S3 APIs; this type can be used to distinguish them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestType {
-    /// Same as the original HTTP request passed to [Client::make_meta_request]
-    Default,
+    /// When the request type is unknown to the CRT. Operation name may have been attached to non-meta CRT requests.
+    Unknown,
     /// HeadObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html
     HeadObject,
     /// GetObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
@@ -1029,17 +1029,16 @@ pub enum RequestType {
 
 impl From<aws_s3_request_type> for RequestType {
     fn from(value: aws_s3_request_type) -> Self {
-        use aws_s3_request_type::*;
         match value {
-            AWS_S3_REQUEST_TYPE_DEFAULT => RequestType::Default,
-            AWS_S3_REQUEST_TYPE_HEAD_OBJECT => RequestType::HeadObject,
-            AWS_S3_REQUEST_TYPE_GET_OBJECT => RequestType::GetObject,
-            AWS_S3_REQUEST_TYPE_LIST_PARTS => RequestType::ListParts,
-            AWS_S3_REQUEST_TYPE_CREATE_MULTIPART_UPLOAD => RequestType::CreateMultipartUpload,
-            AWS_S3_REQUEST_TYPE_UPLOAD_PART => RequestType::UploadPart,
-            AWS_S3_REQUEST_TYPE_ABORT_MULTIPART_UPLOAD => RequestType::AbortMultipartUpload,
-            AWS_S3_REQUEST_TYPE_COMPLETE_MULTIPART_UPLOAD => RequestType::CompleteMultipartUpload,
-            AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN => RequestType::Unknown,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT => RequestType::HeadObject,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_GET_OBJECT => RequestType::GetObject,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_LIST_PARTS => RequestType::ListParts,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_CREATE_MULTIPART_UPLOAD => RequestType::CreateMultipartUpload,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_UPLOAD_PART => RequestType::UploadPart,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_ABORT_MULTIPART_UPLOAD => RequestType::AbortMultipartUpload,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_COMPLETE_MULTIPART_UPLOAD => RequestType::CompleteMultipartUpload,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
             _ => panic!("unknown request type {:?}", value),
         }
     }
@@ -1169,5 +1168,21 @@ impl UploadReviewPart {
         };
         let size = part.size;
         Self { size, checksum }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use crate::aws_s3_request_type;
+    use crate::s3::client::RequestType;
+
+    #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
+    #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]
+    #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_GET_OBJECT, RequestType::GetObject)]
+    fn request_type_from_aws_s3_request_type(c_request_type: aws_s3_request_type, expected_request_type: RequestType) {
+        // Simple, but was previously broken.
+        assert_eq!(expected_request_type, RequestType::from(c_request_type));
     }
 }
