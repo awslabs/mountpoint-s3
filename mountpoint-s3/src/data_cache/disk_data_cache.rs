@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{ErrorKind, Read, Seek, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -269,7 +270,10 @@ impl DiskDataCache {
             .as_ref()
             .parent()
             .expect("path should include cache key in directory name");
-        fs::create_dir_all(cache_path_for_key)?;
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .recursive(true)
+            .create(cache_path_for_key)?;
 
         trace!(
             key = block.header.s3_key,
@@ -277,7 +281,12 @@ impl DiskDataCache {
             "writing block at {}",
             path.as_ref().display()
         );
-        let mut file = fs::File::create(path.as_ref())?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path.as_ref())?;
         file.write_all(CACHE_VERSION.as_bytes())?;
         let serialize_result = bincode::serialize_into(&mut file, &block);
         if let Err(err) = serialize_result {
@@ -439,7 +448,7 @@ impl DataCache for DiskDataCache {
 /// Key to identify a block in the disk cache, composed of a hash of the S3 key and Etag, and the block index.
 /// An S3 key may be up to 1024 UTF-8 bytes long, which exceeds the maximum UNIX file name length.
 /// Instead, this key contains a hash of the S3 key and ETag to avoid the limit when used in paths.
-/// The risk of collisions is mitigated as we ignore blocks read that contain the wrong S3 key, etc..        
+/// The risk of collisions is mitigated as we ignore blocks read that contain the wrong S3 key, etc..
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 struct DiskBlockKey {
     hashed_key: [u8; 32],
