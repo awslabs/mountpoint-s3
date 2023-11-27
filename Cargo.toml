@@ -1,20 +1,17 @@
 [package]
 name = "fuser"
-edition = "2021"
-version = "0.14.0"
-authors = ["Christopher Berner <christopherberner@gmail.com>"]
 description = "Filesystem in Userspace (FUSE) for Rust"
+license = "MIT"
+repository = "https://github.com/cberner/fuser"
 documentation = "https://docs.rs/fuser"
 homepage = "https://github.com/cberner/fuser"
-repository = "https://github.com/cberner/fuser"
+version = "0.14.0"
+edition = "2021"
 readme = "README.md"
+authors = ["Christopher Berner <christopherberner@gmail.com>"]
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "api-bindings", "filesystem", "os::unix-apis"]
 build = "build.rs"
-license = "MIT"
-
-[badges]
-travis-ci = { repository = "cberner/fuser" }
 
 [dependencies]
 libc = "0.2.51"
