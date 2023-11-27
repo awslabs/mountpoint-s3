@@ -774,7 +774,13 @@ where
         let len = {
             let mut request = match &handle.typ {
                 FileHandleType::Write(request) => request.lock().await,
-                FileHandleType::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
+                FileHandleType::Read { .. } => {
+                    return Err(err!(
+                        libc::EBADF,
+                        "file handle is not open for writes (key={:?})",
+                        handle.full_key
+                    ))
+                }
             };
             request.write(offset, data, &handle.full_key).await?
         };

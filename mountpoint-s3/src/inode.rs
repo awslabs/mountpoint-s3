@@ -326,7 +326,7 @@ impl Superblock {
             .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
-            Err(InodeError::FileDoesNotExist) => (),
+            Err(InodeError::FileDoesNotExist(_)) => (),
             Err(e) => return Err(e),
         }
 
@@ -801,7 +801,7 @@ impl SuperblockInner {
             InodeKindData::Directory { children, .. } => children.get(name),
         };
         match (remote, inode) {
-            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, None) => Err(InodeError::FileDoesNotExist(name.into())),
             (Some(remote), Some(existing_inode)) => {
                 let mut existing_state = existing_inode.get_mut_inode_state()?;
                 let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
@@ -838,7 +838,7 @@ impl SuperblockInner {
             InodeKindData::Directory { children, .. } => children.get(name).cloned(),
         };
         match (remote, inode) {
-            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, None) => Err(InodeError::FileDoesNotExist(name.into())),
             (None, Some(existing_inode)) => {
                 let InodeKindData::Directory {
                     children,
@@ -868,7 +868,7 @@ impl SuperblockInner {
                     // being written. It must have previously existed but been removed on the remote
                     // side.
                     children.remove(name);
-                    Err(InodeError::FileDoesNotExist)
+                    Err(InodeError::FileDoesNotExist(name.into()))
                 }
             }
             (Some(remote), None) => {
@@ -1485,8 +1485,8 @@ impl InodeStat {
 pub enum InodeError {
     #[error("error from ObjectClient")]
     ClientError(#[source] anyhow::Error),
-    #[error("file does not exist")]
-    FileDoesNotExist,
+    #[error("file {0:?} does not exist")]
+    FileDoesNotExist(OsString),
     #[error("inode {0} does not exist")]
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]
@@ -2473,7 +2473,7 @@ mod tests {
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
         let lookedup = superblock.lookup(&client, FUSE_ROOT_INODE, dirname.as_ref()).await;
-        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist)));
+        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist(_))));
     }
 
     #[tokio::test]
