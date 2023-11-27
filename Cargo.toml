@@ -1,6 +1,6 @@
 [package]
 name = "fuser"
-edition = "2018"
+edition = "2021"
 version = "0.14.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
 description = "Filesystem in Userspace (FUSE) for Rust"
