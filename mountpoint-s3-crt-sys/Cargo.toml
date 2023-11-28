@@ -36,6 +36,8 @@ exclude = [
     "crt/aws-lc/util/fipstools/acvp/acvptool/test/*",
     "crt/s2n-tls/compliance/*",
     "crt/s2n-tls/scram/SCRAM_paper.pdf",
+    "**/.github/**",
+    "**/*.jar",
 ]
 
 [build-dependencies]
