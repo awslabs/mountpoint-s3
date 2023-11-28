@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701170474784,
+  "lastUpdate": 1701172282380,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "65cb1a7a9f1aabdfe4411cad0f4e7e824a7a9920",
-          "message": "Implement cache eviction (#610)\n\n* Implement cache eviction\n\nIntroduce a `CacheLimit` argument for the `DiskDataCache` to configure the eviction policy. If a limit is set, the cache will track usage of the stored blocks. On put, it will check if the limit has been exceeded and start removing the least recently used blocks if required.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add comments\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Avoid writing to the cache after eviction failure\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-11-16T17:16:30Z",
-          "tree_id": "57e50add349f2632fde591d22116f1ec78380913",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/65cb1a7a9f1aabdfe4411cad0f4e7e824a7a9920"
-        },
-        "date": 1700157213190,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.074,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.167,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.184,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.943,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 73.0591271,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 63.308432200000006,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 64.7779776,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0245bc6c167bde595fa9a173eb689af71aabf244",
+          "message": "Create .gitallowed for allowlisting secrets for git-secrets (#638)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-11-28T11:19:28Z",
+          "tree_id": "088f6a8b81d39c514e33260593b79a3651df52e6",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0245bc6c167bde595fa9a173eb689af71aabf244"
+        },
+        "date": 1701172281853,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.098,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.167,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.127,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.473,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 86.9693783,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 53.916488799999996,
             "unit": "milliseconds"
           }
         ]
