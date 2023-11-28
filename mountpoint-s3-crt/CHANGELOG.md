@@ -1,4 +1,4 @@
-## Unreleased
+## v0.5.0 (November 28, 2023)
 
 * Update to latest CRT dependencies
 * Default exponential backoff value retries is now 500ms rather than 25ms ([awslabs/aws-c-io#612](https://github.com/awslabs/aws-c-io/pull/612))

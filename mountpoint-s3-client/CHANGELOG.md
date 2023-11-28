@@ -1,3 +1,13 @@
+## v0.6.0 (November 28, 2023)
+
+### Breaking changes
+
+* No breaking changes.
+
+### Other changes
+
+* Endpoint resolver now supports resolving S3 Express One Zone endpoints and the new `SigV4Express` signing algorithm will be used for S3 Express One Zone buckets ([#642](https://github.com/awslabs/mountpoint-s3/pull/642))
+
 ## v0.5.0 (November 21, 2023)
 
 ### Breaking changes
