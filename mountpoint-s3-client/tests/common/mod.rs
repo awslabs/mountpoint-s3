@@ -195,6 +195,7 @@ macro_rules! object_client_test {
                 let client = MockClient::new(MockClientConfig {
                     bucket: bucket.to_string(),
                     part_size: 1024,
+                    unordered_list_seed: None,
                 });
 
                 $test_fn_identifier(&client, &bucket, &prefix).await;

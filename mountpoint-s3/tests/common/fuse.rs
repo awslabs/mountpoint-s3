@@ -115,6 +115,7 @@ pub mod mock_session {
         let client_config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: test_config.part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -152,6 +153,7 @@ pub mod mock_session {
             let client_config = MockClientConfig {
                 bucket: bucket.to_string(),
                 part_size: test_config.part_size,
+                ..Default::default()
             };
             let client = Arc::new(MockClient::new(client_config));
             let runtime = ThreadPool::builder().pool_size(1).create().unwrap();

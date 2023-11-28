@@ -194,6 +194,11 @@ impl S3CrtClient {
         })
     }
 
+    /// Return a copy of the [EndpointConfig] for this client
+    pub fn endpoint_config(&self) -> EndpointConfig {
+        self.inner.endpoint_config.clone()
+    }
+
     #[doc(hidden)]
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.inner.event_loop_group.clone()

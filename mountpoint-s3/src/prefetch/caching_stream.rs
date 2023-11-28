@@ -352,6 +352,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: client_part_size,
+            ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
         mock_client.add_object(key, object.clone());
@@ -395,6 +396,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: client_part_size,
+            ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
         mock_client.add_object(key, object.clone());

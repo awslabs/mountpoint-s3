@@ -12,6 +12,9 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::checksums::crc32c;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
@@ -51,6 +54,8 @@ pub struct MockClientConfig {
     pub bucket: String,
     /// The size of the parts that GetObject will respond with
     pub part_size: usize,
+    /// A seed to randomize the order of ListObjectsV2 results, or None to use ordered list
+    pub unordered_list_seed: Option<u64>,
 }
 
 /// A mock implementation of an object client that we can manually add objects to, and then query
@@ -538,7 +543,13 @@ impl ObjectClient for MockClient {
             }
         }
 
-        let common_prefixes = common_prefixes.into_iter().collect::<Vec<_>>();
+        let mut common_prefixes = common_prefixes.into_iter().collect::<Vec<_>>();
+
+        if let Some(seed) = self.config.unordered_list_seed {
+            // Shuffle both responses
+            common_prefixes.shuffle(&mut ChaCha20Rng::seed_from_u64(seed));
+            object_vec.shuffle(&mut ChaCha20Rng::seed_from_u64(seed.wrapping_add(1)));
+        }
 
         Ok(ListObjectsResult {
             objects: object_vec,
@@ -700,6 +711,8 @@ impl PutObjectRequest for MockPutObjectRequest {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use futures::StreamExt;
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
@@ -713,6 +726,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let mut body = vec![0u8; size];
@@ -752,6 +766,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let mut body = vec![0u8; 2000];
@@ -807,6 +822,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let mut keys = vec![];
@@ -894,6 +910,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let mut keys = vec![];
@@ -934,6 +951,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_objects_unordered() {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+            unordered_list_seed: Some(1234),
+        });
+
+        for i in 0..20 {
+            client.add_object(&format!("key{i}"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            if i % 3 == 0 {
+                client.add_object(
+                    &format!("key{i}/file.txt"),
+                    MockObject::constant(0u8, 5, ETag::for_tests()),
+                );
+            } else if i % 5 == 0 {
+                client.add_object(&format!("key{i}/"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            }
+        }
+
+        let result1 = client
+            .list_objects("test_bucket", None, "/", 10, "")
+            .await
+            .expect("should not fail");
+        let continuation_token = result1.next_continuation_token.expect("list should not be finished");
+        let result2 = client
+            .list_objects("test_bucket", Some(&continuation_token), "/", 1000, "")
+            .await
+            .expect("should not fail");
+
+        assert!(result2.next_continuation_token.is_none());
+        for prefix2 in result2.common_prefixes.iter() {
+            for prefix1 in result1.common_prefixes.iter() {
+                assert!(prefix2 > prefix1);
+            }
+            for object1 in result1.objects.iter() {
+                assert!(prefix2 > &object1.key);
+            }
+        }
+        for object2 in result2.objects.iter() {
+            for prefix1 in result1.common_prefixes.iter() {
+                assert!(&object2.key > prefix1);
+            }
+            for object1 in result1.objects.iter() {
+                assert!(object2.key > object1.key);
+            }
+        }
+
+        // Depends on the random seed, but a cheap way to check randomization is working
+        assert_ne!(result1.objects[0].key, "key0");
+
+        let prefixes: HashSet<_> = result1
+            .common_prefixes
+            .into_iter()
+            .chain(result2.common_prefixes.into_iter())
+            .collect();
+        let objects: HashSet<_> = result1
+            .objects
+            .into_iter()
+            .map(|o| o.key)
+            .chain(result2.objects.into_iter().map(|o| o.key))
+            .collect();
+        let expected_prefixes: HashSet<_> = (0..20)
+            .filter(|i| i % 3 == 0 || i % 5 == 0)
+            .map(|i| format!("key{i}/"))
+            .collect();
+        let expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
+        assert_eq!(prefixes, expected_prefixes);
+        assert_eq!(objects, expected_objects);
+    }
+
+    #[tokio::test]
     async fn test_put_object() {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
@@ -942,6 +1030,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let mut put_request = client
@@ -996,6 +1085,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let key = "key1";
@@ -1024,6 +1114,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 1024,
+            unordered_list_seed: None,
         });
 
         let head_counter_1 = client.new_counter(Operation::HeadObject);

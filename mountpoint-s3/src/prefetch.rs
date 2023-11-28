@@ -580,6 +580,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
@@ -675,6 +676,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            ..Default::default()
         };
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
@@ -801,6 +803,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -947,6 +950,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
@@ -985,6 +989,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
@@ -1041,6 +1046,7 @@ mod tests {
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
                 part_size,
+                ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -1097,6 +1103,7 @@ mod tests {
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
                 part_size,
+                ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
