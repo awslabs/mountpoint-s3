@@ -1020,8 +1020,10 @@ mod tests {
         check!("", "dirs/😄🥹😮", &[], &[]);
     }
 
+    #[test_case(""; "unprefixed")]
+    #[test_case("prefix/1/2/"; "prefixed")]
     #[tokio::test]
-    async fn list_objects_unordered() {
+    async fn list_objects_unordered(prefix: &str) {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
@@ -1029,31 +1031,37 @@ mod tests {
         });
 
         for i in 0..20 {
-            client.add_object(&format!("key{i}"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            client.add_object(
+                &format!("{prefix}key{i}"),
+                MockObject::constant(0u8, 5, ETag::for_tests()),
+            );
             if i % 3 == 0 {
                 client.add_object(
-                    &format!("key{i}/file.txt"),
+                    &format!("{prefix}key{i}/file.txt"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
             } else if i % 5 == 0 {
-                client.add_object(&format!("key{i}/"), MockObject::constant(0u8, 5, ETag::for_tests()));
+                client.add_object(
+                    &format!("{prefix}key{i}/"),
+                    MockObject::constant(0u8, 5, ETag::for_tests()),
+                );
             }
         }
 
         let result1 = client
-            .list_objects("test_bucket", None, "/", 10, "")
+            .list_objects("test_bucket", None, "/", 10, prefix)
             .await
             .expect("should not fail");
         let continuation_token = result1.next_continuation_token.expect("list should not be finished");
         let result2 = client
-            .list_objects("test_bucket", Some(&continuation_token), "/", 1000, "")
+            .list_objects("test_bucket", Some(&continuation_token), "/", 1000, prefix)
             .await
             .expect("should not fail");
 
         assert!(result2.next_continuation_token.is_none());
 
         // Depends on the random seed, but a cheap way to check randomization is working
-        assert_ne!(result1.objects[0].key, "key0");
+        assert_ne!(result1.objects[0].key, format!("{prefix}key0"));
 
         let prefixes: HashSet<_> = result1
             .common_prefixes
@@ -1068,21 +1076,27 @@ mod tests {
             .collect();
         let expected_prefixes: HashSet<_> = (0..20)
             .filter(|i| i % 3 == 0 || i % 5 == 0)
-            .map(|i| format!("key{i}/"))
+            .map(|i| format!("{prefix}key{i}/"))
             .collect();
-        let expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
+        let expected_objects: HashSet<_> = (0..20).map(|i| format!("{prefix}key{i}")).collect();
         assert_eq!(prefixes, expected_prefixes);
         assert_eq!(objects, expected_objects);
     }
 
-    #[test_case(1)]
-    #[test_case(2)]
-    #[test_case(3)]
-    #[test_case(5)]
-    #[test_case(10)]
-    #[test_case(50)]
+    #[test_case(1, "")]
+    #[test_case(2, "")]
+    #[test_case(3, "")]
+    #[test_case(5, "")]
+    #[test_case(10, "")]
+    #[test_case(50, "")]
+    #[test_case(1, "prefix/1/2/")]
+    #[test_case(2, "prefix/1/2/")]
+    #[test_case(3, "prefix/1/2/")]
+    #[test_case(5, "prefix/1/2/")]
+    #[test_case(10, "prefix/1/2/")]
+    #[test_case(50, "prefix/1/2/")]
     #[tokio::test]
-    async fn list_objects_unordered_delimited_page_size(page_size: usize) {
+    async fn list_objects_unordered_delimited_page_size(page_size: usize, prefix: &str) {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
@@ -1090,14 +1104,20 @@ mod tests {
         });
 
         for i in 0..20 {
-            client.add_object(&format!("key{i}"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            client.add_object(
+                &format!("{prefix}key{i}"),
+                MockObject::constant(0u8, 5, ETag::for_tests()),
+            );
             if i % 3 == 0 {
                 client.add_object(
-                    &format!("key{i}/file.txt"),
+                    &format!("{prefix}key{i}/file.txt"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
             } else if i % 5 == 0 {
-                client.add_object(&format!("key{i}/"), MockObject::constant(0u8, 5, ETag::for_tests()));
+                client.add_object(
+                    &format!("{prefix}key{i}/"),
+                    MockObject::constant(0u8, 5, ETag::for_tests()),
+                );
             }
         }
 
@@ -1106,7 +1126,7 @@ mod tests {
         let mut continuation_token = None;
         for _ in 0..100 {
             let result = client
-                .list_objects("test_bucket", continuation_token.as_deref(), "/", page_size, "")
+                .list_objects("test_bucket", continuation_token.as_deref(), "/", page_size, prefix)
                 .await
                 .expect("should not fail");
             continuation_token = result.next_continuation_token;
@@ -1123,21 +1143,27 @@ mod tests {
 
         let expected_prefixes: HashSet<_> = (0..20)
             .filter(|i| i % 3 == 0 || i % 5 == 0)
-            .map(|i| format!("key{i}/"))
+            .map(|i| format!("{prefix}key{i}/"))
             .collect();
-        let expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
+        let expected_objects: HashSet<_> = (0..20).map(|i| format!("{prefix}key{i}")).collect();
         assert_eq!(prefixes, expected_prefixes);
         assert_eq!(objects, expected_objects);
     }
 
-    #[test_case(1)]
-    #[test_case(2)]
-    #[test_case(3)]
-    #[test_case(5)]
-    #[test_case(10)]
-    #[test_case(50)]
+    #[test_case(1, "")]
+    #[test_case(2, "")]
+    #[test_case(3, "")]
+    #[test_case(5, "")]
+    #[test_case(10, "")]
+    #[test_case(50, "")]
+    #[test_case(1, "prefix/1/2/")]
+    #[test_case(2, "prefix/1/2/")]
+    #[test_case(3, "prefix/1/2/")]
+    #[test_case(5, "prefix/1/2/")]
+    #[test_case(10, "prefix/1/2/")]
+    #[test_case(50, "prefix/1/2/")]
     #[tokio::test]
-    async fn list_objects_unordered_undelimited_page_size(page_size: usize) {
+    async fn list_objects_unordered_undelimited_page_size(page_size: usize, prefix: &str) {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
@@ -1145,14 +1171,20 @@ mod tests {
         });
 
         for i in 0..20 {
-            client.add_object(&format!("key{i}"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            client.add_object(
+                &format!("{prefix}key{i}"),
+                MockObject::constant(0u8, 5, ETag::for_tests()),
+            );
             if i % 3 == 0 {
                 client.add_object(
-                    &format!("key{i}/file.txt"),
+                    &format!("{prefix}key{i}/file.txt"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
             } else if i % 5 == 0 {
-                client.add_object(&format!("key{i}/"), MockObject::constant(0u8, 5, ETag::for_tests()));
+                client.add_object(
+                    &format!("{prefix}key{i}/"),
+                    MockObject::constant(0u8, 5, ETag::for_tests()),
+                );
             }
         }
 
@@ -1161,7 +1193,7 @@ mod tests {
         let mut continuation_token = None;
         for _ in 0..100 {
             let result = client
-                .list_objects("test_bucket", continuation_token.as_deref(), "", page_size, "")
+                .list_objects("test_bucket", continuation_token.as_deref(), "", page_size, prefix)
                 .await
                 .expect("should not fail");
             continuation_token = result.next_continuation_token;
@@ -1178,9 +1210,17 @@ mod tests {
 
         assert!(prefixes.is_empty(), "should be no common prefixes without a delimiter");
 
-        let mut expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
-        expected_objects.extend((0..20).filter(|i| i % 3 == 0).map(|i| format!("key{i}/file.txt")));
-        expected_objects.extend((0..20).filter(|i| i % 3 != 0 && i % 5 == 0).map(|i| format!("key{i}/")));
+        let mut expected_objects: HashSet<_> = (0..20).map(|i| format!("{prefix}key{i}")).collect();
+        expected_objects.extend(
+            (0..20)
+                .filter(|i| i % 3 == 0)
+                .map(|i| format!("{prefix}key{i}/file.txt")),
+        );
+        expected_objects.extend(
+            (0..20)
+                .filter(|i| i % 3 != 0 && i % 5 == 0)
+                .map(|i| format!("{prefix}key{i}/")),
+        );
         assert_eq!(objects, expected_objects);
     }
 
