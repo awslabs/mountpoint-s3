@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701168154899,
+  "lastUpdate": 1701170474784,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "68e36c90f36c7debebfc0df3b9ab25b8113674ba",
-          "message": "Fix bug in ChecksummedBytes::into_inner (#609)\n\n* Fix bug in ChecksummedBytes::into_inner\n\n`ChecksummedBytes::into_inner()` was returning data from `self` rather than from the `shrink_to_fit` result. Added regression tests for `ChecksummedBytes` and for `DiskDataCache` (only caller of the `into_inner()`).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Mark ChecksummedBytes as must_use\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-11-16T11:10:09Z",
-          "tree_id": "f155471568093b77865f062dd3f0efc7cbfb7358",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/68e36c90f36c7debebfc0df3b9ab25b8113674ba"
-        },
-        "date": 1700134920513,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.075,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.177,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.154,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.291,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 81.252362,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 51.6211172,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 86.8557153,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c3521f3de23dbbc9aaa752d5d29c88ef0a5e566c",
+          "message": "Update CRT submodules to latest releases (#633)\n\n* Update CRT submodules to latest releases\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Add changelog entries\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Update aws_s3_request_type bindings\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Update based on feedback\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2023-11-28T10:19:29Z",
+          "tree_id": "ff7a34643526791088e8c5edb1c433a329640947",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/c3521f3de23dbbc9aaa752d5d29c88ef0a5e566c"
+        },
+        "date": 1701170474249,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.076,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.178,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.097,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.391,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 83.6396907,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 64.7779776,
             "unit": "milliseconds"
           }
         ]
