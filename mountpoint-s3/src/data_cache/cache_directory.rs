@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::io;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -27,36 +28,39 @@ pub enum ManagedCacheDirError {
 }
 
 impl ManagedCacheDir {
-    /// Create a new directory inside the provided parent path, cleaning it of any contents if it already exists.
+    /// Create a new directory inside the provided parent path.
+    /// If the directory already exists, it will be deleted before being recreated.
     pub fn new_from_parent<P: AsRef<Path>>(parent_path: P) -> Result<Self, ManagedCacheDirError> {
-        let managed_path = parent_path.as_ref().join("mountpoint-cache");
+        let managed_cache_dir = Self {
+            managed_path: parent_path.as_ref().join("mountpoint-cache"),
+        };
 
-        if let Err(mkdir_err) = fs::create_dir(&managed_path) {
+        managed_cache_dir.remove()?;
+
+        let mkdir_result = fs::DirBuilder::new().mode(0o700).create(managed_cache_dir.as_path());
+        if let Err(mkdir_err) = mkdir_result {
             match mkdir_err.kind() {
-                io::ErrorKind::AlreadyExists => (),
+                io::ErrorKind::AlreadyExists => tracing::warn!(
+                    cache_dir = ?managed_cache_dir.as_path(),
+                    "cache sub-directory already existed immediately after removal",
+                ),
                 _kind => return Err(ManagedCacheDirError::CreationFailure(mkdir_err)),
             }
         }
 
-        let managed_cache_dir = Self { managed_path };
-        managed_cache_dir.clean()?;
-
         Ok(managed_cache_dir)
     }
 
-    /// Clear the cache sub-directory
-    fn clean(&self) -> Result<(), ManagedCacheDirError> {
-        tracing::debug!(cache_subdirectory = ?self.managed_path, "cleaning up contents of cache sub-directory");
-        let read_dir = fs::read_dir(self.managed_path.as_path()).map_err(ManagedCacheDirError::CleanupFailure)?;
-        for entry in read_dir {
-            let path = entry.map_err(ManagedCacheDirError::CleanupFailure)?.path();
-            if path.is_dir() {
-                fs::remove_dir_all(path).map_err(ManagedCacheDirError::CleanupFailure)?;
-            } else {
-                fs::remove_file(path).map_err(ManagedCacheDirError::CleanupFailure)?;
+    /// Remove the cache sub-directory, along with its contents if any
+    fn remove(&self) -> Result<(), ManagedCacheDirError> {
+        tracing::debug!(cache_subdirectory = ?self.managed_path, "removing the cache sub-directory and any contents");
+        if let Err(remove_dir_err) = fs::remove_dir_all(&self.managed_path) {
+            match remove_dir_err.kind() {
+                io::ErrorKind::NotFound => (),
+                _kind => return Err(ManagedCacheDirError::CleanupFailure(remove_dir_err)),
             }
         }
-        tracing::trace!(cache_subdirectory = ?self.managed_path, "cleanup complete");
+        tracing::trace!(cache_subdirectory = ?self.managed_path, "cache sub-directory removal complete");
         Ok(())
     }
 
@@ -73,8 +77,8 @@ impl ManagedCacheDir {
 
 impl Drop for ManagedCacheDir {
     fn drop(&mut self) {
-        if let Err(err) = self.clean() {
-            tracing::error!(managed_cache_path = ?self.managed_path, "failed to clean cache directory: {err}");
+        if let Err(err) = self.remove() {
+            tracing::error!(cache_subdirectory = ?self.managed_path, "failed to remove cache sub-directory: {err}");
         }
     }
 }
@@ -84,6 +88,9 @@ mod tests {
     use super::ManagedCacheDir;
 
     use std::fs;
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    const EXPECTED_DIR_MODE: u32 = 0o700;
 
     #[test]
     fn test_unused() {
@@ -92,13 +99,21 @@ mod tests {
 
         let managed_dir =
             ManagedCacheDir::new_from_parent(temp_dir.path()).expect("creating managed dir should succeed");
-        assert!(expected_path.try_exists().unwrap(), "{expected_path:?} should exist");
+        let dir_mode = fs::metadata(&expected_path)
+            .expect("path should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o777,
+            EXPECTED_DIR_MODE,
+            "path should have {EXPECTED_DIR_MODE:#o} permission mode but had {dir_mode:#o}",
+        );
 
         drop(managed_dir);
-        let dir_entries = fs::read_dir(&expected_path)
-            .expect("cache dir should still exist")
-            .count();
-        assert!(dir_entries == 0, "directory should be empty");
+        assert!(
+            !expected_path.try_exists().unwrap(),
+            "{expected_path:?} should not exist"
+        );
 
         temp_dir.close().unwrap();
     }
@@ -110,7 +125,15 @@ mod tests {
 
         let managed_dir =
             ManagedCacheDir::new_from_parent(temp_dir.path()).expect("creating managed dir should succeed");
-        assert!(expected_path.try_exists().unwrap(), "{expected_path:?} should exist");
+        let dir_mode = fs::metadata(&expected_path)
+            .expect("path should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o777,
+            EXPECTED_DIR_MODE,
+            "path should have {EXPECTED_DIR_MODE:#o} permission mode but had {dir_mode:#o}",
+        );
 
         fs::File::create(expected_path.join("file.txt"))
             .expect("should be able to create file within managed directory");
@@ -119,10 +142,10 @@ mod tests {
             .expect("should be able to create file within subdirectory");
 
         drop(managed_dir);
-        let dir_entries = fs::read_dir(&expected_path)
-            .expect("cache dir should still exist")
-            .count();
-        assert!(dir_entries == 0, "directory should be empty");
+        assert!(
+            !expected_path.try_exists().unwrap(),
+            "{expected_path:?} should not exist"
+        );
 
         temp_dir.close().unwrap();
     }
@@ -132,21 +155,34 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let expected_path = temp_dir.path().join("mountpoint-cache");
 
-        fs::create_dir_all(expected_path.join("dir")).unwrap();
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o775) // something that isn't the expected `0o700`
+            .create(expected_path.join("dir"))
+            .unwrap();
         fs::File::create(expected_path.join("dir/file.txt")).unwrap();
 
         let managed_dir =
             ManagedCacheDir::new_from_parent(temp_dir.path()).expect("creating managed dir should succeed");
-        assert!(expected_path.try_exists().unwrap(), "{expected_path:?} should exist");
+
+        let dir_mode = fs::metadata(&expected_path)
+            .expect("path should exist")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o777,
+            EXPECTED_DIR_MODE,
+            "path should have {EXPECTED_DIR_MODE:#o} permission mode but had {dir_mode:#o}",
+        );
 
         let dir_entries = fs::read_dir(&expected_path).unwrap().count();
         assert!(dir_entries == 0, "directory should be empty");
 
         drop(managed_dir);
-        let dir_entries = fs::read_dir(&expected_path)
-            .expect("cache dir should still exist")
-            .count();
-        assert!(dir_entries == 0, "directory should be empty");
+        assert!(
+            !expected_path.try_exists().unwrap(),
+            "{expected_path:?} should not exist"
+        );
 
         temp_dir.close().unwrap();
     }
