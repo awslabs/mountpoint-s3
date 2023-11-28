@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701186797091,
+  "lastUpdate": 1701188185337,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "b23eacae53fe2c2108eb684b015d9d26a7982920",
-          "message": "Store block offsets in disk data cache (#611)\n\n* Store block offsets in disk data cache\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add the block offset to the methods in data cache\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Fix typo\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Remove redundant variable\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-11-17T15:35:06Z",
-          "tree_id": "21ed8ad674d0ad98ed1352cdd9be37aa44341b23",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b23eacae53fe2c2108eb684b015d9d26a7982920"
-        },
-        "date": 1700237228303,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.073,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.184,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.128,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.577,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 95.8821109,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 77.1083469,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 79.99384429999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4146fa3f33b332fa0625cd5142108ca64cc7cdc",
+          "message": "Support S3 Express One Zone (#642)\n\n* Support S3 Express One Zone\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Implement support for unordered readdir\r\n\r\nListObjectsV2 is unordered on S3 Express. This is an issue for our\r\nshadowing semantics in readdir, which does a merge-sort of the local and\r\nremote keys, assuming they're both ordered.\r\n\r\nWe are going to give up on readdir being ordered on Express -- it's not\r\nrequired by VFS, and the alternative would be to buffer all directory\r\nentries in memory before returning any, which would be too expensive on\r\nlarge directories. So this change introduces a new unordered variant of\r\nthe readdir implementation. It just returns directory entries verbatim\r\nfrom ListObjectsV2, and then returns all otherwise-unreturned local\r\nentries at the end of the iterator.\r\n\r\nDoing this requires Mountpoint to know whether the bucket is a directory\r\nbucket or not, and so I added both a command-line flag and\r\nauto-detection for that.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n* Add new unordered list implementation that shuffles the entire prefix\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* Add prefixed versions of list tests\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\n\r\n* Small update to the test\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>\r\nCo-authored-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2023-11-28T16:05:35Z",
+          "tree_id": "f88a94a2ab18a5f0296d364e55622f3b0d34f565",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f4146fa3f33b332fa0625cd5142108ca64cc7cdc"
+        },
+        "date": 1701188184808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.074,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.173,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.126,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.316,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 91.07362020000001,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 66.39713429999999,
             "unit": "milliseconds"
           }
         ]
