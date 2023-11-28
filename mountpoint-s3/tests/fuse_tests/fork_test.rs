@@ -91,6 +91,8 @@ fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[test]
+// Automatic region resolution doesn't work with S3 Express One Zone
+#[cfg(not(feature = "s3express_tests"))]
 fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background_automatic_region_resolution");
     let region = get_test_region();
@@ -386,6 +388,8 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
+// S3 Express One Zone doesn't support scoped credentials
+#[cfg(not(feature = "s3express_tests"))]
 fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("mount_allow_delete");
     let subprefix = format!("{prefix}sub/");

@@ -94,6 +94,8 @@ pub enum SigningAlgorithm {
     SigV4,
     /// Signature Version 4 Asymmetric (SigV4A)
     SigV4A,
+    /// Signature Version 4 for S3 Express One Zone
+    SigV4Express,
 }
 
 impl From<SigningAlgorithm> for aws_signing_algorithm {
@@ -101,6 +103,7 @@ impl From<SigningAlgorithm> for aws_signing_algorithm {
         match typ {
             SigningAlgorithm::SigV4 => aws_signing_algorithm::AWS_SIGNING_ALGORITHM_V4,
             SigningAlgorithm::SigV4A => aws_signing_algorithm::AWS_SIGNING_ALGORITHM_V4_ASYMMETRIC,
+            SigningAlgorithm::SigV4Express => aws_signing_algorithm::AWS_SIGNING_ALGORITHM_V4_S3EXPRESS,
         }
     }
 }

@@ -100,20 +100,28 @@ pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
+pub fn get_s3express_endpoint() -> String {
+    std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT").expect("Set S3_EXPRESS_ONE_ZONE_ENDPOINT to run integration tests")
+}
+
 pub async fn get_test_sdk_client() -> s3::Client {
-    let config = aws_config::from_env()
-        .region(Region::new(get_test_region()))
-        .load()
-        .await;
+    let mut config = aws_config::from_env().region(Region::new(get_test_region()));
+    if cfg!(feature = "s3express_tests") {
+        config = config.endpoint_url(get_s3express_endpoint());
+    }
+    let config = config.load().await;
     s3::Client::new(&config)
 }
 
 /// Create some objects in a prefix for testing.
 pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: &str, names: &[impl AsRef<str>]) {
     for name in names {
-        client
-            .put_object()
-            .bucket(bucket)
+        let mut request = client.put_object();
+        if cfg!(not(feature = "s3express_tests")) {
+            request = request.bucket(bucket);
+        }
+
+        request
             .key(format!("{}{}", prefix, name.as_ref()))
             .body(ByteStream::from(Bytes::from_static(b".")))
             .send()
@@ -125,35 +133,26 @@ pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: 
 pub async fn get_mpu_count_for_key(
     client: &s3::Client,
     bucket: &str,
+    prefix: &str,
     key: &str,
 ) -> Result<usize, SdkError<ListMultipartUploadsError, HttpResponse>> {
-    let upload_count = client
-        .list_multipart_uploads()
-        .bucket(bucket)
-        .prefix(key)
+    let mut request = client.list_multipart_uploads();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(bucket);
+    }
+
+    let upload_count = request
+        .prefix(prefix)
         .send()
         .await?
         .uploads()
-        .map_or(0, |u| u.len());
+        .map(|upload| upload.iter().filter(|&u| u.key() == Some(key)).collect::<Vec<_>>())
+        .map_or(0, |u| {
+            dbg!(u.clone(), "multipart_upload");
+            u.len()
+        });
 
     Ok(upload_count)
-}
-
-#[tokio::test]
-async fn test_sdk_create_object() {
-    let sdk_client = get_test_sdk_client().await;
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_sdk_create_object");
-
-    let response = sdk_client
-        .put_object()
-        .bucket(bucket)
-        .key(format!("{prefix}hello"))
-        .body(ByteStream::from(Bytes::from_static(b".")))
-        .send()
-        .await
-        .unwrap();
-
-    println!("{response:?}");
 }
 
 /// Check the result of a GET against expected bytes.

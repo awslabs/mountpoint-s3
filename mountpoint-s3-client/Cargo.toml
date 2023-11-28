@@ -65,6 +65,7 @@ doctest = false
 [features]
 s3_tests = []
 fips_tests = []
+s3express_tests = []
 
 # Make async trait docs not-ugly on docs.rs (https://github.com/dtolnay/async-trait/issues/213)
 [package.metadata.docs.rs]

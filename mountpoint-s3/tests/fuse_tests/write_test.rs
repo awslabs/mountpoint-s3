@@ -237,7 +237,10 @@ where
 
     if object_size > 0 {
         // The upload starts after the first write at the latest
-        assert!(test_client.is_upload_in_progress(KEY).unwrap());
+        let status = test_client
+            .is_upload_in_progress(KEY)
+            .expect("the upload should be in-progress");
+        assert!(status);
     }
 
     f.sync_all().unwrap();
@@ -450,13 +453,16 @@ where
 }
 
 #[cfg(feature = "s3_tests")]
+// S3 Express One Zone is a distinct storage class and can't be overridden
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(Some("INTELLIGENT_TIERING"))]
 #[test_case(Some("GLACIER"))]
 fn write_with_storage_class_test_s3(storage_class: Option<&str>) {
     write_with_storage_class_test(fuse::s3_session::new, storage_class);
-    write_with_storage_class_test(fuse::mock_session::new, storage_class);
 }
 
+#[cfg(not(feature = "s3express_tests"))]
+// S3 Express One Zone is a distinct storage class and can't be overridden
 #[test_case(Some("INTELLIGENT_TIERING"))]
 #[test_case(Some("GLACIER"))]
 fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {

@@ -156,6 +156,8 @@ where
 }
 
 #[cfg(feature = "s3_tests")]
+// S3 Express One Zone is a distinct storage class and can't be overridden
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_flexible_retrieval_test_s3() {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
@@ -167,6 +169,7 @@ fn read_flexible_retrieval_test_s3() {
     );
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(""; "no prefix")]
 #[test_case("read_flexible_retrieval_test"; "prefix")]
 fn read_flexible_retrieval_test_mock(prefix: &str) {
@@ -174,6 +177,7 @@ fn read_flexible_retrieval_test_mock(prefix: &str) {
     read_flexible_retrieval_test(fuse::mock_session::new, prefix, FILES, RestorationOptions::None);
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(""; "no prefix")]
 #[test_case("read_flexible_retrieval_test"; "prefix")]
 fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
@@ -190,6 +194,7 @@ fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
 // it does not support expedited retrieval option. It would take 12 hours to
 // restore object from DEEP_ARCHIVE.
 #[cfg(feature = "s3_tests")]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_flexible_retrieval_restored_test_s3() {
     const RESTORED_FILES: &[&str] = &["GLACIER"];
@@ -202,6 +207,7 @@ fn read_flexible_retrieval_restored_test_s3() {
 }
 
 #[cfg(feature = "s3_tests")]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_flexible_retrieval_restoring_test_s3() {
     const RESTORING_FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];

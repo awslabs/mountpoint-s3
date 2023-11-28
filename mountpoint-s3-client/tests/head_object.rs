@@ -20,9 +20,11 @@ async fn test_head_object() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    request
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -40,6 +42,8 @@ async fn test_head_object() {
 #[test_case("INTELLIGENT_TIERING")]
 #[test_case("GLACIER")]
 #[tokio::test]
+// S3 Express One Zone is a distinct storage class and can't be overridden
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_head_object_storage_class(storage_class: &str) {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_head_object");
@@ -114,6 +118,7 @@ async fn test_head_object_no_perm() {
 
 // This test relies on s3's expedited object restoration, it takes 1-5 minutes to complete
 #[tokio::test]
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_head_object_restored() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_head_object_restored");

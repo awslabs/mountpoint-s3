@@ -165,7 +165,9 @@ async fn test_put_object_abort() {
     request.write(&contents).await.unwrap();
 
     let sdk_client = get_test_sdk_client().await;
-    let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
+    let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
+        .await
+        .unwrap();
     assert_eq!(uploads_in_progress, 1);
 
     drop(request); // Drop without calling complete().
@@ -173,7 +175,9 @@ async fn test_put_object_abort() {
     // Allow for the AbortMultipartUpload to complete.
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-    let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
+    let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
+        .await
+        .unwrap();
     assert_eq!(uploads_in_progress, 0);
 }
 
@@ -201,9 +205,11 @@ async fn test_put_checksums() {
     request.complete().await.unwrap();
 
     let sdk_client = get_test_sdk_client().await;
-    let attributes = sdk_client
-        .get_object_attributes()
-        .bucket(bucket)
+    let mut request = sdk_client.get_object_attributes();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    let attributes: aws_sdk_s3::operation::get_object_attributes::GetObjectAttributesOutput = request
         .key(key)
         .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
         .send()
@@ -271,7 +277,9 @@ async fn test_put_review(pass_review: bool) {
         ));
 
         let sdk_client = get_test_sdk_client().await;
-        let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &key).await.unwrap();
+        let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
+            .await
+            .unwrap();
         assert_eq!(uploads_in_progress, 0);
     }
 }
@@ -290,6 +298,8 @@ async fn check_get_object<Client: ObjectClient>(
 #[test_case("INTELLIGENT_TIERING")]
 #[test_case("GLACIER")]
 #[tokio::test]
+// S3 Express One Zone is a distinct storage class and can't be overridden
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_storage_class(storage_class: &str) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
     let client = get_test_client();

@@ -328,10 +328,11 @@ pub mod s3_session {
     }
 
     async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
-        let config = aws_config::from_env()
-            .region(Region::new(region.to_string()))
-            .load()
-            .await;
+        let mut config = aws_config::from_env().region(Region::new(get_test_region()));
+        if cfg!(feature = "s3express_tests") {
+            config = config.endpoint_url(get_s3express_endpoint());
+        }
+        let config = config.load().await;
         aws_sdk_s3::Client::new(&config)
     }
 
@@ -361,9 +362,13 @@ pub mod s3_session {
             let mut request = self
                 .sdk_client
                 .put_object()
-                .bucket(&self.bucket)
                 .key(full_key)
                 .body(ByteStream::from(value.to_vec()));
+
+            if cfg!(not(feature = "s3express_tests")) {
+                request = request.bucket(&self.bucket);
+            }
+
             if let Some(storage_class) = params.storage_class {
                 request = request.set_storage_class(Some(storage_class.as_str().into()));
             }
@@ -377,38 +382,40 @@ pub mod s3_session {
 
         fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            tokio_block_on(
-                self.sdk_client
-                    .delete_object()
-                    .bucket(&self.bucket)
-                    .key(full_key)
-                    .send(),
-            )
-            .map(|_| ())
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            let mut request = self.sdk_client.delete_object();
+            if cfg!(not(feature = "s3express_tests")) {
+                request = request.bucket(&self.bucket);
+            }
+
+            tokio_block_on(request.key(full_key).send())
+                .map(|_| ())
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
         fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key_suffixed = format!("{}{}/", self.prefix, key);
-            tokio_block_on(
-                self.sdk_client
-                    .list_objects_v2()
-                    .bucket(&self.bucket)
-                    .delimiter('/')
-                    .prefix(full_key_suffixed)
-                    .send(),
-            )
-            .map(|output| {
-                let len = output.contents().map(|c| c.len()).unwrap_or_default()
-                    + output.common_prefixes().map(|c| c.len()).unwrap_or_default();
-                len > 0
-            })
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            let mut request = self.sdk_client.list_objects_v2();
+            if cfg!(not(feature = "s3express_tests")) {
+                request = request.bucket(&self.bucket);
+            }
+
+            tokio_block_on(request.delimiter('/').prefix(full_key_suffixed).send())
+                .map(|output| {
+                    let len = output.contents().map(|c| c.len()).unwrap_or_default()
+                        + output.common_prefixes().map(|c| c.len()).unwrap_or_default();
+                    len > 0
+                })
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
         fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let result = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send());
+            let mut request = self.sdk_client.head_object();
+            if cfg!(not(feature = "s3express_tests")) {
+                request = request.bucket(&self.bucket);
+            }
+
+            let result = tokio_block_on(request.key(full_key).send());
             match result {
                 Ok(_) => Ok(true),
                 Err(e) => match e.into_service_error() {
@@ -419,24 +426,36 @@ pub mod s3_session {
         }
 
         fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            tokio_block_on(
-                self.sdk_client
-                    .list_multipart_uploads()
-                    .bucket(&self.bucket)
-                    .prefix(full_key)
-                    .send(),
-            )
-            .map(|output| output.uploads().map_or(0, |u| u.len()) > 0)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+            let mut request = self.sdk_client.list_multipart_uploads();
+            if cfg!(not(feature = "s3express_tests")) {
+                request = request.bucket(&self.bucket);
+            }
+
+            tokio_block_on(request.prefix(self.prefix.clone()).send())
+                .map(|output| {
+                    output
+                        .uploads()
+                        .map(|upload| {
+                            upload
+                                .iter()
+                                .filter(|&u| u.key().unwrap().ends_with(key))
+                                .collect::<Vec<_>>()
+                        })
+                        .map_or(0, |u| u.len())
+                        > 0
+                })
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         }
 
         fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
+            let mut request = self.sdk_client.get_object_attributes();
+            if cfg!(not(feature = "s3express_tests")) {
+                request = request.bucket(&self.bucket);
+            }
+
             tokio_block_on(
-                self.sdk_client
-                    .get_object_attributes()
-                    .bucket(&self.bucket)
+                request
                     .key(full_key)
                     .object_attributes(aws_sdk_s3::types::ObjectAttributes::StorageClass)
                     .send(),
@@ -520,14 +539,24 @@ pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
+pub fn get_s3express_endpoint() -> String {
+    std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT").expect("Set S3_EXPRESS_ONE_ZONE_ENDPOINT to run integration tests")
+}
+
 pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
-    let config = tokio_block_on(aws_config::from_env().region(Region::new(region.to_string())).load());
+    let mut config = aws_config::from_env().region(Region::new(get_test_region()));
+    if cfg!(feature = "s3express_tests") {
+        config = config.endpoint_url(get_s3express_endpoint());
+    }
+    let config = tokio_block_on(config.load());
     let sdk_client = aws_sdk_s3::Client::new(&config);
     let full_key = format!("{prefix}{key}");
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(bucket);
+    }
     tokio_block_on(async move {
-        sdk_client
-            .put_object()
-            .bucket(bucket)
+        request
             .key(full_key)
             .body(ByteStream::from(value.to_vec()))
             .send()
