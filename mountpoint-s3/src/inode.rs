@@ -697,12 +697,12 @@ impl SuperblockInner {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::ClientError(anyhow!(e).context("HeadObject failed"))),
+                        Err(e) => return Err(InodeError::ClientError(anyhow!(e).context(format!("HeadObject failed for {}", &full_path)))),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::ClientError(anyhow!(e).context("ListObjectsV2 failed")))?;
+                    let result = result.map_err(|e| InodeError::ClientError(anyhow!(e).context(format!("ListObjectsV2 failed for {}", &full_path))))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1239,7 +1239,7 @@ impl Inode {
     fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::DirectoryDoesNotExist(self.err())),
             _ => Ok(inode_state),
         }
     }
@@ -1248,7 +1248,7 @@ impl Inode {
     fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::DirectoryDoesNotExist(self.err())),
             _ => Ok(inode_state),
         }
     }
@@ -1487,6 +1487,8 @@ pub enum InodeError {
     ClientError(#[source] anyhow::Error),
     #[error("file {0:?} does not exist")]
     FileDoesNotExist(OsString),
+    #[error("directory does not exist at inode {0}")]
+    DirectoryDoesNotExist(InodeErrorInfo),
     #[error("inode {0} does not exist")]
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]
