@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701188185337,
+  "lastUpdate": 1701196009735,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7d38be79f3a41ad7c60539be027790c3c553a94c",
-          "message": "Simplify and rename cache configuration flags (#612)\n\n* Simplify and rename cache configuration flags\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add details to the cache flag help\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Shorten help text\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Use MiB and change default to 5% of available space\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-11-17T16:47:24Z",
-          "tree_id": "5aeb159c4f632fd3dd701594805bf55f264e9300",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7d38be79f3a41ad7c60539be027790c3c553a94c"
-        },
-        "date": 1700241559415,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.08,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.18,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.136,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.364,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 99.9839374,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 57.913483,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 66.39713429999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c34e70172e0b150b4e3b6246371109db00077ab4",
+          "message": "Release new crate versions (#645)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2023-11-28T18:15:56Z",
+          "tree_id": "a0b8dd24929bbe3533e8294048983ee728e79253",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/c34e70172e0b150b4e3b6246371109db00077ab4"
+        },
+        "date": 1701196009197,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.082,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.194,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.129,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.537,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 75.2348982,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 62.8762798,
             "unit": "milliseconds"
           }
         ]
