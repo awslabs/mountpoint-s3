@@ -1,4 +1,13 @@
-## Unreleased
+## v1.3.0 (November 28, 2023)
+
+### New features
+* Mountpoint now supports resolving S3 Express One Zone endpoints and the new SigV4-Express signing algorithm will be used for S3 Express One Zone buckets. Note that `readdir` results on these buckets will not be ordered because ListObjectsV2 is unordered on S3 Express. ([#642](https://github.com/awslabs/mountpoint-s3/pull/642))
+
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* New Mountpoint cache directories will be created with owner access only permission. Additionally, the cache directory will be removed entirely at mount time rather than just the contents. ([#637](https://github.com/awslabs/mountpoint-s3/pull/637))
 
 ## v1.2.0 (November 22, 2023)
 
