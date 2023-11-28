@@ -828,9 +828,12 @@ fn status_code_to_log_level(status_code: i32) -> tracing::Level {
 }
 
 /// Return a string version of a [RequestType] for use in metrics
+///
+/// TODO: Replace this method with `aws_s3_request_metrics_get_operation_name`,
+///       and ensure all requests have an associated operation name.
 fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
     match request_type {
-        RequestType::Default => "Default",
+        RequestType::Unknown => "Default",
         RequestType::HeadObject => "HeadObject",
         RequestType::GetObject => "GetObject",
         RequestType::ListParts => "ListParts",
