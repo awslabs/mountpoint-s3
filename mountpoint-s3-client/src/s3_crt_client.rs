@@ -194,6 +194,11 @@ impl S3CrtClient {
         })
     }
 
+    /// Return a copy of the [EndpointConfig] for this client
+    pub fn endpoint_config(&self) -> EndpointConfig {
+        self.inner.endpoint_config.clone()
+    }
+
     #[doc(hidden)]
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.inner.event_loop_group.clone()
@@ -269,6 +274,7 @@ impl S3CrtClientInner {
         };
 
         let endpoint_config = config.endpoint_config;
+        client_config.region(endpoint_config.get_region());
         let signing_config = init_signing_config(
             endpoint_config.get_region(),
             credentials_provider.clone(),
@@ -276,6 +282,7 @@ impl S3CrtClientInner {
             None,
             None,
         );
+        client_config.express_support(true);
         client_config.signing_config(signing_config);
 
         client_config

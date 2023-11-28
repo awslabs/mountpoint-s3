@@ -72,6 +72,7 @@ walkdir = "2.3.3"
 fips_tests = []
 fuse_tests = []
 s3_tests = []
+s3express_tests = []
 shuttle = []
 
 [build-dependencies]

@@ -220,6 +220,7 @@ impl ResolvedEndpointInfo {
         let scheme_name = match scheme_name {
             "sigv4" => SigningAlgorithm::SigV4,
             "sigv4a" => SigningAlgorithm::SigV4A,
+            "sigv4-s3express" => SigningAlgorithm::SigV4Express,
             _ => return Err(EndpointError::InvalidAuthSchemeField("name", scheme_name.to_owned())),
         };
 

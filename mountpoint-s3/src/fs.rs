@@ -14,7 +14,7 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
-use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, WriteHandle};
+use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -330,6 +330,8 @@ pub struct S3FilesystemConfig {
     pub allow_delete: bool,
     /// Storage class to be used for new object uploads
     pub storage_class: Option<String>,
+    /// S3 personality (for different S3 semantics)
+    pub s3_personality: S3Personality,
 }
 
 impl Default for S3FilesystemConfig {
@@ -346,6 +348,28 @@ impl Default for S3FilesystemConfig {
             file_mode: 0o644,
             allow_delete: false,
             storage_class: None,
+            s3_personality: S3Personality::Standard,
+        }
+    }
+}
+
+/// The type of S3 we're talking to. S3 Standard and S3 Express One Zone have slightly different
+/// semantics around ListObjects (ordered versus unordered) that this enum captures.
+///
+/// This enum intentionally doesn't implement PartialEq/Eq. You shouldn't test it directly. Instead,
+/// use its methods like `is_list_ordered` to check the actual behavior you're looking for.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum S3Personality {
+    #[default]
+    Standard,
+    ExpressOneZone,
+}
+
+impl S3Personality {
+    pub fn is_list_ordered(self) -> bool {
+        match self {
+            Self::Standard => true,
+            Self::ExpressOneZone => false,
         }
     }
 }
@@ -381,8 +405,16 @@ where
         prefix: &Prefix,
         config: S3FilesystemConfig,
     ) -> Self {
+        trace!(?bucket, ?prefix, ?config, "new filesystem");
+
+        let superblock_config = SuperblockConfig {
+            cache_config: config.cache_config.clone(),
+            s3_personality: config.s3_personality,
+        };
+        let superblock = Superblock::new(bucket, prefix, superblock_config);
+
         let client = Arc::new(client);
-        let superblock = Superblock::new(bucket, prefix, config.cache_config.clone());
+
         let uploader = Uploader::new(client.clone(), config.storage_class.to_owned());
 
         Self {

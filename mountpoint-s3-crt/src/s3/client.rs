@@ -10,7 +10,7 @@ use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt};
+use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -53,6 +53,9 @@ pub struct ClientConfig {
 
     /// The default signing config for the CRT client.
     signing_config: Option<SigningConfig>,
+
+    /// The region
+    region: Option<String>,
 }
 
 impl ClientConfig {
@@ -68,6 +71,14 @@ impl ClientConfig {
         self
     }
 
+    /// Region
+    pub fn region(&mut self, region: &str) -> &mut Self {
+        self.region = Some(region.to_owned());
+        // SAFETY: `self.inner.region` is not mutated further and lives as long as the `ClientConfig`, which outlives the client
+        self.inner.region = unsafe { self.region.as_ref().unwrap().as_aws_byte_cursor() };
+        self
+    }
+
     /// Retry strategy used to reschedule failed requests
     pub fn retry_strategy(&mut self, retry_strategy: RetryStrategy) -> &mut Self {
         self.inner.retry_strategy = retry_strategy.inner.as_ptr();
@@ -79,6 +90,12 @@ impl ClientConfig {
     pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
         self.inner.signing_config = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;
         self.signing_config = Some(signing_config);
+        self
+    }
+
+    /// Enable S3 Express One Zone
+    pub fn express_support(&mut self, express_support: bool) -> &mut Self {
+        self.inner.enable_s3express = express_support;
         self
     }
 

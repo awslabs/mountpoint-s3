@@ -15,9 +15,11 @@ async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket:
     // Create one object named "hello"
     let key = format!("{prefix}hello");
     let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    request
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -48,6 +50,8 @@ async fn test_addressing_style(addressing_style: AddressingStyle, prefix: &str) 
     .await;
 }
 
+// We're not testing S3 Express One Zone against FIPS endpoints
+#[cfg(not(feature = "s3express_tests"))]
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
 async fn test_use_fips() {
@@ -60,6 +64,8 @@ async fn test_use_fips() {
     .await;
 }
 
+// S3 Express One Zone does not support S3 Transfer Acceleration
+#[cfg(not(feature = "s3express_tests"))]
 // Transfer acceleration do not work with path style
 #[tokio::test]
 async fn test_use_accelerate() {
@@ -72,6 +78,8 @@ async fn test_use_accelerate() {
     .await;
 }
 
+// S3 Express One Zone does not support Dual-stack endpoints
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(AddressingStyle::Automatic, "test_dual_stack")]
 #[test_case(AddressingStyle::Path, "test_dual_stack_path_style")]
 #[tokio::test]
@@ -89,6 +97,8 @@ async fn test_addressing_style_dualstack_option(addressing_style: AddressingStyl
     .await;
 }
 
+// We're not testing S3 Express One Zone against FIPS endpoints
+#[cfg(not(feature = "s3express_tests"))]
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
 async fn test_fips_dual_stack_mount_option() {
@@ -101,6 +111,8 @@ async fn test_fips_dual_stack_mount_option() {
     .await;
 }
 
+// S3 Express One Zone does not support access points
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(AddressingStyle::Automatic, true, "test_accesspoint_arn")]
 #[test_case(AddressingStyle::Automatic, false, "test_accesspoint_alias")]
 #[test_case(AddressingStyle::Path, false, "test_accesspoint_alias")]
@@ -130,6 +142,8 @@ async fn run_list_objects_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: 
         .expect("list_object should succeed");
 }
 
+// S3 Express One Zone does not support access points
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(false, "test_OLAP_alias")]
 #[test_case(true, "test_OLAP_ARN")]
 // Path-style addressing is not supported for Access points
@@ -143,6 +157,8 @@ async fn test_object_lambda_access_point(arn: bool, prefix: &str) {
     .await;
 }
 
+// S3 Express One Zone does not support multi-region access points
+#[cfg(not(feature = "s3express_tests"))]
 // Path-style addressing is not supported for Access points
 // Only ARN is supported for Multi Region access point as AWS CLI.
 #[tokio::test]

@@ -120,6 +120,8 @@ async fn test_list_objects_404_bucket() {
 }
 
 // Test list with keys and arguments that poke at URL encoding
+// For S3 Express One Zone, ListObjectsV2 API results are not lexicographically sorted and this test will be failing.
+#[cfg(not(feature = "s3express_tests"))]
 #[tokio::test]
 async fn test_interesting_keys() {
     let keys = &[

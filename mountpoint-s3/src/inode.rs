@@ -39,7 +39,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
-use crate::fs::CacheConfig;
+use crate::fs::{CacheConfig, S3Personality};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
@@ -81,12 +81,19 @@ struct SuperblockInner {
     inodes: RwLock<HashMap<InodeNo, Inode>>,
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
-    cache_config: CacheConfig,
+    config: SuperblockConfig,
+}
+
+/// Configuration for superblock operations
+#[derive(Debug, Clone, Default)]
+pub struct SuperblockConfig {
+    pub cache_config: CacheConfig,
+    pub s3_personality: S3Personality,
 }
 
 impl Superblock {
     /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(bucket: &str, prefix: &Prefix, cache_config: CacheConfig) -> Self {
+    pub fn new(bucket: &str, prefix: &Prefix, config: SuperblockConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
 
         let root = Inode::new(
@@ -113,7 +120,7 @@ impl Superblock {
             inodes: RwLock::new(inodes),
             next_ino: AtomicU64::new(2),
             mount_time,
-            cache_config,
+            config,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -187,7 +194,7 @@ impl Superblock {
                 client,
                 parent_ino,
                 name,
-                self.inner.cache_config.serve_lookup_from_cache,
+                self.inner.config.cache_config.serve_lookup_from_cache,
             )
             .await?;
         self.inner.remember(&lookup.inode);
@@ -243,8 +250,8 @@ impl Superblock {
         }
 
         let validity = match inode.kind() {
-            InodeKind::File => self.inner.cache_config.file_ttl,
-            InodeKind::Directory => self.inner.cache_config.dir_ttl,
+            InodeKind::File => self.inner.config.cache_config.file_ttl,
+            InodeKind::Directory => self.inner.config.cache_config.dir_ttl,
         };
 
         // Resetting the InodeStat expiry because the new InodeStat should have new validity
@@ -310,7 +317,12 @@ impl Superblock {
 
         let existing = self
             .inner
-            .lookup_by_name(client, dir, name, self.inner.cache_config.serve_lookup_from_cache)
+            .lookup_by_name(
+                client,
+                dir,
+                name,
+                self.inner.config.cache_config.serve_lookup_from_cache,
+            )
             .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
@@ -344,9 +356,11 @@ impl Superblock {
                 None,
                 None,
                 None,
-                self.inner.cache_config.file_ttl,
+                self.inner.config.cache_config.file_ttl,
             ),
-            InodeKind::Directory => InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl),
+            InodeKind::Directory => {
+                InodeStat::for_directory(self.inner.mount_time, self.inner.config.cache_config.dir_ttl)
+            }
         };
 
         let state = InodeState {
@@ -377,7 +391,7 @@ impl Superblock {
                 client,
                 parent_ino,
                 name,
-                self.inner.cache_config.serve_lookup_from_cache,
+                self.inner.config.cache_config.serve_lookup_from_cache,
             )
             .await?;
 
@@ -451,7 +465,7 @@ impl Superblock {
                 client,
                 parent_ino,
                 name,
-                self.inner.cache_config.serve_lookup_from_cache,
+                self.inner.config.cache_config.serve_lookup_from_cache,
             )
             .await?;
 
@@ -678,7 +692,7 @@ impl SuperblockInner {
                 result = file_lookup => {
                     match result {
                         Ok(HeadObjectResult { object, .. }) => {
-                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), object.storage_class, object.restore_status, self.cache_config.file_ttl);
+                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), object.storage_class, object.restore_status, self.config.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -728,7 +742,7 @@ impl SuperblockInner {
                     // semantics, directories always shadow files.
                     if found_directory {
                         trace!(parent = ?parent_ino, ?name, "lookup ListObjects found a directory");
-                        let stat = InodeStat::for_directory(self.mount_time, self.cache_config.dir_ttl);
+                        let stat = InodeStat::for_directory(self.mount_time, self.config.cache_config.dir_ttl);
                         return Ok(Some(RemoteLookup { kind: InodeKind::Directory, stat }));
                     }
                 }
@@ -740,7 +754,7 @@ impl SuperblockInner {
         if let Some(mut stat) = file_state {
             trace!(parent = ?parent_ino, ?name, etag =? stat.etag, "found a regular file in S3");
             // Update the validity of the stat in case the racing ListObjects took a long time
-            stat.update_validity(self.cache_config.file_ttl);
+            stat.update_validity(self.config.cache_config.file_ttl);
             Ok(Some(RemoteLookup {
                 kind: InodeKind::File,
                 stat,
@@ -838,8 +852,8 @@ impl SuperblockInner {
                     let mut sync = existing_inode.get_mut_inode_state()?;
 
                     let validity = match existing_inode.kind() {
-                        InodeKind::File => self.cache_config.file_ttl,
-                        InodeKind::Directory => self.cache_config.dir_ttl,
+                        InodeKind::File => self.config.cache_config.file_ttl,
+                        InodeKind::Directory => self.config.cache_config.dir_ttl,
                     };
                     sync.stat.update_validity(validity);
                     let stat = sync.stat.clone();
@@ -1541,6 +1555,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -1652,6 +1667,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -1679,10 +1695,13 @@ mod tests {
         let superblock = Superblock::new(
             bucket,
             &prefix,
-            CacheConfig {
-                serve_lookup_from_cache: true,
-                dir_ttl: ttl,
-                file_ttl: ttl,
+            SuperblockConfig {
+                cache_config: CacheConfig {
+                    serve_lookup_from_cache: true,
+                    dir_ttl: ttl,
+                    file_ttl: ttl,
+                },
+                s3_personality: S3Personality::Standard,
             },
         );
 
@@ -1758,6 +1777,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -1796,6 +1816,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -1830,6 +1851,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -1903,6 +1925,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -1948,6 +1971,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -2004,6 +2028,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2048,6 +2073,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2081,6 +2107,133 @@ mod tests {
             .expect_err("should not do getattr on removed directory");
     }
 
+    #[test_case("", true; "unprefixed ordered")]
+    #[test_case("test_prefix/", true; "prefixed ordered")]
+    #[test_case("", false; "unprefixed unordered")]
+    #[test_case("test_prefix/", false; "prefixed unordered")]
+    #[tokio::test]
+    async fn test_readdir_unordered(prefix: &str, ordered: bool) {
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+            unordered_list_seed: (!ordered).then_some(123456),
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let s3_personality = if ordered {
+            S3Personality::Standard
+        } else {
+            S3Personality::ExpressOneZone
+        };
+        let superblock = Superblock::new(
+            "test_bucket",
+            &prefix,
+            SuperblockConfig {
+                s3_personality,
+                ..Default::default()
+            },
+        );
+
+        // Here are the remote/local cases we want to test:
+        // - `dir1`: directory in the remote bucket, no conflicting local node
+        // - `dir2`: directory in the remote bucket, conflicting local directory
+        // - `dir3`: directory in the remote bucket, conflicting local file
+        // - `dir4`: directory in the remote bucket, conflicting remote file
+        // - `dm1`: directory marker in the remote bucket, no conflicting local node
+        // - `dm2`: directory marker in the remote bucket, conflicting local directory
+        // - `dm3`: directory marker in the remote bucket, conflicting local file
+        // - `dm4`: directory marker in the remote bucket, conflicting remote file
+        // - `file1`: file in the remote bucket, no conflicting local node
+        // - `file2`: file in the remote bucket, conflicting local directory
+        // - `file3`: file in the remote bucket, conflicting local file
+        // Then to check ordering:
+        // - `aaa` and `zzz`: local files only
+
+        // Open some local keys
+        for filename in ["aaa", "dir3", "dm3", "file3", "zzz"] {
+            let new_inode = superblock
+                .create(
+                    &client,
+                    FUSE_ROOT_INODE,
+                    OsStr::from_bytes(filename.as_bytes()),
+                    InodeKind::File,
+                )
+                .await
+                .unwrap();
+            superblock
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0)
+                .await
+                .unwrap();
+        }
+
+        // Create some local directories
+        for dirname in ["dir2", "dm2", "file2"] {
+            let _new_inode = superblock
+                .create(
+                    &client,
+                    FUSE_ROOT_INODE,
+                    OsStr::from_bytes(dirname.as_bytes()),
+                    InodeKind::Directory,
+                )
+                .await
+                .unwrap();
+        }
+
+        // Now create remote state so that we can test shadowing
+        let keys = &[
+            format!("{prefix}dir1/file.txt"),
+            format!("{prefix}dir2/file.txt"),
+            format!("{prefix}dir3/file.txt"),
+            format!("{prefix}dir4/file.txt"),
+            format!("{prefix}dir4"),
+            format!("{prefix}dm1/"),
+            format!("{prefix}dm2/"),
+            format!("{prefix}dm3/"),
+            format!("{prefix}dm4/"),
+            format!("{prefix}dm4"),
+            format!("{prefix}file1"),
+            format!("{prefix}file2"),
+            format!("{prefix}file3"),
+        ];
+
+        let last_modified = OffsetDateTime::UNIX_EPOCH + Duration::days(30);
+        for key in keys {
+            let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
+            obj.set_last_modified(last_modified);
+            client.add_object(key, obj);
+        }
+
+        // And now walk the root directory to check it contains the right stuff
+        let dir_handle = superblock.readdir(&client, FUSE_ROOT_INODE, 20).await.unwrap();
+        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries: Vec<_> = entries.iter().map(|l| (l.inode.name(), l.inode.kind())).collect();
+
+        let expected_entries = [
+            ("aaa", InodeKind::File),
+            ("dir1", InodeKind::Directory),
+            ("dir2", InodeKind::Directory),
+            ("dir3", InodeKind::Directory),
+            ("dir4", InodeKind::Directory),
+            ("dm1", InodeKind::Directory),
+            ("dm2", InodeKind::Directory),
+            ("dm3", InodeKind::Directory),
+            ("dm4", InodeKind::Directory),
+            ("file1", InodeKind::File),
+            ("file2", InodeKind::Directory), // local directory shadows remote file
+            ("file3", InodeKind::File),
+            ("zzz", InodeKind::File),
+        ];
+
+        for entry in expected_entries {
+            assert!(entries.contains(&entry), "missing entry {entry:?}");
+        }
+
+        if ordered {
+            assert_eq!(entries, expected_entries);
+        }
+    }
+
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
@@ -2088,6 +2241,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2133,6 +2287,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2172,6 +2327,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2205,6 +2361,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let file_name = "corrupted";
@@ -2264,6 +2421,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
@@ -2323,6 +2481,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
@@ -2359,6 +2518,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         // In this test the `/` delimiter comes back to bite us. `dir-1/` comes before `dir/` in
@@ -2396,6 +2556,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
@@ -2455,6 +2616,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2512,6 +2674,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
