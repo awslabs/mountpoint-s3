@@ -1,7 +1,7 @@
 //! A mock implementation of an object client for use in tests.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
@@ -158,6 +158,165 @@ impl MockClient {
     fn inc_op_count(&self, operation: Operation) {
         let mut op_counts = self.operation_counts.write().unwrap();
         op_counts.entry(operation).and_modify(|count| *count += 1).or_insert(1);
+    }
+
+    /// Ordered list implementation
+    fn list_objects_ordered(
+        &self,
+        continuation_token: Option<&str>,
+        delimiter: &str,
+        max_keys: usize,
+        prefix: &str,
+    ) -> ListObjectsResult {
+        // TODO delimiter and prefix should be optional in the API
+        let delimiter = (!delimiter.is_empty()).then_some(delimiter);
+
+        let objects = self.objects.read().unwrap();
+
+        let mut common_prefixes: BTreeSet<String> = BTreeSet::new();
+        let mut object_vec: Vec<ObjectInfo> = Vec::new();
+        let mut next_continuation_token: Option<String> = None;
+        let mut current_common_prefix: Option<String> = None;
+        // When handling prefixes and delimiters, we care about characters, not bytes.
+        let prefix_len = prefix.chars().count();
+
+        // If there is a continuation token, set up an iterator starting at that token. Otherwise,
+        // start at the beginning of the bucket.
+        let object_iterator = objects.range(continuation_token.unwrap_or("").to_string()..);
+
+        for (key, object) in object_iterator {
+            let key_len = key.chars().count();
+            // If the prefix is `n` characters long, and we encounter a key whose first `n`
+            // characters are lexicographically larger than the prefix, then we can stop iterating.
+            // Note that we cannot just do a direct comparison between the full key and prefix. For
+            // example, A/C/c is lexicographically larger than A/C, but A/C is a prefix of A/C/c and
+            // we risk skipping directory entries if we stop when we encounter A/C/c.
+            let key_prefix = if key_len >= prefix_len {
+                key.chars().take(prefix_len).collect::<String>()
+            } else {
+                key.to_string()
+            };
+            if key_prefix.as_str() > prefix {
+                break;
+            }
+
+            // Skip keys that do not start with the specified prefix
+            if !key.starts_with(prefix) {
+                continue;
+            }
+
+            // When we hit the maximum number of keys, if the current key will be a common prefix,
+            // we need to keep going until we get past that prefix before choosing the continuation
+            // token and breaking out of the loop. Otherwise, we might return the same common prefix
+            // twice (once now, once on the next LIST call). If the current key does not have a
+            // common prefix, it just becomes the continuation token.
+            let key_count = common_prefixes.len() + object_vec.len();
+            if key_count >= max_keys {
+                match current_common_prefix {
+                    Some(ref ccp) if key.starts_with(ccp) => continue,
+                    _ => {
+                        next_continuation_token = Some(key.to_string());
+                        break;
+                    }
+                }
+            }
+
+            // We need to roll up all keys that have a common substring between the specified prefix
+            // (if any) and the next instance of the delimiter into a single common prefix (see
+            // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html). So here
+            // remove the prefix (if any) to make sure we are only looking for delimiters
+            // that come after the prefix
+            let no_prefix_key = key.chars().skip(prefix_len).collect::<String>();
+
+            // If we have a delimiter, split the prefix-less key on it. If that gives a non-empty
+            // string, it's a common prefix. If not, it's a regular key.
+            if let Some((pre, _)) = delimiter.and_then(|d| no_prefix_key.split_once(d)) {
+                let common_prefix = format!("{}{}{}", prefix, pre, delimiter.unwrap());
+                if common_prefixes.insert(common_prefix.clone()) {
+                    current_common_prefix = Some(common_prefix);
+                }
+            } else {
+                object_vec.push(ObjectInfo {
+                    key: key.to_string(),
+                    size: object.len() as u64,
+                    last_modified: object.last_modified,
+                    etag: object.etag.as_str().to_string(),
+                    storage_class: object.storage_class.clone(),
+                    restore_status: object.restore_status,
+                });
+            }
+        }
+
+        let common_prefixes = common_prefixes.into_iter().collect::<Vec<_>>();
+
+        ListObjectsResult {
+            objects: object_vec,
+            common_prefixes,
+            next_continuation_token,
+        }
+    }
+
+    fn list_objects_unordered(
+        &self,
+        continuation_token: Option<&str>,
+        delimiter: &str,
+        max_keys: usize,
+        prefix: &str,
+        seed: u64,
+    ) -> ListObjectsResult {
+        // TODO delimiter and prefix should be optional in the API
+        let delimiter = (!delimiter.is_empty()).then_some(delimiter);
+
+        let mut common_prefixes: Vec<String> = Vec::new();
+        let mut common_prefixes_set: HashSet<String> = HashSet::new();
+        let mut object_vec: Vec<ObjectInfo> = Vec::new();
+
+        let objects = self.objects.read().unwrap();
+
+        // Shuffle the keys now before we construct an iterator over them. This won't be stable in
+        // the presence of mutation, but that's the expected behavior anyway.
+        let mut object_keys: Vec<_> = objects.keys().filter(|key| key.starts_with(prefix)).collect();
+        object_keys.shuffle(&mut ChaCha20Rng::seed_from_u64(seed));
+
+        // Continuation tokens for unordered list will just be the index in the shuffled list. This
+        // again won't work well in the presence of mutation, but again, that's the expected
+        // behavior.
+        let next_index = continuation_token
+            .map(|ct| ct.parse::<usize>().expect("invalid continuation token"))
+            .unwrap_or(0);
+        let object_iterator = object_keys.iter().skip(next_index).take(max_keys);
+
+        let mut next_continuation_token = next_index;
+        for key in object_iterator {
+            let object = objects.get(*key).expect("key is valid");
+            let remaining_key = key.chars().skip(prefix.chars().count()).collect::<String>();
+
+            if let Some((pre, _)) = delimiter.and_then(|d| remaining_key.split_once(d)) {
+                let common_prefix = format!("{}{}{}", prefix, pre, delimiter.unwrap());
+                if common_prefixes_set.insert(common_prefix.clone()) {
+                    common_prefixes.push(common_prefix);
+                }
+            } else {
+                object_vec.push(ObjectInfo {
+                    key: key.to_string(),
+                    size: object.len() as u64,
+                    last_modified: object.last_modified,
+                    etag: object.etag.as_str().to_string(),
+                    storage_class: object.storage_class.clone(),
+                    restore_status: object.restore_status,
+                });
+            }
+            next_continuation_token += 1;
+        }
+        // We're on the last page of the list if we saw fewer than `max_keys` keys
+        let next_continuation_token =
+            (next_continuation_token == next_index + max_keys).then(|| next_continuation_token.to_string());
+
+        ListObjectsResult {
+            objects: object_vec,
+            common_prefixes,
+            next_continuation_token,
+        }
     }
 }
 
@@ -464,98 +623,11 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket));
         }
 
-        // TODO delimiter and prefix should be optional in the API
-        let delimiter = (!delimiter.is_empty()).then_some(delimiter);
-
-        let objects = self.objects.read().unwrap();
-
-        let mut common_prefixes: BTreeSet<String> = BTreeSet::new();
-        let mut object_vec: Vec<ObjectInfo> = Vec::new();
-        let mut next_continuation_token: Option<String> = None;
-        let mut current_common_prefix: Option<String> = None;
-        // When handling prefixes and delimiters, we care about characters, not bytes.
-        let prefix_len = prefix.chars().count();
-
-        // If there is a continuation token, set up an iterator starting at that token. Otherwise,
-        // start at the beginning of the bucket.
-        let object_iterator = objects.range(continuation_token.unwrap_or("").to_string()..);
-
-        for (key, object) in object_iterator {
-            let key_len = key.chars().count();
-            // If the prefix is `n` characters long, and we encounter a key whose first `n`
-            // characters are lexicographically larger than the prefix, then we can stop iterating.
-            // Note that we cannot just do a direct comparison between the full key and prefix. For
-            // example, A/C/c is lexicographically larger than A/C, but A/C is a prefix of A/C/c and
-            // we risk skipping directory entries if we stop when we encounter A/C/c.
-            let key_prefix = if key_len >= prefix_len {
-                key.chars().take(prefix_len).collect::<String>()
-            } else {
-                key.to_string()
-            };
-            if key_prefix.as_str() > prefix {
-                break;
-            }
-
-            // Skip keys that do not start with the specified prefix
-            if !key.starts_with(prefix) {
-                continue;
-            }
-
-            // When we hit the maximum number of keys, if the current key will be a common prefix,
-            // we need to keep going until we get past that prefix before choosing the continuation
-            // token and breaking out of the loop. Otherwise, we might return the same common prefix
-            // twice (once now, once on the next LIST call). If the current key does not have a
-            // common prefix, it just becomes the continuation token.
-            let key_count = common_prefixes.len() + object_vec.len();
-            if key_count >= max_keys {
-                match current_common_prefix {
-                    Some(ref ccp) if key.starts_with(ccp) => continue,
-                    _ => {
-                        next_continuation_token = Some(key.to_string());
-                        break;
-                    }
-                }
-            }
-
-            // We need to roll up all keys that have a common substring between the specified prefix
-            // (if any) and the next instance of the delimiter into a single common prefix (see
-            // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html). So here
-            // remove the prefix (if any) to make sure we are only looking for delimiters
-            // that come after the prefix
-            let no_prefix_key = key.chars().skip(prefix_len).collect::<String>();
-
-            // If we have a delimiter, split the prefix-less key on it. If that gives a non-empty
-            // string, it's a common prefix. If not, it's a regular key.
-            if let Some((pre, _)) = delimiter.and_then(|d| no_prefix_key.split_once(d)) {
-                let common_prefix = format!("{}{}{}", prefix, pre, delimiter.unwrap());
-                if common_prefixes.insert(common_prefix.clone()) {
-                    current_common_prefix = Some(common_prefix);
-                }
-            } else {
-                object_vec.push(ObjectInfo {
-                    key: key.to_string(),
-                    size: object.len() as u64,
-                    last_modified: object.last_modified,
-                    etag: object.etag.as_str().to_string(),
-                    storage_class: object.storage_class.clone(),
-                    restore_status: object.restore_status,
-                });
-            }
-        }
-
-        let mut common_prefixes = common_prefixes.into_iter().collect::<Vec<_>>();
-
         if let Some(seed) = self.config.unordered_list_seed {
-            // Shuffle both responses
-            common_prefixes.shuffle(&mut ChaCha20Rng::seed_from_u64(seed));
-            object_vec.shuffle(&mut ChaCha20Rng::seed_from_u64(seed.wrapping_add(1)));
+            Ok(self.list_objects_unordered(continuation_token, delimiter, max_keys, prefix, seed))
+        } else {
+            Ok(self.list_objects_ordered(continuation_token, delimiter, max_keys, prefix))
         }
-
-        Ok(ListObjectsResult {
-            objects: object_vec,
-            common_prefixes,
-            next_continuation_token,
-        })
     }
 
     async fn put_object(
@@ -711,8 +783,6 @@ impl PutObjectRequest for MockPutObjectRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use futures::StreamExt;
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
@@ -981,22 +1051,6 @@ mod tests {
             .expect("should not fail");
 
         assert!(result2.next_continuation_token.is_none());
-        for prefix2 in result2.common_prefixes.iter() {
-            for prefix1 in result1.common_prefixes.iter() {
-                assert!(prefix2 > prefix1);
-            }
-            for object1 in result1.objects.iter() {
-                assert!(prefix2 > &object1.key);
-            }
-        }
-        for object2 in result2.objects.iter() {
-            for prefix1 in result1.common_prefixes.iter() {
-                assert!(&object2.key > prefix1);
-            }
-            for object1 in result1.objects.iter() {
-                assert!(object2.key > object1.key);
-            }
-        }
 
         // Depends on the random seed, but a cheap way to check randomization is working
         assert_ne!(result1.objects[0].key, "key0");
@@ -1018,6 +1072,115 @@ mod tests {
             .collect();
         let expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
         assert_eq!(prefixes, expected_prefixes);
+        assert_eq!(objects, expected_objects);
+    }
+
+    #[test_case(1)]
+    #[test_case(2)]
+    #[test_case(3)]
+    #[test_case(5)]
+    #[test_case(10)]
+    #[test_case(50)]
+    #[tokio::test]
+    async fn list_objects_unordered_delimited_page_size(page_size: usize) {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+            unordered_list_seed: Some(1234),
+        });
+
+        for i in 0..20 {
+            client.add_object(&format!("key{i}"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            if i % 3 == 0 {
+                client.add_object(
+                    &format!("key{i}/file.txt"),
+                    MockObject::constant(0u8, 5, ETag::for_tests()),
+                );
+            } else if i % 5 == 0 {
+                client.add_object(&format!("key{i}/"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            }
+        }
+
+        let mut prefixes = HashSet::new();
+        let mut objects = HashSet::new();
+        let mut continuation_token = None;
+        for _ in 0..100 {
+            let result = client
+                .list_objects("test_bucket", continuation_token.as_deref(), "/", page_size, "")
+                .await
+                .expect("should not fail");
+            continuation_token = result.next_continuation_token;
+
+            prefixes.extend(result.common_prefixes.into_iter());
+            objects.extend(result.objects.into_iter().map(|o| o.key));
+
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        assert!(continuation_token.is_none(), "list did not terminate");
+
+        let expected_prefixes: HashSet<_> = (0..20)
+            .filter(|i| i % 3 == 0 || i % 5 == 0)
+            .map(|i| format!("key{i}/"))
+            .collect();
+        let expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
+        assert_eq!(prefixes, expected_prefixes);
+        assert_eq!(objects, expected_objects);
+    }
+
+    #[test_case(1)]
+    #[test_case(2)]
+    #[test_case(3)]
+    #[test_case(5)]
+    #[test_case(10)]
+    #[test_case(50)]
+    #[tokio::test]
+    async fn list_objects_unordered_undelimited_page_size(page_size: usize) {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+            unordered_list_seed: Some(1234),
+        });
+
+        for i in 0..20 {
+            client.add_object(&format!("key{i}"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            if i % 3 == 0 {
+                client.add_object(
+                    &format!("key{i}/file.txt"),
+                    MockObject::constant(0u8, 5, ETag::for_tests()),
+                );
+            } else if i % 5 == 0 {
+                client.add_object(&format!("key{i}/"), MockObject::constant(0u8, 5, ETag::for_tests()));
+            }
+        }
+
+        let mut prefixes = HashSet::new();
+        let mut objects = HashSet::new();
+        let mut continuation_token = None;
+        for _ in 0..100 {
+            let result = client
+                .list_objects("test_bucket", continuation_token.as_deref(), "", page_size, "")
+                .await
+                .expect("should not fail");
+            continuation_token = result.next_continuation_token;
+
+            prefixes.extend(result.common_prefixes.into_iter());
+            objects.extend(result.objects.into_iter().map(|o| o.key));
+
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        assert!(continuation_token.is_none(), "list did not terminate");
+
+        assert!(prefixes.is_empty(), "should be no common prefixes without a delimiter");
+
+        let mut expected_objects: HashSet<_> = (0..20).map(|i| format!("key{i}")).collect();
+        expected_objects.extend((0..20).filter(|i| i % 3 == 0).map(|i| format!("key{i}/file.txt")));
+        expected_objects.extend((0..20).filter(|i| i % 3 != 0 && i % 5 == 0).map(|i| format!("key{i}/")));
         assert_eq!(objects, expected_objects);
     }
 
