@@ -40,11 +40,20 @@ body:
     validations:
       required: true
   - type: textarea
+    id: cli
+    attributes:
+      label: Mountpoint options
+      description: Please provide the command-line arguments used to launch Mountpoint, removing any sensitive information.
+      placeholder: mount-s3 <MY_BUCKET> <MOUNT_DIR> --allow_delete
+      render: shell
+    validations:
+      required: true      
+  - type: textarea
     id: behavior
     attributes:
       label: What happened?
-      description: Also tell us, what did you expect to happen?
-      placeholder: The connector failed to start when trying mount the file system.
+      description: Also tell us, what did you expect to happen? Please try to include as many details as you can on how to reproduce the issue.
+      placeholder: Mountpoint failed to start when trying to mount the file system.
     validations:
       required: true
   - type: textarea
