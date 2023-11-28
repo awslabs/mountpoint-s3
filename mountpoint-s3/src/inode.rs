@@ -2116,7 +2116,7 @@ mod tests {
         let client_config = MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
-            unordered_list_seed: ordered.then_some(123456),
+            unordered_list_seed: (!ordered).then_some(123456),
         };
         let client = Arc::new(MockClient::new(client_config));
 

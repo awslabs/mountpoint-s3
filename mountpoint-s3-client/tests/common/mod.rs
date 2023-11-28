@@ -141,16 +141,15 @@ pub async fn get_mpu_count_for_key(
         request = request.bucket(bucket);
     }
 
+    // This could be broken if we have initiated more than one multipart upload using the same key
+    // since ListMultipartUploads returns all multipart uploads for that key.
     let upload_count = request
         .prefix(prefix)
         .send()
         .await?
         .uploads()
         .map(|upload| upload.iter().filter(|&u| u.key() == Some(key)).collect::<Vec<_>>())
-        .map_or(0, |u| {
-            dbg!(u.clone(), "multipart_upload");
-            u.len()
-        });
+        .map_or(0, |u| u.len());
 
     Ok(upload_count)
 }

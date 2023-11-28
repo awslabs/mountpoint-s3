@@ -50,7 +50,7 @@ async fn test_addressing_style(addressing_style: AddressingStyle, prefix: &str) 
     .await;
 }
 
-// S3 Express One Zone does not support FIPS endpoints
+// We're not testing S3 Express One Zone against FIPS endpoints
 #[cfg(not(feature = "s3express_tests"))]
 #[cfg(feature = "fips_tests")]
 #[tokio::test]
@@ -97,7 +97,7 @@ async fn test_addressing_style_dualstack_option(addressing_style: AddressingStyl
     .await;
 }
 
-// S3 Express One Zone does not support FIPS endpoints
+// We're not testing S3 Express One Zone against FIPS endpoints
 #[cfg(not(feature = "s3express_tests"))]
 #[cfg(feature = "fips_tests")]
 #[tokio::test]

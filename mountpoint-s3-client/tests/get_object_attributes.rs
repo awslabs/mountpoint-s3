@@ -350,7 +350,7 @@ async fn test_get_attributes_mpu_with_checksum() {
     assert_eq!(result.object_size, Some(object_size));
 
     let checksum = result.checksum.unwrap();
-    // S3 Express One Zone includes the part number suffix in the checksum while normal S3 doesn't.
+    // S3 Express One Zone includes the part number suffix in the checksum while general purpose S3 doesn't.
     let checksum = if cfg!(feature = "s3express_tests") {
         checksum.checksum_crc32c
     } else {
