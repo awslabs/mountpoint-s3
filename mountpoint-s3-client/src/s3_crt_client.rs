@@ -301,7 +301,7 @@ impl S3CrtClientInner {
         let user_agent = config.user_agent.unwrap_or_else(|| UserAgent::new(None));
         let user_agent_header = user_agent.build();
 
-        let s3_client = Client::new(&allocator, client_config).unwrap();
+        let s3_client = Client::new(&allocator, client_config).map_err(NewClientError::construction_error)?;
 
         Ok(Self {
             allocator,
@@ -769,10 +769,24 @@ pub enum NewClientError {
     InvalidEndpoint(#[from] EndpointError),
     /// Invalid AWS credentials
     #[error("invalid AWS credentials")]
-    ProviderFailure(#[from] mountpoint_s3_crt::common::error::Error),
+    ProviderFailure(#[source] mountpoint_s3_crt::common::error::Error),
     /// Invalid configuration
     #[error("invalid configuration: {0}")]
     InvalidConfiguration(String),
+    /// An internal error from within the AWS Common Runtime
+    #[error("Unknown CRT error")]
+    CrtError(#[source] mountpoint_s3_crt::common::error::Error),
+}
+
+impl NewClientError {
+    fn construction_error(e: mountpoint_s3_crt::common::error::Error) -> Self {
+        const AWS_ERROR_INVALID_ARGUMENT: i32 = 34;
+        if e.raw_error() == AWS_ERROR_INVALID_ARGUMENT {
+            Self::InvalidConfiguration("see crt logs for details".into())
+        } else {
+            Self::CrtError(e)
+        }
+    }
 }
 
 /// Errors returned by the CRT-based S3 client
@@ -1030,6 +1044,18 @@ mod tests {
 
     use super::*;
     use test_case::test_case;
+
+    #[test_case(4 * 1024 * 1024; "less than 5MiB")]
+    #[test_case(10_000_000; "not a multiple of 1024")]
+    #[test_case(6 * 1024 * 1024 * 1024; "greater than 5GiB")]
+    fn client_new_fails_with_invalid_part_size(part_size: usize) {
+        let config = S3ClientConfig {
+            part_size,
+            ..Default::default()
+        };
+        let result = S3CrtClient::new(config);
+        assert!(matches!(result, Err(NewClientError::InvalidConfiguration(_))))
+    }
 
     /// Test if the prefix is added correctly to the User-Agent header
     #[test]
