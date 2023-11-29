@@ -301,7 +301,7 @@ impl S3CrtClientInner {
         let user_agent = config.user_agent.unwrap_or_else(|| UserAgent::new(None));
         let user_agent_header = user_agent.build();
 
-        let s3_client = Client::new(&allocator, client_config).unwrap();
+        let s3_client = Client::new(&allocator, client_config).map_err(NewClientError::CrtError)?;
 
         Ok(Self {
             allocator,
@@ -769,10 +769,13 @@ pub enum NewClientError {
     InvalidEndpoint(#[from] EndpointError),
     /// Invalid AWS credentials
     #[error("invalid AWS credentials")]
-    ProviderFailure(#[from] mountpoint_s3_crt::common::error::Error),
+    ProviderFailure(#[source] mountpoint_s3_crt::common::error::Error),
     /// Invalid configuration
     #[error("invalid configuration: {0}")]
     InvalidConfiguration(String),
+    /// An internal error from within the AWS Common Runtime
+    #[error("Unknown CRT error")]
+    CrtError(#[source] mountpoint_s3_crt::common::error::Error),
 }
 
 /// Errors returned by the CRT-based S3 client
@@ -1030,6 +1033,18 @@ mod tests {
 
     use super::*;
     use test_case::test_case;
+
+    /// Test both explicit validation in [Client::new] and implicit limits in the CRT
+    #[test_case(4 * 1024 * 1024; "less than 5MiB")] // validated in Client::new
+    #[test_case(10_000_000; "not a multiple of 1024")] // CRT constraint
+    #[test_case(6 * 1024 * 1024 * 1024; "greater than 5GiB")] // validated in Client::new
+    fn client_new_fails_with_invalid_part_size(part_size: usize) {
+        let config = S3ClientConfig {
+            part_size,
+            ..Default::default()
+        };
+        S3CrtClient::new(config).expect_err("creating a new client should fail");
+    }
 
     /// Test if the prefix is added correctly to the User-Agent header
     #[test]
