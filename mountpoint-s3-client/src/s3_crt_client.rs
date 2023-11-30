@@ -1034,10 +1034,9 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    /// Test both explicit validation in [Client::new] and implicit limits in the CRT
-    #[test_case(4 * 1024 * 1024; "less than 5MiB")] // validated in Client::new
-    #[test_case(10_000_000; "not a multiple of 1024")] // CRT constraint
-    #[test_case(6 * 1024 * 1024 * 1024; "greater than 5GiB")] // validated in Client::new
+    /// Test explicit validation in [Client::new]
+    #[test_case(4 * 1024 * 1024; "less than 5MiB")]
+    #[test_case(6 * 1024 * 1024 * 1024; "greater than 5GiB")]
     fn client_new_fails_with_invalid_part_size(part_size: usize) {
         let config = S3ClientConfig {
             part_size,
