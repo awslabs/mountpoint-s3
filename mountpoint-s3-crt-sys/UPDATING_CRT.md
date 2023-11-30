@@ -12,20 +12,19 @@ The CRT submodules can be updated by following these steps:
    git submodule foreach 'git fetch -q --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`'
    ```
 
-1. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
+2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
 
    ```sh
    git diff --submodule
    ```
 
-1. Check the whole project builds successfully: `cargo build`.
+3. Check the whole project builds successfully: `cargo build`.
    This will build both Mountpoint filesystem as well as the client components.
 
-1. Optionally run the integration tests for both `mountpoint-s3` and `mountpoint-s3-client`.
+4. Optionally run the integration tests for both `mountpoint-s3` and `mountpoint-s3-client`.
    You will need a number of AWS resources created in your account to run the integration tests.
 
-
-1. Stage and commit the changes:
+5. Stage and commit the changes:
 
    ```sh
    git add mountpoint-s3-crt-sys/crt
