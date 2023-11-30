@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701336612654,
+  "lastUpdate": 1701348313614,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3d9b8a9f671a70742a751f8823fd80a09068df06",
-          "message": "Use a unique target for request spans (#615)\n\nThese spans are emitted at a high level (WARN), which is annoying for\nclients that want to use an adapter to the `log` facade, where `tracing`\nwill emit an event whenever a span is created. To help these clients\nfilter out these span events, let's use a unique target for them.\n\nI verified that log messages for requests are still emitting this span\nmetadata when Mountpoint requests log, so this only affects clients that\naren't using `tracing`.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2023-11-21T15:01:05Z",
-          "tree_id": "8a5e550b7723e55762b291ce35097ff4de9e897e",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/3d9b8a9f671a70742a751f8823fd80a09068df06"
-        },
-        "date": 1700580781682,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.073,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.167,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.134,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.514,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 98.2335416,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 71.17007029999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 83.25144359999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "963258fbf9cea26adb93d69643f1fea5684288e1",
+          "message": "Update CRT submodules to latest releases (#652)\n\n* Update CRT submodules to latest releases (aws-c-s3 0.4.3)\n\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-s3 dc90010..de36fee:\n  > Bypass for CreateSession reqeust (#384)\n  > Mem limiter validation (#385)\n  > Fix tests to use net_test_case (#383)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Update S3CrtClient test to reflect loosened part size constraint\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2023-11-30T12:12:11Z",
+          "tree_id": "c994bd0895147c6c801639a60df7159b6943e938",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/963258fbf9cea26adb93d69643f1fea5684288e1"
+        },
+        "date": 1701348313034,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.071,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.181,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.16,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.715,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 91.9438938,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 67.1259727,
             "unit": "milliseconds"
           }
         ]
