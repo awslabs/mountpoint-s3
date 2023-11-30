@@ -21,10 +21,16 @@ The CRT submodules can be updated by following these steps:
 3. Check the whole project builds successfully: `cargo build`.
    This will build both Mountpoint filesystem as well as the client components.
 
-4. Optionally run the integration tests for both `mountpoint-s3` and `mountpoint-s3-client`.
+4. Verify the compressed size of the `mountpoint-s3-crt-sys` crate does not exceed the crates.io limit of 10MiB.
+
+   ```
+   cargo package -p mountpoint-s3-crt-sys --no-verify --allow-dirty
+   ```
+
+5. Optionally run the integration tests for both `mountpoint-s3` and `mountpoint-s3-client`.
    You will need a number of AWS resources created in your account to run the integration tests.
 
-5. Stage and commit the changes:
+6. Stage and commit the changes:
 
    ```sh
    git add mountpoint-s3-crt-sys/crt
