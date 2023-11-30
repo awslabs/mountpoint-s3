@@ -112,7 +112,7 @@ where
         let key = lookup.inode.full_key();
         let handle = match fs.uploader.put(&fs.bucket, key).await {
             Err(e) => {
-                return Err(err!(libc::EIO, source:e, "put failed to start"));
+                return Err(err!(libc::EIO, source:e, "put failed to start (key={})", lookup.inode.full_key()));
             }
             Ok(request) => FileHandleType::Write(UploadState::InProgress { request, handle }.into()),
         };
@@ -124,14 +124,22 @@ where
         if !lookup.stat.is_readable {
             return Err(err!(
                 libc::EACCES,
-                "objects in flexible retrieval storage classes are not accessible",
+                "objects in flexible retrieval storage classes are not accessible (key={})",
+                lookup.inode.full_key(),
             ));
         }
         lookup.inode.start_reading()?;
         let handle = FileHandleType::Read {
             request: Default::default(),
             etag: match &lookup.stat.etag {
-                None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
+                None => {
+                    return Err(err!(
+                        libc::EBADF,
+                        "no E-Tag for inode {} (key={})",
+                        lookup.inode.ino(),
+                        lookup.inode.full_key()
+                    ))
+                }
                 Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
             },
         };
@@ -227,11 +235,11 @@ impl<Client: ObjectClient> UploadState<Client> {
                 debug!(key, size, "put succeeded");
                 Ok(())
             }
-            Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
+            Err(e) => Err(err!(libc::EIO, source:e, "put failed (key={:?})", key)),
         };
         if let Err(err) = handle.finish_writing() {
             // Log the issue but still return put_result.
-            error!(?err, "error updating the inode status");
+            error!(?err, "error updating the inode status (key={:?})", key);
         }
         put_result
     }
@@ -688,16 +696,18 @@ where
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
             Ok(checksummed_bytes) => match checksummed_bytes.into_bytes() {
                 Ok(bytes) => reply.data(&bytes),
-                Err(e) => reply.error(err!(libc::EIO, source:e, "integrity error")),
+                Err(e) => reply.error(err!(libc::EIO, source:e, "integrity error(key={:?})", handle.full_key)),
             },
             Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
                 GetObjectError::PreconditionFailed,
             ))) => reply.error(err!(libc::ESTALE, "object was mutated remotely")),
-            Err(PrefetchReadError::Integrity(e)) => reply.error(err!(libc::EIO, source:e, "integrity error")),
+            Err(PrefetchReadError::Integrity(e)) => {
+                reply.error(err!(libc::EIO, source:e, "integrity error(key={:?})", handle.full_key))
+            }
             Err(e @ PrefetchReadError::GetRequestFailed(_))
             | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly)
             | Err(e @ PrefetchReadError::GetRequestReturnedWrongOffset { .. }) => {
-                reply.error(err!(libc::EIO, source:e, "get request failed"))
+                reply.error(err!(libc::EIO, source:e, "get request failed(key={:?})", handle.full_key))
             }
         }
     }
@@ -713,8 +723,9 @@ where
         if mode & libc::S_IFMT != libc::S_IFREG {
             return Err(err!(
                 libc::EINVAL,
-                "invalid mknod type {}; only regular files are supported",
-                mode & libc::S_IFMT
+                "invalid mknod type {}; only regular files are supported (filename={:?})",
+                mode & libc::S_IFMT,
+                name
             ));
         }
 

@@ -49,11 +49,15 @@ pub enum UploadWriteError<E: std::error::Error> {
     #[error("put request failed")]
     PutRequestFailed(#[from] E),
 
-    #[error("out of order write; expected offset {expected_offset:?} but got {write_offset:?}")]
-    OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
+    #[error("out of order write for {key:?}; expected offset {expected_offset:?} but got {write_offset:?}")]
+    OutOfOrderWrite {
+        key: String,
+        write_offset: u64,
+        expected_offset: u64,
+    },
 
-    #[error("object exceeded maximum upload size of {maximum_size} bytes")]
-    ObjectTooBig { maximum_size: usize },
+    #[error("object {key:?} exceeded maximum upload size of {maximum_size} bytes")]
+    ObjectTooBig { key: String, maximum_size: usize },
 }
 
 /// Manages the upload of an object to S3.
@@ -105,13 +109,17 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
             return Err(UploadWriteError::OutOfOrderWrite {
+                key: self.key.clone(),
                 write_offset: offset as u64,
                 expected_offset: next_offset,
             });
         }
         if let Some(maximum_size) = self.maximum_upload_size {
             if next_offset + data.len() as u64 > maximum_size as u64 {
-                return Err(UploadWriteError::ObjectTooBig { maximum_size });
+                return Err(UploadWriteError::ObjectTooBig {
+                    key: self.key.clone(),
+                    maximum_size,
+                });
             }
         }
 
