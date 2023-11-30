@@ -1,3 +1,13 @@
+## Unreleased
+
+## v1.3.1 (November 30, 2023)
+
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* Fix an issue where Mountpoint could crash on launch when overriding the default part size with values that are not multiples of 1024. ([#649](https://github.com/awslabs/mountpoint-s3/pull/649))
+
 ## v1.3.0 (November 28, 2023)
 
 ### New features
