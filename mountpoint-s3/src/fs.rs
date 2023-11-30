@@ -167,7 +167,7 @@ impl<Client: ObjectClient> UploadState<Client> {
                     UploadState::InProgress { handle, .. } => {
                         if let Err(err) = handle.finish_writing() {
                             // Log the issue but still return the write error.
-                            error!(?err, "error updating the inode status");
+                            error!(?err, "error updating the inode status (key={:?})", key);
                         }
                     }
                     Self::Failed(_) | Self::Completed => unreachable!("checked above"),
@@ -231,7 +231,7 @@ impl<Client: ObjectClient> UploadState<Client> {
         };
         if let Err(err) = handle.finish_writing() {
             // Log the issue but still return put_result.
-            error!(?err, "error updating the inode status");
+            error!(?err, "error updating the inode status (key={:?})", key);
         }
         put_result
     }
