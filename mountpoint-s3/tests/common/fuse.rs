@@ -515,7 +515,12 @@ pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
-    let bucket = std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests");
+    let bucket = if cfg!(feature = "s3express_tests") {
+        std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
+            .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
+    } else {
+        std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
+    };
 
     // Generate a random nonce to make sure this prefix is truly unique
     let nonce = OsRng.next_u64();
