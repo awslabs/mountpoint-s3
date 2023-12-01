@@ -1,3 +1,13 @@
+## v0.6.1 (December 1, 2023)
+
+### Breaking changes
+
+* No breaking changes.
+
+### Other changes
+
+* Consume CRT bug fix for an issue where a large number of requests to S3 Express directory buckets could end up stuck waiting for initial S3 Express session to be created ([awslabs/aws-c-s3#384](https://github.com/awslabs/aws-c-s3/pull/384))
+
 ## v0.6.0 (November 28, 2023)
 
 ### Breaking changes
