@@ -4,7 +4,7 @@ name = "mountpoint-s3-crt-sys"
 # - Pull request to bump version number and update CHANGELOG.md
 # - Create a new Git tag `mountpoint-s3-crt-sys-0.x.y`
 # - Run `cargo publish`
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"

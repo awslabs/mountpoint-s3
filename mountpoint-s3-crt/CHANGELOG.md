@@ -1,7 +1,10 @@
+## v0.5.1 (December 1, 2023)
+
+* Update to latest CRT dependencies
+
 ## v0.5.0 (November 28, 2023)
 
 * Update to latest CRT dependencies
-* Default exponential backoff value retries is now 500ms rather than 25ms ([awslabs/aws-c-io#612](https://github.com/awslabs/aws-c-io/pull/612))
 * Renamed `s3::RequestType::Default` to `s3::RequestType::Unknown` to match CRT change ([#633](https://github.com/awslabs/mountpoint-s3/pull/633))
 
 ## v0.4.0 (November 21, 2023)
