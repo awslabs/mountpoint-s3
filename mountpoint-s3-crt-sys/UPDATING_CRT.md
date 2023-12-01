@@ -18,9 +18,19 @@ The CRT submodules can be updated by following these steps:
    git diff --submodule
    ```
 
-3. Build and test `mountpoint-s3`.
+3. Check the whole project builds successfully: `cargo build`.
+   This will build both Mountpoint filesystem as well as the client components.
 
-4. Stage and commit the changes:
+4. Verify the compressed size of the `mountpoint-s3-crt-sys` crate does not exceed the crates.io limit of 10MiB.
+
+   ```
+   cargo package -p mountpoint-s3-crt-sys --no-verify --allow-dirty
+   ```
+
+5. Optionally run the integration tests for both `mountpoint-s3` and `mountpoint-s3-client`.
+   You will need a number of AWS resources created in your account to run the integration tests.
+
+6. Stage and commit the changes:
 
    ```sh
    git add mountpoint-s3-crt-sys/crt
@@ -34,3 +44,16 @@ In order to check which released versions are checked out for each submodules, t
 ```sh
 git submodule foreach -q 'echo $name `git describe --tags`'
 ```
+
+## Crate size
+
+As the AWS CRT project evolves, the size of the `mountpoint-s3-crt-sys` crate can grow or shrink.
+We manage its C-based dependencies with Git submodules, which can include all sorts of files we don't control.
+
+Inside the cargo manifest for that package,
+you can find an `excludes` entry which lists a number of patterns for excluding files
+from the compressed archive uploaded to [crates.io](https://crates.io/).
+We exclude files that we know won't be used, like files within `.github/` paths or PDFs.
+
+If the crate grows too large, we can add new patterns to this list.
+You can view the files included in the archive using `cargo package -p mountpoint-s3-crt-sys --list`.
