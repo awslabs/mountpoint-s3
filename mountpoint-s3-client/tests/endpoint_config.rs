@@ -128,6 +128,7 @@ async fn test_single_region_access_point(addressing_style: AddressingStyle, arn:
     .await;
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 // For Object Lambda Access Point, PutObject is not supported,
 // For multi region access points, Rust SDK is not supported. Hence different helper method for these tests.
 async fn run_list_objects_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket: &str) {

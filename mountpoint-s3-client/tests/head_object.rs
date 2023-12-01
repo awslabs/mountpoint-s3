@@ -2,15 +2,19 @@
 
 pub mod common;
 
+#[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
 use aws_sdk_s3::primitives::ByteStream;
+#[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+#[cfg(not(feature = "s3express_tests"))]
 use test_case::test_case;
 
 #[tokio::test]

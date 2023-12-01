@@ -1,10 +1,13 @@
 use std::fs::{read_dir, File};
 use std::io::{Read as _, Seek, SeekFrom};
+#[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
+#[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
 use fuser::BackgroundSession;
 use mountpoint_s3::data_cache::InMemoryDataCache;
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
 use rand::SeedableRng as _;
@@ -91,6 +94,7 @@ fn basic_read_test_mock_with_cache(prefix: &str) {
     );
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 #[derive(PartialEq)]
 enum RestorationOptions {
     None,
@@ -98,6 +102,7 @@ enum RestorationOptions {
     RestoreInProgress,
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 fn read_flexible_retrieval_test<F>(creator_fn: F, prefix: &str, files: &[&str], restore: RestorationOptions)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),

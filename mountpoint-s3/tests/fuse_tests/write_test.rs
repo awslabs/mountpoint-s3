@@ -427,6 +427,7 @@ fn out_of_order_write_test_mock(offset: i64) {
     out_of_order_write_test(fuse::mock_session::new, offset);
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 fn write_with_storage_class_test<F>(creator_fn: F, storage_class: Option<&str>)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
