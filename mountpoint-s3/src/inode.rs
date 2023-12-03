@@ -37,7 +37,7 @@ use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace, warn, Span};
 
 use crate::fs::{CacheConfig, S3Personality};
 use crate::prefix::Prefix;
@@ -139,6 +139,7 @@ impl Superblock {
                 error!("forget called on inode {ino} already removed from the superblock");
             }
             Some(inode) => {
+                Span::current().record("name", inode.name());
                 let new_lookup_count = inode.dec_lookup_count(n);
                 if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
@@ -209,6 +210,7 @@ impl Superblock {
         force_revalidate: bool,
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
+        Span::current().record("name", inode.name());
 
         if !force_revalidate {
             let sync = inode.get_inode_state()?;
@@ -243,6 +245,7 @@ impl Superblock {
         mtime: Option<OffsetDateTime>,
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
+        Span::current().record("name", inode.name());
         let mut sync = inode.get_mut_inode_state()?;
 
         if sync.write_status == WriteStatus::Remote {
@@ -294,6 +297,7 @@ impl Superblock {
         trace!(dir=?dir_ino, "readdir");
 
         let dir = self.inner.get(dir_ino)?;
+        Span::current().record("name", dir.name());
         if dir.kind() != InodeKind::Directory {
             return Err(InodeError::NotADirectory(dir.err()));
         }
@@ -326,7 +330,7 @@ impl Superblock {
             .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
-            Err(InodeError::FileDoesNotExist) => (),
+            Err(InodeError::FileDoesNotExist(_)) => (),
             Err(e) => return Err(e),
         }
 
@@ -801,7 +805,7 @@ impl SuperblockInner {
             InodeKindData::Directory { children, .. } => children.get(name),
         };
         match (remote, inode) {
-            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, None) => Err(InodeError::FileDoesNotExist(name.into())),
             (Some(remote), Some(existing_inode)) => {
                 let mut existing_state = existing_inode.get_mut_inode_state()?;
                 let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
@@ -838,7 +842,7 @@ impl SuperblockInner {
             InodeKindData::Directory { children, .. } => children.get(name).cloned(),
         };
         match (remote, inode) {
-            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, None) => Err(InodeError::FileDoesNotExist(name.into())),
             (None, Some(existing_inode)) => {
                 let InodeKindData::Directory {
                     children,
@@ -868,7 +872,7 @@ impl SuperblockInner {
                     // being written. It must have previously existed but been removed on the remote
                     // side.
                     children.remove(name);
-                    Err(InodeError::FileDoesNotExist)
+                    Err(InodeError::FileDoesNotExist(name.into()))
                 }
             }
             (Some(remote), None) => {
@@ -1239,7 +1243,7 @@ impl Inode {
     fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::DirectoryDoesNotExist(self.err())),
             _ => Ok(inode_state),
         }
     }
@@ -1248,7 +1252,7 @@ impl Inode {
     fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::DirectoryDoesNotExist(self.err())),
             _ => Ok(inode_state),
         }
     }
@@ -1485,8 +1489,10 @@ impl InodeStat {
 pub enum InodeError {
     #[error("error from ObjectClient")]
     ClientError(#[source] anyhow::Error),
-    #[error("file does not exist")]
-    FileDoesNotExist,
+    #[error("file does not exist {0:?}")]
+    FileDoesNotExist(OsString),
+    #[error("directory does not exist at inode {0}")]
+    DirectoryDoesNotExist(InodeErrorInfo),
     #[error("inode {0} does not exist")]
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]
@@ -2473,7 +2479,7 @@ mod tests {
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
         let lookedup = superblock.lookup(&client, FUSE_ROOT_INODE, dirname.as_ref()).await;
-        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist)));
+        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist(_))));
     }
 
     #[tokio::test]
