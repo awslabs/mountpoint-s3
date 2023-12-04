@@ -13,8 +13,11 @@ use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+#[cfg(not(feature = "s3express_tests"))]
+use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use rusty_fork::rusty_fork_test;

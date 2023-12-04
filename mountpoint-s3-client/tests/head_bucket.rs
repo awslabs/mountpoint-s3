@@ -3,9 +3,12 @@
 pub mod common;
 
 use common::*;
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadBucketError, ObjectClientError};
-use mountpoint_s3_client::{S3CrtClient, S3RequestError};
+#[cfg(not(feature = "s3express_tests"))]
+use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::S3RequestError;
 
 #[tokio::test]
 async fn test_head_bucket_correct_region() {

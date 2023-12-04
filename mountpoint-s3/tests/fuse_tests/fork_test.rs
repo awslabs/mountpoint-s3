@@ -2,6 +2,7 @@
 #![cfg(feature = "s3_tests")]
 
 use assert_cmd::prelude::*;
+#[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_sts::config::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -10,9 +11,10 @@ use std::{path::PathBuf, process::Command};
 use test_case::test_case;
 
 use crate::common::fuse::{
-    create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
-    read_dir_to_entry_names, tokio_block_on,
+    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, read_dir_to_entry_names,
 };
+#[cfg(not(feature = "s3express_tests"))]
+use crate::common::fuse::{get_subsession_iam_role, tokio_block_on};
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
