@@ -1,9 +1,6 @@
 [package]
 name = "mountpoint-s3-crt-sys"
-# Steps to publish a new release:
-# - Pull request to bump version number and update CHANGELOG.md
-# - Create a new Git tag `mountpoint-s3-crt-sys-0.x.y`
-# - Run `cargo publish`
+# See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
 version = "0.5.1"
 edition = "2021"
 license = "Apache-2.0"
