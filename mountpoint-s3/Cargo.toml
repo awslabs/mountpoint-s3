@@ -66,6 +66,7 @@ tempfile = "3.4.0"
 test-case = "2.2.2"
 tokio = { version = "1.24.2", features = ["rt", "macros"] }
 walkdir = "2.3.3"
+rusty-fork = "0.3.0"
 
 [features]
 # Test features

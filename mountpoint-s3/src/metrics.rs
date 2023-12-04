@@ -184,100 +184,109 @@ impl Drop for MetricsSinkHandle {
 
 #[cfg(test)]
 mod tests {
-    use metrics::Label;
-
     use super::*;
+    use metrics::Label;
+    use rusty_fork::rusty_fork_test;
 
-    #[test]
-    fn basic_metrics() {
-        let sink = Arc::new(MetricsSink::new());
-        let recorder = MetricsRecorder { sink: sink.clone() };
-        metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
+    const TEST_COUNTER: &str = "test_counter";
+    const TEST_GAUGE: &str = "test_gauge";
+    const TEST_HISTOGRAM: &str = "test_histogram";
 
-        // Run twice to check reset works
-        for _ in 0..2 {
-            metrics::counter!("test_counter", 1, "type" => "get");
-            metrics::counter!("test_counter", 1, "type" => "put");
-            metrics::counter!("test_counter", 2, "type" => "get");
-            metrics::counter!("test_counter", 2, "type" => "put");
-            metrics::counter!("test_counter", 3, "type" => "get");
-            metrics::counter!("test_counter", 4, "type" => "put");
+    // Since `metric` crate operates on global recorders,
+    // we need to make sure we're evaluating against the metrics emitted
+    // by this test without interference from other tests.
+    rusty_fork_test! {
+        #[test]
+        fn basic_metrics() {
+            let sink = Arc::new(MetricsSink::new());
+            let recorder = MetricsRecorder { sink: sink.clone() };
+            metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
 
-            metrics::gauge!("test_gauge", 5.0, "type" => "processing");
-            metrics::gauge!("test_gauge", 5.0, "type" => "in_queue");
-            metrics::gauge!("test_gauge", 2.0, "type" => "processing");
-            metrics::gauge!("test_gauge", 3.0, "type" => "in_queue");
+            // Run twice to check reset works
+            for _ in 0..2 {
+                metrics::counter!(TEST_COUNTER, 1, "type" => "get");
+                metrics::counter!(TEST_COUNTER, 1, "type" => "put");
+                metrics::counter!(TEST_COUNTER, 2, "type" => "get");
+                metrics::counter!(TEST_COUNTER, 2, "type" => "put");
+                metrics::counter!(TEST_COUNTER, 3, "type" => "get");
+                metrics::counter!(TEST_COUNTER, 4, "type" => "put");
 
-            metrics::histogram!("test_histogram", 3.0, "type" => "get");
-            metrics::histogram!("test_histogram", 4.0, "type" => "put");
-            metrics::histogram!("test_histogram", 4.0, "type" => "put");
+                metrics::gauge!(TEST_GAUGE, 5.0, "type" => "processing");
+                metrics::gauge!(TEST_GAUGE, 5.0, "type" => "in_queue");
+                metrics::gauge!(TEST_GAUGE, 2.0, "type" => "processing");
+                metrics::gauge!(TEST_GAUGE, 3.0, "type" => "in_queue");
 
-            for mut entry in sink.metrics.iter_mut() {
-                let (key, metric) = entry.pair_mut();
-                assert_eq!(key.labels().count(), 1);
-                match metric {
-                    Metric::Counter(inner) => {
-                        assert_eq!(key.name(), "test_counter");
-                        let (sum, n) = inner.load_and_reset().expect("should have a value");
-                        assert_eq!(n, 3);
-                        let label = key.labels().next().unwrap();
-                        if label == &Label::new("type", "get") {
-                            assert_eq!(sum, 6);
-                        } else if label == &Label::new("type", "put") {
-                            assert_eq!(sum, 7);
-                        } else {
-                            panic!("wrong label");
-                        }
-                    }
-                    Metric::Gauge(inner) => {
-                        assert_eq!(key.name(), "test_gauge");
-                        let value = inner.load();
-                        let label = key.labels().next().unwrap();
-                        if label == &Label::new("type", "processing") {
-                            assert_eq!(value, Some(2.0));
-                        } else if label == &Label::new("type", "in_queue") {
-                            assert_eq!(value, Some(3.0));
-                        } else {
-                            panic!("wrong label");
-                        }
-                    }
-                    Metric::Histogram(inner) => {
-                        assert_eq!(key.name(), "test_histogram");
-                        let label = key.labels().next().unwrap();
-                        inner.run_and_reset(|histogram| {
+                metrics::histogram!(TEST_HISTOGRAM, 3.0, "type" => "get");
+                metrics::histogram!(TEST_HISTOGRAM, 4.0, "type" => "put");
+                metrics::histogram!(TEST_HISTOGRAM, 4.0, "type" => "put");
+
+                for mut entry in sink.metrics.iter_mut() {
+                    let (key, metric) = entry.pair_mut();
+                    assert_eq!(key.labels().count(), 1, "{} has no labels", key);
+                    match metric {
+                        Metric::Counter(inner) => {
+                            assert_eq!(key.name(), TEST_COUNTER);
+                            let (sum, n) = inner.load_and_reset().expect("should have a value");
+                            assert_eq!(n, 3);
+                            let label = key.labels().next().unwrap();
                             if label == &Label::new("type", "get") {
-                                assert_eq!(histogram.len(), 1);
-                                assert_eq!(histogram.count_at(3), 1);
+                                assert_eq!(sum, 6);
                             } else if label == &Label::new("type", "put") {
-                                assert_eq!(histogram.len(), 2);
-                                assert_eq!(histogram.count_at(4), 2);
+                                assert_eq!(sum, 7);
+                            } else {
+                                panic!("wrong label");
                             }
-                        });
+                        }
+                        Metric::Gauge(inner) => {
+                            assert_eq!(key.name(), TEST_GAUGE);
+                            let value = inner.load();
+                            let label = key.labels().next().unwrap();
+                            if label == &Label::new("type", "processing") {
+                                assert_eq!(value, Some(2.0));
+                            } else if label == &Label::new("type", "in_queue") {
+                                assert_eq!(value, Some(3.0));
+                            } else {
+                                panic!("wrong label");
+                            }
+                        }
+                        Metric::Histogram(inner) => {
+                            assert_eq!(key.name(), TEST_HISTOGRAM);
+                            let label = key.labels().next().unwrap();
+                            inner.run_and_reset(|histogram| {
+                                if label == &Label::new("type", "get") {
+                                    assert_eq!(histogram.len(), 1);
+                                    assert_eq!(histogram.count_at(3), 1);
+                                } else if label == &Label::new("type", "put") {
+                                    assert_eq!(histogram.len(), 2);
+                                    assert_eq!(histogram.count_at(4), 2);
+                                }
+                            });
+                        }
                     }
                 }
             }
-        }
 
-        // Check that each metric is zeroed (returns None) after the end of the loop reset it
-        for mut entry in sink.metrics.iter_mut() {
-            let metric = entry.value_mut();
-            match metric {
-                Metric::Counter(inner) => assert!(inner.load_and_reset().is_none()),
-                // Gauges don't reset on their own
-                Metric::Gauge(inner) => assert!(inner.load().is_some()),
-                Metric::Histogram(inner) => assert!(inner.run_and_reset(|_| panic!("unreachable")).is_none()),
+            // Check that each metric is zeroed (returns None) after the end of the loop reset it
+            for mut entry in sink.metrics.iter_mut() {
+                let metric = entry.value_mut();
+                match metric {
+                    Metric::Counter(inner) => assert!(inner.load_and_reset().is_none()),
+                    // Gauges don't reset on their own
+                    Metric::Gauge(inner) => assert!(inner.load().is_some()),
+                    Metric::Histogram(inner) => assert!(inner.run_and_reset(|_| panic!("unreachable")).is_none()),
+                }
             }
-        }
 
-        // Set the gauges to zero and check they're no longer emitted
-        metrics::gauge!("test_gauge", 0.0, "type" => "processing");
-        metrics::gauge!("test_gauge", 0.0, "type" => "in_queue");
-        for mut entry in sink.metrics.iter_mut() {
-            let metric = entry.value_mut();
-            let Metric::Gauge(inner) = metric else {
-                continue;
-            };
-            assert!(inner.load().is_none());
+            // Set the gauges to zero and check they're no longer emitted
+            metrics::gauge!(TEST_GAUGE, 0.0, "type" => "processing");
+            metrics::gauge!(TEST_GAUGE, 0.0, "type" => "in_queue");
+            for mut entry in sink.metrics.iter_mut() {
+                let metric = entry.value_mut();
+                let Metric::Gauge(inner) = metric else {
+                    continue;
+                };
+                assert!(inner.load().is_none());
+            }
         }
     }
 }
