@@ -21,7 +21,8 @@ Log files are not automatically rotated or cleaned up.
 
 ## Disabling logging
 
-If you do not want to record any logs, use the `--no-log` command-line argument. This argument cannot be combined with other logging-related command-line arguments.
+If you do not want to record any logs, use the `--no-log` command-line argument. This argument cannot be combined with other logging-related command-line arguments. The `--no-log` argument has
+no effect on messages sent to the standard output. If no output is desired, consider redirecting it.
 
 ## Verbose logging
 

@@ -218,7 +218,7 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Disable all logging",
+        help = "Disable all logging. You will still see stdout messages.",
         help_heading = LOGGING_OPTIONS_HEADER,
         conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
     )]
@@ -351,6 +351,11 @@ impl CliArgs {
 
 fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
+    let successful_mount_msg = format!(
+        "{} is mounted at {}",
+        args.bucket_description(),
+        args.mount_point.display()
+    );
 
     if args.foreground {
         init_logging(args.logging_config()).context("failed to initialize logging")?;
@@ -359,6 +364,8 @@ fn main() -> anyhow::Result<()> {
 
         // mount file system as a foreground process
         let session = mount(args)?;
+
+        println!("{successful_mount_msg}");
 
         session.join().context("failed to join session")?;
     } else {
@@ -447,11 +454,7 @@ fn main() -> anyhow::Result<()> {
                 let status = receiver.recv_timeout(timeout);
                 match status {
                     Ok('0') => {
-                        println!(
-                            "{} is mounted at {}",
-                            args.bucket_description(),
-                            args.mount_point.display()
-                        );
+                        println!("{successful_mount_msg}");
                         tracing::debug!("success status flag received from child process")
                     }
                     Ok(_) => {
