@@ -447,7 +447,7 @@ fn main() -> anyhow::Result<()> {
                 let status = receiver.recv_timeout(timeout);
                 match status {
                     Ok('0') => {
-                        println!(
+                        tracing::debug!(
                             "{} is mounted at {}",
                             args.bucket_description(),
                             args.mount_point.display()
