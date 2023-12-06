@@ -1490,7 +1490,7 @@ impl InodeStat {
 pub enum InodeError {
     #[error("error from ObjectClient")]
     ClientError(#[source] anyhow::Error),
-    #[error("file does not exist {0:?} in parent {1}")]
+    #[error("file {0:?} does not exist in parent inode {1}")]
     FileDoesNotExist(String, InodeErrorInfo),
     #[error("inode {0} does not exist")]
     InodeDoesNotExist(InodeNo),
