@@ -3,10 +3,7 @@ use std::fs::ReadDir;
 use std::path::Path;
 use std::sync::Arc;
 
-use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_sts::config::Region;
 use fuser::{BackgroundSession, MountOption, Session};
-use futures::Future;
 use mountpoint_s3::data_cache::DataCache;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
@@ -14,8 +11,6 @@ use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::types::PutObjectParams;
 use mountpoint_s3_client::ObjectClient;
-use rand::RngCore;
-use rand_chacha::rand_core::OsRng;
 use tempfile::TempDir;
 
 pub trait TestClient: Send {
@@ -248,8 +243,6 @@ pub mod mock_session {
 pub mod s3_session {
     use super::*;
 
-    use std::future::Future;
-
     use aws_sdk_s3::config::Region;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use aws_sdk_s3::primitives::ByteStream;
@@ -258,6 +251,8 @@ pub mod s3_session {
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
     use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
     use mountpoint_s3_client::S3CrtClient;
+
+    use crate::common::s3::{get_s3express_endpoint, get_test_bucket_and_prefix, get_test_region, tokio_block_on};
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
@@ -330,21 +325,12 @@ pub mod s3_session {
     }
 
     async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
-        let mut config = aws_config::from_env().region(Region::new(get_test_region()));
+        let mut config = aws_config::from_env().region(Region::new(region.to_owned()));
         if cfg!(feature = "s3express_tests") {
             config = config.endpoint_url(get_s3express_endpoint());
         }
         let config = config.load().await;
         aws_sdk_s3::Client::new(&config)
-    }
-
-    fn tokio_block_on<F: Future>(future: F) -> F::Output {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
-            .build()
-            .unwrap();
-        runtime.block_on(future)
     }
 
     struct SDKTestClient {
@@ -512,71 +498,4 @@ pub fn read_dir_to_entry_names(read_dir_iter: ReadDir) -> Vec<String> {
             name.to_owned()
         })
         .collect::<Vec<_>>()
-}
-
-pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
-    let bucket = if cfg!(feature = "s3express_tests") {
-        std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
-            .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
-    } else {
-        std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
-    };
-
-    // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
-
-    // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
-    let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
-    assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
-
-    let prefix = format!("{prefix}{test_name}/{nonce}/");
-
-    (bucket, prefix)
-}
-
-pub fn get_test_bucket_forbidden() -> String {
-    std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
-}
-
-pub fn get_test_region() -> String {
-    std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
-}
-
-pub fn get_subsession_iam_role() -> String {
-    std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
-}
-
-pub fn get_s3express_endpoint() -> String {
-    std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT").expect("Set S3_EXPRESS_ONE_ZONE_ENDPOINT to run integration tests")
-}
-
-pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
-    let mut config = aws_config::from_env().region(Region::new(get_test_region()));
-    if cfg!(feature = "s3express_tests") {
-        config = config.endpoint_url(get_s3express_endpoint());
-    }
-    let config = tokio_block_on(config.load());
-    let sdk_client = aws_sdk_s3::Client::new(&config);
-    let full_key = format!("{prefix}{key}");
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(bucket);
-    }
-    tokio_block_on(async move {
-        request
-            .key(full_key)
-            .body(ByteStream::from(value.to_vec()))
-            .send()
-            .await
-            .unwrap()
-    });
-}
-
-pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .unwrap();
-    runtime.block_on(future)
 }
