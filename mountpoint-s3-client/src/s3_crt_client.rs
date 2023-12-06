@@ -449,6 +449,7 @@ impl S3CrtClientInner {
 
                 let http_status = metrics.status_code().unwrap_or(-1);
                 let request_failure = !(200..299).contains(&http_status);
+                let crt_error = Some(metrics.error()).filter(|e| e.is_err());
                 let request_type = request_type_to_metrics_string(metrics.request_type());
                 let request_id = metrics.request_id().unwrap_or_else(|| "<unknown>".into());
                 let duration = metrics.total_duration();
@@ -458,12 +459,12 @@ impl S3CrtClientInner {
                 let log_level = status_code_to_log_level(http_status);
 
                 let message = if request_failure {
-                    "request failed"
+                    "CRT request failed"
                 } else {
-                    "request finished"
+                    "CRT request finished"
                 };
-                event!(log_level, %request_type, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
-                trace!(detailed_metrics=?metrics, "request completed");
+                event!(log_level, %request_type, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
+                trace!(detailed_metrics=?metrics, "CRT request completed");
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {
