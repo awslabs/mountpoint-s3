@@ -37,9 +37,10 @@ use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{debug, error, trace, warn, Span};
+use tracing::{debug, error, trace, warn};
 
 use crate::fs::{CacheConfig, S3Personality};
+use crate::logging;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
@@ -139,7 +140,7 @@ impl Superblock {
                 error!("forget called on inode {ino} already removed from the superblock");
             }
             Some(inode) => {
-                Span::current().record("name", inode.name());
+                logging::record_name(inode.name());
                 let new_lookup_count = inode.dec_lookup_count(n);
                 if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
@@ -210,7 +211,7 @@ impl Superblock {
         force_revalidate: bool,
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
-        Span::current().record("name", inode.name());
+        logging::record_name(inode.name());
 
         if !force_revalidate {
             let sync = inode.get_inode_state()?;
@@ -245,7 +246,7 @@ impl Superblock {
         mtime: Option<OffsetDateTime>,
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
-        Span::current().record("name", inode.name());
+        logging::record_name(inode.name());
         let mut sync = inode.get_mut_inode_state()?;
 
         if sync.write_status == WriteStatus::Remote {
@@ -297,7 +298,7 @@ impl Superblock {
         trace!(dir=?dir_ino, "readdir");
 
         let dir = self.inner.get(dir_ino)?;
-        Span::current().record("name", dir.name());
+        logging::record_name(dir.name());
         if dir.kind() != InodeKind::Directory {
             return Err(InodeError::NotADirectory(dir.err()));
         }
@@ -1243,7 +1244,7 @@ impl Inode {
     fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::DirectoryDoesNotExist(self.err())),
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
             _ => Ok(inode_state),
         }
     }
@@ -1252,7 +1253,7 @@ impl Inode {
     fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
-            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::DirectoryDoesNotExist(self.err())),
+            InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
             _ => Ok(inode_state),
         }
     }
@@ -1491,8 +1492,6 @@ pub enum InodeError {
     ClientError(#[source] anyhow::Error),
     #[error("file does not exist {0:?}")]
     FileDoesNotExist(OsString),
-    #[error("directory does not exist at inode {0}")]
-    DirectoryDoesNotExist(InodeErrorInfo),
     #[error("inode {0} does not exist")]
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]

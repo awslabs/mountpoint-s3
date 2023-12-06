@@ -6,7 +6,7 @@ use std::ffi::{OsStr, OsString};
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use time::OffsetDateTime;
-use tracing::{debug, error, trace, Span};
+use tracing::{debug, error, trace};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
@@ -15,6 +15,7 @@ use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
+use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -167,7 +168,7 @@ impl<Client: ObjectClient> UploadState<Client> {
                     UploadState::InProgress { handle, .. } => {
                         if let Err(err) = handle.finish_writing() {
                             // Log the issue but still return the write error.
-                            error!(?err, "error updating the inode status (key={:?})", key);
+                            error!(?err, ?key, "error updating the inode status");
                         }
                     }
                     Self::Failed(_) | Self::Completed => unreachable!("checked above"),
@@ -231,7 +232,7 @@ impl<Client: ObjectClient> UploadState<Client> {
         };
         if let Err(err) = handle.finish_writing() {
             // Log the issue but still return put_result.
-            error!(?err, "error updating the inode status (key={:?})", key);
+            error!(?err, ?key, "error updating the inode status");
         }
         put_result
     }
@@ -666,7 +667,7 @@ where
                 None => return reply.error(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        Span::current().record("name", handle.inode.name());
+        logging::record_name(handle.inode.name());
         let file_etag: ETag;
         let mut request = match &handle.typ {
             FileHandleType::Write { .. } => return reply.error(err!(libc::EBADF, "file handle is not open for reads")),
@@ -771,7 +772,7 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        Span::current().record("name", handle.inode.name());
+        logging::record_name(handle.inode.name());
 
         let len = {
             let mut request = match &handle.typ {
@@ -973,7 +974,7 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        Span::current().record("name", file_handle.inode.name());
+        logging::record_name(file_handle.inode.name());
         let mut request = match &file_handle.typ {
             FileHandleType::Write(request) => request.lock().await,
             FileHandleType::Read { .. } => return Ok(()),
@@ -1022,7 +1023,7 @@ where
                 .remove(&fh)
                 .ok_or_else(|| err!(libc::EBADF, "invalid file handle"))?
         };
-        Span::current().record("name", file_handle.inode.name());
+        logging::record_name(file_handle.inode.name());
 
         // Unwrap the atomic reference to have full ownership.
         // The kernel should make a release call when there is no more references to the file handle,
