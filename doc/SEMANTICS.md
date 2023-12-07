@@ -192,6 +192,10 @@ the following behavior:
 
 Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported. However, seeking (`lseek`) on directory handles is not supported.
 
+Sorting order of `readdir` results:
+* For general purpose buckets, `readdir` returns results in lexicographical order.
+* For directory buckets (S3 Express One Zone), `readdir` does not return results in lexicographical order.
+
 Creating directories (`mkdir`) is supported, with the following behavior:
 
 * `mkdir` will create a new empty directory in the file system, but not affect the S3 bucket.
