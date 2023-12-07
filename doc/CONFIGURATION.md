@@ -191,8 +191,7 @@ Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-
 * `DEEP_ARCHIVE` for [S3 Glacier Deep Archive](https://aws.amazon.com/s3/storage-classes/glacier/)
 
 > [!IMPORTANT]
-> Do not set the storage class to `EXPRESS_ONEZONE` as it is a distinct storage class and cannot be set for general purpose
-buckets. If you want to use S3 Express One Zone storage class, just specify a directory bucket name when mounting.
+> `EXPRESS_ONEZONE` is a distinct storage class for directory buckets. You can neither use other storage classes in directory buckets nor use `EXPRESS_ONEZONE` in general purpose buckets. If you want to use [S3 Express One Zone](https://aws.amazon.com/s3/storage-classes/express-one-zone/) storage class, just specify a directory bucket name when mounting.
 
 For the full list of possible storage classes, see the [PutObject documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html#AmazonS3-PutObject-request-header-StorageClass) in the Amazon S3 User Guide.
 
