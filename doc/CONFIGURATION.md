@@ -79,6 +79,21 @@ Here is an example least-privilege policy document to add to an IAM user or role
 }
 ```
 
+Directory bucket, or S3 Express One Zone storage class in other words, has different authentication mechanism from general purpose buckets. The policy `s3:*` doesn't apply to directory buckets, you will need `s3express:CreateSession` policy in order to access them. Here is an example of least-privilege policy document.
+
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "s3express:CreateSession",
+            "Resource": "arn:aws:s3express:REGION:ACCOUNT-ID:bucket/DOC-EXAMPLE-BUCKET--az_id--x-s3"
+        }
+    ]
+}
+```
+
 Mountpoint also respects access control lists (ACLs) applied to objects in your S3 bucket, but does not allow you to automatically attach ACLs to objects created with Mountpoint. A majority of modern use cases in Amazon S3 no longer require the use of ACLs. We recommend that you keep ACLs disabled for your S3 bucket, and instead use bucket policies to control access to your objects.
 
 ## S3 bucket configuration
@@ -93,7 +108,7 @@ When constructing the directory structure for your mount, Mountpoint removes the
 
 ### Region detection
 
-Amazon S3 buckets are associated with a single AWS Region. Mountpoint attempts to automatically detect the region for your S3 bucket at startup time and directs all S3 requests to that region. However, in some scenarios this region detection may fail, preventing your bucket from being mounted and displaying Access Denied or No Such Bucket errors. You can override Mountpoint's automatic bucket region detection with the `--region` command-line argument or `AWS_REGION` environment variable.
+Amazon S3 buckets are associated with a single AWS Region. Mountpoint attempts to automatically detect the region for your S3 bucket at startup time and directs all S3 requests to that region. However, in some scenarios like cross-region mount with a directory bucket, this region detection may fail, preventing your bucket from being mounted and displaying Access Denied or No Such Bucket errors. You can override Mountpoint's automatic bucket region detection with the `--region` command-line argument or `AWS_REGION` environment variable.
 
 Mountpoint uses [instance metadata (IMDS)](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html) to help detect the region for an S3 bucket. If you want to disable IMDS, set the `AWS_EC2_METADATA_DISABLED` environment variable to `true`.
 
@@ -174,6 +189,10 @@ Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-
 * `GLACIER_IR` for [S3 Glacier Instant Retrieval](https://aws.amazon.com/s3/storage-classes/glacier/instant-retrieval/)
 * `GLACIER` for [S3 Glacier Flexible Retrieval](https://aws.amazon.com/s3/storage-classes/glacier/)
 * `DEEP_ARCHIVE` for [S3 Glacier Deep Archive](https://aws.amazon.com/s3/storage-classes/glacier/)
+
+> [!IMPORTANT]
+> Do not set the storage class to `EXPRESS_ONEZONE` as it is a distinct storage class and cannot be set for general purpose
+buckets. If you want to use S3 Express One Zone storage class, just specify a directory bucket name when mounting.
 
 For the full list of possible storage classes, see the [PutObject documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html#AmazonS3-PutObject-request-header-StorageClass) in the Amazon S3 User Guide.
 
