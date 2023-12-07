@@ -79,7 +79,7 @@ Here is an example least-privilege policy document to add to an IAM user or role
 }
 ```
 
-Directory bucket, or S3 Express One Zone storage class in other words, has different authentication mechanism from general purpose buckets. The policy `s3:*` doesn't apply to directory buckets, you will need `s3express:CreateSession` policy in order to access them. Here is an example of least-privilege policy document.
+Directory buckets, introduced with the S3 Express One Zone storage class, use a different authentication mechanism from general purpose buckets. Instead of using `s3:*` actions, you should allow the `s3express:CreateSession` action. Here is an example of least-privilege policy document.
 
 ```
 {
