@@ -182,7 +182,7 @@ You cannot currently use Mountpoint to overwrite existing objects. However, if y
 
 ### S3 storage classes
 
-Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. By default, Mountpoint uses the S3 Standard storage class, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:
+Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. Mountpoint respects the default storage class from S3 unless otherwise configured, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:
 * `STANDARD` for S3 Standard
 * `STANDARD_IA` for S3 Standard-Infrequent Access
 * `INTELLIGENT_TIERING` for [S3 Intelligent-Tiering](https://aws.amazon.com/s3/storage-classes/intelligent-tiering/), which automatically moves your data to the most cost-effective access tier when access patterns change
