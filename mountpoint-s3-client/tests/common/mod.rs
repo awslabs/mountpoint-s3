@@ -39,7 +39,12 @@ pub fn get_unique_test_prefix(test_name: &str) -> String {
 }
 
 pub fn get_test_bucket() -> String {
-    std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
+    if cfg!(feature = "s3express_tests") {
+        std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
+            .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
+    } else {
+        std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
+    }
 }
 
 pub fn get_test_client() -> S3CrtClient {

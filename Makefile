@@ -64,4 +64,4 @@ DISABLED_LINTS += -A clippy::arc-with-non-send-sync  # https://github.com/propte
 .PHONY: clippy
 clippy:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
-	cargo clippy $$packages --no-deps --all-targets --all-features -- -D clippy::all $(DISABLED_LINTS)
+	cargo clippy $$packages --no-deps --all-targets --all-features -- -D warnings -D clippy::all $(DISABLED_LINTS)
