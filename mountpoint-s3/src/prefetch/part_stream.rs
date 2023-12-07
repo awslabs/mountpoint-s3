@@ -196,7 +196,7 @@ where
                 {
                     Ok(get_object_result) => get_object_result,
                     Err(e) => {
-                        error!(error=?e, "GetObject request failed");
+                        error!(key, error=?e, "GetObject request failed");
                         part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)));
                         return;
                     }
@@ -227,7 +227,7 @@ where
                             }
                         }
                         Some(Err(e)) => {
-                            error!(error=?e, "GetObject body part failed");
+                            error!(key, error=?e, "GetObject body part failed");
                             part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)));
                             break;
                         }

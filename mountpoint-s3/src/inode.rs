@@ -40,6 +40,7 @@ use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
 use crate::fs::{CacheConfig, S3Personality};
+use crate::logging;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
@@ -139,6 +140,7 @@ impl Superblock {
                 error!("forget called on inode {ino} already removed from the superblock");
             }
             Some(inode) => {
+                logging::record_name(inode.name());
                 let new_lookup_count = inode.dec_lookup_count(n);
                 if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
@@ -209,6 +211,7 @@ impl Superblock {
         force_revalidate: bool,
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
+        logging::record_name(inode.name());
 
         if !force_revalidate {
             let sync = inode.get_inode_state()?;
@@ -243,6 +246,7 @@ impl Superblock {
         mtime: Option<OffsetDateTime>,
     ) -> Result<LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
+        logging::record_name(inode.name());
         let mut sync = inode.get_mut_inode_state()?;
 
         if sync.write_status == WriteStatus::Remote {
@@ -294,6 +298,7 @@ impl Superblock {
         trace!(dir=?dir_ino, "readdir");
 
         let dir = self.inner.get(dir_ino)?;
+        logging::record_name(dir.name());
         if dir.kind() != InodeKind::Directory {
             return Err(InodeError::NotADirectory(dir.err()));
         }
@@ -326,7 +331,7 @@ impl Superblock {
             .await;
         match existing {
             Ok(lookup) => return Err(InodeError::FileAlreadyExists(lookup.inode.err())),
-            Err(InodeError::FileDoesNotExist) => (),
+            Err(InodeError::FileDoesNotExist(_, _)) => (),
             Err(e) => return Err(e),
         }
 
@@ -801,7 +806,7 @@ impl SuperblockInner {
             InodeKindData::Directory { children, .. } => children.get(name),
         };
         match (remote, inode) {
-            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, None) => Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err())),
             (Some(remote), Some(existing_inode)) => {
                 let mut existing_state = existing_inode.get_mut_inode_state()?;
                 let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
@@ -838,7 +843,7 @@ impl SuperblockInner {
             InodeKindData::Directory { children, .. } => children.get(name).cloned(),
         };
         match (remote, inode) {
-            (None, None) => Err(InodeError::FileDoesNotExist),
+            (None, None) => Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err())),
             (None, Some(existing_inode)) => {
                 let InodeKindData::Directory {
                     children,
@@ -868,7 +873,7 @@ impl SuperblockInner {
                     // being written. It must have previously existed but been removed on the remote
                     // side.
                     children.remove(name);
-                    Err(InodeError::FileDoesNotExist)
+                    Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err()))
                 }
             }
             (Some(remote), None) => {
@@ -1485,8 +1490,8 @@ impl InodeStat {
 pub enum InodeError {
     #[error("error from ObjectClient")]
     ClientError(#[source] anyhow::Error),
-    #[error("file does not exist")]
-    FileDoesNotExist,
+    #[error("file {0:?} does not exist in parent inode {1}")]
+    FileDoesNotExist(String, InodeErrorInfo),
     #[error("inode {0} does not exist")]
     InodeDoesNotExist(InodeNo),
     #[error("invalid file name {0:?}")]
@@ -2473,7 +2478,7 @@ mod tests {
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
         let lookedup = superblock.lookup(&client, FUSE_ROOT_INODE, dirname.as_ref()).await;
-        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist)));
+        assert!(matches!(lookedup, Err(InodeError::FileDoesNotExist(_, _))));
     }
 
     #[tokio::test]

@@ -12,6 +12,7 @@ use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use time::format_description::FormatItem;
 use time::macros;
 use time::OffsetDateTime;
+use tracing::Span;
 use tracing_subscriber::filter::{EnvFilter, Filtered, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -146,4 +147,8 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     registry.init();
 
     Ok(())
+}
+
+pub fn record_name(name: &str) -> Span {
+    Span::current().record("name", name).clone()
 }
