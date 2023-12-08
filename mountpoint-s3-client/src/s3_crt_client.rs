@@ -447,23 +447,22 @@ impl S3CrtClientInner {
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
 
-                let http_status = metrics.status_code().unwrap_or(-1);
-                let request_failure = !(200..299).contains(&http_status);
+                let http_status = metrics.status_code();
+                let request_failure = http_status.map(|status| !(200..299).contains(&status)).unwrap_or(true);
+                let crt_error = Some(metrics.error()).filter(|e| e.is_err());
                 let request_type = request_type_to_metrics_string(metrics.request_type());
                 let request_id = metrics.request_id().unwrap_or_else(|| "<unknown>".into());
                 let duration = metrics.total_duration();
                 let ttfb = metrics.time_to_first_byte();
                 let range = metrics.response_headers().and_then(|headers| extract_range_header(&headers));
 
-                let log_level = status_code_to_log_level(http_status);
-
                 let message = if request_failure {
-                    "request failed"
+                    "CRT request failed"
                 } else {
-                    "request finished"
+                    "CRT request finished"
                 };
-                event!(log_level, %request_type, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
-                trace!(detailed_metrics=?metrics, "request completed");
+                debug!(%request_type, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
+                trace!(detailed_metrics=?metrics, "CRT request completed");
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {
@@ -472,7 +471,7 @@ impl S3CrtClientInner {
                 metrics::histogram!("s3.requests.total_latency_us", duration.as_micros() as f64, "op" => op, "type" => request_type);
                 metrics::counter!("s3.requests", 1, "op" => op, "type" => request_type);
                 if request_failure {
-                    metrics::counter!("s3.requests.failures", 1, "op" => op, "type" => request_type, "status" => format!("{http_status}"));
+                    metrics::counter!("s3.requests.failures", 1, "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string());
                 }
             })
             .on_headers(move |headers, response_status| {
