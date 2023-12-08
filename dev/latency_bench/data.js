@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1701999912075,
+  "lastUpdate": 1702033467980,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c34e70172e0b150b4e3b6246371109db00077ab4",
-          "message": "Release new crate versions (#645)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2023-11-28T18:15:56Z",
-          "tree_id": "a0b8dd24929bbe3533e8294048983ee728e79253",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/c34e70172e0b150b4e3b6246371109db00077ab4"
-        },
-        "date": 1701196009197,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.082,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.194,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.129,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.537,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 75.2348982,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 62.8762798,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 57.3632506,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "6fdc7830e55f6b09ca665a2fca89795553d6b2d8",
+          "message": "Print successful mount for both foreground and background modes. (#668)\n\nAlso, update documentation for the `--no-log` argument.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2023-12-08T10:22:05Z",
+          "tree_id": "e993751de460027dbf8281ec0bd09e8d93f546b0",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6fdc7830e55f6b09ca665a2fca89795553d6b2d8"
+        },
+        "date": 1702033467436,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.077,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.172,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.146,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.741,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 86.42644270000001,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 66.2797138,
             "unit": "milliseconds"
           }
         ]
