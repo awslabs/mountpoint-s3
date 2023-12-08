@@ -249,6 +249,7 @@ WantedBy=remote-fs.target
 ## Caching configuration
 
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
+Mountpoint can serve all file system requests from the cache, excluding listing of directory contents.
 
 To enable caching, use the `--cache <CACHE_DIR>` command-line flag, specifying the directory in which to store cached object content.
 This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second,
