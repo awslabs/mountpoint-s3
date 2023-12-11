@@ -3,12 +3,13 @@
 use std::collections::HashMap;
 use std::default::Default;
 
-use super::{BlockIndex, CacheKey, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
+use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
+use crate::object::ObjectId;
 use crate::sync::RwLock;
 
 /// Simple in-memory (RAM) implementation of [DataCache]. Recommended for use in testing only.
 pub struct InMemoryDataCache {
-    data: RwLock<HashMap<CacheKey, HashMap<BlockIndex, ChecksummedBytes>>>,
+    data: RwLock<HashMap<ObjectId, HashMap<BlockIndex, ChecksummedBytes>>>,
     block_size: u64,
 }
 
@@ -25,7 +26,7 @@ impl InMemoryDataCache {
 impl DataCache for InMemoryDataCache {
     fn get_block(
         &self,
-        cache_key: &CacheKey,
+        cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
@@ -39,7 +40,7 @@ impl DataCache for InMemoryDataCache {
 
     fn put_block(
         &self,
-        cache_key: CacheKey,
+        cache_key: ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
         bytes: ChecksummedBytes,
@@ -76,14 +77,8 @@ mod tests {
 
         let block_size = 8 * 1024 * 1024;
         let cache = InMemoryDataCache::new(block_size);
-        let cache_key_1 = CacheKey {
-            s3_key: "a".into(),
-            etag: ETag::for_tests(),
-        };
-        let cache_key_2 = CacheKey {
-            s3_key: "b".into(),
-            etag: ETag::for_tests(),
-        };
+        let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
+        let cache_key_2 = ObjectId::new("b".into(), ETag::for_tests());
 
         let block = cache.get_block(&cache_key_1, 0, 0).expect("cache is accessible");
         assert!(

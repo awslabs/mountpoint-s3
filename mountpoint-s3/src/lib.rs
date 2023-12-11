@@ -6,6 +6,7 @@ pub mod fuse;
 mod inode;
 pub mod logging;
 pub mod metrics;
+mod object;
 pub mod prefetch;
 pub mod prefix;
 mod sync;
