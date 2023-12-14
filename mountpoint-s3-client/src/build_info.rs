@@ -16,7 +16,11 @@ pub const FULL_VERSION: &str = {
             // Evaluated at compile time, but never used
             None => "unreachable",
         };
-        const_format::concatcp!(built::PKG_VERSION, "-", COMMIT_HASH_STR)
+        const COMMIT_DIRTY_STR: &str = match built::GIT_DIRTY {
+            Some(true) => "-dirty",
+            _ => "",
+        };
+        const_format::concatcp!(built::PKG_VERSION, "-", COMMIT_HASH_STR, COMMIT_DIRTY_STR)
     } else {
         built::PKG_VERSION
     }
