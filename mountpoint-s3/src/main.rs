@@ -112,6 +112,13 @@ struct CliArgs {
     )]
     pub allow_delete: bool,
 
+    #[clap(
+        long,
+        help = "Disable additional checksums for write",
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
+    pub disable_checksum: bool,
+
     #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
 
@@ -576,6 +583,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.s3_personality =
         get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
+    filesystem_config.trailing_checksums = !args.disable_checksum;
 
     let prefetcher_config = Default::default();
 

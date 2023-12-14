@@ -333,6 +333,8 @@ pub struct S3FilesystemConfig {
     pub storage_class: Option<String>,
     /// S3 personality (for different S3 semantics)
     pub s3_personality: S3Personality,
+    /// Allowing trailing checksums for write
+    pub trailing_checksums: bool,
 }
 
 impl Default for S3FilesystemConfig {
@@ -350,6 +352,7 @@ impl Default for S3FilesystemConfig {
             allow_delete: false,
             storage_class: None,
             s3_personality: S3Personality::Standard,
+            trailing_checksums: true,
         }
     }
 }
@@ -416,7 +419,11 @@ where
 
         let client = Arc::new(client);
 
-        let uploader = Uploader::new(client.clone(), config.storage_class.to_owned());
+        let uploader = Uploader::new(
+            client.clone(),
+            config.storage_class.to_owned(),
+            config.trailing_checksums,
+        );
 
         Self {
             config,
