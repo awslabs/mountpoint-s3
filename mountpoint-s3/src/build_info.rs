@@ -17,10 +17,14 @@ pub const FULL_VERSION: &str = {
             Some(hash) => hash,
             None => "",
         };
+        const COMMIT_DIRTY_STR: &str = match built::GIT_DIRTY {
+            Some(true) => "-dirty",
+            _ => "",
+        };
         const UNOFFICIAL_SUFFIX: &str = if COMMIT_HASH_STR.is_empty() {
             "-unofficial"
         } else {
-            const_format::concatcp!("-unofficial+", COMMIT_HASH_STR)
+            const_format::concatcp!("-unofficial+", COMMIT_HASH_STR, COMMIT_DIRTY_STR)
         };
         const_format::concatcp!(built::PKG_VERSION, UNOFFICIAL_SUFFIX)
     }
