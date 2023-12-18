@@ -40,7 +40,7 @@ jobs:
       - name: Check release binary
         run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
       - name: Upload unofficial packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.runner.name }}
           path:  ./out/*
