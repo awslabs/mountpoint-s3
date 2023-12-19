@@ -751,7 +751,7 @@ impl PutObjectRequest for MockPutObjectRequest {
         self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let checksum_algorithm = if self.params.trailing_checksums {
+        let checksum_algorithm = if self.params.trailing_checksum {
             Some(ChecksumAlgorithm::Crc32c)
         } else {
             None
@@ -761,7 +761,7 @@ impl PutObjectRequest for MockPutObjectRequest {
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len() as u64;
-                let checksum = if self.params.trailing_checksums {
+                let checksum = if self.params.trailing_checksum {
                     let checksum = crc32c::checksum(part);
                     Some(crc32c_to_base64(&checksum))
                 } else {

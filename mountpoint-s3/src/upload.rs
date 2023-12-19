@@ -25,16 +25,16 @@ pub struct Uploader<Client> {
 struct UploaderInner<Client> {
     client: Arc<Client>,
     storage_class: Option<String>,
-    trailing_checksums: bool,
+    trailing_checksum: bool,
 }
 
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Arc<Client>, storage_class: Option<String>, trailing_checksums: bool) -> Self {
+    pub fn new(client: Arc<Client>, storage_class: Option<String>, trailing_checksum: bool) -> Self {
         let inner = UploaderInner {
             client,
             storage_class,
-            trailing_checksums,
+            trailing_checksum,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -69,7 +69,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     hasher: Hasher,
-    set_checksum: bool,
+    trailing_checksum: bool,
     request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
 }
@@ -80,7 +80,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
-        let mut params = PutObjectParams::new().trailing_checksums(inner.trailing_checksums);
+        let mut params = PutObjectParams::new().trailing_checksum(inner.trailing_checksum);
 
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
@@ -94,7 +94,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             key: key.to_owned(),
             next_request_offset: 0,
             hasher: Hasher::new(),
-            set_checksum: inner.trailing_checksums,
+            trailing_checksum: inner.trailing_checksum,
             request,
             maximum_upload_size,
         })
@@ -122,7 +122,9 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             }
         }
 
-        self.hasher.update(data);
+        if self.trailing_checksum {
+            self.hasher.update(data);
+        }
         self.request.write(data).await?;
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
@@ -130,10 +132,14 @@ impl<Client: ObjectClient> UploadRequest<Client> {
 
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
         let size = self.size();
-        let checksum = self.hasher.finalize();
-        self.request
-            .review_and_complete(move |review| verify_checksums(review, size, checksum, self.set_checksum))
-            .await
+        if self.trailing_checksum {
+            let checksum = self.hasher.finalize();
+            self.request
+                .review_and_complete(move |review| verify_checksums(review, size, checksum))
+                .await
+        } else {
+            self.request.complete().await
+        }
     }
 }
 
@@ -148,10 +154,7 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
     }
 }
 
-fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: Crc32c, set_checksum: bool) -> bool {
-    if !set_checksum {
-        return true;
-    }
+fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: Crc32c) -> bool {
     let mut uploaded_size = 0u64;
     let mut uploaded_checksum = Crc32c::new(0);
     for part in review.parts {

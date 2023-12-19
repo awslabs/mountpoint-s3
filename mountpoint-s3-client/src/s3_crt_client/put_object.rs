@@ -29,7 +29,7 @@ impl S3CrtClient {
             .set_request_path(&key)
             .map_err(S3RequestError::construction_failure)?;
 
-        if params.trailing_checksums {
+        if params.trailing_checksum {
             let checksum_config = ChecksumConfig::trailing_crc32c();
             message.set_checksum_config(Some(checksum_config));
         }

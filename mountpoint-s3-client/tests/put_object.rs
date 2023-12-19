@@ -195,7 +195,7 @@ async fn test_put_checksums() {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(true);
+    let params = PutObjectParams::new().trailing_checksum(true);
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await
@@ -242,7 +242,7 @@ async fn test_put_review(pass_review: bool) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(true);
+    let params = PutObjectParams::new().trailing_checksum(true);
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await

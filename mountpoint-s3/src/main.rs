@@ -112,13 +112,12 @@ struct CliArgs {
     )]
     pub allow_delete: bool,
 
-    #[clap(
-        long,
-        help = "Disable additional checksums for write",
-        help_heading = MOUNT_OPTIONS_HEADER
-    )]
-    pub disable_checksum: bool,
-
+    // #[clap(
+    //     long,
+    //     help = "Disable additional checksums for write",
+    //     help_heading = MOUNT_OPTIONS_HEADER
+    // )]
+    // pub disable_checksum: bool,
     #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
 
@@ -497,7 +496,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     let fuse_config = args.fuse_session_config();
 
     // Placeholder region will be filled in by [create_client_for_bucket]
-    let endpoint_config = EndpointConfig::new("PLACEHOLDER")
+    let mut endpoint_config = EndpointConfig::new("PLACEHOLDER")
         .addressing_style(args.addressing_style())
         .use_accelerate(args.transfer_acceleration)
         .use_dual_stack(args.dual_stack);
@@ -559,7 +558,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         &prefix,
         args.region,
         args.endpoint_url,
-        endpoint_config,
+        &mut endpoint_config,
         client_config,
         &instance_info,
     )
@@ -583,7 +582,10 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.s3_personality =
         get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
-    filesystem_config.trailing_checksums = !args.disable_checksum;
+
+    let auth_scheme = endpoint_config.resolve_for_bucket(&args.bucket_name)?.auth_scheme()?;
+    let signing_name = auth_scheme.signing_name();
+    filesystem_config.trailing_checksum = signing_name != "s3-outposts";
 
     let prefetcher_config = Default::default();
 
@@ -688,12 +690,12 @@ fn create_client_for_bucket(
     prefix: &Prefix,
     args_region: Option<String>,
     endpoint_url: Option<String>,
-    mut endpoint_config: EndpointConfig,
+    endpoint_config: &mut EndpointConfig,
     client_config: S3ClientConfig,
     instance_info: &InstanceInfo,
 ) -> Result<S3CrtClient, anyhow::Error> {
     let (region_to_try, user_provided_region) = get_region(args_region, instance_info);
-    endpoint_config = endpoint_config.region(&region_to_try);
+    *endpoint_config = endpoint_config.clone().region(&region_to_try);
 
     if let Some(uri) = endpoint_url {
         if !user_provided_region {
@@ -704,7 +706,7 @@ fn create_client_for_bucket(
         }
 
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), uri).context("Failed to parse endpoint URL")?;
-        endpoint_config = endpoint_config.endpoint(endpoint_uri);
+        *endpoint_config = endpoint_config.clone().endpoint(endpoint_uri);
     }
 
     let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
@@ -715,7 +717,7 @@ fn create_client_for_bucket(
         // Don't try to automatically correct the region if it was manually specified incorrectly
         Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if !user_provided_region => {
             tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
-            let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
+            let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.clone().region(&region)))?;
             let list_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
             futures::executor::block_on(list_request)
                 .map(|_| new_client)

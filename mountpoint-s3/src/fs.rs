@@ -334,7 +334,7 @@ pub struct S3FilesystemConfig {
     /// S3 personality (for different S3 semantics)
     pub s3_personality: S3Personality,
     /// Allowing trailing checksums for write
-    pub trailing_checksums: bool,
+    pub trailing_checksum: bool,
 }
 
 impl Default for S3FilesystemConfig {
@@ -352,7 +352,7 @@ impl Default for S3FilesystemConfig {
             allow_delete: false,
             storage_class: None,
             s3_personality: S3Personality::Standard,
-            trailing_checksums: true,
+            trailing_checksum: true,
         }
     }
 }
@@ -422,7 +422,7 @@ where
         let uploader = Uploader::new(
             client.clone(),
             config.storage_class.to_owned(),
-            config.trailing_checksums,
+            config.trailing_checksum,
         );
 
         Self {
