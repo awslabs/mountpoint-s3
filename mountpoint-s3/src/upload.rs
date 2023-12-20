@@ -206,8 +206,10 @@ mod tests {
     };
     use test_case::test_case;
 
+    #[test_case(true; "trailing_checksum_on")]
+    #[test_case(false; "trailing_checksum_off")]
     #[tokio::test]
-    async fn complete_test() {
+    async fn complete_test(trailing_checksum: bool) {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
@@ -217,7 +219,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None, true);
+        let uploader = Uploader::new(client.clone(), None, trailing_checksum);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -229,8 +231,10 @@ mod tests {
         assert!(!client.is_upload_in_progress(key));
     }
 
+    #[test_case(true; "trailing_checksum_on")]
+    #[test_case(false; "trailing_checksum_off")]
     #[tokio::test]
-    async fn write_order_test() {
+    async fn write_order_test(trailing_checksum: bool) {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
@@ -241,7 +245,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()), true);
+        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()), trailing_checksum);
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
