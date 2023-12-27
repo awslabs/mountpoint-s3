@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Other changes
+* Option `--profile <AWS_PROFILE>` no longer replaces the entire default credential chain.
+  Instead, the provided name will be used with AWS config file entries when evaluating the default credential chain,
+  alike the AWS CLI and AWS SDKs.
+
 ## v1.3.1 (November 30, 2023)
 
 ### Breaking changes

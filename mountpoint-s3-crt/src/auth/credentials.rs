@@ -22,6 +22,8 @@ use crate::{CrtError as _, ToAwsByteCursor as _};
 pub struct CredentialsProviderChainDefaultOptions<'a> {
     /// The client bootstrap this credentials provider should use to setup channels
     pub bootstrap: &'a mut ClientBootstrap,
+    /// The name of profile to use.
+    pub profile_name_override: Option<&'a str>,
 }
 
 /// Options for creating a profile credentials provider
@@ -73,13 +75,18 @@ impl CredentialsProvider {
     ) -> Result<Self, Error> {
         auth_library_init(allocator);
 
-        let inner_options = aws_credentials_provider_chain_default_options {
-            bootstrap: options.bootstrap.inner.as_ptr(),
-            ..Default::default()
-        };
-
-        // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options.
+        // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options and profile name.
         let inner = unsafe {
+            let profile_name_override = match options.profile_name_override {
+                Some(profile_name) => profile_name.as_aws_byte_cursor(),
+                None => Default::default(),
+            };
+            let inner_options = aws_credentials_provider_chain_default_options {
+                bootstrap: options.bootstrap.inner.as_ptr(),
+                profile_name_override,
+                ..Default::default()
+            };
+
             aws_credentials_provider_new_chain_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
 
@@ -103,8 +110,7 @@ impl CredentialsProvider {
     pub fn new_profile(allocator: &Allocator, options: CredentialsProviderProfileOptions) -> Result<Self, Error> {
         auth_library_init(allocator);
 
-        // SAFETY: aws_credentials_provider_new_profile makes a copy of bootstrap
-        // and contents of profile_name_override.
+        // SAFETY: aws_credentials_provider_new_profile makes a copy of the bootstrap options and profile name.
         let inner = unsafe {
             let inner_options = aws_credentials_provider_profile_options {
                 bootstrap: options.bootstrap.inner.as_ptr(),

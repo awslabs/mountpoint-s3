@@ -1,3 +1,12 @@
+## Unreleased
+
+### Breaking changes
+
+* `S3ClientAuthConfig` variant `Default` is now `DefaultChain` with optional field.
+  `Default` trait implementation works as before and should be used instead.
+* `S3ClientAuthConfig` variant `Profile` has been removed.
+  Instead, a new profile credential provider should be created and used with the `Provider(CredentialProvider)` variant.
+
 ## v0.6.1 (December 1, 2023)
 
 ### Breaking changes

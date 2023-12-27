@@ -9,9 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use mountpoint_s3_crt::auth::credentials::{
-    CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
-};
+use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
@@ -159,17 +157,25 @@ impl S3ClientConfig {
 }
 
 /// Authentication configuration for the CRT-based S3 client
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug)]
 pub enum S3ClientAuthConfig {
     /// The default AWS credentials resolution chain, similar to the AWS CLI
-    #[default]
-    Default,
+    DefaultChain {
+        /// Optional profile override to be used when evaluating credential chain
+        profile_name_override: Option<String>,
+    },
     /// Do not sign requests at all
     NoSigning,
-    /// Explicitly load the given profile name from the AWS CLI configuration file
-    Profile(String),
     /// Use a custom credentials provider
     Provider(CredentialsProvider),
+}
+
+impl Default for S3ClientAuthConfig {
+    fn default() -> Self {
+        Self::DefaultChain {
+            profile_name_override: None,
+        }
+    }
 }
 
 /// An S3 client that uses the [AWS Common Runtime (CRT)][crt] to make requests.
@@ -252,23 +258,16 @@ impl S3CrtClientInner {
 
         trace!("constructing client with auth config {:?}", config.auth_config);
         let credentials_provider = match config.auth_config {
-            S3ClientAuthConfig::Default => {
+            S3ClientAuthConfig::DefaultChain { profile_name_override } => {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
+                    profile_name_override: profile_name_override.as_deref(),
                 };
                 CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?
             }
             S3ClientAuthConfig::NoSigning => {
                 CredentialsProvider::new_anonymous(&allocator).map_err(NewClientError::ProviderFailure)?
-            }
-            S3ClientAuthConfig::Profile(profile_name) => {
-                let credentials_profile_options = CredentialsProviderProfileOptions {
-                    bootstrap: &mut client_bootstrap,
-                    profile_name_override: &profile_name,
-                };
-                CredentialsProvider::new_profile(&allocator, credentials_profile_options)
-                    .map_err(NewClientError::ProviderFailure)?
             }
             S3ClientAuthConfig::Provider(provider) => provider,
         };
