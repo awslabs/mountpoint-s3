@@ -1,10 +1,14 @@
 #![cfg(feature = "s3_tests")]
 
+use aws_config::default_provider::credentials::DefaultCredentialsChain;
+use aws_credential_types::provider::ProvideCredentials;
+use aws_credential_types::Credentials;
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::list_multipart_uploads::ListMultipartUploadsError;
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_sts as sts;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
@@ -101,7 +105,8 @@ pub fn get_test_domain() -> String {
     std::env::var("S3_DOMAIN").unwrap_or(String::from("amazonaws.com"))
 }
 
-pub fn get_subsession_iam_role() -> String {
+/// ARN of an AWS IAM Role that can be assumed by individual tests to scope down permissions.
+fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
@@ -116,6 +121,60 @@ pub async fn get_test_sdk_client() -> s3::Client {
     }
     let config = config.load().await;
     s3::Client::new(&config)
+}
+
+async fn get_test_sdk_sts_client() -> sts::Client {
+    let config = aws_config::from_env()
+        .region(Region::new(get_test_region()))
+        .load()
+        .await;
+    sts::Client::new(&config)
+}
+
+/// Grab a set of SDK [Credentials] from the default credential provider chain.
+pub async fn get_sdk_default_chain_creds() -> Credentials {
+    let sdk_provider = DefaultCredentialsChain::builder()
+        .region(Region::new(get_test_region()))
+        .build()
+        .await;
+    sdk_provider
+        .provide_credentials()
+        .await
+        .expect("default chain credentials should be available")
+}
+
+/// Takes the provided IAM Policy and assumes the configured subsession role,
+/// applying the given policy to scope down the permissions available.
+///
+/// This method works by making an AWS Security Token Service (STS) AssumeRole call providing the policy request field.
+/// The permissions are the intersection of the identity-based policy of the principal creating the session
+/// and the session policies. This means that the subsession role must already have any permissions you wish to use -
+/// this method can only reduce the scope of permissions.
+///
+/// See the [session policies section of the AWS IAM User Guide][session_policies] for more detail.
+///
+/// [session_policies]: https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies.html#policies_session
+pub async fn get_scoped_down_credentials(policy: String) -> Credentials {
+    let sts_client = get_test_sdk_sts_client().await;
+    let assume_role_response = sts_client
+        .assume_role()
+        .role_arn(get_subsession_iam_role())
+        .role_session_name("mountpoint-s3-client_tests")
+        .policy(policy)
+        .send()
+        .await
+        .expect("assume_role with valid ARN and policy should succeed");
+    let credentials = assume_role_response
+        .credentials()
+        .expect("credentials should be present if assume_role succeeded")
+        .to_owned();
+    Credentials::new(
+        credentials.access_key_id().unwrap(),
+        credentials.secret_access_key().unwrap(),
+        credentials.session_token().map(|s| s.to_owned()),
+        None,
+        "scoped_down_sts_creds",
+    )
 }
 
 /// Create some objects in a prefix for testing.

@@ -2,12 +2,9 @@
 
 pub mod common;
 
-use std::io::Write;
 use std::option::Option::None;
 
-use aws_config::default_provider::credentials::DefaultCredentialsChain;
-use aws_credential_types::provider::ProvideCredentials;
-use aws_sdk_s3::config::Region;
+use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
@@ -42,15 +39,8 @@ async fn test_static_provider() {
         .await
         .unwrap();
 
-    // Get some static credentials by just using the SDK's default provider, which we know works
-    let sdk_provider = DefaultCredentialsChain::builder()
-        .region(Region::new(get_test_region()))
-        .build()
-        .await;
-    let credentials = sdk_provider
-        .provide_credentials()
-        .await
-        .expect("static credentials should be available");
+    // Get some static credentials using the SDK's default provider chain
+    let credentials = get_sdk_default_chain_creds().await;
 
     // Build a S3CrtClient that uses a static credentials provider with the creds we just got
     let config = CredentialsProviderStaticOptions {
@@ -103,9 +93,9 @@ async fn test_static_provider() {
 /// test. So the [test_profile_provider] test below is forked into its own process, where it can set
 /// the environment variables it needs to point to an isolated CLI configuration file without
 /// affecting the rest of the real test runner.
-async fn test_profile_provider_async() {
+async fn test_profile_only_provider_async() {
     let sdk_client = get_test_sdk_client().await;
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider");
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_only_provider");
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
@@ -120,32 +110,13 @@ async fn test_profile_provider_async() {
         .await
         .unwrap();
 
-    // Get some static credentials by just using the SDK's default provider chain
-    let sdk_provider = DefaultCredentialsChain::builder()
-        .region(Region::new(get_test_region()))
-        .build()
-        .await;
-    let credentials = sdk_provider
-        .provide_credentials()
-        .await
-        .expect("static credentials should be available");
+    // Get some static credentials using the SDK's default provider chain
+    let credentials = get_sdk_default_chain_creds().await;
 
     // Write the credentials in CLI config format into a temp file
-    let profile_name = "mountpoint-profile";
     let mut config_file = NamedTempFile::new().unwrap();
-    writeln!(
-        config_file,
-        "[profile {}]
-aws_access_key_id = {}
-aws_secret_access_key = {}",
-        profile_name,
-        credentials.access_key_id(),
-        credentials.secret_access_key()
-    )
-    .unwrap();
-    if let Some(session_token) = credentials.session_token() {
-        writeln!(config_file, "aws_session_token = {}", session_token).unwrap()
-    }
+    let profile_name = "mountpoint-profile";
+    write_credentials_to_named_profile(&mut config_file, profile_name, credentials).await;
 
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
@@ -177,8 +148,7 @@ aws_secret_access_key = {}",
     let mut request = client
         .get_object(&bucket, &key, None, None)
         .await
-        .expect("get_object should be sent");
-
+        .expect("get_object should be accepted by CRT");
     let _error = request
         .next()
         .await
@@ -194,12 +164,28 @@ aws_secret_access_key = {}",
     let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
 }
 
+/// Takes something writable (such as an open file) and writes a new entry for the given name and SDK credentials.
+async fn write_credentials_to_named_profile<B: std::io::Write>(
+    mut config_buffer: B,
+    profile_name: &str,
+    credentials: Credentials,
+) {
+    writeln!(config_buffer, "[profile {profile_name}]").unwrap();
+    let access_key_id = credentials.access_key_id();
+    writeln!(config_buffer, "aws_access_key_id = {access_key_id}").unwrap();
+    let secret_access_key = credentials.secret_access_key();
+    writeln!(config_buffer, "aws_secret_access_key = {secret_access_key}",).unwrap();
+    if let Some(session_token) = credentials.session_token() {
+        writeln!(config_buffer, "aws_session_token = {session_token}").unwrap();
+    }
+}
+
 rusty_fork_test! {
     #[test]
-    fn test_profile_provider() {
+    fn test_profile_only_provider() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(test_profile_provider_async());
+        runtime.block_on(test_profile_only_provider_async());
     }
 }
 
@@ -210,7 +196,6 @@ rusty_fork_test! {
 async fn test_scoped_credentials() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_scoped_credentials");
-    let subsession_role = get_subsession_iam_role();
 
     for key in ["foo/foo.txt", "bar/bar.txt", "baz.txt"] {
         sdk_client
@@ -223,12 +208,6 @@ async fn test_scoped_credentials() {
             .unwrap();
     }
 
-    let config = aws_config::from_env()
-        .region(Region::new(get_test_region()))
-        .load()
-        .await;
-    let sts_client = aws_sdk_sts::Client::new(&config);
-
     // Scope down to the `foo` prefix
     let policy = r#"{"Statement": [
     {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::__BUCKET__/__PREFIX__/*"},
@@ -237,20 +216,12 @@ async fn test_scoped_credentials() {
     let policy = policy
         .replace("__BUCKET__", &bucket)
         .replace("__PREFIX__", &format!("{prefix}foo"));
-    let credentials = sts_client
-        .assume_role()
-        .role_arn(subsession_role)
-        .role_session_name("test_scoped_credentials")
-        .policy(policy)
-        .send()
-        .await
-        .unwrap();
-    let credentials = credentials.credentials().unwrap();
+    let credentials = get_scoped_down_credentials(policy).await;
 
     // Build a S3CrtClient that uses a static credentials provider with the creds we just got
     let config = CredentialsProviderStaticOptions {
-        access_key_id: credentials.access_key_id().unwrap(),
-        secret_access_key: credentials.secret_access_key().unwrap(),
+        access_key_id: credentials.access_key_id(),
+        secret_access_key: credentials.secret_access_key(),
         session_token: credentials.session_token(),
     };
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
