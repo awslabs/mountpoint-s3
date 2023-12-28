@@ -488,20 +488,25 @@ async fn test_scoped_credentials() {
     let client = S3CrtClient::new(config).unwrap();
 
     // Inside the prefix, things should be fine
-    let _result = client
+    let mut request = client
         .get_object(&bucket, &format!("{prefix}foo/foo.txt"), None, None)
         .await
-        .expect("get_object should succeed");
+        .expect("get_object should be accepted by CRT");
+    let _err = request
+        .next()
+        .await
+        .unwrap()
+        .expect("get_object requests should succeed within prefix");
     let _result = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}foo/"))
         .await
-        .expect("list_objects_should_succeed");
+        .expect("list_objects should succeed within prefix");
 
     // Outside the prefix, requests should fail with permissions errors
     let mut request = client
         .get_object(&bucket, &format!("{prefix}baz.txt"), None, None)
         .await
-        .expect("request should be sent");
+        .expect("request should be accepted by CRT");
     let err = request
         .next()
         .await
