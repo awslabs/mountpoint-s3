@@ -275,10 +275,10 @@ where
                     "out-of-order read, resetting prefetch"
                 );
                 counter!("prefetch.out_of_order", 1);
-                histogram!(
-                    "prefetch.contiguous_read_len",
-                    (self.next_sequential_read_offset - self.sequential_read_start_offset) as f64
-                );
+
+                // This is an approximation, tolerating some seeking caused by concurrent readahead.
+                self.record_contiguous_read_metric();
+
                 self.reset_prefetch_to_offset(offset);
             }
         }
@@ -527,6 +527,24 @@ where
         histogram!("prefetch.seek_distance", backwards_length_needed as f64, "dir" => "backward");
 
         Ok(true)
+    }
+}
+
+impl<Stream: ObjectPartStream, Client: ObjectClient> PrefetchGetObject<Stream, Client> {
+    /// Record the end of a contiguous read.
+    ///
+    /// This should be invoked at the end of each set of contiguous reads, including if no further read occurs.
+    fn record_contiguous_read_metric(&self) {
+        histogram!(
+            "prefetch.contiguous_read_len",
+            (self.next_sequential_read_offset - self.sequential_read_start_offset) as f64,
+        );
+    }
+}
+
+impl<Stream: ObjectPartStream, Client: ObjectClient> Drop for PrefetchGetObject<Stream, Client> {
+    fn drop(&mut self) {
+        self.record_contiguous_read_metric();
     }
 }
 
