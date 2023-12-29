@@ -711,14 +711,14 @@ impl SuperblockInner {
 
                     let found_directory = if result
                         .common_prefixes
-                        .get(0)
+                        .first()
                         .map(|prefix| prefix.starts_with(&full_path_suffixed))
                         .unwrap_or(false)
                     {
                         true
                     } else if result
                         .objects
-                        .get(0)
+                        .first()
                         .map(|object| object.key.starts_with(&full_path_suffixed))
                         .unwrap_or(false)
                     {
