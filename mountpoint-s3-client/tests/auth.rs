@@ -95,27 +95,41 @@ async fn test_profile_only_provider_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_only_provider");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
-    // Environment variables will be updated to point to this new file.
-    // This is OK only because the test runs in a forked process and won't affect any other concurrently running tests.
+    // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
+
+    let creds = get_sdk_default_chain_creds().await;
+    let allowed_profile_name = "allowed";
+    write_credentials_to_named_profile(&mut config_file, allowed_profile_name, creds).await;
+
+    let policy = r#"{
+        "Statement": [
+            {
+                "Effect": "Deny",
+                "Action": "*",
+                "Resource": "*"
+            }
+        ]
+    }"#;
+    let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
+    let denied_profile_name = "denied";
+    write_credentials_to_named_profile(&mut config_file, denied_profile_name, scoped_down_creds).await;
+
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    clear_aws_creds_from_env();
 
     let allocator = Allocator::default();
     let mut client_bootstrap = setup_crt_bootstrap();
 
     let allowed_client = {
-        let creds = get_sdk_default_chain_creds().await;
-        let profile_name = "allowed";
-        write_credentials_to_named_profile(&mut config_file, profile_name, creds).await;
-
         // Build a S3CrtClient that uses the config file
         let profile_provider = CredentialsProvider::new_profile(
             &allocator,
             CredentialsProviderProfileOptions {
                 bootstrap: &mut client_bootstrap,
-                profile_name_override: profile_name,
+                profile_name_override: allowed_profile_name,
             },
         )
         .unwrap();
@@ -131,25 +145,12 @@ async fn test_profile_only_provider_async() {
         .expect("list_objects should succeed");
 
     let denied_client = {
-        let policy = r#"{
-            "Statement": [
-                {
-                    "Effect": "Deny",
-                    "Action": "*",
-                    "Resource": "*"
-                }
-            ]
-        }"#;
-        let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
-        let profile_name = "denied";
-        write_credentials_to_named_profile(&mut config_file, profile_name, scoped_down_creds).await;
-
         // Build a S3CrtClient that uses the config file
         let profile_provider = CredentialsProvider::new_profile(
             &allocator,
             CredentialsProviderProfileOptions {
                 bootstrap: &mut client_bootstrap,
-                profile_name_override: profile_name,
+                profile_name_override: denied_profile_name,
             },
         )
         .unwrap();
@@ -187,19 +188,19 @@ async fn test_default_chain_with_profile_override_fallback() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_profile_override_fallback");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
-    // Environment variables will be updated to point to this new file.
-    // This is OK only because the test runs in a forked process and won't affect any other concurrently running tests.
+    // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
     let profile_name = "profile-with-no-creds-config";
-
     // Create a profile entry in the config.
     // At the time of writing, this client does not handle any config entries in profiles - only credentials.
     writeln!(config_file, "[profile {profile_name}]").unwrap();
     writeln!(config_file, "cli_pager = less").unwrap();
+
+    // Set up the environment variables to use this new config file. This is only OK to do because
+    // this test is run in a forked process, so won't affect any other concurrently running tests.
+    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    clear_aws_creds_from_env();
 
     // Try a profile with no credentials which should follow the rest of the chain.
     let client = {
@@ -222,18 +223,19 @@ async fn test_default_chain_with_profile_override_allowed_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_no_profile_override_allowed");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
-    // Environment variables will be updated to point to this new file.
-    // This is OK only because the test runs in a forked process and won't affect any other concurrently running tests.
+    // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
+
+    let creds = get_sdk_default_chain_creds().await;
+    let profile_name = String::from("allowed");
+    write_credentials_to_named_profile(&mut config_file, &profile_name, creds).await;
+
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    clear_aws_creds_from_env();
 
     let allowed_client = {
-        let creds = get_sdk_default_chain_creds().await;
-        let profile_name = String::from("allowed");
-        write_credentials_to_named_profile(&mut config_file, &profile_name, creds).await;
-
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
                 profile_name_override: Some(profile_name),
@@ -253,27 +255,28 @@ async fn test_default_chain_with_profile_override_denied_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_profile_override_denied");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
-    // Environment variables will be updated to point to this new file.
-    // This is OK only because the test runs in a forked process and won't affect any other concurrently running tests.
+    // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
+
+    let policy = r#"{
+        "Statement": [
+            {
+                "Effect": "Deny",
+                "Action": "*",
+                "Resource": "*"
+            }
+        ]
+    }"#;
+    let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
+    let profile_name = String::from("denied");
+    write_credentials_to_named_profile(&mut config_file, &profile_name, scoped_down_creds).await;
+
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    clear_aws_creds_from_env();
 
     let denied_client = {
-        let policy = r#"{
-            "Statement": [
-                {
-                    "Effect": "Deny",
-                    "Action": "*",
-                    "Resource": "*"
-                }
-            ]
-        }"#;
-        let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
-        let profile_name = String::from("denied");
-        write_credentials_to_named_profile(&mut config_file, &profile_name, scoped_down_creds).await;
-
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
                 profile_name_override: Some(profile_name),
@@ -297,16 +300,17 @@ async fn test_default_chain_with_no_profile_override_allowed_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_no_profile_override_allowed");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
-    // Environment variables will be updated to point to this new file.
-    // This is OK only because the test runs in a forked process and won't affect any other concurrently running tests.
+    // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
     let creds = get_sdk_default_chain_creds().await;
     let profile_name = "default";
     write_credentials_to_named_profile(&mut config_file, profile_name, creds).await;
+
+    // Set up the environment variables to use this new config file. This is only OK to do because
+    // this test is run in a forked process, so won't affect any other concurrently running tests.
+    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    clear_aws_creds_from_env();
 
     let client = {
         let config = S3ClientConfig::new()
@@ -328,12 +332,8 @@ async fn test_default_chain_with_no_profile_override_denied_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_no_profile_override_denied");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
-    // Environment variables will be updated to point to this new file.
-    // This is OK only because the test runs in a forked process and won't affect any other concurrently running tests.
+    // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
     let policy = r#"{
         "Statement": [
@@ -347,6 +347,11 @@ async fn test_default_chain_with_no_profile_override_denied_async() {
     let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
     let profile_name = "default";
     write_credentials_to_named_profile(&mut config_file, profile_name, scoped_down_creds).await;
+
+    // Set up the environment variables to use this new config file. This is only OK to do because
+    // this test is run in a forked process, so won't affect any other concurrently running tests.
+    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    clear_aws_creds_from_env();
 
     let client = {
         let config = S3ClientConfig::new()
@@ -401,6 +406,16 @@ async fn write_credentials_to_named_profile<B: std::io::Write>(
     if let Some(session_token) = credentials.session_token() {
         writeln!(config_buffer, "aws_session_token = {session_token}").unwrap();
     }
+}
+
+/// Clear static credentials from the environment.
+///
+/// This should be called from tests running in a separate process,
+/// otherwise the test suite will be broken when run anywhere which provides credentials statically in the environment.
+fn clear_aws_creds_from_env() {
+    std::env::remove_var("AWS_ACCESS_KEY_ID");
+    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+    std::env::remove_var("AWS_SESSION_TOKEN");
 }
 
 // These tests are complicated because they need to modify AWS profiles which are global state.
