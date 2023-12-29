@@ -364,6 +364,7 @@ mod tests {
         let client = MockClient::new(MockClientConfig {
             bucket: bucket.to_string(),
             part_size: 128,
+            unordered_list_seed: None,
         });
 
         let body = vec![0u8; 50];

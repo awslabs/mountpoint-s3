@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
-use clap::{value_parser, Parser};
+use clap::{value_parser, Parser, ValueEnum};
 use fuser::{MountOption, Session};
 use mountpoint_s3::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
-use mountpoint_s3::fs::{CacheConfig, S3FilesystemConfig};
+use mountpoint_s3::fs::{CacheConfig, S3FilesystemConfig, S3Personality};
 use mountpoint_s3::fuse::session::FuseSession;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::logging::{init_logging, LoggingConfig};
@@ -22,6 +22,7 @@ use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use mountpoint_s3_crt::auth::signing_config::SigningAlgorithm;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;
@@ -80,6 +81,9 @@ struct CliArgs {
 
     #[clap(long, help = "Set the 'x-amz-request-payer' to 'requester' on S3 requests", help_heading = BUCKET_OPTIONS_HEADER)]
     pub requester_pays: bool,
+
+    #[clap(long, help = "Type of S3 bucket to use [default: inferred from bucket name]", help_heading = BUCKET_OPTIONS_HEADER)]
+    pub bucket_type: Option<S3PersonalityArg>,
 
     #[clap(
         long,
@@ -214,7 +218,7 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Disable all logging",
+        help = "Disable all logging. You will still see stdout messages.",
         help_heading = LOGGING_OPTIONS_HEADER,
         conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
     )]
@@ -255,6 +259,22 @@ struct CliArgs {
         help_heading = ADVANCED_OPTIONS_HEADER,
     )]
     pub user_agent_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct S3PersonalityArg(S3Personality);
+
+impl ValueEnum for S3PersonalityArg {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self(S3Personality::Standard), Self(S3Personality::ExpressOneZone)]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self.0 {
+            S3Personality::Standard => Some(clap::builder::PossibleValue::new("general-purpose")),
+            S3Personality::ExpressOneZone => Some(clap::builder::PossibleValue::new("directory")),
+        }
+    }
 }
 
 impl CliArgs {
@@ -331,6 +351,11 @@ impl CliArgs {
 
 fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
+    let successful_mount_msg = format!(
+        "{} is mounted at {}",
+        args.bucket_description(),
+        args.mount_point.display()
+    );
 
     if args.foreground {
         init_logging(args.logging_config()).context("failed to initialize logging")?;
@@ -339,6 +364,8 @@ fn main() -> anyhow::Result<()> {
 
         // mount file system as a foreground process
         let session = mount(args)?;
+
+        println!("{successful_mount_msg}");
 
         session.join().context("failed to join session")?;
     } else {
@@ -427,11 +454,7 @@ fn main() -> anyhow::Result<()> {
                 let status = receiver.recv_timeout(timeout);
                 match status {
                     Ok('0') => {
-                        println!(
-                            "{} is mounted at {}",
-                            args.bucket_description(),
-                            args.mount_point.display()
-                        );
+                        println!("{successful_mount_msg}");
                         tracing::debug!("success status flag received from child process")
                     }
                     Ok(_) => {
@@ -551,6 +574,8 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     }
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
+    filesystem_config.s3_personality =
+        get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
 
     let prefetcher_config = Default::default();
 
@@ -767,6 +792,28 @@ fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (Str
     // Use default region.
     tracing::debug!("using default region {}", DEFAULT_REGION);
     (DEFAULT_REGION.to_owned(), false)
+}
+
+fn get_s3_personality(
+    args_personality: Option<S3PersonalityArg>,
+    bucket: &str,
+    endpoint_config: EndpointConfig,
+) -> S3Personality {
+    if let Some(S3PersonalityArg(personality)) = args_personality {
+        return personality;
+    }
+
+    let Ok(resolved) = endpoint_config.resolve_for_bucket(bucket) else {
+        return S3Personality::Standard;
+    };
+    let Ok(auth_scheme) = resolved.auth_scheme() else {
+        return S3Personality::Standard;
+    };
+    if auth_scheme.scheme_name() == SigningAlgorithm::SigV4Express {
+        S3Personality::ExpressOneZone
+    } else {
+        S3Personality::Standard
+    }
 }
 
 fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {

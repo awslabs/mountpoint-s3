@@ -29,6 +29,7 @@ use tracing::trace;
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
+use crate::object::ObjectId;
 use crate::prefetch::caching_stream::CachingPartStream;
 use crate::prefetch::part_stream::{ClientPartStream, ObjectPartStream, RequestRange};
 use crate::prefetch::seek_window::SeekWindow;
@@ -214,7 +215,7 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     // self.next_sequential_read_offset - 1.
     backward_seek_window: SeekWindow,
     bucket: String,
-    key: String,
+    object_id: ObjectId,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
     /// Start offset for sequential read, used for calculating contiguous read metric
@@ -223,7 +224,6 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     next_request_size: usize,
     next_request_offset: u64,
     size: u64,
-    etag: ETag,
 }
 
 #[async_trait]
@@ -303,7 +303,9 @@ where
                 Ok(part) => part,
             };
             self.backward_seek_window.push(part.clone());
-            let part_bytes = part.into_bytes(&self.key, self.next_sequential_read_offset).unwrap();
+            let part_bytes = part
+                .into_bytes(&self.object_id, self.next_sequential_read_offset)
+                .unwrap();
 
             self.next_sequential_read_offset += part_bytes.len() as u64;
             self.prepare_requests();
@@ -361,9 +363,8 @@ where
             next_request_size: config.first_request_size,
             next_request_offset: 0,
             bucket: bucket.to_owned(),
-            key: key.to_owned(),
+            object_id: ObjectId::new(key.to_owned(), etag),
             size,
-            etag,
         }
     }
 
@@ -404,8 +405,8 @@ where
         let task = self.part_stream.spawn_get_object_request(
             &self.client,
             &self.bucket,
-            &self.key,
-            self.etag.clone(),
+            self.object_id.key(),
+            self.object_id.etag().clone(),
             range,
             self.preferred_part_size,
         );
@@ -606,6 +607,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
@@ -701,6 +703,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            ..Default::default()
         };
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
@@ -827,6 +830,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -973,6 +977,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
@@ -1011,6 +1016,7 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size,
+            ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
@@ -1067,6 +1073,7 @@ mod tests {
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
                 part_size,
+                ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -1123,6 +1130,7 @@ mod tests {
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
                 part_size,
+                ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());

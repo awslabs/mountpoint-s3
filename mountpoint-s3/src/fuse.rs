@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::time::SystemTime;
 use time::OffsetDateTime;
-use tracing::{instrument, Instrument};
+use tracing::{field, instrument, Instrument};
 
 use crate::fs::{
     self, DirectoryEntry, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno,
@@ -92,7 +92,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, name=field::Empty))]
     fn getattr(&self, _req: &Request<'_>, ino: InodeNo, reply: ReplyAttr) {
         match block_on(self.fs.getattr(ino).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
@@ -100,12 +100,12 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino, nlookup))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino, nlookup, name=field::Empty))]
     fn forget(&self, _req: &Request<'_>, ino: u64, nlookup: u64) {
         block_on(self.fs.forget(ino, nlookup));
     }
 
-    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, pid=req.pid()))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, pid=req.pid(), name=field::Empty))]
     fn open(&self, req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.open(ino, flags, req.pid()).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
@@ -113,7 +113,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size, name=field::Empty))]
     fn read(
         &self,
         _req: &Request<'_>,
@@ -164,7 +164,7 @@ where
         metrics::histogram!("fuse.io_size", bytes_sent as f64, "type" => "read");
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, name=field::Empty))]
     fn opendir(&self, _req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.opendir(parent, flags).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
@@ -250,7 +250,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync, name=field::Empty))]
     fn fsync(&self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
             Ok(()) => reply.ok(),
@@ -258,7 +258,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, pid=req.pid()))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, pid=req.pid(), name=field::Empty))]
     fn flush(&self, req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
         match block_on(self.fs.flush(ino, fh, lock_owner, req.pid()).in_current_span()) {
             Ok(()) => reply.ok(),
@@ -266,7 +266,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, name=field::Empty))]
     fn release(
         &self,
         _req: &Request<'_>,
@@ -322,7 +322,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len(), pid=_req.pid()))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len(), pid=_req.pid(), name=field::Empty))]
     fn write(
         &self,
         _req: &Request<'_>,
@@ -365,7 +365,7 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, name=field::Empty))]
     fn setattr(
         &self,
         _req: &Request<'_>,

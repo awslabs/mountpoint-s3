@@ -2,15 +2,19 @@
 
 pub mod common;
 
+#[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
 use aws_sdk_s3::primitives::ByteStream;
+#[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
 use bytes::Bytes;
 use common::*;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+#[cfg(not(feature = "s3express_tests"))]
 use test_case::test_case;
 
 #[tokio::test]
@@ -20,9 +24,11 @@ async fn test_head_object() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    request
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -40,6 +46,8 @@ async fn test_head_object() {
 #[test_case("INTELLIGENT_TIERING")]
 #[test_case("GLACIER")]
 #[tokio::test]
+// S3 Express One Zone is a distinct storage class and can't be overridden
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_head_object_storage_class(storage_class: &str) {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_head_object");
@@ -114,6 +122,7 @@ async fn test_head_object_no_perm() {
 
 // This test relies on s3's expedited object restoration, it takes 1-5 minutes to complete
 #[tokio::test]
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_head_object_restored() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_head_object_restored");

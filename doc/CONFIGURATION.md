@@ -79,6 +79,21 @@ Here is an example least-privilege policy document to add to an IAM user or role
 }
 ```
 
+Directory buckets, introduced with the S3 Express One Zone storage class, use a different authentication mechanism from general purpose buckets. Instead of using `s3:*` actions, you should allow the `s3express:CreateSession` action. Here is an example of least-privilege policy document.
+
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "s3express:CreateSession",
+            "Resource": "arn:aws:s3express:REGION:ACCOUNT-ID:bucket/DOC-EXAMPLE-BUCKET--az_id--x-s3"
+        }
+    ]
+}
+```
+
 Mountpoint also respects access control lists (ACLs) applied to objects in your S3 bucket, but does not allow you to automatically attach ACLs to objects created with Mountpoint. A majority of modern use cases in Amazon S3 no longer require the use of ACLs. We recommend that you keep ACLs disabled for your S3 bucket, and instead use bucket policies to control access to your objects.
 
 ## S3 bucket configuration
@@ -93,7 +108,7 @@ When constructing the directory structure for your mount, Mountpoint removes the
 
 ### Region detection
 
-Amazon S3 buckets are associated with a single AWS Region. Mountpoint attempts to automatically detect the region for your S3 bucket at startup time and directs all S3 requests to that region. However, in some scenarios this region detection may fail, preventing your bucket from being mounted and displaying Access Denied or No Such Bucket errors. You can override Mountpoint's automatic bucket region detection with the `--region` command-line argument or `AWS_REGION` environment variable.
+Amazon S3 buckets are associated with a single AWS Region. Mountpoint attempts to automatically detect the region for your S3 bucket at startup time and directs all S3 requests to that region. However, in some scenarios like cross-region mount with a directory bucket, this region detection may fail, preventing your bucket from being mounted and displaying Access Denied or No Such Bucket errors. You can override Mountpoint's automatic bucket region detection with the `--region` command-line argument or `AWS_REGION` environment variable.
 
 Mountpoint uses [instance metadata (IMDS)](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html) to help detect the region for an S3 bucket. If you want to disable IMDS, set the `AWS_EC2_METADATA_DISABLED` environment variable to `true`.
 
@@ -167,13 +182,16 @@ You cannot currently use Mountpoint to overwrite existing objects. However, if y
 
 ### S3 storage classes
 
-Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. By default, Mountpoint uses the S3 Standard storage class, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:
+Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. Mountpoint respects the default storage class from S3 unless otherwise configured, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:
 * `STANDARD` for S3 Standard
 * `STANDARD_IA` for S3 Standard-Infrequent Access
 * `INTELLIGENT_TIERING` for [S3 Intelligent-Tiering](https://aws.amazon.com/s3/storage-classes/intelligent-tiering/), which automatically moves your data to the most cost-effective access tier when access patterns change
 * `GLACIER_IR` for [S3 Glacier Instant Retrieval](https://aws.amazon.com/s3/storage-classes/glacier/instant-retrieval/)
 * `GLACIER` for [S3 Glacier Flexible Retrieval](https://aws.amazon.com/s3/storage-classes/glacier/)
 * `DEEP_ARCHIVE` for [S3 Glacier Deep Archive](https://aws.amazon.com/s3/storage-classes/glacier/)
+
+> [!IMPORTANT]
+> `EXPRESS_ONEZONE` is a distinct storage class for directory buckets. You can neither use other storage classes in directory buckets nor use `EXPRESS_ONEZONE` in general purpose buckets. If you want to use [S3 Express One Zone](https://aws.amazon.com/s3/storage-classes/express-one-zone/) storage class, just specify a directory bucket name when mounting.
 
 For the full list of possible storage classes, see the [PutObject documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html#AmazonS3-PutObject-request-header-StorageClass) in the Amazon S3 User Guide.
 
@@ -231,6 +249,7 @@ WantedBy=remote-fs.target
 ## Caching configuration
 
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
+Mountpoint can serve all file system requests from the cache, excluding listing of directory contents.
 
 To enable caching, use the `--cache <CACHE_DIR>` command-line flag, specifying the directory in which to store cached object content.
 This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second,

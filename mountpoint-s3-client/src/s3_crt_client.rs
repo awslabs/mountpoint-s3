@@ -194,6 +194,11 @@ impl S3CrtClient {
         })
     }
 
+    /// Return a copy of the [EndpointConfig] for this client
+    pub fn endpoint_config(&self) -> EndpointConfig {
+        self.inner.endpoint_config.clone()
+    }
+
     #[doc(hidden)]
     pub fn event_loop_group(&self) -> EventLoopGroup {
         self.inner.event_loop_group.clone()
@@ -269,6 +274,7 @@ impl S3CrtClientInner {
         };
 
         let endpoint_config = config.endpoint_config;
+        client_config.region(endpoint_config.get_region());
         let signing_config = init_signing_config(
             endpoint_config.get_region(),
             credentials_provider.clone(),
@@ -276,6 +282,7 @@ impl S3CrtClientInner {
             None,
             None,
         );
+        client_config.express_support(true);
         client_config.signing_config(signing_config);
 
         client_config
@@ -294,7 +301,7 @@ impl S3CrtClientInner {
         let user_agent = config.user_agent.unwrap_or_else(|| UserAgent::new(None));
         let user_agent_header = user_agent.build();
 
-        let s3_client = Client::new(&allocator, client_config).unwrap();
+        let s3_client = Client::new(&allocator, client_config).map_err(NewClientError::CrtError)?;
 
         Ok(Self {
             allocator,
@@ -440,23 +447,22 @@ impl S3CrtClientInner {
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
 
-                let http_status = metrics.status_code().unwrap_or(-1);
-                let request_failure = !(200..299).contains(&http_status);
+                let http_status = metrics.status_code();
+                let request_failure = http_status.map(|status| !(200..299).contains(&status)).unwrap_or(true);
+                let crt_error = Some(metrics.error()).filter(|e| e.is_err());
                 let request_type = request_type_to_metrics_string(metrics.request_type());
                 let request_id = metrics.request_id().unwrap_or_else(|| "<unknown>".into());
                 let duration = metrics.total_duration();
                 let ttfb = metrics.time_to_first_byte();
                 let range = metrics.response_headers().and_then(|headers| extract_range_header(&headers));
 
-                let log_level = status_code_to_log_level(http_status);
-
                 let message = if request_failure {
-                    "request failed"
+                    "CRT request failed"
                 } else {
-                    "request finished"
+                    "CRT request finished"
                 };
-                event!(log_level, %request_type, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
-                trace!(detailed_metrics=?metrics, "request completed");
+                debug!(%request_type, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
+                trace!(detailed_metrics=?metrics, "CRT request completed");
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {
@@ -465,7 +471,7 @@ impl S3CrtClientInner {
                 metrics::histogram!("s3.requests.total_latency_us", duration.as_micros() as f64, "op" => op, "type" => request_type);
                 metrics::counter!("s3.requests", 1, "op" => op, "type" => request_type);
                 if request_failure {
-                    metrics::counter!("s3.requests.failures", 1, "op" => op, "type" => request_type, "status" => format!("{http_status}"));
+                    metrics::counter!("s3.requests.failures", 1, "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string());
                 }
             })
             .on_headers(move |headers, response_status| {
@@ -762,10 +768,13 @@ pub enum NewClientError {
     InvalidEndpoint(#[from] EndpointError),
     /// Invalid AWS credentials
     #[error("invalid AWS credentials")]
-    ProviderFailure(#[from] mountpoint_s3_crt::common::error::Error),
+    ProviderFailure(#[source] mountpoint_s3_crt::common::error::Error),
     /// Invalid configuration
     #[error("invalid configuration: {0}")]
     InvalidConfiguration(String),
+    /// An internal error from within the AWS Common Runtime
+    #[error("Unknown CRT error")]
+    CrtError(#[source] mountpoint_s3_crt::common::error::Error),
 }
 
 /// Errors returned by the CRT-based S3 client
@@ -828,9 +837,12 @@ fn status_code_to_log_level(status_code: i32) -> tracing::Level {
 }
 
 /// Return a string version of a [RequestType] for use in metrics
+///
+/// TODO: Replace this method with `aws_s3_request_metrics_get_operation_name`,
+///       and ensure all requests have an associated operation name.
 fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
     match request_type {
-        RequestType::Default => "Default",
+        RequestType::Unknown => "Default",
         RequestType::HeadObject => "HeadObject",
         RequestType::GetObject => "GetObject",
         RequestType::ListParts => "ListParts",
@@ -1020,6 +1032,17 @@ mod tests {
 
     use super::*;
     use test_case::test_case;
+
+    /// Test explicit validation in [Client::new]
+    #[test_case(4 * 1024 * 1024; "less than 5MiB")]
+    #[test_case(6 * 1024 * 1024 * 1024; "greater than 5GiB")]
+    fn client_new_fails_with_invalid_part_size(part_size: usize) {
+        let config = S3ClientConfig {
+            part_size,
+            ..Default::default()
+        };
+        S3CrtClient::new(config).expect_err("creating a new client should fail");
+    }
 
     /// Test if the prefix is added correctly to the User-Agent header
     #[test]

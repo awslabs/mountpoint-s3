@@ -1,0 +1,48 @@
+name: Crate checks
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  merge_group:
+    types: [ "checks_requested" ]
+
+jobs:
+  verify-crate:
+    name: Verify crate
+    runs-on: ubuntu-22.04
+
+    strategy:
+      matrix:
+        crate:
+          - mountpoint-s3-client
+          - mountpoint-s3-crt
+          - mountpoint-s3-crt-sys
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Set up stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Package ${{ matrix.crate }} crate
+        run: cargo package -p ${{ matrix.crate }}
+      - name: Verify compressed crate size is smaller than crates.io limit
+        run: |
+          ls -alh target/package/*.crate
+          test `cat target/package/*.crate | wc -c` -le 10485760

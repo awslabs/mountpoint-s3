@@ -202,6 +202,7 @@ mod tests {
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 32,
+            ..Default::default()
         }));
         let uploader = Uploader::new(client.clone(), None);
         let request = uploader.put(bucket, key).await.unwrap();
@@ -225,6 +226,7 @@ mod tests {
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 32,
+            ..Default::default()
         }));
         let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()));
 
@@ -260,6 +262,7 @@ mod tests {
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: 32,
+            ..Default::default()
         }));
 
         let mut put_failures = HashMap::new();
@@ -313,6 +316,7 @@ mod tests {
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
             part_size: PART_SIZE,
+            ..Default::default()
         }));
         let uploader = Uploader::new(client.clone(), None);
         let mut request = uploader.put(bucket, key).await.unwrap();

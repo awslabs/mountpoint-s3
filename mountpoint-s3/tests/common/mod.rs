@@ -1,9 +1,12 @@
 //! Functions and types shared across integration test modules.
-//! Allow for unused code since this is included independently in each module.
-#![allow(unused)]
+//! Allow for unused items since this is included independently in each module.
+#![allow(dead_code)]
 
 #[cfg(feature = "fuse_tests")]
 pub mod fuse;
+
+#[cfg(feature = "s3_tests")]
+pub mod s3;
 
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
@@ -27,6 +30,7 @@ pub fn make_test_filesystem(
     let client_config = MockClientConfig {
         bucket: bucket.to_string(),
         part_size: 1024 * 1024,
+        ..Default::default()
     };
 
     let client = Arc::new(MockClient::new(client_config));

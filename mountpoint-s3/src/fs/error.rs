@@ -111,7 +111,7 @@ impl ToErrno for InodeError {
     fn to_errno(&self) -> libc::c_int {
         match self {
             InodeError::ClientError(_) => libc::EIO,
-            InodeError::FileDoesNotExist => libc::ENOENT,
+            InodeError::FileDoesNotExist(_, _) => libc::ENOENT,
             InodeError::InodeDoesNotExist(_) => libc::ENOENT,
             InodeError::InvalidFileName(_) => libc::EINVAL,
             InodeError::NotADirectory(_) => libc::ENOTDIR,

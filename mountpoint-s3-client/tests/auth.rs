@@ -13,8 +13,11 @@ use bytes::Bytes;
 use common::*;
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+#[cfg(not(feature = "s3express_tests"))]
+use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use rusty_fork::rusty_fork_test;
@@ -28,9 +31,11 @@ async fn test_static_provider() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    request
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -104,9 +109,11 @@ async fn test_profile_provider_async() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    request
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -198,6 +205,8 @@ rusty_fork_test! {
 
 /// Test using a client with scoped-down credentials
 #[tokio::test]
+// S3 Express One Zone doesn't support scoped credentials
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_scoped_credentials() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_scoped_credentials");

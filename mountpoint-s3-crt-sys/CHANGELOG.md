@@ -1,3 +1,15 @@
+## Unreleased
+
+* Update to latest CRT dependencies
+
+## v0.5.1 (December 1, 2023)
+
+* Update to latest CRT dependencies
+
+## v0.5.0 (November 28, 2023)
+
+* Update to latest CRT dependencies
+
 ## v0.4.0 (November 21, 2023)
 
 * Update to latest CRT dependencies

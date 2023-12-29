@@ -1,3 +1,12 @@
+## v0.5.1 (December 1, 2023)
+
+* Update to latest CRT dependencies
+
+## v0.5.0 (November 28, 2023)
+
+* Update to latest CRT dependencies
+* Renamed `s3::RequestType::Default` to `s3::RequestType::Unknown` to match CRT change ([#633](https://github.com/awslabs/mountpoint-s3/pull/633))
+
 ## v0.4.0 (November 21, 2023)
 
 * Update to latest CRT dependencies

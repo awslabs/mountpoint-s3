@@ -92,7 +92,11 @@ impl ReaddirHandle {
             }
         };
 
-        let iter = ReaddirIter::new(&inner.bucket, &full_path, page_size, local_entries.into());
+        let iter = if inner.config.s3_personality.is_list_ordered() {
+            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+        } else {
+            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+        };
 
         Ok(Self {
             inner,
@@ -158,7 +162,7 @@ impl ReaddirHandle {
             // have been deduplicated by now.
             ReaddirEntry::LocalInode { .. } => None,
             ReaddirEntry::RemotePrefix { .. } => {
-                let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.cache_config.dir_ttl);
+                let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.config.cache_config.dir_ttl);
                 Some(RemoteLookup {
                     stat,
                     kind: InodeKind::Directory,
@@ -171,7 +175,7 @@ impl ReaddirHandle {
                     Some(object_info.etag.clone()),
                     object_info.storage_class.clone(),
                     object_info.restore_status,
-                    self.inner.cache_config.file_ttl,
+                    self.inner.config.cache_config.file_ttl,
                 );
                 Some(RemoteLookup {
                     stat,
@@ -270,72 +274,26 @@ impl Ord for ReaddirEntry {
     }
 }
 
-/// An iterator over [ReaddirEntry]s for a directory. This merges iterators of remote and local
-/// [ReaddirEntry]s, returning them in name order, and filtering out entries that are shadowed by
-/// other entries of the same name.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-struct ReaddirIter {
-    remote: RemoteIter,
-    local: LocalIter,
-    next_remote: Option<ReaddirEntry>,
-    next_local: Option<ReaddirEntry>,
-    last_name: Option<String>,
+enum ReaddirIter {
+    Ordered(ordered::ReaddirIter),
+    Unordered(unordered::ReaddirIter),
 }
 
 impl ReaddirIter {
-    fn new(bucket: &str, full_path: &str, page_size: usize, local_entries: VecDeque<ReaddirEntry>) -> Self {
-        Self {
-            remote: RemoteIter::new(bucket, full_path, page_size),
-            local: LocalIter::new(local_entries),
-            next_remote: None,
-            next_local: None,
-            last_name: None,
-        }
+    fn ordered(bucket: &str, full_path: &str, page_size: usize, local_entries: VecDeque<ReaddirEntry>) -> Self {
+        Self::Ordered(ordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
-    /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
-    /// `Ok(None)`.
+    fn unordered(bucket: &str, full_path: &str, page_size: usize, local_entries: VecDeque<ReaddirEntry>) -> Self {
+        Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
+    }
+
     async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
-        // The only reason to go around this loop more than once is if the next entry to return is
-        // a duplicate, in which case it's skipped.
-        loop {
-            // First refill the peeks at the next entries on each iterator
-            if self.next_remote.is_none() {
-                self.next_remote = self.remote.next(client).await?;
-            }
-            if self.next_local.is_none() {
-                self.next_local = self.local.next();
-            }
-
-            // Merge-sort the two iterators, preferring the remote iterator if the two entries are
-            // equal (i.e. have the same name)
-            let next = match (&self.next_remote, &self.next_local) {
-                (Some(remote), Some(local)) => {
-                    if remote <= local {
-                        self.next_remote.take()
-                    } else {
-                        self.next_local.take()
-                    }
-                }
-                (Some(_), None) => self.next_remote.take(),
-                (None, _) => self.next_local.take(),
-            };
-
-            // Deduplicate the entry we want to return
-            match next {
-                Some(entry) => {
-                    if self.last_name.as_deref() == Some(entry.name()) {
-                        warn!(
-                            "{} is shadowed by another entry with the same name and will be unavailable",
-                            entry.description(),
-                        );
-                    } else {
-                        self.last_name = Some(entry.name().to_owned());
-                        return Ok(Some(entry));
-                    }
-                }
-                None => return Ok(None),
-            }
+        match self {
+            Self::Ordered(iter) => iter.next(client).await,
+            Self::Unordered(iter) => iter.next(client).await,
         }
     }
 }
@@ -359,16 +317,18 @@ struct RemoteIter {
     full_path: String,
     page_size: usize,
     state: RemoteIterState,
+    ordered: bool,
 }
 
 impl RemoteIter {
-    fn new(bucket: &str, full_path: &str, page_size: usize) -> Self {
+    fn new(bucket: &str, full_path: &str, page_size: usize, ordered: bool) -> Self {
         Self {
             entries: VecDeque::new(),
             bucket: bucket.to_owned(),
             full_path: full_path.to_owned(),
             page_size,
             state: RemoteIterState::InProgress(None),
+            ordered,
         }
     }
 
@@ -415,32 +375,174 @@ impl RemoteIter {
                     object_info,
                 });
 
-            // ListObjectsV2 results are sorted, so ideally we'd just merge-sort the two streams.
-            // But `prefixes` isn't quite in sorted order any more because we trimmed off the
-            // trailing `/` from the names. There's still probably a less naive way to do this sort,
-            // but this should be good enough.
-            let mut new_entries = prefixes.chain(objects).collect::<Vec<_>>();
-            new_entries.sort();
+            if self.ordered {
+                // ListObjectsV2 results are sorted, so ideally we'd just merge-sort the two streams.
+                // But `prefixes` isn't quite in sorted order any more because we trimmed off the
+                // trailing `/` from the names. There's still probably a less naive way to do this sort,
+                // but this should be good enough.
+                let mut new_entries = prefixes.chain(objects).collect::<Vec<_>>();
+                new_entries.sort();
 
-            self.entries.extend(new_entries);
+                self.entries.extend(new_entries);
+            } else {
+                self.entries.extend(prefixes.chain(objects));
+            }
         }
 
         Ok(self.entries.pop_front())
     }
 }
 
-/// An iterator over local [ReaddirEntry]s listed from a directory at the start of a [ReaddirHandle]
-#[derive(Debug)]
-struct LocalIter {
-    entries: VecDeque<ReaddirEntry>,
-}
+/// Iterator implementation for S3 implementations that provide lexicographically ordered LIST.
+mod ordered {
+    use super::*;
 
-impl LocalIter {
-    fn new(entries: VecDeque<ReaddirEntry>) -> Self {
-        Self { entries }
+    /// An iterator over [ReaddirEntry]s for a directory. This merges iterators of remote and local
+    /// [ReaddirEntry]s, returning them in name order, and filtering out entries that are shadowed by
+    /// other entries of the same name.
+    #[derive(Debug)]
+    pub struct ReaddirIter {
+        remote: RemoteIter,
+        local: LocalIter,
+        next_remote: Option<ReaddirEntry>,
+        next_local: Option<ReaddirEntry>,
+        last_name: Option<String>,
     }
 
-    fn next(&mut self) -> Option<ReaddirEntry> {
-        self.entries.pop_front()
+    impl ReaddirIter {
+        pub(super) fn new(
+            bucket: &str,
+            full_path: &str,
+            page_size: usize,
+            local_entries: VecDeque<ReaddirEntry>,
+        ) -> Self {
+            Self {
+                remote: RemoteIter::new(bucket, full_path, page_size, true),
+                local: LocalIter::new(local_entries),
+                next_remote: None,
+                next_local: None,
+                last_name: None,
+            }
+        }
+
+        /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
+        /// `Ok(None)`.
+        pub(super) async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+            // The only reason to go around this loop more than once is if the next entry to return is
+            // a duplicate, in which case it's skipped.
+            loop {
+                // First refill the peeks at the next entries on each iterator
+                if self.next_remote.is_none() {
+                    self.next_remote = self.remote.next(client).await?;
+                }
+                if self.next_local.is_none() {
+                    self.next_local = self.local.next();
+                }
+
+                // Merge-sort the two iterators, preferring the remote iterator if the two entries are
+                // equal (i.e. have the same name)
+                let next = match (&self.next_remote, &self.next_local) {
+                    (Some(remote), Some(local)) => {
+                        if remote <= local {
+                            self.next_remote.take()
+                        } else {
+                            self.next_local.take()
+                        }
+                    }
+                    (Some(_), None) => self.next_remote.take(),
+                    (None, _) => self.next_local.take(),
+                };
+
+                // Deduplicate the entry we want to return
+                match next {
+                    Some(entry) => {
+                        if self.last_name.as_deref() == Some(entry.name()) {
+                            warn!(
+                                "{} is shadowed by another entry with the same name and will be unavailable",
+                                entry.description(),
+                            );
+                        } else {
+                            self.last_name = Some(entry.name().to_owned());
+                            return Ok(Some(entry));
+                        }
+                    }
+                    None => return Ok(None),
+                }
+            }
+        }
+    }
+
+    /// An iterator over local [ReaddirEntry]s listed from a directory at the start of a [ReaddirHandle]
+    #[derive(Debug)]
+    struct LocalIter {
+        entries: VecDeque<ReaddirEntry>,
+    }
+
+    impl LocalIter {
+        fn new(entries: VecDeque<ReaddirEntry>) -> Self {
+            Self { entries }
+        }
+
+        fn next(&mut self) -> Option<ReaddirEntry> {
+            self.entries.pop_front()
+        }
+    }
+}
+
+/// Iterator implementation for S3 implementations that do not provide lexicographically ordered
+/// LIST (i.e., S3 Express One Zone).
+mod unordered {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// An iterator over [ReaddirEntry]s for a directory, where the remote entries are not available
+    /// in order. This implementation returns all the remote entries first, and then returns the
+    /// local entries that have not been shadowed.
+    #[derive(Debug)]
+    pub struct ReaddirIter {
+        remote: RemoteIter,
+        local: HashMap<String, ReaddirEntry>,
+        local_iter: VecDeque<ReaddirEntry>,
+    }
+
+    impl ReaddirIter {
+        pub(super) fn new(
+            bucket: &str,
+            full_path: &str,
+            page_size: usize,
+            local_entries: VecDeque<ReaddirEntry>,
+        ) -> Self {
+            let local_map = local_entries
+                .into_iter()
+                .map(|entry| {
+                    let ReaddirEntry::LocalInode { lookup } = &entry else {
+                        unreachable!("local entries are always LocalInode");
+                    };
+                    (lookup.inode.name().to_owned(), entry)
+                })
+                .collect::<HashMap<_, _>>();
+
+            Self {
+                remote: RemoteIter::new(bucket, full_path, page_size, false),
+                local: local_map,
+                local_iter: VecDeque::new(),
+            }
+        }
+
+        /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
+        /// `Ok(None)`.
+        pub(super) async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
+            if let Some(remote) = self.remote.next(client).await? {
+                self.local.remove(remote.name());
+                return Ok(Some(remote));
+            }
+
+            if !self.local.is_empty() {
+                self.local_iter.extend(self.local.drain().map(|(_, entry)| entry));
+            }
+
+            Ok(self.local_iter.pop_front())
+        }
     }
 }

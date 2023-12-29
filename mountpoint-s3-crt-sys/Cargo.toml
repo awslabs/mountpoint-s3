@@ -1,10 +1,7 @@
 [package]
 name = "mountpoint-s3-crt-sys"
-# Steps to publish a new release:
-# - Pull request to bump version number and update CHANGELOG.md
-# - Create a new Git tag `mountpoint-s3-crt-sys-0.x.y`
-# - Run `cargo publish`
-version = "0.4.0"
+# See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
+version = "0.5.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
@@ -36,6 +33,8 @@ exclude = [
     "crt/aws-lc/util/fipstools/acvp/acvptool/test/*",
     "crt/s2n-tls/compliance/*",
     "crt/s2n-tls/scram/SCRAM_paper.pdf",
+    "**/.github/**",
+    "**/*.jar",
 ]
 
 [build-dependencies]

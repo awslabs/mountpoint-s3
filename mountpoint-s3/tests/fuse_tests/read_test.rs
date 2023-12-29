@@ -1,10 +1,13 @@
 use std::fs::{read_dir, File};
 use std::io::{Read as _, Seek, SeekFrom};
+#[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
+#[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
 use fuser::BackgroundSession;
 use mountpoint_s3::data_cache::InMemoryDataCache;
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
 use rand::SeedableRng as _;
@@ -91,6 +94,7 @@ fn basic_read_test_mock_with_cache(prefix: &str) {
     );
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 #[derive(PartialEq)]
 enum RestorationOptions {
     None,
@@ -98,6 +102,7 @@ enum RestorationOptions {
     RestoreInProgress,
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 fn read_flexible_retrieval_test<F>(creator_fn: F, prefix: &str, files: &[&str], restore: RestorationOptions)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
@@ -156,6 +161,8 @@ where
 }
 
 #[cfg(feature = "s3_tests")]
+// S3 Express One Zone is a distinct storage class and can't be overridden
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_flexible_retrieval_test_s3() {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
@@ -167,6 +174,7 @@ fn read_flexible_retrieval_test_s3() {
     );
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(""; "no prefix")]
 #[test_case("read_flexible_retrieval_test"; "prefix")]
 fn read_flexible_retrieval_test_mock(prefix: &str) {
@@ -174,6 +182,7 @@ fn read_flexible_retrieval_test_mock(prefix: &str) {
     read_flexible_retrieval_test(fuse::mock_session::new, prefix, FILES, RestorationOptions::None);
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 #[test_case(""; "no prefix")]
 #[test_case("read_flexible_retrieval_test"; "prefix")]
 fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
@@ -190,6 +199,7 @@ fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
 // it does not support expedited retrieval option. It would take 12 hours to
 // restore object from DEEP_ARCHIVE.
 #[cfg(feature = "s3_tests")]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_flexible_retrieval_restored_test_s3() {
     const RESTORED_FILES: &[&str] = &["GLACIER"];
@@ -202,6 +212,7 @@ fn read_flexible_retrieval_restored_test_s3() {
 }
 
 #[cfg(feature = "s3_tests")]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_flexible_retrieval_restoring_test_s3() {
     const RESTORING_FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];

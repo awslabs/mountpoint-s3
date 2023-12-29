@@ -8,6 +8,7 @@ use mountpoint_s3_crt::checksums::crc32c;
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
+use crate::object::ObjectId;
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::unbounded_part_queue;
 use crate::prefetch::task::RequestTask;
@@ -186,17 +187,17 @@ where
         let request_task = {
             let client = client.clone();
             let bucket = bucket.to_owned();
-            let key = key.to_owned();
+            let id = ObjectId::new(key.to_owned(), if_match);
             let span = debug_span!("prefetch", range=?request_range);
 
             async move {
                 let get_object_result = match client
-                    .get_object(&bucket, &key, Some(request_range.into()), Some(if_match))
+                    .get_object(&bucket, id.key(), Some(request_range.into()), Some(id.etag().clone()))
                     .await
                 {
                     Ok(get_object_result) => get_object_result,
                     Err(e) => {
-                        error!(error=?e, "GetObject request failed");
+                        error!(key=id.key(), error=?e, "GetObject request failed");
                         part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)));
                         return;
                     }
@@ -221,13 +222,13 @@ where
                                 // object part boundaries, so we're computing our own checksum here.
                                 let checksum = crc32c::checksum(&chunk);
                                 let checksum_bytes = ChecksummedBytes::new(chunk, checksum);
-                                let part = Part::new(&key, curr_offset, checksum_bytes);
+                                let part = Part::new(id.clone(), curr_offset, checksum_bytes);
                                 curr_offset += part.len() as u64;
                                 part_queue_producer.push(Ok(part));
                             }
                         }
                         Some(Err(e)) => {
-                            error!(error=?e, "GetObject body part failed");
+                            error!(key=id.key(), error=?e, "GetObject body part failed");
                             part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)));
                             break;
                         }

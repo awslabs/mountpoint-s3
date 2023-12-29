@@ -100,11 +100,13 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
 #[cfg(test)]
 mod tests {
     use crate::checksums::ChecksummedBytes;
+    use crate::object::ObjectId;
 
     use super::*;
 
     use bytes::Bytes;
     use futures::executor::block_on;
+    use mountpoint_s3_client::types::ETag;
     use mountpoint_s3_crt::checksums::crc32c;
     use proptest::proptest;
     use proptest_derive::Arbitrary;
@@ -121,7 +123,7 @@ mod tests {
     enum DummyError {}
 
     async fn run_test(ops: Vec<Op>) {
-        let part_key = "key";
+        let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
         let (part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
         let mut current_offset = 0;
         let mut current_length = 0;
@@ -133,7 +135,7 @@ mod tests {
                         continue;
                     }
                     let part = part_queue.read(n).await.unwrap();
-                    let checksummed_bytes = part.into_bytes(part_key, current_offset).unwrap();
+                    let checksummed_bytes = part.into_bytes(&part_id, current_offset).unwrap();
                     let bytes = checksummed_bytes.into_bytes().unwrap();
                     assert_eq!(bytes[0], current_offset as u8);
                     current_offset += bytes.len() as u64;
@@ -143,7 +145,7 @@ mod tests {
                     let first_part_length = part_queue.current_part.lock().await.as_ref().map(|p| p.len());
                     if let Some(n) = first_part_length {
                         let part = part_queue.read(n).await.unwrap();
-                        let checksummed_bytes = part.into_bytes(part_key, current_offset).unwrap();
+                        let checksummed_bytes = part.into_bytes(&part_id, current_offset).unwrap();
                         let bytes = checksummed_bytes.into_bytes().unwrap();
                         assert_eq!(bytes[0], current_offset as u8);
                         assert_eq!(bytes.len(), n);
@@ -161,7 +163,7 @@ mod tests {
                     let bytes: Bytes = body.into();
                     let checksum = crc32c::checksum(&bytes);
                     let checksummed_bytes = ChecksummedBytes::new(bytes, checksum);
-                    let part = Part::new(part_key, offset, checksummed_bytes);
+                    let part = Part::new(part_id.clone(), offset, checksummed_bytes);
                     part_queue_producer.push(Ok(part));
                     current_length += n;
                 }

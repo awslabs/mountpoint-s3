@@ -12,6 +12,14 @@ use mountpoint_s3_client::types::ObjectAttribute;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use test_case::test_case;
 
+fn default_storage_class() -> &'static str {
+    if cfg!(feature = "s3express_tests") {
+        "EXPRESS_ONEZONE"
+    } else {
+        "STANDARD"
+    }
+}
+
 async fn create_mpu_object(
     bucket: &String,
     key: &String,
@@ -20,7 +28,11 @@ async fn create_mpu_object(
 ) -> (Vec<CompletedPart>, CompleteMultipartUploadOutput) {
     let sdk_client = get_test_sdk_client().await;
 
-    let mut create_mpu = sdk_client.create_multipart_upload().bucket(bucket).key(key);
+    let mut request = sdk_client.create_multipart_upload();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(bucket);
+    }
+    let mut create_mpu = request.key(key);
     if let Some(algorithm) = &checksum_algorithm {
         create_mpu = create_mpu.checksum_algorithm(algorithm.to_owned());
     }
@@ -34,9 +46,11 @@ async fn create_mpu_object(
         let part_body = vec![0; part_size.to_owned()];
         let part_num = (part_index + 1) as i32;
 
-        let mut upload_part = sdk_client
-            .upload_part()
-            .bucket(bucket)
+        let mut request = sdk_client.upload_part();
+        if cfg!(not(feature = "s3express_tests")) {
+            request = request.bucket(bucket);
+        }
+        let mut upload_part = request
             .key(key)
             .part_number(part_num)
             .upload_id(upload_id)
@@ -78,9 +92,11 @@ async fn create_mpu_object(
         .set_parts(Some(completed_parts.clone()))
         .build();
 
-    let complete_mpu_output = sdk_client
-        .complete_multipart_upload()
-        .bucket(bucket)
+    let mut request = sdk_client.complete_multipart_upload();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(bucket);
+    }
+    let complete_mpu_output = request
         .key(key)
         .upload_id(upload_id)
         .multipart_upload(completed_mpu)
@@ -99,15 +115,19 @@ async fn test_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
 
-    let put_object_output = sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    let put_object_output = request
         .key(&key)
         .checksum_algorithm(checksum_algorithm.clone())
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
         .await
         .unwrap();
+    let expected_etag = put_object_output.e_tag().map(|s| s.trim_matches('"').to_string());
+    let expected_storage_class = default_storage_class();
 
     let client: S3CrtClient = get_test_client();
 
@@ -124,10 +144,8 @@ async fn test_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
         .await;
 
     let result = result.unwrap();
-    assert_eq!(
-        result.etag,
-        put_object_output.e_tag().map(|s| s.trim_matches('"').to_string())
-    );
+    let etag = result.etag.map(|s| s.trim_matches('"').to_string());
+    assert_eq!(etag, expected_etag);
 
     let checksum = result.checksum.unwrap();
     match checksum_algorithm {
@@ -150,7 +168,7 @@ async fn test_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
         _ => unimplemented!("This algorithm is not supported"),
     }
 
-    assert_eq!(result.storage_class, Some("STANDARD".to_owned()));
+    assert_eq!(result.storage_class, Some(expected_storage_class.to_owned()));
     assert_eq!(result.object_size, Some(body.len() as u64));
     assert!(result.object_parts.is_none());
 }
@@ -163,14 +181,18 @@ async fn test_get_attributes() {
     // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let put_object_output = sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    let put_object_output = request
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
         .await
         .unwrap();
+    let expected_etag = put_object_output.e_tag().map(|s| s.trim_matches('"').to_string());
+    let expected_storage_class = default_storage_class();
 
     let client: S3CrtClient = get_test_client();
 
@@ -187,12 +209,10 @@ async fn test_get_attributes() {
         .await;
 
     let result = result.unwrap();
-    assert_eq!(
-        result.etag,
-        put_object_output.e_tag().map(|s| s.trim_matches('"').to_string())
-    );
+    let etag = result.etag.map(|s| s.trim_matches('"').to_string());
+    assert_eq!(etag, expected_etag);
     assert!(result.checksum.is_none());
-    assert_eq!(result.storage_class, Some("STANDARD".to_owned()));
+    assert_eq!(result.storage_class, Some(expected_storage_class.to_owned()));
     assert_eq!(result.object_size, Some(body.len() as u64));
     assert!(result.object_parts.is_none());
 }
@@ -214,9 +234,11 @@ async fn test_get_attributes_all_none() {
     // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    sdk_client
-        .put_object()
-        .bucket(&bucket)
+    let mut request = sdk_client.put_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(&bucket);
+    }
+    request
         .key(&key)
         .checksum_algorithm(ChecksumAlgorithm::Crc32C)
         .body(ByteStream::from(Bytes::from_static(body)))
@@ -250,6 +272,8 @@ async fn test_get_attributes_mpu() {
     let object_size = parts_size.iter().sum::<usize>() as u64;
 
     let (_completed_parts, complete_mpu_output) = create_mpu_object(&bucket, &key, &parts_size, None).await;
+    let expected_etag = complete_mpu_output.e_tag().map(|s| s.trim_matches('"').to_string());
+    let expected_storage_class = default_storage_class();
 
     let client: S3CrtClient = get_test_client();
 
@@ -266,11 +290,9 @@ async fn test_get_attributes_mpu() {
         .await;
 
     let result = result.unwrap();
-    assert_eq!(
-        result.etag,
-        complete_mpu_output.e_tag().map(|s| s.trim_matches('"').to_string())
-    );
-    assert_eq!(result.storage_class, Some("STANDARD".to_owned()));
+    let etag = result.etag.map(|s| s.trim_matches('"').to_string());
+    assert_eq!(etag, expected_etag);
+    assert_eq!(result.storage_class, Some(expected_storage_class.to_owned()));
     assert_eq!(result.object_size, Some(object_size));
 
     assert!(result.checksum.is_none());
@@ -278,11 +300,19 @@ async fn test_get_attributes_mpu() {
     // object_parts is returned only if the object is using additional checksums.
     let object_parts = result.object_parts.unwrap();
     assert_eq!(object_parts.total_parts_count.unwrap(), 2);
-    assert!(object_parts.is_truncated.is_none());
-    assert!(object_parts.max_parts.is_none());
-    assert!(object_parts.next_part_number_marker.is_none());
-    assert!(object_parts.part_number_marker.is_none());
-    assert!(object_parts.parts.is_none());
+    // S3 Express One Zone returns all object parts metadata while normal S3 doesn't.
+    if cfg!(feature = "s3express_tests") {
+        assert_eq!(object_parts.is_truncated, Some(false));
+        assert_eq!(object_parts.max_parts, Some(1000));
+        assert_eq!(object_parts.next_part_number_marker, Some(2));
+        assert_eq!(object_parts.part_number_marker, Some(0));
+    } else {
+        assert!(object_parts.is_truncated.is_none());
+        assert!(object_parts.max_parts.is_none());
+        assert!(object_parts.next_part_number_marker.is_none());
+        assert!(object_parts.part_number_marker.is_none());
+        assert!(object_parts.parts.is_none());
+    }
 }
 
 #[tokio::test]
@@ -296,6 +326,8 @@ async fn test_get_attributes_mpu_with_checksum() {
 
     let (completed_parts, complete_mpu_output) =
         create_mpu_object(&bucket, &key, &parts_size, Some(ChecksumAlgorithm::Crc32C)).await;
+    let expected_etag = complete_mpu_output.e_tag().map(|s| s.trim_matches('"').to_string());
+    let expected_storage_class = default_storage_class();
 
     let client: S3CrtClient = get_test_client();
 
@@ -312,20 +344,22 @@ async fn test_get_attributes_mpu_with_checksum() {
         .await;
 
     let result = result.unwrap();
-    assert_eq!(
-        result.etag,
-        complete_mpu_output.e_tag().map(|s| s.trim_matches('"').to_string())
-    );
-    assert_eq!(result.storage_class, Some("STANDARD".to_owned()));
+    let etag = result.etag.map(|s| s.trim_matches('"').to_string());
+    assert_eq!(etag, expected_etag);
+    assert_eq!(result.storage_class, Some(expected_storage_class.to_owned()));
     assert_eq!(result.object_size, Some(object_size));
 
     let checksum = result.checksum.unwrap();
-    assert_eq!(
+    // S3 Express One Zone includes the part number suffix in the checksum while general purpose S3 doesn't.
+    let checksum = if cfg!(feature = "s3express_tests") {
+        checksum.checksum_crc32c
+    } else {
         checksum
             .checksum_crc32c
-            .map(|s| format!("{}-{}", s, completed_parts.len())),
-        complete_mpu_output.checksum_crc32_c().map(|s| s.to_string())
-    );
+            .map(|s| format!("{}-{}", s, completed_parts.len()))
+    };
+    let expected_checksum = complete_mpu_output.checksum_crc32_c().map(|s| s.to_string());
+    assert_eq!(checksum, expected_checksum);
 
     let object_parts = result.object_parts.unwrap();
     assert!(!object_parts.is_truncated.unwrap());
