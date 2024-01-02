@@ -141,7 +141,7 @@ impl Reference {
     pub fn new(remote_keys: Vec<(String, MockObject)>) -> Self {
         let local_files = vec![];
         let local_directories = vec![];
-        let materialized = build_reference(remote_keys.iter().map(|(k, o)| (k, o)));
+        let materialized = build_reference(remote_keys.iter().map(|(k, o): &(_, _)| (k, o)));
         Self {
             remote_keys: remote_keys.into_iter().collect(),
             local_files,
