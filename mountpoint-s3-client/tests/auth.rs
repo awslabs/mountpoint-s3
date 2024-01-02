@@ -40,7 +40,7 @@ async fn test_static_provider() {
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
         .await
-        .unwrap();
+        .expect("simple SDK PutObject request should succeed");
 
     // Get some static credentials using the SDK's default provider chain
     let credentials = get_sdk_default_chain_creds().await;
@@ -183,8 +183,7 @@ async fn test_profile_only_provider_async() {
 
 /// Test default chain where a profile name is provided but no credentials are configured.
 /// The default chain should continue to source credentials in one of the subsequent providers instead.
-#[tokio::test]
-async fn test_default_chain_with_profile_override_fallback() {
+async fn test_default_chain_with_profile_override_fallback_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_profile_override_fallback");
 
     // Create a new config file where we can write new AWS profile configurations including credentials.
@@ -432,6 +431,13 @@ rusty_fork_test! {
     }
 
     #[test]
+    fn test_default_chain_with_profile_override_fallback() {
+        // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_default_chain_with_profile_override_fallback_async());
+    }
+
+    #[test]
     fn test_default_chain_with_profile_override_allowed() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -477,7 +483,7 @@ async fn test_scoped_credentials() {
             .body(ByteStream::from(Bytes::from_static(b"hello world")))
             .send()
             .await
-            .unwrap();
+            .expect("simple SDK PutObject requests should succeed");
     }
 
     // Scope down to the `foo` prefix
