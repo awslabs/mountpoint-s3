@@ -119,30 +119,35 @@ impl ChecksummedBytes {
         }
     }
 
-    /// Returns a copy of this slice, with the guarantee that the checksum is computed exactly
+    /// Guarantees that the checksum is computed exactly
     /// on the slice, rather than on a larger containing buffer.
     ///
     /// Return [IntegrityError] if data corruption is detected.
-    pub fn shrink_to_fit(&self) -> Result<Self, IntegrityError> {
+    pub fn shrink_to_fit(&mut self) -> Result<(), IntegrityError> {
         if self.len() == self.buffer.len() {
-            return Ok(self.clone());
+            return Ok(());
         }
 
         // Note that no data is copied: `bytes` still points to a subslice of `buffer`.
         let bytes = self.buffer_slice();
         let checksum = crc32c::checksum(&bytes);
-        let result = Self::new(bytes, checksum);
 
         // Check the integrity of the whole buffer.
         self.validate()?;
-        Ok(result)
+
+        *self = Self {
+            buffer: bytes,
+            range: 0..self.len(),
+            checksum,
+        };
+        Ok(())
     }
 
     /// Append the given checksummed bytes to current [ChecksummedBytes]. Will combine the
     /// existing checksums if possible, or compute a new one and validate data integrity.
     ///
     /// Return [IntegrityError] if data corruption is detected.
-    pub fn extend(&mut self, extend: ChecksummedBytes) -> Result<(), IntegrityError> {
+    pub fn extend(&mut self, mut extend: ChecksummedBytes) -> Result<(), IntegrityError> {
         if extend.is_empty() {
             // No op, but check that `extend` was not corrupted
             extend.validate()?;
@@ -161,19 +166,19 @@ impl ChecksummedBytes {
         // However, since a `ChecksummedBytes` potentially holds the checksum of some larger buffer,
         // rather than the exact one for the slice, we need to first invoke `shrink_to_fit` on each
         // slice and use the resulting exact checksums.
-        let prefix = self.shrink_to_fit()?;
-        assert_eq!(prefix.buffer.len(), prefix.len());
-        let suffix = extend.shrink_to_fit()?;
-        assert_eq!(suffix.buffer.len(), suffix.len());
+        self.shrink_to_fit()?;
+        assert_eq!(self.buffer.len(), self.len());
+        extend.shrink_to_fit()?;
+        assert_eq!(extend.buffer.len(), extend.len());
 
         // Combine the checksums.
-        let new_checksum = combine_checksums(prefix.checksum, suffix.checksum, suffix.len());
+        let new_checksum = combine_checksums(self.checksum, extend.checksum, extend.len());
 
         // Combine the slices.
         let new_bytes = {
-            let mut bytes_mut = BytesMut::with_capacity(prefix.len() + suffix.len());
-            bytes_mut.extend_from_slice(&prefix.buffer);
-            bytes_mut.extend_from_slice(&suffix.buffer);
+            let mut bytes_mut = BytesMut::with_capacity(self.len() + extend.len());
+            bytes_mut.extend_from_slice(&self.buffer);
+            bytes_mut.extend_from_slice(&extend.buffer);
             bytes_mut.freeze()
         };
         *self = ChecksummedBytes::new(new_bytes, new_checksum);
@@ -196,9 +201,9 @@ impl ChecksummedBytes {
     /// Validation may or may not be triggered, and **bytes or checksum may be corrupt** even if result returns [Ok].
     ///
     /// If you are only interested in the underlying bytes, **you should use `into_bytes()`**.
-    pub fn into_inner(self) -> Result<(Bytes, Crc32c), IntegrityError> {
-        let fit = self.shrink_to_fit()?;
-        Ok((fit.buffer, fit.checksum))
+    pub fn into_inner(mut self) -> Result<(Bytes, Crc32c), IntegrityError> {
+        self.shrink_to_fit()?;
+        Ok((self.buffer, self.checksum))
     }
 
     /// Return the slice of `buffer` corresponding to `range`.
@@ -373,13 +378,15 @@ mod tests {
     #[test]
     fn test_shrink_to_fit() {
         let original = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
-        let unchanged = original.shrink_to_fit().unwrap();
+        let mut unchanged = original.clone();
+        unchanged.shrink_to_fit().unwrap();
         assert_eq!(original.buffer_slice(), unchanged.buffer_slice());
         assert_eq!(original.buffer, unchanged.buffer);
         assert_eq!(original.checksum, unchanged.checksum);
 
         let slice = original.clone().split_off(5);
-        let shrunken = slice.shrink_to_fit().unwrap();
+        let mut shrunken = slice.clone();
+        shrunken.shrink_to_fit().unwrap();
         assert_eq!(slice.buffer_slice(), shrunken.buffer_slice());
         assert_ne!(slice.buffer, shrunken.buffer);
         assert_ne!(slice.checksum, shrunken.checksum);
@@ -394,7 +401,8 @@ mod tests {
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
 
-        let unchanged = original.shrink_to_fit().unwrap();
+        let mut unchanged = original.clone();
+        unchanged.shrink_to_fit().unwrap();
         assert_eq!(original.buffer_slice(), unchanged.buffer_slice());
         assert_eq!(original.buffer, unchanged.buffer);
         assert_eq!(original.checksum, unchanged.checksum);
@@ -403,7 +411,7 @@ mod tests {
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
 
-        let slice = original.clone().split_off(5);
+        let mut slice = original.clone().split_off(5);
         assert!(matches!(slice.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
 
         let result = slice.shrink_to_fit();
