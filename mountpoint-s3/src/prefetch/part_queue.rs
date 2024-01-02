@@ -107,7 +107,6 @@ mod tests {
     use bytes::Bytes;
     use futures::executor::block_on;
     use mountpoint_s3_client::types::ETag;
-    use mountpoint_s3_crt::checksums::crc32c;
     use proptest::proptest;
     use proptest_derive::Arbitrary;
     use thiserror::Error;
@@ -161,8 +160,7 @@ mod tests {
                     let offset = current_offset + current_length as u64;
                     let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
                     let bytes: Bytes = body.into();
-                    let checksum = crc32c::checksum(&bytes);
-                    let checksummed_bytes = ChecksummedBytes::new(bytes, checksum);
+                    let checksummed_bytes = ChecksummedBytes::new(bytes);
                     let part = Part::new(part_id.clone(), offset, checksummed_bytes);
                     part_queue_producer.push(Ok(part));
                     current_length += n;
