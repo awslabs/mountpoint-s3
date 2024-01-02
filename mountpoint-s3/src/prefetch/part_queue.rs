@@ -2,27 +2,27 @@ use std::time::Instant;
 
 use tracing::trace;
 
-use crate::prefetch::part::Part;
+use crate::prefetch::part::ObjectPart;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
 use crate::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::sync::{Arc, AsyncMutex};
 
-/// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
+/// A queue of [ObjectPart]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
 #[derive(Debug)]
 pub struct PartQueue<E: std::error::Error> {
-    current_part: AsyncMutex<Option<Part>>,
-    receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
+    current_part: AsyncMutex<Option<ObjectPart>>,
+    receiver: Receiver<Result<ObjectPart, PrefetchReadError<E>>>,
     failed: AtomicBool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
 }
 
-/// Producer side of the queue of [Part]s.
+/// Producer side of the queue of [ObjectPart]s.
 #[derive(Debug)]
 pub struct PartQueueProducer<E: std::error::Error> {
-    sender: Sender<Result<Part, PrefetchReadError<E>>>,
+    sender: Sender<Result<ObjectPart, PrefetchReadError<E>>>,
     /// The total number of bytes sent to `self.sender`
     bytes_sent: Arc<AtomicUsize>,
 }
@@ -51,7 +51,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub async fn read(&self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&self, length: usize) -> Result<ObjectPart, PrefetchReadError<E>> {
         let mut current_part = self.current_part.lock().await;
 
         assert!(
@@ -100,7 +100,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
-    pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
+    pub fn push(&self, part: Result<ObjectPart, PrefetchReadError<E>>) {
         let part_len = part.as_ref().map_or(0, |part| part.len());
 
         // Unbounded channel will never actually block
@@ -198,7 +198,7 @@ mod tests {
                     let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
                     let bytes: Bytes = body.into();
                     let checksummed_bytes = ChecksummedBytes::new(bytes);
-                    let part = Part::new(part_id.clone(), offset, checksummed_bytes);
+                    let part = ObjectPart::new(part_id.clone(), offset, checksummed_bytes);
                     part_queue_producer.push(Ok(part));
                     current_length += n;
                 }

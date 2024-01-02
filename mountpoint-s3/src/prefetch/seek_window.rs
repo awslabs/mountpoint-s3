@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use crate::prefetch::part::Part;
+use crate::prefetch::part::ObjectPart;
 
 /// A backwards seek window for a single prefetch stream. Parts can be pushed onto the end of the
 /// window (== closest to the current offset in the stream) and older parts will be dropped to
 /// remain within a maximum size.
 #[derive(Debug)]
 pub struct SeekWindow {
-    parts: VecDeque<Part>,
+    parts: VecDeque<ObjectPart>,
     max_size: usize,
     current_size: usize,
 }
@@ -24,7 +24,7 @@ impl SeekWindow {
 
     /// Add a new part to the front of the window, and drop any parts necessary to fit the new part
     /// within the maximum size.
-    pub fn push(&mut self, part: Part) {
+    pub fn push(&mut self, part: ObjectPart) {
         if part.len() > self.max_size {
             self.clear();
             return;
@@ -44,7 +44,7 @@ impl SeekWindow {
 
     /// Read off the back of the window. Returns None if there's not enough data in the window to
     /// satisfy the desired length.
-    pub fn read_back(&mut self, mut length: usize) -> Option<Vec<Part>> {
+    pub fn read_back(&mut self, mut length: usize) -> Option<Vec<ObjectPart>> {
         if length > self.current_size {
             return None;
         }

@@ -6,13 +6,13 @@ use crate::object::ObjectId;
 /// A self-identifying part of an S3 object. Users can only retrieve the bytes from this part if
 /// they can prove they have the correct offset and object Id (key + etag).
 #[derive(Debug, Clone)]
-pub struct Part {
+pub struct ObjectPart {
     id: ObjectId,
     offset: u64,
     checksummed_bytes: ChecksummedBytes,
 }
 
-impl Part {
+impl ObjectPart {
     pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes) -> Self {
         Self {
             id,
@@ -29,9 +29,9 @@ impl Part {
     ///
     /// Returns a newly allocated part containing the range [at, len). After the call, the original
     /// part will be left containing the elements [0, at).
-    pub fn split_off(&mut self, at: usize) -> Part {
+    pub fn split_off(&mut self, at: usize) -> ObjectPart {
         let new_bytes = self.checksummed_bytes.split_off(at);
-        Part {
+        ObjectPart {
             id: self.id.clone(),
             offset: self.offset + at as u64,
             checksummed_bytes: new_bytes,

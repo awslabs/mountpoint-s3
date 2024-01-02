@@ -1,6 +1,6 @@
 use futures::future::RemoteHandle;
 
-use crate::prefetch::part::Part;
+use crate::prefetch::part::ObjectPart;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueue};
 use crate::prefetch::PrefetchReadError;
 
@@ -27,7 +27,7 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
         }
     }
 
-    pub fn from_parts(parts: impl IntoIterator<Item = Part>, offset: u64) -> Self {
+    pub fn from_parts(parts: impl IntoIterator<Item = ObjectPart>, offset: u64) -> Self {
         let mut size = 0;
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         for part in parts {
@@ -43,7 +43,7 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
         }
     }
 
-    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&mut self, length: usize) -> Result<ObjectPart, PrefetchReadError<E>> {
         let part = self.part_queue.read(length).await?;
         debug_assert!(part.len() <= self.remaining);
         self.remaining -= part.len();

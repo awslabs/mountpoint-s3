@@ -10,7 +10,7 @@ use tracing::{debug_span, trace, warn, Instrument};
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::object::ObjectId;
-use crate::prefetch::part::Part;
+use crate::prefetch::part::ObjectPart;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::part_stream::{ObjectPartStream, RequestRange};
 use crate::prefetch::task::RequestTask;
@@ -273,9 +273,15 @@ where
         metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
     }
 
-    /// Creates a Part that can be streamed to the prefetcher from the given cache block.
+    /// Creates an ObjectPart that can be streamed to the prefetcher from the given cache block.
     /// If required, trims the block bytes to the request range.
-    fn make_part(&self, block: ChecksummedBytes, block_index: u64, block_offset: u64, range: &RequestRange) -> Part {
+    fn make_part(
+        &self,
+        block: ChecksummedBytes,
+        block_index: u64,
+        block_offset: u64,
+        range: &RequestRange,
+    ) -> ObjectPart {
         assert_eq!(
             block_offset,
             block_index * self.cache.block_size(),
@@ -299,7 +305,7 @@ where
         let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
         let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
         let bytes = block.slice(trim_start..trim_end);
-        Part::new(cache_key.clone(), part_range.start(), bytes)
+        ObjectPart::new(cache_key.clone(), part_range.start(), bytes)
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {

@@ -8,7 +8,7 @@ use tracing::{debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
 use crate::object::ObjectId;
-use crate::prefetch::part::Part;
+use crate::prefetch::part::ObjectPart;
 use crate::prefetch::part_queue::unbounded_part_queue;
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
@@ -221,7 +221,7 @@ where
                                 // S3 doesn't provide checksum for us if the request range is not aligned to
                                 // object part boundaries, so we're computing our own checksum here.
                                 let checksum_bytes = ChecksummedBytes::new(chunk);
-                                let part = Part::new(id.clone(), curr_offset, checksum_bytes);
+                                let part = ObjectPart::new(id.clone(), curr_offset, checksum_bytes);
                                 curr_offset += part.len() as u64;
                                 part_queue_producer.push(Ok(part));
                             }
