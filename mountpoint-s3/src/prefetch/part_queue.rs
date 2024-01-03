@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use tracing::trace;
 
-use crate::prefetch::part::ObjectPart;
+use crate::object::ObjectPart;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
 use crate::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

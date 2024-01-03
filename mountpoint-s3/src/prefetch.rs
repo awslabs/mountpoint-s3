@@ -8,7 +8,6 @@
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
 mod caching_stream;
-mod part;
 mod part_queue;
 mod part_stream;
 mod seek_window;

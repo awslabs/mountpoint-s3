@@ -7,8 +7,7 @@ use mountpoint_s3_client::{types::ETag, ObjectClient};
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
-use crate::object::ObjectId;
-use crate::prefetch::part::ObjectPart;
+use crate::object::{ObjectId, ObjectPart};
 use crate::prefetch::part_queue::unbounded_part_queue;
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;

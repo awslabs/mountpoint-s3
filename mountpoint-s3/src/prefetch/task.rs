@@ -1,6 +1,6 @@
 use futures::future::RemoteHandle;
 
-use crate::prefetch::part::ObjectPart;
+use crate::object::ObjectPart;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueue};
 use crate::prefetch::PrefetchReadError;
 

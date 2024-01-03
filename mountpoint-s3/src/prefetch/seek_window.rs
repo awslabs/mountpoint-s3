@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::prefetch::part::ObjectPart;
+use crate::object::ObjectPart;
 
 /// A backwards seek window for a single prefetch stream. Parts can be pushed onto the end of the
 /// window (== closest to the current offset in the stream) and older parts will be dropped to
