@@ -14,9 +14,9 @@ use thiserror::Error;
 pub struct ChecksummedBytes {
     /// Underlying buffer
     buffer: Bytes,
-    /// Range over `buffer`
+    /// Range over [Self::buffer]
     range: Range<usize>,
-    /// Checksum for `orig_bytes`
+    /// Checksum for [Self::buffer]
     checksum: Crc32c,
 }
 
