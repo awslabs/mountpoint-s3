@@ -511,7 +511,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         S3ClientAuthConfig::NoSigning
     } else {
         S3ClientAuthConfig::DefaultChain {
-            profile_name_override: args.profile,
+            profile_name: args.profile,
         }
     };
 

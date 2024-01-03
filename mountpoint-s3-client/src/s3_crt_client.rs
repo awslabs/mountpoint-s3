@@ -162,7 +162,7 @@ pub enum S3ClientAuthConfig {
     /// The default AWS credentials resolution chain, similar to the AWS CLI
     DefaultChain {
         /// Optional profile override to be used when evaluating credential chain
-        profile_name_override: Option<String>,
+        profile_name: Option<String>,
     },
     /// Do not sign requests at all
     NoSigning,
@@ -172,9 +172,7 @@ pub enum S3ClientAuthConfig {
 
 impl Default for S3ClientAuthConfig {
     fn default() -> Self {
-        Self::DefaultChain {
-            profile_name_override: None,
-        }
+        Self::DefaultChain { profile_name: None }
     }
 }
 
@@ -258,10 +256,10 @@ impl S3CrtClientInner {
 
         trace!("constructing client with auth config {:?}", config.auth_config);
         let credentials_provider = match config.auth_config {
-            S3ClientAuthConfig::DefaultChain { profile_name_override } => {
+            S3ClientAuthConfig::DefaultChain { profile_name } => {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
-                    profile_name_override: profile_name_override.as_deref(),
+                    profile_name_override: profile_name.as_deref(),
                 };
                 CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?

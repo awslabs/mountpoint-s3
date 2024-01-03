@@ -205,7 +205,7 @@ async fn test_default_chain_with_profile_override_fallback_async() {
     let client = {
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
-                profile_name_override: Some(profile_name.to_owned()),
+                profile_name: Some(profile_name.to_owned()),
             })
             .endpoint_config(EndpointConfig::new(&get_test_region()));
         S3CrtClient::new(config).unwrap()
@@ -237,7 +237,7 @@ async fn test_default_chain_with_profile_override_allowed_async() {
     let allowed_client = {
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
-                profile_name_override: Some(profile_name),
+                profile_name: Some(profile_name),
             })
             .endpoint_config(EndpointConfig::new(&get_test_region()));
         S3CrtClient::new(config).unwrap()
@@ -278,7 +278,7 @@ async fn test_default_chain_with_profile_override_denied_async() {
     let denied_client = {
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
-                profile_name_override: Some(profile_name),
+                profile_name: Some(profile_name),
             })
             .endpoint_config(EndpointConfig::new(&get_test_region()));
         S3CrtClient::new(config).unwrap()
@@ -314,7 +314,7 @@ async fn test_default_chain_with_no_profile_override_allowed_async() {
     let client = {
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
-                profile_name_override: None, // use 'default' default
+                profile_name: None, // use 'default' default
             })
             .endpoint_config(EndpointConfig::new(&get_test_region()));
         S3CrtClient::new(config).unwrap()
@@ -355,7 +355,7 @@ async fn test_default_chain_with_no_profile_override_denied_async() {
     let client = {
         let config = S3ClientConfig::new()
             .auth_config(S3ClientAuthConfig::DefaultChain {
-                profile_name_override: None, // use 'default' default
+                profile_name: None, // use 'default' default
             })
             .endpoint_config(EndpointConfig::new(&get_test_region()));
         S3CrtClient::new(config).unwrap()
