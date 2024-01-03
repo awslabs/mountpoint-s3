@@ -324,22 +324,22 @@ mod tests {
         assert_eq!(checksum, slice.checksum);
     }
 
-    fn slice(original: Range<usize>, range: impl RangeBounds<usize>) -> ChecksummedBytes {
-        let buffer = Bytes::copy_from_slice(&vec![0; original.len()]);
+    fn create_checksummed_bytes_with_range(range: Range<usize>) -> ChecksummedBytes {
+        let buffer = Bytes::copy_from_slice(&vec![0; range.len()]);
         let checksum = crc32c::checksum(&buffer);
-        let bytes = ChecksummedBytes {
+        ChecksummedBytes {
             buffer,
-            range: original,
+            range,
             checksum,
-        };
-        bytes.slice(range)
+        }
     }
 
     #[test_case(0..10, 0..10, 0..10)]
     #[test_case(0..10, 5..6, 5..6)]
     #[test_case(5..10, 2..4, 7..9)]
     fn test_slice_range(original: Range<usize>, range: Range<usize>, expected: Range<usize>) {
-        let slice = slice(original, range);
+        let bytes = create_checksummed_bytes_with_range(original);
+        let slice = bytes.slice(range);
         assert_eq!(slice.range, expected);
     }
 
@@ -348,14 +348,16 @@ mod tests {
     #[test_case(5..10, 4..2; "start greater than end")]
     #[test_case(5..10, 4..12; "out of bounds")]
     fn test_slice_range_fail(original: Range<usize>, range: Range<usize>) {
-        _ = slice(original, range);
+        let bytes = create_checksummed_bytes_with_range(original);
+        _ = bytes.slice(range);
     }
 
     #[test_case(0..10, ..10, 0..10)]
     #[test_case(0..10, ..6, 0..6)]
     #[test_case(5..10, ..4, 5..9)]
     fn test_slice_range_to(original: Range<usize>, range: RangeTo<usize>, expected: Range<usize>) {
-        let slice = slice(original, range);
+        let bytes = create_checksummed_bytes_with_range(original);
+        let slice = bytes.slice(range);
         assert_eq!(slice.range, expected);
     }
 
@@ -363,7 +365,8 @@ mod tests {
     #[test_case(0..10, 4.., 4..10)]
     #[test_case(5..10, 2.., 7..10)]
     fn test_slice_range_from(original: Range<usize>, range: RangeFrom<usize>, expected: Range<usize>) {
-        let slice = slice(original, range);
+        let bytes = create_checksummed_bytes_with_range(original);
+        let slice = bytes.slice(range);
         assert_eq!(slice.range, expected);
     }
 
