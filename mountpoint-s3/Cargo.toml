@@ -49,6 +49,7 @@ procfs = { version = "0.15.1", default-features = false }
 assert_cmd = "2.0.6"
 assert_fs = "1.0.9"
 aws-config = "0.56.0"
+aws-credential-types = "0.56.0"
 aws-sdk-s3 = "0.29.0"
 aws-sdk-sts = "0.29.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
