@@ -25,23 +25,14 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: true
-      - name: Cargo cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-${{ runner.os }}-${{ github.job }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Set up stable Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
       - name: Package ${{ matrix.crate }} crate
-        run: cargo package -p ${{ matrix.crate }}
+        # `--no-verify` avoids building using crates.io dependencies, which for local packages may not be updated yet
+        run: cargo package -p ${{ matrix.crate }} --no-verify
       - name: Verify compressed crate size is smaller than crates.io limit
         run: |
           ls -alh target/package/*.crate
