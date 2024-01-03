@@ -14,9 +14,8 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tracing::{trace, warn};
 
-use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
-use crate::object::ObjectId;
+use crate::object::{IntegrityError, ObjectId};
 use crate::sync::Mutex;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};

@@ -7,9 +7,8 @@ use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::{types::ETag, ObjectClient};
 use tracing::{debug_span, trace, warn, Instrument};
 
-use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
-use crate::object::{ObjectId, ObjectPart};
+use crate::object::{ChecksummedBytes, ObjectId, ObjectPart};
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::part_stream::{ObjectPartStream, RequestRange};
 use crate::prefetch::task::RequestTask;

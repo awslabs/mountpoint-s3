@@ -136,8 +136,7 @@ impl<E: std::error::Error> Drop for PartQueue<E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::checksums::ChecksummedBytes;
-    use crate::object::ObjectId;
+    use crate::object::{ChecksummedBytes, ObjectId};
 
     use super::*;
 

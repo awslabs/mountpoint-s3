@@ -26,9 +26,8 @@ use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::trace;
 
-use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
-use crate::object::ObjectId;
+use crate::object::{ChecksummedBytes, IntegrityError, ObjectId};
 use crate::prefetch::caching_stream::CachingPartStream;
 use crate::prefetch::part_stream::{ClientPartStream, ObjectPartStream, RequestRange};
 use crate::prefetch::seek_window::SeekWindow;
