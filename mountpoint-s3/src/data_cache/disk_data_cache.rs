@@ -197,7 +197,7 @@ impl DiskBlock {
         let data_checksum =
             self.header
                 .validate(cache_key.key(), cache_key.etag().as_str(), block_idx, block_offset)?;
-        let bytes = ChecksummedBytes::new(self.data.clone(), data_checksum);
+        let bytes = ChecksummedBytes::new_from_inner_data(self.data.clone(), data_checksum);
         Ok(bytes)
     }
 }
@@ -545,7 +545,7 @@ mod tests {
     #[test]
     fn test_block_format_version_requires_update() {
         let cache_key = ObjectId::new("hello-world".to_string(), ETag::for_tests());
-        let data = ChecksummedBytes::from_bytes("Foo".into());
+        let data = ChecksummedBytes::new("Foo".into());
         let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should succeed as data checksum is valid");
         let expected_bytes: Vec<u8> = vec![
             100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101,
@@ -631,9 +631,9 @@ mod tests {
 
     #[test]
     fn test_put_get() {
-        let data_1 = ChecksummedBytes::from_bytes("Foo".into());
-        let data_2 = ChecksummedBytes::from_bytes("Bar".into());
-        let data_3 = ChecksummedBytes::from_bytes("Baz".into());
+        let data_1 = ChecksummedBytes::new("Foo".into());
+        let data_2 = ChecksummedBytes::new("Bar".into());
+        let data_3 = ChecksummedBytes::new("Baz".into());
 
         let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_checksummed_bytes_slice() {
-        let data = ChecksummedBytes::from_bytes("0123456789".into());
+        let data = ChecksummedBytes::new("0123456789".into());
         let slice = data.slice(1..5);
 
         let cache_directory = tempfile::tempdir().unwrap();
@@ -748,7 +748,7 @@ mod tests {
             let mut body = vec![0u8; size];
             rng.fill(&mut body[..]);
 
-            ChecksummedBytes::from_bytes(body.into())
+            ChecksummedBytes::new(body.into())
         }
 
         fn is_block_in_cache(
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn data_block_extract_checks() {
-        let data_1 = ChecksummedBytes::from_bytes("Foo".into());
+        let data_1 = ChecksummedBytes::new("Foo".into());
 
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
         let cache_key_2 = ObjectId::new("b".into(), ETag::for_tests());
