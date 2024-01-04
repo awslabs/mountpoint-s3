@@ -10,7 +10,7 @@ pub mod s3;
 
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
-use mountpoint_s3::fs::{self, DirectoryEntry, DirectoryReplier, ReadReplier, ToErrno};
+use mountpoint_s3::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3::prefetch::{default_prefetch, DefaultPrefetcher};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
@@ -88,20 +88,6 @@ impl DirectoryReply {
 
     pub fn clear(&mut self) {
         self.entries.clear();
-    }
-}
-
-pub struct ReadReply<'a>(pub &'a mut Result<Box<[u8]>, libc::c_int>);
-
-impl<'a> ReadReplier for ReadReply<'a> {
-    type Replied = ();
-
-    fn data(self, data: &[u8]) -> Self::Replied {
-        *self.0 = Ok(data.into());
-    }
-
-    fn error(self, error: fs::Error) -> Self::Replied {
-        *self.0 = Err(error.to_errno());
     }
 }
 

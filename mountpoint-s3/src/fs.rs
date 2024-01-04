@@ -1,5 +1,6 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
+use bytes::Bytes;
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -642,7 +643,7 @@ where
     }
 
     #[allow(clippy::too_many_arguments)] // We don't get to choose this interface
-    pub async fn read<R: ReadReplier>(
+    pub async fn read(
         &self,
         ino: InodeNo,
         fh: u64,
@@ -650,8 +651,7 @@ where
         size: u32,
         _flags: i32,
         _lock: Option<u64>,
-        reply: R,
-    ) -> R::Replied {
+    ) -> Result<Bytes, Error> {
         trace!(
             "fs:read with ino {:?} fh {:?} offset {:?} size {:?}",
             ino,
@@ -664,13 +664,13 @@ where
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
                 Some(handle) => handle.clone(),
-                None => return reply.error(err!(libc::EBADF, "invalid file handle")),
+                None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
         logging::record_name(handle.inode.name());
         let file_etag: ETag;
         let mut request = match &handle.typ {
-            FileHandleType::Write { .. } => return reply.error(err!(libc::EBADF, "file handle is not open for reads")),
+            FileHandleType::Write { .. } => return Err(err!(libc::EBADF, "file handle is not open for reads")),
             FileHandleType::Read { request, etag } => {
                 file_etag = etag.clone();
                 request.lock().await
@@ -688,18 +688,17 @@ where
         }
 
         match request.as_mut().unwrap().read(offset as u64, size as usize).await {
-            Ok(checksummed_bytes) => match checksummed_bytes.into_bytes() {
-                Ok(bytes) => reply.data(&bytes),
-                Err(e) => reply.error(err!(libc::EIO, source:e, "integrity error")),
-            },
+            Ok(checksummed_bytes) => checksummed_bytes
+                .into_bytes()
+                .map_err(|e| err!(libc::EIO, source:e, "integrity error")),
             Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
                 GetObjectError::PreconditionFailed,
-            ))) => reply.error(err!(libc::ESTALE, "object was mutated remotely")),
-            Err(PrefetchReadError::Integrity(e)) => reply.error(err!(libc::EIO, source:e, "integrity error")),
+            ))) => Err(err!(libc::ESTALE, "object was mutated remotely")),
+            Err(PrefetchReadError::Integrity(e)) => Err(err!(libc::EIO, source:e, "integrity error")),
             Err(e @ PrefetchReadError::GetRequestFailed(_))
             | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly)
             | Err(e @ PrefetchReadError::GetRequestReturnedWrongOffset { .. }) => {
-                reply.error(err!(libc::EIO, source:e, "get request failed"))
+                Err(err!(libc::EIO, source:e, "get request failed"))
             }
         }
     }
