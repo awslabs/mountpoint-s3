@@ -31,6 +31,7 @@ where
                 serve_lookup_from_cache: true,
                 dir_ttl: Duration::from_secs(600),
                 file_ttl: Duration::from_secs(600),
+                ..Default::default()
             },
             ..Default::default()
         },

@@ -114,6 +114,7 @@ where
             serve_lookup_from_cache: false,
             file_ttl: Duration::ZERO,
             dir_ttl: Duration::ZERO,
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -197,4 +198,52 @@ fn lookup_unicode_keys_s3() {
 #[test]
 fn lookup_unicode_keys_mock() {
     lookup_unicode_keys_test(fuse::mock_session::new, "lookup_unicode_keys_test");
+}
+
+fn lookup_with_negative_cache<F>(creator_fn: F)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const FILE_NAME: &str = "hello.txt";
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            cache_config: CacheConfig {
+                serve_lookup_from_cache: true,
+                dir_ttl: Duration::from_secs(600),
+                file_ttl: Duration::from_secs(600),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn("lookup_with_negative_cache", config);
+
+    // Check negative caching
+    let file_path = mount_point.path().join(FILE_NAME);
+    metadata(&file_path).expect_err("should fail as no object exists");
+
+    test_client.put_object(FILE_NAME, b"hello").unwrap();
+
+    metadata(&file_path).expect_err("should fail as mountpoint should use negative cache");
+
+    // Use read dir to discover the new file
+    let dir_entry_names = read_dir_to_entry_names(read_dir(mount_point.path()).unwrap());
+    assert_eq!(dir_entry_names, vec![FILE_NAME]);
+
+    let m = metadata(&file_path).expect("should succeed as object is cached and exists");
+    assert!(m.file_type().is_file());
+}
+
+#[cfg(feature = "negative_cache")]
+#[cfg(feature = "s3_tests")]
+#[test]
+fn lookup_with_negative_cache_s3() {
+    lookup_with_negative_cache(fuse::s3_session::new);
+}
+
+#[cfg(feature = "negative_cache")]
+#[test]
+fn lookup_with_negative_cache_mock() {
+    lookup_with_negative_cache(fuse::mock_session::new);
 }

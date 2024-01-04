@@ -893,6 +893,7 @@ mod mutations {
                 serve_lookup_from_cache: false,
                 dir_ttl: Duration::ZERO,
                 file_ttl: Duration::ZERO,
+                ..Default::default()
             },
             ..Default::default()
         };

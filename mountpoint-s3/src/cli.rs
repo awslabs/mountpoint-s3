@@ -617,6 +617,7 @@ where
             serve_lookup_from_cache: true,
             dir_ttl: metadata_cache_ttl,
             file_ttl: metadata_cache_ttl,
+            ..Default::default()
         };
 
         let cache_config = match args.max_cache_size {

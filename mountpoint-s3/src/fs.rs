@@ -322,6 +322,8 @@ pub struct CacheConfig {
     pub file_ttl: Duration,
     /// How long the kernel will cache metadata for directories
     pub dir_ttl: Duration,
+    /// Maximum number of negative entries to cache.
+    pub negative_cache_size: usize,
 }
 
 impl Default for CacheConfig {
@@ -342,6 +344,7 @@ impl Default for CacheConfig {
             serve_lookup_from_cache: false,
             file_ttl,
             dir_ttl,
+            negative_cache_size: 100_000,
         }
     }
 }
