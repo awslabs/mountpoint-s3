@@ -5,7 +5,7 @@ pub mod common;
 use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig, ServerSideEncryption};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
@@ -15,16 +15,14 @@ use test_case::test_case;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
-async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, &key, &request_params)
         .await
         .expect("put_object should succeed");
 
@@ -42,11 +40,9 @@ object_client_test!(test_put_object);
 
 // Simple test for PUT object. Puts a single, empty object and checks that the (empty)
 // contents are correct with a GET.
-async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, prefix: &str) {
-    let key = format!("{prefix}hello");
-
+async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, &key, &request_params)
         .await
         .expect("put_object should succeed");
 
@@ -63,16 +59,19 @@ object_client_test!(test_put_object_empty);
 
 // Test for multi-part PUT interface. Splits up a small object into a number of pieces, and streams
 // the pieces to the object client. Checks contents are correct using a GET.
-async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object_multi_part(
+    client: &impl ObjectClient,
+    bucket: &str,
+    key: &str,
+    request_params: PutObjectParams,
+) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     let mut contents = [0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, &key, &request_params)
         .await
         .expect("put_object failed");
 
@@ -93,10 +92,8 @@ object_client_test!(test_put_object_multi_part);
 
 // Test for multi-part PUT interface. Splits up a large object into a number of pieces, and streams
 // the pieces to the object client. Checks contents are correct using a GET.
-async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     const OBJECT_SIZE: usize = 32 * 1024 * 1024;
     const CHUNK_SIZE: usize = 1024 * 1024 + 1;
@@ -105,7 +102,7 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix:
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, &key, &request_params)
         .await
         .expect("put_object failed");
 
@@ -124,16 +121,14 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix:
 object_client_test!(test_put_object_large);
 
 // Test for dropped PUT object. Checks that the GET fails.
-async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, &key, &request_params)
         .await
         .expect("put_object should succeed");
 
@@ -329,4 +324,111 @@ async fn test_put_object_storage_class(storage_class: &str) {
         .unwrap();
 
     assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
+}
+
+async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncryption) {
+    let sdk_client = get_test_sdk_client().await;
+    let mut request = sdk_client.head_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(bucket);
+    }
+    let head_object_resp: aws_sdk_s3::operation::head_object::HeadObjectOutput =
+        request.key(key).send().await.expect("head object should succeed");
+    let expected_sse;
+    let mut expected_key = None;
+    match input_sse {
+        ServerSideEncryption::Default => expected_sse = Some(aws_sdk_s3::types::ServerSideEncryption::Aes256),
+        ServerSideEncryption::Kms { key_id } => {
+            expected_sse = Some(aws_sdk_s3::types::ServerSideEncryption::AwsKms);
+            expected_key = key_id.clone();
+        }
+        ServerSideEncryption::DualLayerKms { key_id } => {
+            expected_sse = Some(aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse);
+            expected_key = key_id.clone();
+        }
+    };
+    assert_eq!(
+        head_object_resp.server_side_encryption, expected_sse,
+        "unexpected sse type"
+    );
+    assert!(
+        head_object_resp.ssekms_key_id.is_some() || matches!(input_sse, ServerSideEncryption::Default),
+        "must have a key for non-default ecnryption methods"
+    );
+    if expected_key.is_some() {
+        // do not check the value of AWS managed key
+        assert_eq!(head_object_resp.ssekms_key_id, expected_key, "unexpected sse key")
+    }
+}
+
+#[test_case(ServerSideEncryption::DualLayerKms{ key_id: Some(get_test_kms_key_id()) })]
+#[test_case(ServerSideEncryption::DualLayerKms{ key_id: None })]
+#[test_case(ServerSideEncryption::Kms{ key_id: Some(get_test_kms_key_id()) })]
+#[test_case(ServerSideEncryption::Kms{ key_id: None })]
+#[test_case(ServerSideEncryption::Default)]
+#[tokio::test]
+async fn test_put_object_sse(input_sse: ServerSideEncryption) {
+    let bucket = get_test_bucket();
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let request_params = PutObjectParams::new().server_side_encryption(input_sse.clone());
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, &input_sse).await;
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object_empty(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, &input_sse).await;
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object_multi_part(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, &input_sse).await;
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object_large(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, &input_sse).await;
+}
+
+// TODO: it should not panic, but return an error on flush?
+// The test sets `S3PutObjectRequest::expected_headers` to a knowingly unexpected values and checks that program panics
+// in case when actual SSE settings returned by S3 are different from expected.
+#[tokio::test]
+#[should_panic(
+    expected = "PUT response headers [\\\"x-amz-server-side-encryption-aws-kms-key-id\\\"] are missing or have an unexpacted value"
+)]
+async fn test_put_object_sse_unexpected_headers() {
+    let input_sse = ServerSideEncryption::Kms {
+        key_id: Some(get_test_kms_key_id()),
+    };
+    let bucket = get_test_bucket();
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let request_params = PutObjectParams::new().server_side_encryption(input_sse.clone());
+
+    let prefix = get_unique_test_prefix("test_put_object_sse_unexpected_headers");
+    let key = format!("{prefix}hello");
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let mut request = client
+        .put_object(&bucket, &key, &request_params)
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+    request.expected_headers = vec![
+        ("x-amz-server-side-encryption".to_owned(), "aws:kms".to_owned()),
+        (
+            "x-amz-server-side-encryption-aws-kms-key-id".to_owned(),
+            "some_other_key_id".to_owned(),
+        ),
+    ];
+    request.complete().await.unwrap();
 }

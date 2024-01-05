@@ -266,6 +266,18 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
+/// Server side encryption configuration for newly created objects
+#[derive(Debug, Default, Clone)]
+pub enum ServerSideEncryption {
+    /// Use the default configuration for the bucket
+    #[default]
+    Default,
+    /// Use a AWS KMS key to encrypt an object, if the key_id is not provided then Amazon S3 will use an AWS managed key
+    Kms { key_id: Option<String> },
+    /// Dual layer encryption using an AWS KMS key, if the key_id is not provided then Amazon S3 will use an AWS managed key
+    DualLayerKms { key_id: Option<String> },
+}
+
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
@@ -274,6 +286,8 @@ pub struct PutObjectParams {
     pub trailing_checksums: bool,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
+    /// Server side encryption configuration to be used when creating new S3 object
+    pub server_side_encryption: ServerSideEncryption,
 }
 
 impl PutObjectParams {
@@ -291,6 +305,12 @@ impl PutObjectParams {
     /// Set the storage class.
     pub fn storage_class(mut self, value: String) -> Self {
         self.storage_class = Some(value);
+        self
+    }
+
+    /// Set server side encryption configuration.
+    pub fn server_side_encryption(mut self, value: ServerSideEncryption) -> Self {
+        self.server_side_encryption = value;
         self
     }
 }

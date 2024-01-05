@@ -11,6 +11,7 @@ use tracing::{debug, error, trace};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
+use mountpoint_s3_client::config::ServerSideEncryption;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
@@ -346,7 +347,7 @@ impl Default for CacheConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct S3FilesystemConfig {
     /// Kernel cache config
     pub cache_config: CacheConfig,
@@ -368,6 +369,8 @@ pub struct S3FilesystemConfig {
     pub storage_class: Option<String>,
     /// S3 personality (for different S3 semantics)
     pub s3_personality: S3Personality,
+    /// Server side encryption configuration to be used when creating new S3 object
+    pub server_side_encryption: ServerSideEncryption,
 }
 
 impl Default for S3FilesystemConfig {
@@ -386,6 +389,7 @@ impl Default for S3FilesystemConfig {
             allow_overwrite: false,
             storage_class: None,
             s3_personality: S3Personality::Standard,
+            server_side_encryption: ServerSideEncryption::Default,
         }
     }
 }
@@ -452,7 +456,11 @@ where
 
         let client = Arc::new(client);
 
-        let uploader = Uploader::new(client.clone(), config.storage_class.to_owned());
+        let uploader = Uploader::new(
+            client.clone(),
+            config.storage_class.to_owned(),
+            config.server_side_encryption.clone(),
+        );
 
         Self {
             config,

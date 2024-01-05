@@ -570,7 +570,7 @@ impl S3CrtClientInner {
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, request_type);
-        self.make_simple_http_request_from_options(options, request_span, on_error)
+        self.make_simple_http_request_from_options(options, request_span, on_error, |_, _| ())
     }
 
     /// Make an HTTP request using this S3 client that returns the body on success or invokes the
@@ -580,6 +580,7 @@ impl S3CrtClientInner {
         options: MetaRequestOptions,
         request_span: Span,
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
+        on_headers: impl FnMut(&Headers, i32) + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
@@ -588,7 +589,7 @@ impl S3CrtClientInner {
         self.make_meta_request_from_options(
             options,
             request_span,
-            |_, _| (),
+            on_headers,
             move |offset, data| {
                 let mut body = body_clone.lock().unwrap();
                 assert_eq!(offset as usize, body.len());

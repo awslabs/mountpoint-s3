@@ -47,6 +47,10 @@ pub fn get_test_bucket() -> String {
     }
 }
 
+pub fn get_test_kms_key_id() -> String {
+    std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
+}
+
 pub fn get_test_client() -> S3CrtClient {
     let endpoint_config = EndpointConfig::new(&get_test_region());
     S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("could not create test client")
@@ -190,6 +194,7 @@ macro_rules! object_client_test {
         mod $test_fn_identifier {
             use super::$test_fn_identifier;
             use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+            use mountpoint_s3_client::types::PutObjectParams;
             use $crate::{get_test_bucket_and_prefix, get_test_client};
 
             #[tokio::test]
@@ -202,7 +207,8 @@ macro_rules! object_client_test {
                     unordered_list_seed: None,
                 });
 
-                $test_fn_identifier(&client, &bucket, &prefix).await;
+                let key = format!("{prefix}hello");
+                $test_fn_identifier(&client, &bucket, &key, PutObjectParams::new()).await;
             }
 
             #[tokio::test]
@@ -211,7 +217,8 @@ macro_rules! object_client_test {
 
                 let client = get_test_client();
 
-                $test_fn_identifier(&client, &bucket, &prefix).await;
+                let key = format!("{prefix}hello");
+                $test_fn_identifier(&client, &bucket, &key, PutObjectParams::new()).await;
             }
         }
     };

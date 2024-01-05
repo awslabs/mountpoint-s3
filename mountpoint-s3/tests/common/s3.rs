@@ -40,6 +40,10 @@ pub fn get_s3express_endpoint() -> String {
     std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT").expect("Set S3_EXPRESS_ONE_ZONE_ENDPOINT to run integration tests")
 }
 
+pub fn get_test_kms_key_id() -> String {
+    std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
+}
+
 pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
     let mut config = aws_config::from_env().region(Region::new(region.to_string()));
     if cfg!(feature = "s3express_tests") {
