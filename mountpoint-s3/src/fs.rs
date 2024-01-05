@@ -478,19 +478,6 @@ pub struct DirectoryEntry {
     lookup: LookedUp,
 }
 
-/// Reply to a `read` call. This is funky because we want the reply to happen with only a borrow of
-/// the bytes. But that borrow probably comes from some lock in this module or below, and we don't
-/// want to have to shoehorn that lifetime into the layer above us. So instead we have this trait
-/// that forces the `read` method to invoke exactly one of the reply methods. The idea is that the
-/// [Replied] type should be private and unconstructable by this module.
-pub trait ReadReplier {
-    type Replied;
-    /// Reply with a data payload
-    fn data(self, data: &[u8]) -> Self::Replied;
-    /// Reply with an error
-    fn error(self, error: Error) -> Self::Replied;
-}
-
 impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Send + Sync + 'static,
