@@ -1,9 +1,16 @@
 ## Unreleased
 
 ### Other changes
-* Option `--profile <AWS_PROFILE>` no longer replaces the entire default credential chain.
-  Instead, the provided name will be used with AWS config file entries when evaluating the default credential chain,
+* Fixed a bug where `--profile <AWS_PROFILE>` did not work with `credential_process` configuration entries.
+  ([#684](https://github.com/awslabs/mountpoint-s3/pull/684))
+* Option `--profile <AWS_PROFILE>` now evaluates the default credential chain rather than only the AWS config/credential file entry for the profile,
   alike the AWS CLI and AWS SDKs.
+  ([#684](https://github.com/awslabs/mountpoint-s3/pull/684))
+
+### Breaking changes
+
+* Mountpoint will no longer error when providing a profile name that does not exist using `--profile <PROFILE_NAME>`.
+  Instead, it will continue to resolve any credentials in the default credential chain if available.
 
 ## v1.3.1 (November 30, 2023)
 
