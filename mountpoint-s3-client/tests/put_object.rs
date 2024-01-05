@@ -22,7 +22,7 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, key: &str, re
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &request_params)
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object should succeed");
 
@@ -30,7 +30,7 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, key: &str, re
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &contents[..]).await;
@@ -42,14 +42,14 @@ object_client_test!(test_put_object);
 // contents are correct with a GET.
 async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let request = client
-        .put_object(bucket, &key, &request_params)
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object should succeed");
 
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &[]).await;
@@ -71,7 +71,7 @@ async fn test_put_object_multi_part(
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &request_params)
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object failed");
 
@@ -82,7 +82,7 @@ async fn test_put_object_multi_part(
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -102,7 +102,7 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, key: &s
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &request_params)
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object failed");
 
@@ -112,7 +112,7 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, key: &s
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -128,14 +128,14 @@ async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: 
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &request_params)
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object should succeed");
 
     request.write(&contents).await.unwrap();
     drop(request); // Drop without calling complete().
 
-    let result = check_get_object(client, bucket, &key).await;
+    let result = check_get_object(client, bucket, key).await;
     assert!(result.is_err(), "get_object should fail for dropped PUT");
 }
 

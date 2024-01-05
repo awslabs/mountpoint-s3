@@ -5,8 +5,6 @@ use std::path::Path;
 use std::process::Command;
 use std::thread;
 
-use aws_sdk_s3::config::Region;
-
 use fuser::BackgroundSession;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -15,12 +13,7 @@ use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
 
-use mountpoint_s3_client::config::{S3ClientAuthConfig, ServerSideEncryption};
-use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::common::allocator::Allocator;
-
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
-use crate::common::s3::{get_subsession_iam_role, get_test_kms_key_id, get_test_region, tokio_block_on};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -829,6 +822,12 @@ fn overwrite_test_mock(prefix: &str) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn write_with_sse_settings_test() {
+    use crate::common::s3::{get_subsession_iam_role, get_test_kms_key_id, get_test_region, tokio_block_on};
+    use aws_sdk_s3::config::Region;
+    use mountpoint_s3_client::config::{S3ClientAuthConfig, ServerSideEncryption};
+    use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
+    use mountpoint_s3_crt::common::allocator::Allocator;
+
     let sse_key = get_test_kms_key_id();
 
     // configure credentials
@@ -876,7 +875,10 @@ fn write_with_sse_settings_test() {
         session_token: credentials.session_token(),
     };
     let credentials_provider = CredentialsProvider::new_static(&Allocator::default(), auth_config).unwrap();
-    let mut test_config = TestSessionConfig { auth_config: S3ClientAuthConfig::Provider(credentials_provider), ..Default::default() };
+    let mut test_config = TestSessionConfig {
+        auth_config: S3ClientAuthConfig::Provider(credentials_provider),
+        ..Default::default()
+    };
 
     // run tests
     let test_fun = |test_config, file_name, should_fail| {
