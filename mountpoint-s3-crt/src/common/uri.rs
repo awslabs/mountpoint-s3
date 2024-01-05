@@ -64,8 +64,8 @@ impl Uri {
         }
     }
 
-    /// Return the host port portion of the URI. If no port was present, returns 0
-    pub fn host_port(&self) -> u16 {
+    /// Return the host port portion of the URI. If no port was present, returns 0.
+    pub fn host_port(&self) -> u32 {
         // SAFETY: `inner` is a valid `aws_uri` since it's owned by this struct, and the lifetime of
         // the returned slice will be tied to &self.
         unsafe { aws_uri_port(self.to_inner_ptr()) }
