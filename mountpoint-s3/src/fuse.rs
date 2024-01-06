@@ -8,9 +8,7 @@ use std::time::SystemTime;
 use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
 
-use crate::fs::{
-    self, DirectoryEntry, DirectoryReplier, InodeNo, ReadReplier, S3Filesystem, S3FilesystemConfig, ToErrno,
-};
+use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, S3FilesystemConfig, ToErrno};
 use crate::prefetch::Prefetch;
 use crate::prefix::Prefix;
 #[cfg(target_os = "macos")]
@@ -127,38 +125,13 @@ where
     ) {
         let mut bytes_sent = 0;
 
-        struct Replied(());
-
-        struct ReplyRead<'a> {
-            inner: fuser::ReplyData,
-            bytes_sent: &'a mut usize,
-        }
-
-        impl ReadReplier for ReplyRead<'_> {
-            type Replied = Replied;
-
-            fn data(self, data: &[u8]) -> Replied {
-                self.inner.data(data);
-                *self.bytes_sent = data.len();
-                Replied(())
+        match block_on(self.fs.read(ino, fh, offset, size, flags, lock).in_current_span()) {
+            Ok(data) => {
+                bytes_sent = data.len();
+                reply.data(&data);
             }
-
-            fn error(self, error: fs::Error) -> Replied {
-                fuse_error!("read", self.inner, error);
-                Replied(())
-            }
+            Err(err) => fuse_error!("read", reply, err),
         }
-
-        let replier = ReplyRead {
-            inner: reply,
-            bytes_sent: &mut bytes_sent,
-        };
-        block_on(
-            self.fs
-                .read(ino, fh, offset, size, flags, lock, replier)
-                .in_current_span(),
-        );
-        // return value of read is proof a reply was sent
 
         metrics::counter!("fuse.total_bytes", bytes_sent as u64, "type" => "read");
         metrics::histogram!("fuse.io_size", bytes_sent as f64, "type" => "read");

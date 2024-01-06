@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
-use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, ReadReply};
+use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -75,9 +75,11 @@ async fn test_read_dir_root(prefix: &str) {
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
         let fh = fs.open(reply.ino, 0x8000, 0).await.unwrap().fh;
-        let mut read = Err(0);
-        fs.read(reply.ino, fh, 0, 4096, 0, None, ReadReply(&mut read)).await;
-        assert_eq!(&read.unwrap()[..], &[0xa0 + (i as u8 + 1); 15]);
+        let bytes_read = fs
+            .read(reply.ino, fh, 0, 4096, 0, None)
+            .await
+            .expect("fs read should succeed");
+        assert_eq!(&bytes_read[..], &[0xa0 + (i as u8 + 1); 15]);
         fs.release(reply.ino, fh, 0, None, true).await.unwrap();
 
         offset = offset.max(reply.offset);
@@ -149,9 +151,11 @@ async fn test_read_dir_nested(prefix: &str) {
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
         let fh = fs.open(reply.ino, 0x8000, 0).await.unwrap().fh;
-        let mut read = Err(0);
-        fs.read(reply.ino, fh, 0, 4096, 0, None, ReadReply(&mut read)).await;
-        assert_eq!(&read.unwrap()[..], &[0xa0 + (i as u8 + 1); 15]);
+        let bytes_read = fs
+            .read(reply.ino, fh, 0, 4096, 0, None)
+            .await
+            .expect("fs read should succeed");
+        assert_eq!(&bytes_read[..], &[0xa0 + (i as u8 + 1); 15]);
         fs.release(reply.ino, fh, 0, None, true).await.unwrap();
 
         offset = offset.max(reply.offset);
@@ -445,12 +449,12 @@ async fn test_random_read(object_size: usize) {
         let offset = rng.gen_range(0..object_size);
         // TODO do we need to bound it? should work anyway, just partial read, right?
         let length = rng.gen_range(0..(object_size - offset).min(1024 * 1024)) + 1;
-        let mut read = Err(0);
-        fs.read(ino, fh, offset as i64, length as u32, 0, None, ReadReply(&mut read))
-            .await;
-        let read = read.unwrap();
-        assert_eq!(read.len(), length);
-        assert_eq!(&read[..], &expected[offset..offset + length]);
+        let bytes_read = fs
+            .read(ino, fh, offset as i64, length as u32, 0, None)
+            .await
+            .expect("fs read should succeed");
+        assert_eq!(bytes_read.len(), length);
+        assert_eq!(&bytes_read[..], &expected[offset..offset + length]);
     }
 
     fs.release(ino, fh, 0, None, true).await.unwrap();
@@ -494,10 +498,11 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     assert_eq!(reply.entries[2].attr.kind, FileType::RegularFile);
 
     let fh = fs.open(reply.entries[2].ino, 0x8000, 0).await.unwrap().fh;
-    let mut read = Err(0);
-    fs.read(reply.entries[2].ino, fh, 0, 4096, 0, None, ReadReply(&mut read))
-        .await;
-    assert_eq!(&read.unwrap()[..], &[0xa2; 15]);
+    let bytes_read = fs
+        .read(reply.entries[2].ino, fh, 0, 4096, 0, None)
+        .await
+        .expect("fs read should succeed");
+    assert_eq!(&bytes_read[..], &[0xa2; 15]);
     fs.release(reply.entries[2].ino, fh, 0, None, true).await.unwrap();
 
     // Explicitly looking up the shadowed file should fail
@@ -594,20 +599,12 @@ async fn test_sequential_write(write_size: usize) {
     let mut offset = 0;
     while offset < size {
         let length = 1024.min(size - offset);
-        let mut read = Err(0);
-        fs.read(
-            file_ino,
-            fh,
-            offset as i64,
-            length as u32,
-            0,
-            None,
-            ReadReply(&mut read),
-        )
-        .await;
-        let read = read.unwrap();
-        assert_eq!(read.len(), length);
-        assert_eq!(&read[..], &body[offset..offset + length]);
+        let bytes_read = fs
+            .read(file_ino, fh, offset as i64, length as u32, 0, None)
+            .await
+            .expect("fs read should succeed");
+        assert_eq!(bytes_read.len(), length);
+        assert_eq!(&bytes_read[..], &body[offset..offset + length]);
         offset += length;
     }
 
