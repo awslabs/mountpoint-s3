@@ -99,7 +99,10 @@ impl ClientConfig {
         self
     }
 
-    /// Size of parts the files will be downloaded or uploaded in.
+    /// Size in bytes of parts the files will be downloaded or uploaded in.
+    ///
+    /// The AWS CRT client may adjust this value per-request where possible
+    /// to address service limits (such as the max number of parts).
     pub fn part_size(&mut self, part_size: usize) -> &mut Self {
         self.inner.part_size = part_size as u64;
         self
@@ -306,8 +309,7 @@ impl MetaRequestOptions {
 
     /// Provide a callback to run when telemetry for individual requests made by this meta request
     /// arrives. The callback is invoked once for each request made, after the request completes
-    /// (including failures). This callback may be invoked concurrently by multiple threads for
-    /// different requests.
+    /// (including failures).
     pub fn on_telemetry(&mut self, callback: impl Fn(&RequestMetrics) + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
@@ -339,7 +341,7 @@ impl MetaRequestOptions {
         self
     }
 
-    /// Provide a callback to run when the request completes.
+    /// Provide a callback to run when the meta request completes.
     pub fn on_finish(&mut self, callback: impl FnOnce(MetaRequestResult) + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
