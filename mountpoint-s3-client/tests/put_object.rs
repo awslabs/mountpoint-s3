@@ -426,7 +426,10 @@ async fn test_put_object_sse_unexpected_headers() {
             "some_other_key_id".to_owned(),
         ),
     ];
-    let err = request.complete().await.expect_err("completing request which returned unexpected headers must result in an error");
+    let err = request
+        .complete()
+        .await
+        .expect_err("completing request which returned unexpected headers must result in an error");
     match err {
         ObjectClientError::ClientError(client_err) => match client_err {
             S3RequestError::Forbidden(message) => assert_eq!(message, "PUT response headers [\"x-amz-server-side-encryption-aws-kms-key-id\"] are missing or have an unexpacted value"),
