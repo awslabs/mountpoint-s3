@@ -4,7 +4,6 @@ use bytes::Bytes;
 use futures::task::SpawnExt;
 use futures::{pin_mut, task::Spawn, StreamExt};
 use mountpoint_s3_client::{types::ETag, ObjectClient};
-use mountpoint_s3_crt::checksums::crc32c;
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
@@ -220,8 +219,7 @@ where
                                 let chunk = body.split_to(chunk_size);
                                 // S3 doesn't provide checksum for us if the request range is not aligned to
                                 // object part boundaries, so we're computing our own checksum here.
-                                let checksum = crc32c::checksum(&chunk);
-                                let checksum_bytes = ChecksummedBytes::new(chunk, checksum);
+                                let checksum_bytes = ChecksummedBytes::new(chunk);
                                 let part = Part::new(id.clone(), curr_offset, checksum_bytes);
                                 curr_offset += part.len() as u64;
                                 part_queue_producer.push(Ok(part));

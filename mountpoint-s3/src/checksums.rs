@@ -21,7 +21,9 @@ pub struct ChecksummedBytes {
 }
 
 impl ChecksummedBytes {
-    pub fn new(bytes: Bytes, checksum: Crc32c) -> Self {
+    /// Create a new [ChecksummedBytes] from the given [Bytes] and pre-calculated checksum.
+    /// To be used for de-serialization.
+    pub fn new_from_inner_data(bytes: Bytes, checksum: Crc32c) -> Self {
         let full_range = 0..bytes.len();
         Self {
             buffer: bytes,
@@ -31,9 +33,9 @@ impl ChecksummedBytes {
     }
 
     /// Create [ChecksummedBytes] from [Bytes], calculating its checksum.
-    pub fn from_bytes(bytes: Bytes) -> Self {
+    pub fn new(bytes: Bytes) -> Self {
         let checksum = crc32c::checksum(&bytes);
-        Self::new(bytes, checksum)
+        Self::new_from_inner_data(bytes, checksum)
     }
 
     /// Convert the [ChecksummedBytes] into [Bytes], data integrity will be validated before converting.
@@ -119,30 +121,35 @@ impl ChecksummedBytes {
         }
     }
 
-    /// Returns a copy of this slice, with the guarantee that the checksum is computed exactly
+    /// Guarantees that the checksum is computed exactly
     /// on the slice, rather than on a larger containing buffer.
     ///
     /// Return [IntegrityError] if data corruption is detected.
-    pub fn shrink_to_fit(&self) -> Result<Self, IntegrityError> {
+    pub fn shrink_to_fit(&mut self) -> Result<(), IntegrityError> {
         if self.len() == self.buffer.len() {
-            return Ok(self.clone());
+            return Ok(());
         }
 
         // Note that no data is copied: `bytes` still points to a subslice of `buffer`.
         let bytes = self.buffer_slice();
         let checksum = crc32c::checksum(&bytes);
-        let result = Self::new(bytes, checksum);
 
         // Check the integrity of the whole buffer.
         self.validate()?;
-        Ok(result)
+
+        *self = Self {
+            buffer: bytes,
+            range: 0..self.len(),
+            checksum,
+        };
+        Ok(())
     }
 
     /// Append the given checksummed bytes to current [ChecksummedBytes]. Will combine the
     /// existing checksums if possible, or compute a new one and validate data integrity.
     ///
     /// Return [IntegrityError] if data corruption is detected.
-    pub fn extend(&mut self, extend: ChecksummedBytes) -> Result<(), IntegrityError> {
+    pub fn extend(&mut self, mut extend: ChecksummedBytes) -> Result<(), IntegrityError> {
         if extend.is_empty() {
             // No op, but check that `extend` was not corrupted
             extend.validate()?;
@@ -161,22 +168,28 @@ impl ChecksummedBytes {
         // However, since a `ChecksummedBytes` potentially holds the checksum of some larger buffer,
         // rather than the exact one for the slice, we need to first invoke `shrink_to_fit` on each
         // slice and use the resulting exact checksums.
-        let prefix = self.shrink_to_fit()?;
-        assert_eq!(prefix.buffer.len(), prefix.len());
-        let suffix = extend.shrink_to_fit()?;
-        assert_eq!(suffix.buffer.len(), suffix.len());
+        self.shrink_to_fit()?;
+        assert_eq!(self.buffer.len(), self.len());
+        extend.shrink_to_fit()?;
+        assert_eq!(extend.buffer.len(), extend.len());
 
         // Combine the checksums.
-        let new_checksum = combine_checksums(prefix.checksum, suffix.checksum, suffix.len());
+        let new_checksum = combine_checksums(self.checksum, extend.checksum, extend.len());
 
         // Combine the slices.
         let new_bytes = {
-            let mut bytes_mut = BytesMut::with_capacity(prefix.len() + suffix.len());
-            bytes_mut.extend_from_slice(&prefix.buffer);
-            bytes_mut.extend_from_slice(&suffix.buffer);
+            let mut bytes_mut = BytesMut::with_capacity(self.len() + extend.len());
+            bytes_mut.extend_from_slice(&self.buffer);
+            bytes_mut.extend_from_slice(&extend.buffer);
             bytes_mut.freeze()
         };
-        *self = ChecksummedBytes::new(new_bytes, new_checksum);
+
+        let new_range = 0..(new_bytes.len());
+        *self = Self {
+            buffer: new_bytes,
+            range: new_range,
+            checksum: new_checksum,
+        };
         Ok(())
     }
 
@@ -196,9 +209,9 @@ impl ChecksummedBytes {
     /// Validation may or may not be triggered, and **bytes or checksum may be corrupt** even if result returns [Ok].
     ///
     /// If you are only interested in the underlying bytes, **you should use `into_bytes()`**.
-    pub fn into_inner(self) -> Result<(Bytes, Crc32c), IntegrityError> {
-        let fit = self.shrink_to_fit()?;
-        Ok((fit.buffer, fit.checksum))
+    pub fn into_inner(mut self) -> Result<(Bytes, Crc32c), IntegrityError> {
+        self.shrink_to_fit()?;
+        Ok((self.buffer, self.checksum))
     }
 
     /// Return the slice of `buffer` corresponding to `range`.
@@ -221,7 +234,7 @@ impl Default for ChecksummedBytes {
 
 impl From<Bytes> for ChecksummedBytes {
     fn from(value: Bytes) -> Self {
-        Self::from_bytes(value)
+        Self::new(value)
     }
 }
 
@@ -270,7 +283,7 @@ mod tests {
     fn test_into_bytes() {
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
-        let checksummed_bytes = ChecksummedBytes::from_bytes(bytes);
+        let checksummed_bytes = ChecksummedBytes::new(bytes);
 
         let actual = checksummed_bytes.into_bytes().unwrap();
         assert_eq!(expected, actual);
@@ -279,8 +292,10 @@ mod tests {
     #[test]
     fn test_into_bytes_integrity_error() {
         let bytes = Bytes::from_static(b"some bytes");
-        let checksum = crc32c::checksum(&bytes);
-        let checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"new bytes"), checksum);
+        let mut checksummed_bytes = ChecksummedBytes::new(bytes);
+
+        // alter the content
+        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
 
         let actual = checksummed_bytes.into_bytes();
         assert!(matches!(actual, Err(IntegrityError::ChecksumMismatch(_, _))));
@@ -291,8 +306,8 @@ mod tests {
         let split_off_at = 4;
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
-        let checksum = crc32c::checksum(&bytes);
-        let mut checksummed_bytes = ChecksummedBytes::new(bytes, checksum);
+        let expected_checksum = crc32c::checksum(&expected);
+        let mut checksummed_bytes = ChecksummedBytes::new(bytes);
 
         let mut expected_part1 = expected.clone();
         let expected_part2 = expected_part1.split_off(split_off_at);
@@ -302,8 +317,8 @@ mod tests {
         assert_eq!(expected, new_checksummed_bytes.buffer);
         assert_eq!(expected_part1, checksummed_bytes.buffer_slice());
         assert_eq!(expected_part2, new_checksummed_bytes.buffer_slice());
-        assert_eq!(checksum, checksummed_bytes.checksum);
-        assert_eq!(checksum, new_checksummed_bytes.checksum);
+        assert_eq!(expected_checksum, checksummed_bytes.checksum);
+        assert_eq!(expected_checksum, new_checksummed_bytes.checksum);
     }
 
     #[test]
@@ -312,16 +327,16 @@ mod tests {
         let bytes = Bytes::from_static(b"some bytes");
         let expected = bytes.clone();
         let expected_slice = bytes.slice(range.clone());
-        let checksum = crc32c::checksum(&bytes);
-        let original = ChecksummedBytes::new(bytes, checksum);
+        let expected_checksum = crc32c::checksum(&expected);
+        let original = ChecksummedBytes::new(bytes);
         let slice = original.slice(range);
 
         assert_eq!(expected, original.buffer);
         assert_eq!(expected, original.buffer_slice());
         assert_eq!(expected, slice.buffer);
         assert_eq!(expected_slice, slice.buffer_slice());
-        assert_eq!(checksum, original.checksum);
-        assert_eq!(checksum, slice.checksum);
+        assert_eq!(expected_checksum, original.checksum);
+        assert_eq!(expected_checksum, slice.checksum);
     }
 
     fn create_checksummed_bytes_with_range(range: Range<usize>) -> ChecksummedBytes {
@@ -372,14 +387,16 @@ mod tests {
 
     #[test]
     fn test_shrink_to_fit() {
-        let original = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
-        let unchanged = original.shrink_to_fit().unwrap();
+        let original = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let mut unchanged = original.clone();
+        unchanged.shrink_to_fit().unwrap();
         assert_eq!(original.buffer_slice(), unchanged.buffer_slice());
         assert_eq!(original.buffer, unchanged.buffer);
         assert_eq!(original.checksum, unchanged.checksum);
 
         let slice = original.clone().split_off(5);
-        let shrunken = slice.shrink_to_fit().unwrap();
+        let mut shrunken = slice.clone();
+        shrunken.shrink_to_fit().unwrap();
         assert_eq!(slice.buffer_slice(), shrunken.buffer_slice());
         assert_ne!(slice.buffer, shrunken.buffer);
         assert_ne!(slice.checksum, shrunken.checksum);
@@ -387,14 +404,18 @@ mod tests {
 
     #[test]
     fn test_shrink_to_fit_corrupted() {
-        let checksum = crc32c::checksum(b"some bytes");
-        let original = ChecksummedBytes::new(Bytes::from_static(b"other bytes"), checksum);
+        let mut original = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+
+        // alter the content
+        original.buffer = Bytes::from_static(b"otherbytes");
+
         assert!(matches!(
             original.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
 
-        let unchanged = original.shrink_to_fit().unwrap();
+        let mut unchanged = original.clone();
+        unchanged.shrink_to_fit().unwrap();
         assert_eq!(original.buffer_slice(), unchanged.buffer_slice());
         assert_eq!(original.buffer, unchanged.buffer);
         assert_eq!(original.checksum, unchanged.checksum);
@@ -403,7 +424,7 @@ mod tests {
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
 
-        let slice = original.clone().split_off(5);
+        let mut slice = original.clone().split_off(5);
         assert!(matches!(slice.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
 
         let result = slice.shrink_to_fit();
@@ -412,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_into_inner() {
-        let original = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
+        let original = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
         let (unchanged_bytes, unchanged_checksum) = original.clone().into_inner().unwrap();
         assert_eq!(original.buffer_slice(), unchanged_bytes);
         assert_eq!(original.buffer, unchanged_bytes);
@@ -428,8 +449,8 @@ mod tests {
     #[test]
     fn test_extend() {
         let expected = Bytes::from_static(b"some bytes extended");
-        let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
-        let extend_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let extend_bytes = ChecksummedBytes::new(Bytes::from_static(b" extended"));
         checksummed_bytes.extend(extend_bytes).unwrap();
         let actual = checksummed_bytes.buffer_slice();
         assert_eq!(expected, actual);
@@ -437,13 +458,11 @@ mod tests {
 
     #[test]
     fn test_extend_after_split() {
-        let split_off_at = 4;
-
-        let expected = Bytes::from_static(b"some ext");
-        let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
-        let mut extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
-        _ = checksummed_bytes.split_off(split_off_at);
-        _ = extend.split_off(split_off_at);
+        let expected = Bytes::from_static(b"some bytes extended");
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+        let mut extend = ChecksummedBytes::new(Bytes::from_static(b"bytes extended"));
+        _ = checksummed_bytes.split_off(7);
+        extend = extend.split_off(2);
         checksummed_bytes.extend(extend).unwrap();
         let actual = checksummed_bytes.buffer_slice();
         assert_eq!(expected, actual);
@@ -451,15 +470,17 @@ mod tests {
 
     #[test]
     fn test_extend_self_corrupted() {
-        let corrupted_bytes = Bytes::from_static(b"corrupted data");
-        let checksum = crc32c::checksum(b"some bytes");
-        let mut checksummed_bytes = ChecksummedBytes::new(corrupted_bytes, checksum);
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+
+        // alter the content
+        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
+
         assert!(matches!(
             checksummed_bytes.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
 
-        let extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
+        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
 
         checksummed_bytes.extend(extend).unwrap();
@@ -471,16 +492,19 @@ mod tests {
 
     #[test]
     fn test_extend_after_split_self_corrupted() {
-        let corrupted_bytes = Bytes::from_static(b"corrupted data");
-        let checksum = crc32c::checksum(b"some bytes");
-        let mut checksummed_bytes = ChecksummedBytes::new(corrupted_bytes, checksum);
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+
+        // alter the content
+        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
+
         assert!(matches!(
             checksummed_bytes.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
+
         _ = checksummed_bytes.split_off(4);
 
-        let extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
+        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
 
         let result = checksummed_bytes.extend(extend);
@@ -489,15 +513,19 @@ mod tests {
 
     #[test]
     fn test_extend_split_off_self_corrupted() {
-        let corrupted_bytes = Bytes::from_static(b"corrupted data");
-        let checksum = crc32c::checksum(b"some bytes");
-        let mut split_off = ChecksummedBytes::new(corrupted_bytes, checksum).split_off(4);
+        let mut split_off = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
+
+        // alter the content
+        split_off.buffer = Bytes::from_static(b"otherbytes");
+
+        split_off = split_off.split_off(4);
+
         assert!(matches!(
             split_off.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))
         ));
 
-        let extend = ChecksummedBytes::from_bytes(Bytes::from_static(b" extended"));
+        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
         assert!(matches!(extend.validate(), Ok(())));
 
         let result = split_off.extend(extend);
@@ -506,12 +534,14 @@ mod tests {
 
     #[test]
     fn test_extend_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
         assert!(matches!(checksummed_bytes.validate(), Ok(())));
 
-        let corrupted_bytes = Bytes::from_static(b"corrupted data");
-        let extend_checksum = crc32c::checksum(b" extended");
-        let extend = ChecksummedBytes::new(corrupted_bytes, extend_checksum);
+        let mut extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+
+        // alter the content
+        extend.buffer = Bytes::from_static(b"corrupted");
+
         assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
 
         checksummed_bytes.extend(extend).unwrap();
@@ -523,14 +553,17 @@ mod tests {
 
     #[test]
     fn test_extend_after_split_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
         assert!(matches!(checksummed_bytes.validate(), Ok(())));
 
-        let corrupted_bytes = Bytes::from_static(b"corrupted data");
-        let extend_checksum = crc32c::checksum(b" extended");
-        let mut extend = ChecksummedBytes::new(corrupted_bytes, extend_checksum);
-        _ = extend.split_off(4);
+        let mut extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
+
+        // alter the content
+        extend.buffer = Bytes::from_static(b"corrupted");
+
         assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
+
+        _ = extend.split_off(4);
 
         let result = checksummed_bytes.extend(extend);
         assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
@@ -538,12 +571,15 @@ mod tests {
 
     #[test]
     fn test_extend_split_off_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::from_bytes(Bytes::from_static(b"some bytes"));
+        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
         assert!(matches!(checksummed_bytes.validate(), Ok(())));
 
-        let corrupted_bytes = Bytes::from_static(b"corrupted data");
-        let extend_checksum = crc32c::checksum(b" extended");
-        let split_off = ChecksummedBytes::new(corrupted_bytes, extend_checksum).split_off(4);
+        let mut split_off = ChecksummedBytes::new(Bytes::from_static(b"bytes extended"));
+
+        // alter the content
+        split_off.buffer = Bytes::from_static(b"bytescorrupted");
+
+        split_off = split_off.split_off(5);
         assert!(matches!(
             split_off.validate(),
             Err(IntegrityError::ChecksumMismatch(_, _))

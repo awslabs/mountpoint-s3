@@ -218,6 +218,8 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     object_id: ObjectId,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
+    /// Start offset for sequential read, used for calculating contiguous read metric
+    sequential_read_start_offset: u64,
     next_sequential_read_offset: u64,
     next_request_size: usize,
     next_request_offset: u64,
@@ -273,6 +275,10 @@ where
                     "out-of-order read, resetting prefetch"
                 );
                 counter!("prefetch.out_of_order", 1);
+
+                // This is an approximation, tolerating some seeking caused by concurrent readahead.
+                self.record_contiguous_read_metric();
+
                 self.reset_prefetch_to_offset(offset);
             }
         }
@@ -352,6 +358,7 @@ where
             future_tasks: Default::default(),
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
             preferred_part_size: 128 * 1024,
+            sequential_read_start_offset: 0,
             next_sequential_read_offset: 0,
             next_request_size: config.first_request_size,
             next_request_offset: 0,
@@ -427,6 +434,7 @@ where
         self.current_task = None;
         self.future_tasks.drain(..);
         self.backward_seek_window.clear();
+        self.sequential_read_start_offset = offset;
         self.next_sequential_read_offset = offset;
         self.next_request_size = self.config.first_request_size;
         self.next_request_offset = offset;
@@ -520,6 +528,24 @@ where
         histogram!("prefetch.seek_distance", backwards_length_needed as f64, "dir" => "backward");
 
         Ok(true)
+    }
+}
+
+impl<Stream: ObjectPartStream, Client: ObjectClient> PrefetchGetObject<Stream, Client> {
+    /// Record the end of a contiguous read.
+    ///
+    /// This should be invoked at the end of each set of contiguous reads, including if no further read occurs.
+    fn record_contiguous_read_metric(&self) {
+        histogram!(
+            "prefetch.contiguous_read_len",
+            (self.next_sequential_read_offset - self.sequential_read_start_offset) as f64,
+        );
+    }
+}
+
+impl<Stream: ObjectPartStream, Client: ObjectClient> Drop for PrefetchGetObject<Stream, Client> {
+    fn drop(&mut self) {
+        self.record_contiguous_read_metric();
     }
 }
 

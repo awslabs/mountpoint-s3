@@ -3,8 +3,8 @@ use predicates::prelude::*; // Used for writing assertions
 use std::{fs, os::unix::prelude::PermissionsExt, process::Command}; // Run programs
 
 /// Regular expression for something that looks mostly like a SemVer version.
-/// Don't use this outside of this test - SemVer is both more restrictive and flexible.
-const VALID_VERSION_OUTPUT_PATTERN: &str = "^mount-s3 \\d+\\.\\d+\\.\\d+(?:-\\w+(?:\\.\\w+)*)*(?:\\+[\\w\\.]+)*\n$";
+/// See https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string.
+const VALID_VERSION_OUTPUT_PATTERN: &str = "^mount-s3 (0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?\n$";
 
 #[test]
 fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {

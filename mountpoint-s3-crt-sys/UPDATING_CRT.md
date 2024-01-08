@@ -34,7 +34,6 @@ The CRT submodules can be updated by following these steps:
      - Any new features added or bugs fixed in the crate's bindings
      - Any breaking changes to the crate's API
    - For `mountpoint-s3-client`, it should mention any changes relevant for consumers of the crate such as:
-     - State that the AWS CRT was updated
      - New features or bug fixes
      - Breaking changes to APIs of the client, including any changes to defaults from this crate or AWS CRT
 

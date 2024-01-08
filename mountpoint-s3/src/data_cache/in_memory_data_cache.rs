@@ -69,11 +69,11 @@ mod tests {
     #[test]
     fn test_put_get() {
         let data_1 = Bytes::from_static(b"Hello world");
-        let data_1 = ChecksummedBytes::from_bytes(data_1.clone());
+        let data_1 = ChecksummedBytes::new(data_1.clone());
         let data_2 = Bytes::from_static(b"Foo bar");
-        let data_2 = ChecksummedBytes::from_bytes(data_2.clone());
+        let data_2 = ChecksummedBytes::new(data_2.clone());
         let data_3 = Bytes::from_static(b"Baz");
-        let data_3 = ChecksummedBytes::from_bytes(data_3.clone());
+        let data_3 = ChecksummedBytes::new(data_3.clone());
 
         let block_size = 8 * 1024 * 1024;
         let cache = InMemoryDataCache::new(block_size);
