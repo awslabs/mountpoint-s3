@@ -161,7 +161,9 @@ impl S3ClientConfig {
 pub enum S3ClientAuthConfig {
     /// The default AWS credentials resolution chain, similar to the AWS CLI
     DefaultChain {
-        /// Optional profile override to be used when evaluating credential chain
+        /// Optional profile override to be used when evaluating credential chain.
+        ///
+        /// If set, credentials in the environment will be skipped when evaluating the chain.
         profile_name: Option<String>,
     },
     /// Do not sign requests at all
@@ -257,9 +259,13 @@ impl S3CrtClientInner {
         trace!("constructing client with auth config {:?}", config.auth_config);
         let credentials_provider = match config.auth_config {
             S3ClientAuthConfig::DefaultChain { profile_name } => {
+                // Behavior aligned w/ botocore https://github.com/boto/botocore/blob/826b78c/botocore/credentials.py#L76
+                let skip_environment_credentials_provider = profile_name.is_some();
+
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
                     profile_name_override: profile_name.as_deref(),
+                    skip_environment_credentials_provider,
                 };
                 CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?

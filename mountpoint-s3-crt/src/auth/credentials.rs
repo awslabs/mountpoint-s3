@@ -24,6 +24,8 @@ pub struct CredentialsProviderChainDefaultOptions<'a> {
     pub bootstrap: &'a mut ClientBootstrap,
     /// The name of profile to use.
     pub profile_name_override: Option<&'a str>,
+    /// Set if credentials from the environment should be included when evaluating the chain or skipped.
+    pub skip_environment_credentials_provider: bool,
 }
 
 /// Options for creating a profile credentials provider
@@ -84,6 +86,7 @@ impl CredentialsProvider {
             let inner_options = aws_credentials_provider_chain_default_options {
                 bootstrap: options.bootstrap.inner.as_ptr(),
                 profile_name_override,
+                skip_environment_credentials_provider: options.skip_environment_credentials_provider,
                 ..Default::default()
             };
 

@@ -7,6 +7,10 @@
 * `S3ClientAuthConfig` variant `Profile` has been removed.
   Instead, a new profile credential provider should be created and used with the `Provider(CredentialProvider)` variant.
 
+### Other changes
+
+* Default chain credential provider can now be configured with a profile name at creation.
+
 ## v0.6.1 (December 1, 2023)
 
 ### Breaking changes

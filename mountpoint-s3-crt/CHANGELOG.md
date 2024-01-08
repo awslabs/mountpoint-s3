@@ -2,6 +2,7 @@
 
 * Update to latest CRT dependencies
 * Return type of `common::Uri::host_port` changed from `u16` to `u32`
+* Allow setting `skip_environment_credentials_provider` on the default credential chain provider
 
 ## v0.5.1 (December 1, 2023)
 
