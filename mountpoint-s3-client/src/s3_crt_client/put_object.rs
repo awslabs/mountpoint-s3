@@ -154,7 +154,7 @@ fn check_response_headers(
     for (expected_name, expected_value) in expected_headers.iter() {
         let found = response_headers
             .lock()
-            .expect("must be able to acquire heeaders lock")
+            .expect("must be able to acquire headers lock")
             .as_ref()
             .expect("PUT response headers must be available at this point")
             .get(expected_name);
@@ -206,7 +206,9 @@ impl PutObjectRequest for S3PutObjectRequest {
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        check_response_headers(self.response_headers, &self.expected_headers)?;
+        if result.is_ok() {
+            check_response_headers(self.response_headers, &self.expected_headers)?;
+        }
         result.map(|_| PutObjectResult {})
     }
 }

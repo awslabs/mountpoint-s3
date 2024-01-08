@@ -394,13 +394,9 @@ async fn test_put_object_sse(input_sse: ServerSideEncryption) {
     check_sse(&bucket, &key, &input_sse).await;
 }
 
-// TODO: it should not panic, but return an error on flush?
-// The test sets `S3PutObjectRequest::expected_headers` to a knowingly unexpected values and checks that program panics
-// in case when actual SSE settings returned by S3 are different from expected.
+// The test sets `S3PutObjectRequest::expected_headers` to a knowingly unexpected values and checks that request
+// completion returns an error in case when actual SSE settings returned by S3 are different from what is expected.
 #[tokio::test]
-#[should_panic(
-    expected = "PUT response headers [\\\"x-amz-server-side-encryption-aws-kms-key-id\\\"] are missing or have an unexpacted value"
-)]
 async fn test_put_object_sse_unexpected_headers() {
     let input_sse = ServerSideEncryption::Kms {
         key_id: Some(get_test_kms_key_id()),
@@ -430,5 +426,12 @@ async fn test_put_object_sse_unexpected_headers() {
             "some_other_key_id".to_owned(),
         ),
     ];
-    request.complete().await.unwrap();
+    let err = request.complete().await.expect_err("completing request which returned unexpected headers must result in an error");
+    match err {
+        ObjectClientError::ClientError(client_err) => match client_err {
+            S3RequestError::Forbidden(message) => assert_eq!(message, "PUT response headers [\"x-amz-server-side-encryption-aws-kms-key-id\"] are missing or have an unexpacted value"),
+            _ => panic!("must be forbidden error"),
+        },
+        _ => panic!("must be a client error"),
+    };
 }
