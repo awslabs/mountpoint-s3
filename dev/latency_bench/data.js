@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1704718238020,
+  "lastUpdate": 1704818534026,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e9d7043e4b5665d5ed79d2cd0fa9a6039cfe0588",
-          "message": "Remove duplicate S3 test helper functions (#664)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2023-12-06T14:33:59Z",
-          "tree_id": "4e15b868e1d9cadf7cfc9238b87c92d1a75273af",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/e9d7043e4b5665d5ed79d2cd0fa9a6039cfe0588"
-        },
-        "date": 1701875077669,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.072,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.185,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.183,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.633,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 78.3434672,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 69.84222059999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 66.9923572,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9ca6b3d502ecd13690e46726139b206f19876b9",
+          "message": "Add information about `--log-metrics` flag to logging documentation (#695)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-01-09T16:09:16Z",
+          "tree_id": "dd5ab8859ad97114c6cf9fc6271918e03f798282",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/b9ca6b3d502ecd13690e46726139b206f19876b9"
+        },
+        "date": 1704818533452,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.079,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.177,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.273,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.574,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 66.7320066,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 77.6351808,
             "unit": "milliseconds"
           }
         ]
