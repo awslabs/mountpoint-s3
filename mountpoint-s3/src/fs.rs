@@ -13,13 +13,12 @@ use tracing::{debug, error, trace, Level};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
 use crate::logging;
-use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
+use crate::prefetch::{Prefetch, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -848,20 +847,11 @@ where
             FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
-        match request.read(offset as u64, size as usize).await {
-            Ok(checksummed_bytes) => checksummed_bytes
-                .into_bytes()
-                .map_err(|e| err!(libc::EIO, source:e, "integrity error")),
-            Err(PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
-                GetObjectError::PreconditionFailed,
-            ))) => Err(err!(libc::ESTALE, "object was mutated remotely")),
-            Err(PrefetchReadError::Integrity(e)) => Err(err!(libc::EIO, source:e, "integrity error")),
-            Err(e @ PrefetchReadError::GetRequestFailed(_))
-            | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly)
-            | Err(e @ PrefetchReadError::GetRequestReturnedWrongOffset { .. }) => {
-                Err(err!(libc::EIO, source:e, "get request failed"))
-            }
-        }
+        request
+            .read(offset as u64, size as usize)
+            .await?
+            .into_bytes()
+            .map_err(|e| err!(libc::EIO, source:e, "integrity error"))
     }
 
     pub async fn mknod(
