@@ -1,5 +1,5 @@
+use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_sts::config::Region;
 use futures::Future;
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;

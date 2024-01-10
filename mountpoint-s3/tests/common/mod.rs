@@ -2,9 +2,9 @@
 //! Allow for unused items since this is included independently in each module.
 #![allow(dead_code)]
 
+pub mod creds;
 #[cfg(feature = "fuse_tests")]
 pub mod fuse;
-
 #[cfg(feature = "s3_tests")]
 pub mod s3;
 

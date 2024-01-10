@@ -6,10 +6,9 @@ use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*; // Used for writing assertions
 use std::{fs, process::Command}; // Run programs
 
-use aws_config::default_provider::credentials::DefaultCredentialsChain;
-use aws_credential_types::provider::ProvideCredentials;
-use aws_sdk_s3::config::Credentials;
+use aws_credential_types::Credentials;
 
+use crate::common::creds::{get_fake_creds, get_sdk_default_chain_creds};
 use crate::common::s3::{get_test_bucket_and_prefix, get_test_region};
 
 /// This test puts valid credentials into the environment and configure invalid credentials in an AWS Profile.
@@ -29,13 +28,7 @@ async fn check_profile_env_prefers_static_env_creds() -> Result<(), Box<dyn std:
 
     // Configure invalid credentials. We intend to check Mountpoint uses these despite setting AWS_PROFILE.
     {
-        let credentials = aws_sdk_s3::config::Credentials::new(
-            "AKIAIOSFODNN7EXAMPLE",
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            None,
-            None,
-            "invalid_creds",
-        );
+        let credentials = get_fake_creds();
         cmd.env("AWS_ACCESS_KEY_ID", credentials.access_key_id());
         cmd.env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
         if let Some(token) = credentials.session_token() {
@@ -77,13 +70,7 @@ async fn check_profile_flag_ignores_static_env_creds() -> Result<(), Box<dyn std
 
     // Configure invalid credentials in an AWS Profile.
     {
-        let credentials = aws_sdk_s3::config::Credentials::new(
-            "AKIAIOSFODNN7EXAMPLE",
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            None,
-            None,
-            "invalid_creds",
-        );
+        let credentials = get_fake_creds();
         write_credentials_to_named_profile(&mut config_file, profile_name, credentials).await;
     }
 
@@ -113,7 +100,7 @@ async fn check_profile_flag_ignores_static_env_creds() -> Result<(), Box<dyn std
 async fn write_credentials_to_named_profile<B: std::io::Write>(
     mut config_buffer: B,
     profile_name: &str,
-    credentials: aws_sdk_s3::config::Credentials,
+    credentials: Credentials,
 ) {
     writeln!(config_buffer, "[profile {profile_name}]").unwrap();
     let access_key_id = credentials.access_key_id();
@@ -123,13 +110,4 @@ async fn write_credentials_to_named_profile<B: std::io::Write>(
     if let Some(session_token) = credentials.session_token() {
         writeln!(config_buffer, "aws_session_token = {session_token}").unwrap();
     }
-}
-
-/// Grab a set of SDK [Credentials] from the default credential provider chain.
-pub async fn get_sdk_default_chain_creds() -> Credentials {
-    let sdk_provider = DefaultCredentialsChain::builder().build().await;
-    sdk_provider
-        .provide_credentials()
-        .await
-        .expect("default chain credentials should be available")
 }

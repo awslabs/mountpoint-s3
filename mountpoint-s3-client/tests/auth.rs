@@ -43,7 +43,7 @@ async fn test_static_provider() {
         .expect("simple SDK PutObject request should succeed");
 
     // Get some static credentials using the SDK's default provider chain
-    let credentials = get_sdk_default_chain_creds().await;
+    let credentials = creds::get_sdk_default_chain_creds().await;
 
     // Build a S3CrtClient that uses a static credentials provider with the creds we just got
     let config = CredentialsProviderStaticOptions {
@@ -98,7 +98,7 @@ async fn test_profile_only_provider_async() {
     // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
 
-    let creds = get_sdk_default_chain_creds().await;
+    let creds = creds::get_sdk_default_chain_creds().await;
     let allowed_profile_name = "allowed";
     write_credentials_to_named_profile(&mut config_file, allowed_profile_name, creds).await;
 
@@ -111,7 +111,7 @@ async fn test_profile_only_provider_async() {
             }
         ]
     }"#;
-    let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
+    let scoped_down_creds = creds::get_scoped_down_credentials(policy.to_string()).await;
     let denied_profile_name = "denied";
     write_credentials_to_named_profile(&mut config_file, denied_profile_name, scoped_down_creds).await;
 
@@ -225,7 +225,7 @@ async fn test_default_chain_with_profile_override_allowed_async() {
     // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
 
-    let creds = get_sdk_default_chain_creds().await;
+    let creds = creds::get_sdk_default_chain_creds().await;
     let profile_name = String::from("allowed");
     write_credentials_to_named_profile(&mut config_file, &profile_name, creds).await;
 
@@ -266,7 +266,7 @@ async fn test_default_chain_with_profile_override_denied_async() {
             }
         ]
     }"#;
-    let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
+    let scoped_down_creds = creds::get_scoped_down_credentials(policy.to_string()).await;
     let profile_name = String::from("denied");
     write_credentials_to_named_profile(&mut config_file, &profile_name, scoped_down_creds).await;
 
@@ -302,7 +302,7 @@ async fn test_default_chain_with_no_profile_override_allowed_async() {
     // The CRT client will be configured to point to this new file.
     let mut config_file = NamedTempFile::new().unwrap();
 
-    let creds = get_sdk_default_chain_creds().await;
+    let creds = creds::get_sdk_default_chain_creds().await;
     let profile_name = "default";
     write_credentials_to_named_profile(&mut config_file, profile_name, creds).await;
 
@@ -343,7 +343,7 @@ async fn test_default_chain_with_no_profile_override_denied_async() {
             }
         ]
     }"#;
-    let scoped_down_creds = get_scoped_down_credentials(policy.to_string()).await;
+    let scoped_down_creds = creds::get_scoped_down_credentials(policy.to_string()).await;
     let profile_name = "default";
     write_credentials_to_named_profile(&mut config_file, profile_name, scoped_down_creds).await;
 
@@ -494,7 +494,7 @@ async fn test_scoped_credentials() {
     let policy = policy
         .replace("__BUCKET__", &bucket)
         .replace("__PREFIX__", &format!("{prefix}foo"));
-    let credentials = get_scoped_down_credentials(policy).await;
+    let credentials = creds::get_scoped_down_credentials(policy).await;
 
     // Build a S3CrtClient that uses a static credentials provider with the creds we just got
     let config = CredentialsProviderStaticOptions {
