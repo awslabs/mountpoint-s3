@@ -26,7 +26,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::{Debug, Display};
 use std::os::unix::prelude::OsStrExt;
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use anyhow::anyhow;
 use fuser::FileType;
@@ -46,6 +46,9 @@ use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
 use crate::sync::RwLockWriteGuard;
 use crate::sync::{Arc, RwLock};
+
+mod expiry;
+use expiry::Expiry;
 
 mod readdir;
 pub use readdir::ReaddirHandle;
@@ -1058,7 +1061,7 @@ pub struct LookedUp {
 impl LookedUp {
     /// How much longer this lookup will be valid for
     pub fn validity(&self) -> Duration {
-        self.stat.expiry.saturating_duration_since(Instant::now())
+        self.stat.expiry.validity()
     }
 }
 
@@ -1446,7 +1449,7 @@ impl InodeKindData {
 #[derive(Debug, Clone)]
 pub struct InodeStat {
     /// Time this stat becomes invalid and needs to be refreshed
-    expiry: Instant,
+    expiry: Expiry,
 
     /// Size in bytes
     pub size: usize,
@@ -1478,7 +1481,7 @@ pub enum WriteStatus {
 
 impl InodeStat {
     fn is_valid(&self) -> bool {
-        self.expiry >= Instant::now()
+        self.expiry.is_valid()
     }
 
     /// Objects in flexible retrieval storage classes can't be accessed via GetObject unless they are
@@ -1511,12 +1514,9 @@ impl InodeStat {
         restore_status: Option<RestoreStatus>,
         validity: Duration,
     ) -> InodeStat {
-        let expiry = Instant::now()
-            .checked_add(validity)
-            .expect("64-bit time shouldn't overflow");
         let is_readable = Self::is_readable(storage_class, restore_status);
         InodeStat {
-            expiry,
+            expiry: Expiry::from_now(validity),
             size,
             atime: datetime,
             ctime: datetime,
@@ -1528,11 +1528,8 @@ impl InodeStat {
 
     /// Initialize an [InodeStat] for a directory, given some metadata.
     fn for_directory(datetime: OffsetDateTime, validity: Duration) -> InodeStat {
-        let expiry = Instant::now()
-            .checked_add(validity)
-            .expect("64-bit time shouldn't overflow");
         InodeStat {
-            expiry,
+            expiry: Expiry::from_now(validity),
             size: 0,
             atime: datetime,
             ctime: datetime,
@@ -1543,9 +1540,7 @@ impl InodeStat {
     }
 
     fn update_validity(&mut self, validity: Duration) {
-        self.expiry = Instant::now()
-            .checked_add(validity)
-            .expect("64-bit time shouldn't overflow");
+        self.expiry = Expiry::from_now(validity);
     }
 }
 
