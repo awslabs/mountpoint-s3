@@ -183,6 +183,7 @@ async fn test_profile_only_provider_async() {
 
 /// Test default chain where a profile name is provided but no credentials are configured.
 /// The default chain should continue to source credentials in one of the subsequent providers instead.
+#[ignore = "passes only if another provider in the chain is available, such as IMDS"]
 async fn test_default_chain_with_profile_override_fallback_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_default_chain_with_profile_override_fallback");
 
