@@ -1,5 +1,25 @@
 ## Unreleased
 
+## v1.3.2 (January 11, 2024)
+
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* Log messages now include file names and S3 keys more consistently.
+  ([#665](https://github.com/awslabs/mountpoint-s3/pull/665))
+* Successful mount message is now output to stdout for both foreground and background mode.
+  ([#668](https://github.com/awslabs/mountpoint-s3/pull/668))
+* Added new metric tracking contiguous reads.
+  This new metric may be used to help understand how much data is being read successfully using prefetching
+  before needing to discard prefetched progress when seeking around the file.
+  ([#629](https://github.com/awslabs/mountpoint-s3/pull/629))
+* Fix a race condition where FUSE `read` operations may have completed and subsequently sent back to the Kernel
+  while locks were still being held on a file handle.
+  If a FUSE `release` operation was executed while the file handle was still held by `read`,
+  this would result in the file handle never being deallocated.
+  ([#691](https://github.com/awslabs/mountpoint-s3/pull/691))
+
 ## v1.3.1 (November 30, 2023)
 
 ### Breaking changes
