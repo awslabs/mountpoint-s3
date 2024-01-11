@@ -12,12 +12,12 @@ use tempfile::TempDir;
 use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
+#[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::config::ServerSideEncryption;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 #[cfg(feature = "s3_tests")]
-use crate::common::s3::{get_test_kms_key_id, tokio_block_on};
-use crate::common::{get_auth_config, get_scoped_down_credentials};
+use crate::common::{get_auth_config, get_scoped_down_credentials, s3::get_test_kms_key_id, s3::tokio_block_on};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -863,7 +863,6 @@ fn write_with_sse_settings_test() {
     // run tests
     let test_fun = |test_config, file_name, should_fail| {
         let (mount_point, _session, test_client) = fuse::s3_session::new("sse_with_policy_test", test_config);
-        // todo: should we fail faster? (check on mount that sse options allow creating file)
         let path = mount_point.path().join(file_name);
         let mut f = open_for_write(&path, false, true).unwrap();
         let data = vec![0xaa; 32];

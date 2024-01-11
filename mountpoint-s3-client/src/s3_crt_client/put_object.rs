@@ -146,10 +146,7 @@ pub struct S3PutObjectRequest {
     pub expected_headers: Vec<(String, String)>,
 }
 
-fn check_response_headers(
-    response_headers: Arc<Mutex<Option<Headers>>>,
-    expected_headers: &[(String, String)],
-) -> Result<(), S3RequestError> {
+fn check_response_headers(response_headers: Arc<Mutex<Option<Headers>>>, expected_headers: &[(String, String)]) {
     let mut missing = Vec::new();
     for (expected_name, expected_value) in expected_headers.iter() {
         let found = response_headers
@@ -162,13 +159,11 @@ fn check_response_headers(
             missing.push(expected_name.clone());
         }
     }
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(S3RequestError::Forbidden(format!(
+    if !missing.is_empty() {
+        panic!(
             "PUT response headers {:?} are missing or have an unexpacted value",
             missing
-        )))
+        );
     }
 }
 
@@ -188,6 +183,9 @@ impl PutObjectRequest for S3PutObjectRequest {
         self.review_and_complete(|_| true).await
     }
 
+    /// Note: this function will panic if an SSE was requested to be applied to the object
+    /// and we failed to check that this actually happened. This may be caused by a bug in
+    /// CRT code or HTTP headers being corrupted in transit between us and the S3 server.
     async fn review_and_complete(
         mut self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
@@ -207,7 +205,7 @@ impl PutObjectRequest for S3PutObjectRequest {
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
         if result.is_ok() {
-            check_response_headers(self.response_headers, &self.expected_headers)?;
+            check_response_headers(self.response_headers, &self.expected_headers);
         }
         result.map(|_| PutObjectResult {})
     }
