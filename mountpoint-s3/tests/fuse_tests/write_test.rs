@@ -12,8 +12,12 @@ use tempfile::TempDir;
 use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3_client::config::ServerSideEncryption;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+#[cfg(feature = "s3_tests")]
+use crate::common::s3::{get_test_kms_key_id, tokio_block_on};
+use crate::common::{get_auth_config, get_scoped_down_credentials};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -822,12 +826,6 @@ fn overwrite_test_mock(prefix: &str) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn write_with_sse_settings_test() {
-    use crate::common::s3::{get_subsession_iam_role, get_test_kms_key_id, get_test_region, tokio_block_on};
-    use aws_sdk_s3::config::Region;
-    use mountpoint_s3_client::config::{S3ClientAuthConfig, ServerSideEncryption};
-    use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-    use mountpoint_s3_crt::common::allocator::Allocator;
-
     let sse_key = get_test_kms_key_id();
 
     // configure credentials
@@ -857,26 +855,8 @@ fn write_with_sse_settings_test() {
     ]}"#;
     let policy = policy.replace("__SSE_KEY_ARN__", &sse_key);
 
-    let sts_config = tokio_block_on(aws_config::from_env().region(Region::new(get_test_region())).load());
-    let sts_client = aws_sdk_sts::Client::new(&sts_config);
-    let credentials = tokio_block_on(
-        sts_client
-            .assume_role()
-            .role_arn(get_subsession_iam_role())
-            .role_session_name("session_name")
-            .policy(policy)
-            .send(),
-    )
-    .unwrap();
-    let credentials = credentials.credentials().unwrap();
-    let auth_config = CredentialsProviderStaticOptions {
-        access_key_id: credentials.access_key_id().unwrap(),
-        secret_access_key: credentials.secret_access_key().unwrap(),
-        session_token: credentials.session_token(),
-    };
-    let credentials_provider = CredentialsProvider::new_static(&Allocator::default(), auth_config).unwrap();
     let mut test_config = TestSessionConfig {
-        auth_config: S3ClientAuthConfig::Provider(credentials_provider),
+        auth_config: get_auth_config(tokio_block_on(get_scoped_down_credentials(&policy))),
         ..Default::default()
     };
 
