@@ -6,7 +6,6 @@
 * No breaking changes.
 
 ### Other changes
-
 * Log messages now include file names and S3 keys more consistently.
   ([#665](https://github.com/awslabs/mountpoint-s3/pull/665))
 * Successful mount message is now output to stdout for both foreground and background mode.
