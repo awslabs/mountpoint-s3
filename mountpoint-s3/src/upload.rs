@@ -25,12 +25,17 @@ pub struct Uploader<Client> {
 struct UploaderInner<Client> {
     client: Arc<Client>,
     storage_class: Option<String>,
+    trailing_checksum: bool,
 }
 
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
-        let inner = UploaderInner { client, storage_class };
+    pub fn new(client: Arc<Client>, storage_class: Option<String>, trailing_checksum: bool) -> Self {
+        let inner = UploaderInner {
+            client,
+            storage_class,
+            trailing_checksum,
+        };
         Self { inner: Arc::new(inner) }
     }
 
@@ -64,6 +69,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     hasher: Hasher,
+    trailing_checksum: bool,
     request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
 }
@@ -74,7 +80,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         bucket: &str,
         key: &str,
     ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
-        let mut params = PutObjectParams::new().trailing_checksums(true);
+        let mut params = PutObjectParams::new().trailing_checksum(inner.trailing_checksum);
 
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
@@ -88,6 +94,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             key: key.to_owned(),
             next_request_offset: 0,
             hasher: Hasher::new(),
+            trailing_checksum: inner.trailing_checksum,
             request,
             maximum_upload_size,
         })
@@ -115,7 +122,9 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             }
         }
 
-        self.hasher.update(data);
+        if self.trailing_checksum {
+            self.hasher.update(data);
+        }
         self.request.write(data).await?;
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
@@ -123,10 +132,14 @@ impl<Client: ObjectClient> UploadRequest<Client> {
 
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
         let size = self.size();
-        let checksum = self.hasher.finalize();
-        self.request
-            .review_and_complete(move |review| verify_checksums(review, size, checksum))
-            .await
+        if self.trailing_checksum {
+            let checksum = self.hasher.finalize();
+            self.request
+                .review_and_complete(move |review| verify_checksums(review, size, checksum))
+                .await
+        } else {
+            self.request.complete().await
+        }
     }
 }
 
@@ -193,8 +206,10 @@ mod tests {
     };
     use test_case::test_case;
 
+    #[test_case(true; "trailing_checksum_on")]
+    #[test_case(false; "trailing_checksum_off")]
     #[tokio::test]
-    async fn complete_test() {
+    async fn complete_test(trailing_checksum: bool) {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
@@ -204,7 +219,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None);
+        let uploader = Uploader::new(client.clone(), None, trailing_checksum);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -216,8 +231,10 @@ mod tests {
         assert!(!client.is_upload_in_progress(key));
     }
 
+    #[test_case(true; "trailing_checksum_on")]
+    #[test_case(false; "trailing_checksum_off")]
     #[tokio::test]
-    async fn write_order_test() {
+    async fn write_order_test(trailing_checksum: bool) {
         let bucket = "bucket";
         let name = "hello";
         let key = name;
@@ -228,7 +245,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()));
+        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()), trailing_checksum);
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
@@ -277,7 +294,7 @@ mod tests {
             put_failures,
         ));
 
-        let uploader = Uploader::new(failure_client.clone(), None);
+        let uploader = Uploader::new(failure_client.clone(), None, true);
 
         // First request fails on first write.
         {
@@ -318,7 +335,7 @@ mod tests {
             part_size: PART_SIZE,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None);
+        let uploader = Uploader::new(client.clone(), None, true);
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;

@@ -360,7 +360,7 @@ pub mod s3_session {
             if let Some(storage_class) = params.storage_class {
                 request = request.set_storage_class(Some(storage_class.as_str().into()));
             }
-            if params.trailing_checksums {
+            if params.trailing_checksum {
                 request = request.set_checksum_algorithm(Some(ChecksumAlgorithm::Crc32C));
             }
             tokio_block_on(request.send())

@@ -271,7 +271,7 @@ pub enum GetObjectAttributesError {
 #[non_exhaustive]
 pub struct PutObjectParams {
     /// Enable Crc32c trailing checksums.
-    pub trailing_checksums: bool,
+    pub trailing_checksum: bool,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
 }
@@ -283,8 +283,8 @@ impl PutObjectParams {
     }
 
     /// Set Crc32c trailing checksums.
-    pub fn trailing_checksums(mut self, value: bool) -> Self {
-        self.trailing_checksums = value;
+    pub fn trailing_checksum(mut self, value: bool) -> Self {
+        self.trailing_checksum = value;
         self
     }
 
