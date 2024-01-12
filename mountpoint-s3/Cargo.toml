@@ -75,6 +75,7 @@ fuse_tests = []
 s3_tests = []
 s3express_tests = []
 shuttle = []
+sse_kms = []
 
 [build-dependencies]
 built = { version = "0.6.0", features = ["git2"] }
