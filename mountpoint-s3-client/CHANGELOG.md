@@ -1,3 +1,15 @@
+## v0.6.2 (January 12, 2024)
+
+### Breaking changes
+
+* No breaking changes.
+
+### Other changes
+
+* Individual S3 requests made as part of meta requests are no longer logged at WARN, only DEBUG. For those log entries, the CRT error is now output to the logs. ([#669](https://github.com/awslabs/mountpoint-s3/pull/669))
+* Client user-agent now includes `-dirty` suffix to indicate when the client was built with uncommitted changes. ([#678](https://github.com/awslabs/mountpoint-s3/pull/678))
+
+
 ## v0.6.1 (December 1, 2023)
 
 ### Breaking changes
