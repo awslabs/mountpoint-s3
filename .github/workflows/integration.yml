@@ -31,7 +31,7 @@ env:
   S3_OLAP_ARN: ${{ vars.S3_OLAP_ARN }}
   S3_MRAP_ARN: ${{ vars.S3_MRAP_ARN }}
   KMS_TEST_KEY_ID: ${{ vars.KMS_TEST_KEY_ID }}
-  RUST_FEATURES: fuse_tests,s3_tests,fips_tests,sse-kms
+  RUST_FEATURES: fuse_tests,s3_tests,fips_tests,sse_kms
 
 permissions:
   id-token: write
