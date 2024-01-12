@@ -269,14 +269,14 @@ struct CliArgs {
     )]
     pub user_agent_prefix: Option<String>,
 
-    #[cfg(feature = "sse-kms")]
+    #[cfg(feature = "sse_kms")]
     #[clap(
         long,
         help = "The server-side encryption algorithm used when storing this object in Amazon S3",
         help_heading = BUCKET_OPTIONS_HEADER)]
     pub server_side_encryption: Option<ServerSideEncryptionArg>,
 
-    #[cfg(feature = "sse-kms")]
+    #[cfg(feature = "sse_kms")]
     #[clap(
         long,
         help = "Specifies the ID (Key ID, Key ARN, or Key Alias) of the symmetric encryption customer managed key to use for object encryption.",
@@ -623,11 +623,11 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.s3_personality =
         get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
 
-    #[cfg(feature = "sse-kms")]
+    #[cfg(feature = "sse_kms")]
     if let Some(sse) = args.server_side_encryption {
         filesystem_config.server_side_encryption = sse.0;
     }
-    #[cfg(feature = "sse-kms")]
+    #[cfg(feature = "sse_kms")]
     match filesystem_config.server_side_encryption {
         ServerSideEncryption::Default => (),
         ServerSideEncryption::Kms { ref mut key_id } => *key_id = args.sse_kms_key_id,
