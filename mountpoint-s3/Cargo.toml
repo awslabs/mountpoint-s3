@@ -1,6 +1,6 @@
 [package]
 name = "mountpoint-s3"
-version = "1.3.2"
+version = "1.3.1"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -75,6 +75,7 @@ fuse_tests = []
 s3_tests = []
 s3express_tests = []
 shuttle = []
+sse_kms = []
 
 [build-dependencies]
 built = { version = "0.6.0", features = ["git2"] }
