@@ -122,6 +122,7 @@ impl ToErrno for InodeError {
             InodeError::InodeNotWritable(_) => libc::EPERM,
             InodeError::InodeAlreadyWriting(_) => libc::EPERM,
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
+            InodeError::InodeNotWritableWhileReading(_) => libc::EPERM,
             InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
             InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
             InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
