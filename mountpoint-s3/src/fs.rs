@@ -68,8 +68,13 @@ where
 {
     /// A state where the file handle is created but the type is not yet determined
     Created { lookup: LookedUp, flags: i32, pid: u32 },
-    /// A state where type is already assigned to the file handle
-    Assigned(FileHandleType<Client, Prefetcher>),
+    /// The file handle has been assigned as a read handle
+    Read {
+        request: Prefetcher::PrefetchResult<Client>,
+        pid: u32,
+    },
+    /// The file handle has been assigned as a write handle
+    Write(UploadState<Client>),
     /// The file handle is already closed, currently only used to tell that the read is finished
     Closed,
 }
@@ -81,55 +86,36 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileHandleState::Assigned(typ) => f.debug_tuple("Assigned").field(typ).finish(),
             FileHandleState::Created { lookup, flags, pid } => f
                 .debug_struct("Created")
                 .field("lookup", lookup)
                 .field("flags", flags)
                 .field("pid", pid)
                 .finish(),
+            FileHandleState::Read { request: _, pid } => f.debug_struct("Read").field("pid", pid).finish(),
+            FileHandleState::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
             FileHandleState::Closed => f.debug_struct("Closed").finish(),
         }
     }
 }
 
-enum FileHandleType<Client, Prefetcher>
-where
-    Client: ObjectClient + Send + Sync + 'static,
-    Prefetcher: Prefetch,
-{
-    Read {
-        request: AsyncMutex<Prefetcher::PrefetchResult<Client>>,
-        pid: u32,
-    },
-    Write(AsyncMutex<UploadState<Client>>),
-}
-
-impl<Client, Prefetcher> std::fmt::Debug for FileHandleType<Client, Prefetcher>
-where
-    Client: ObjectClient + Send + Sync + 'static + std::fmt::Debug,
-    Prefetcher: Prefetch,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Read { request: _, pid } => f.debug_struct("Read").field("pid", pid).finish(),
-            Self::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
-        }
-    }
-}
-
-impl<Client, Prefetcher> FileHandleType<Client, Prefetcher>
+impl<Client, Prefetcher> FileHandleState<Client, Prefetcher>
 where
     Client: ObjectClient + Send + Sync,
     Prefetcher: Prefetch,
 {
+    async fn new(lookup: LookedUp, flags: i32, pid: u32) -> Self {
+        metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
+        FileHandleState::Created { lookup, flags, pid }
+    }
+
     async fn new_write_handle(
         lookup: &LookedUp,
         ino: InodeNo,
         flags: i32,
         pid: u32,
         fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<FileHandleType<Client, Prefetcher>, Error> {
+    ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
         if flags & libc::O_ACCMODE == libc::O_RDONLY {
             return Err(err!(libc::EBADF, "file handle is not open for writes"));
         }
@@ -152,7 +138,7 @@ where
             Err(e) => {
                 return Err(err!(libc::EIO, source:e, "put failed to start"));
             }
-            Ok(request) => FileHandleType::Write(UploadState::InProgress { request, handle }.into()),
+            Ok(request) => FileHandleState::Write(UploadState::InProgress { request, handle }),
         };
         metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "write");
         Ok(handle)
@@ -163,7 +149,7 @@ where
         flags: i32,
         pid: u32,
         fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<FileHandleType<Client, Prefetcher>, Error> {
+    ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
         if flags & libc::O_WRONLY != 0 {
             return Err(err!(libc::EBADF, "file handle is not open for reads",));
         }
@@ -182,9 +168,8 @@ where
         };
         let request = fs
             .prefetcher
-            .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone())
-            .into();
-        let handle = FileHandleType::Read { request, pid };
+            .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone());
+        let handle = FileHandleState::Read { request, pid };
         metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "read");
         Ok(handle)
     }
@@ -674,8 +659,7 @@ where
         }
 
         // All file handles will be lazy initialized on first read/write.
-        let state = FileHandleState::Created { lookup, flags, pid }.into();
-        metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
+        let state = FileHandleState::new(lookup, flags, pid).await.into();
         let fh = self.next_handle();
         let handle = FileHandle { inode, full_key, state };
         debug!(fh, ino, "new file handle created");
@@ -713,25 +697,20 @@ where
         };
         logging::record_name(handle.inode.name());
         let mut state = handle.state.lock().await;
-        let typ = match &*state {
-            FileHandleState::Assigned(typ) => typ,
+        let request = match &mut *state {
             FileHandleState::Created { lookup, flags, pid, .. } => {
-                let handle_type = FileHandleType::new_read_handle(lookup, *flags, *pid, self).await?;
                 metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
 
-                *state = FileHandleState::Assigned(handle_type);
-                if let FileHandleState::Assigned(typ) = &*state {
-                    typ
+                *state = FileHandleState::new_read_handle(lookup, *flags, *pid, self).await?;
+                if let FileHandleState::Read { request, .. } = &mut *state {
+                    request
                 } else {
                     unreachable!("handle type always be assigned above");
                 }
             }
+            FileHandleState::Read { request, .. } => request,
+            FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
             FileHandleState::Closed => return Err(err!(libc::EBADF, "file handle is already closed")),
-        };
-
-        let mut request = match typ {
-            FileHandleType::Write { .. } => return Err(err!(libc::EBADF, "file handle is not open for reads")),
-            FileHandleType::Read { request, .. } => request.lock().await,
         };
 
         match request.read(offset as u64, size as usize).await {
@@ -822,25 +801,21 @@ where
 
         let len = {
             let mut state = handle.state.lock().await;
-            let typ = match &*state {
-                FileHandleState::Assigned(typ) => typ,
+            let request = match &mut *state {
                 FileHandleState::Created { lookup, flags, pid } => {
-                    let handle_type = FileHandleType::new_write_handle(lookup, ino, *flags, *pid, self).await?;
-                    *state = FileHandleState::Assigned(handle_type);
+                    *state = FileHandleState::new_write_handle(lookup, ino, *flags, *pid, self).await?;
                     metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
-                    if let FileHandleState::Assigned(typ) = &*state {
-                        typ
+                    if let FileHandleState::Write(request) = &mut *state {
+                        request
                     } else {
                         unreachable!("handle type always be assigned above");
                     }
                 }
+                FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
+                FileHandleState::Write(request) => request,
                 FileHandleState::Closed => return Err(err!(libc::EBADF, "file handle is already closed")),
             };
 
-            let mut request = match typ {
-                FileHandleType::Write(request) => request.lock().await,
-                FileHandleType::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-            };
             request.write(offset, data, &handle.full_key).await?
         };
         handle.inode.inc_file_size(len as usize);
@@ -1028,41 +1003,14 @@ where
         }
     }
 
-    async fn complete_upload(&self, fh: u64, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
-        let file_handle = {
-            let file_handles = self.file_handles.read().await;
-            match file_handles.get(&fh) {
-                Some(handle) => handle.clone(),
-                None => return Err(err!(libc::EBADF, "invalid file handle")),
-            }
-        };
-        logging::record_name(file_handle.inode.name());
-        let mut state = file_handle.state.lock().await;
-        let typ: &FileHandleType<Client, Prefetcher> = match &*state {
-            FileHandleState::Assigned(typ) => typ,
-            FileHandleState::Created { lookup, flags, pid } => {
-                let is_truncate = flags & libc::O_TRUNC != 0;
-                if !is_truncate && lookup.inode.is_remote()? {
-                    return Ok(());
-                } else {
-                    let handle_type =
-                        FileHandleType::new_write_handle(lookup, lookup.inode.ino(), *flags, *pid, self).await?;
-                    *state = FileHandleState::Assigned(handle_type);
-                    metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
-                    if let FileHandleState::Assigned(typ) = &*state {
-                        typ
-                    } else {
-                        unreachable!("handle type always be assigned above");
-                    }
-                }
-            }
-            FileHandleState::Closed => return Ok(()),
-        };
-        let mut request = match typ {
-            FileHandleType::Write(request) => request.lock().await,
-            FileHandleType::Read { .. } => return Ok(()),
-        };
-        match request.complete(&file_handle.full_key, ignore_if_empty, pid).await {
+    async fn complete_upload(
+        &self,
+        request: &mut UploadState<Client>,
+        full_key: &str,
+        ignore_if_empty: bool,
+        pid: Option<u32>,
+    ) -> Result<(), Error> {
+        match request.complete(full_key, ignore_if_empty, pid).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -1070,7 +1018,7 @@ where
         }
     }
 
-    async fn stop_prefetch(&self, fh: u64, pid: u32) -> Result<(), Error> {
+    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -1080,36 +1028,35 @@ where
         };
         logging::record_name(file_handle.inode.name());
         let mut state = file_handle.state.lock().await;
-        let typ = match &*state {
-            FileHandleState::Assigned(typ) => typ,
-            FileHandleState::Created { .. } | FileHandleState::Closed => return Ok(()),
-        };
-
-        match typ {
-            FileHandleType::Write(_) => return Ok(()),
-            FileHandleType::Read { pid: open_pid, .. } => {
-                if !are_from_same_process(*open_pid, pid) {
-                    trace!(
-                        file_handle.full_key,
-                        pid,
-                        open_pid,
-                        "not stopping prefetch because current pid differs from pid at open"
-                    );
+        let request = match &mut *state {
+            FileHandleState::Created { lookup, flags, pid } => {
+                // This happens when users call fsync without any read() or write() requests,
+                // since we don't know what type of handle it would be we need to consider what
+                // to do next for both cases.
+                // * if the file is new or opened in truncate mode, we know it must be a write
+                //   handle so we can start an upload and complete it immediately, result in an
+                //   empty file.
+                // * if the file already exists and it is not opened in truncate mode, we still
+                //   can't be sure of its type so we will do nothing and just return ok.
+                let is_new_file = !lookup.inode.is_remote()?;
+                let is_truncate = *flags & libc::O_TRUNC != 0;
+                if is_new_file || is_truncate {
+                    *state = FileHandleState::new_write_handle(lookup, lookup.inode.ino(), *flags, *pid, self).await?;
+                    metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
+                    if let FileHandleState::Write(request) = &mut *state {
+                        request
+                    } else {
+                        unreachable!("handle type always be assigned above");
+                    }
+                } else {
                     return Ok(());
                 }
-                // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
-                file_handle.inode.finish_reading()?;
-
-                // Mark the file handle state as closed so we only update the reader count once
-                *state = FileHandleState::Closed;
-                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "read");
             }
+            FileHandleState::Read { .. } => return Ok(()),
+            FileHandleState::Write(request) => request,
+            FileHandleState::Closed => return Ok(()),
         };
-        Ok(())
-    }
-
-    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
-        self.complete_upload(fh, false, None).await
+        self.complete_upload(request, &file_handle.full_key, false, None).await
     }
 
     pub async fn flush(&self, _ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
@@ -1126,11 +1073,61 @@ where
         //   process. In many cases, the child will then immediately close (flush) the duplicated
         //   file descriptors. We will not complete the upload if we can detect that the process
         //   invoking flush is different from the one that originally opened the file.
-        self.complete_upload(fh, true, Some(pid)).await?;
+        //
         // The same for read path. We want to stop the prefetcher and decrease the reader count
         // as soon as users close a file descriptor so that we don't block users from doing other
         // operation like overwrite the file.
-        self.stop_prefetch(fh, pid).await
+        let file_handle = {
+            let file_handles = self.file_handles.read().await;
+            match file_handles.get(&fh) {
+                Some(handle) => handle.clone(),
+                None => return Err(err!(libc::EBADF, "invalid file handle")),
+            }
+        };
+        logging::record_name(file_handle.inode.name());
+        let mut state = file_handle.state.lock().await;
+        match &mut *state {
+            FileHandleState::Created { lookup, flags, pid } => {
+                // This happens when users close a file without calling any read() or write(),
+                // since we don't know what type of handle it would be we need to consider what
+                // to do next for both cases.
+                // * if the file is new or opened in truncate mode, we know it must be a write
+                //   handle so we can start an upload from here.
+                // * if the file already exists and it is not opened in truncate mode, we still
+                //   can't be sure of its type so we will do nothing and just return ok.
+                let is_new_file = !lookup.inode.is_remote()?;
+                let is_truncate = *flags & libc::O_TRUNC != 0;
+                if is_new_file || is_truncate {
+                    let pid = *pid;
+                    *state = FileHandleState::new_write_handle(lookup, lookup.inode.ino(), *flags, pid, self).await?;
+                    metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
+                }
+                Ok(())
+            }
+            FileHandleState::Read { pid: open_pid, .. } => {
+                if !are_from_same_process(*open_pid, pid) {
+                    trace!(
+                        file_handle.full_key,
+                        pid,
+                        open_pid,
+                        "not stopping prefetch because current pid differs from pid at open"
+                    );
+                    return Ok(());
+                }
+                // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
+                file_handle.inode.finish_reading()?;
+
+                // Mark the file handle state as closed so we only update the reader count once
+                *state = FileHandleState::Closed;
+                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "read");
+                Ok(())
+            }
+            FileHandleState::Write(request) => {
+                self.complete_upload(request, &file_handle.full_key, true, Some(pid))
+                    .await
+            }
+            FileHandleState::Closed => Ok(()),
+        }
     }
 
     pub async fn release(
@@ -1162,43 +1159,44 @@ where
         };
 
         let mut state = file_handle.state.into_inner();
-        let typ = match state {
-            FileHandleState::Assigned(typ) => typ,
+        let request = match state {
             FileHandleState::Created { lookup, flags, pid } => {
-                if lookup.inode.is_remote()? {
-                    return Ok(());
-                } else {
-                    let handle_type =
-                        FileHandleType::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?;
-                    state = FileHandleState::Assigned(handle_type);
+                // This happens when release is called before any read() or write(),
+                // since we don't know what type of handle it would be we need to consider
+                // what to do next for both cases.
+                // * if the file is new or opened in truncate mode, we know it must be a write
+                //   handle so we can start an upload from here.
+                // * if the file already exists and it is not opened in truncate mode, we still
+                //   can't be sure of its type so we will just drop it.
+                let is_new_file = !lookup.inode.is_remote()?;
+                let is_truncate = flags & libc::O_TRUNC != 0;
+                if is_new_file || is_truncate {
+                    state = FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?;
                     metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
-                    if let FileHandleState::Assigned(typ) = state {
-                        typ
+                    if let FileHandleState::Write(request) = state {
+                        request
                     } else {
                         unreachable!("handle type always be assigned above");
                     }
+                } else {
+                    return Ok(());
                 }
             }
-            FileHandleState::Closed => return Ok(()),
-        };
-        match typ {
-            FileHandleType::Write(request) => {
-                let result = request
-                    .into_inner()
-                    .complete_if_in_progress(&file_handle.full_key)
-                    .await;
-                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "write");
-                // Errors won't actually be seen by the user because `release` is async,
-                // but it's the right thing to do.
-                result
-            }
-            FileHandleType::Read { .. } => {
+            FileHandleState::Read { .. } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 file_handle.inode.finish_reading()?;
                 metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "read");
-                Ok(())
+                return Ok(());
             }
-        }
+            FileHandleState::Write(request) => request,
+            FileHandleState::Closed => return Ok(()),
+        };
+
+        let result = request.complete_if_in_progress(&file_handle.full_key).await;
+        metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "write");
+        // Errors won't actually be seen by the user because `release` is async,
+        // but it's the right thing to do.
+        result
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {

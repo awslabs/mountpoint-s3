@@ -1098,14 +1098,14 @@ impl WriteHandle {
             WriteStatus::Remote => {
                 if !self.allow_overwrite {
                     tracing::warn!(
-                        "file overwrite is disabled by default, you can remount with --allow-overwrite to enable it"
+                        "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
                     );
                     return Err(InodeError::InodeNotWritable(inode.err()));
                 }
 
                 if !self.is_truncate {
                     tracing::warn!(
-                        "modifying an existing file is only allowed when the file is opened in truncate mode"
+                        "modifying an existing file is only allowed when the file is opened in truncate mode (O_TRUNC)"
                     );
                     return Err(InodeError::InodeNotWritable(inode.err()));
                 }
