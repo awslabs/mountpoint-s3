@@ -1087,23 +1087,7 @@ where
         logging::record_name(file_handle.inode.name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
-            FileHandleState::Created { lookup, flags, pid } => {
-                // This happens when users close a file without calling any read() or write(),
-                // since we don't know what type of handle it would be we need to consider what
-                // to do next for both cases.
-                // * if the file is new or opened in truncate mode, we know it must be a write
-                //   handle so we can start an upload from here.
-                // * if the file already exists and it is not opened in truncate mode, we still
-                //   can't be sure of its type so we will do nothing and just return ok.
-                let is_new_file = !lookup.inode.is_remote()?;
-                let is_truncate = *flags & libc::O_TRUNC != 0;
-                if is_new_file || is_truncate {
-                    let pid = *pid;
-                    *state = FileHandleState::new_write_handle(lookup, lookup.inode.ino(), *flags, pid, self).await?;
-                    metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
-                }
-                Ok(())
-            }
+            FileHandleState::Created { .. } => Ok(()),
             FileHandleState::Read { pid: open_pid, .. } => {
                 if !are_from_same_process(*open_pid, pid) {
                     trace!(
