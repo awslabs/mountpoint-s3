@@ -12,11 +12,11 @@ use tempfile::TempDir;
 use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
-#[cfg(feature = "s3_tests")]
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::config::ServerSideEncryption;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
-#[cfg(feature = "s3_tests")]
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use crate::common::{get_auth_config, get_scoped_down_credentials, s3::get_test_kms_key_id, s3::tokio_block_on};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
@@ -825,6 +825,7 @@ fn overwrite_test_mock(prefix: &str) {
 
 #[cfg(feature = "s3_tests")]
 #[test]
+#[cfg(not(feature = "s3express_tests"))]
 fn write_with_sse_settings_test() {
     let sse_key = get_test_kms_key_id();
 

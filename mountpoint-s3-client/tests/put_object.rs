@@ -5,7 +5,9 @@ pub mod common;
 use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig, ServerSideEncryption};
+#[cfg(not(feature = "s3express_tests"))]
+use mountpoint_s3_client::config::ServerSideEncryption;
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
@@ -326,6 +328,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
     assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
 }
 
+#[cfg(not(feature = "s3express_tests"))]
 async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncryption) {
     let sdk_client = get_test_sdk_client().await;
     let mut request = sdk_client.head_object();
@@ -367,6 +370,7 @@ async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncrypti
 #[test_case(ServerSideEncryption::Kms{ key_id: None })]
 #[test_case(ServerSideEncryption::Default)]
 #[tokio::test]
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse(input_sse: ServerSideEncryption) {
     let bucket = get_test_bucket();
     let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
@@ -400,6 +404,7 @@ async fn test_put_object_sse(input_sse: ServerSideEncryption) {
 #[should_panic(
     expected = "PUT response headers [\"x-amz-server-side-encryption-aws-kms-key-id\"] are missing or have an unexpacted value"
 )]
+#[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse_unexpected_headers() {
     let input_sse = ServerSideEncryption::Kms {
         key_id: Some(get_test_kms_key_id()),
