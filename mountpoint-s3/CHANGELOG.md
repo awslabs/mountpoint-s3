@@ -1,5 +1,8 @@
 ## Unreleased
 
+### New features
+* Allow file overwrites when mounting with `--allow-overwrite` option. The upload will start as soon as Mountpoint receives `write` request and cannot be aborted. Once it is started the file is guaranteed to be overwritten.
+
 ## v1.3.2 (January 11, 2024)
 
 ### Breaking changes

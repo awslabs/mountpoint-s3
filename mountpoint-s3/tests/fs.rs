@@ -582,8 +582,13 @@ async fn test_sequential_write(write_size: usize) {
     let file_ino = dentry.attr.ino;
 
     // First let's check that we can't write it again
-    let result = fs
+    let fh = fs
         .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .await
+        .unwrap()
+        .fh;
+    let result = fs
+        .write(file_ino, fh, offset, &[0xaa; 27], 0, 0, None)
         .await
         .expect_err("file should not be overwritable")
         .to_errno();
@@ -666,14 +671,22 @@ async fn test_duplicate_write_fails() {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let _opened = fs
+    let opened = fs
         .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
         .await
         .unwrap();
+    _ = fs
+        .write(file_ino, opened.fh, 0, &[0xaa; 27], 0, 0, None)
+        .await
+        .expect("first write should succeed");
 
-    // Should not be allowed to open the file a second time
-    let err = fs
+    let opened = fs
         .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .await
+        .expect("open should succeed");
+    // Should not be allowed to write the file a second time
+    let err = fs
+        .write(file_ino, opened.fh, 0, &[0xaa; 27], 0, 0, None)
         .await
         .expect_err("should not be able to write twice")
         .to_errno();
@@ -1206,12 +1219,20 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(entry.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(entry.ino, libc::O_RDONLY, 0).await;
+        let open = fs
+            .open(entry.ino, libc::O_RDONLY, 0)
+            .await
+            .expect("open should succeed");
+        let read_result = fs.read(entry.ino, open.fh, 0, 4096, 0, None).await;
         if flexible_retrieval {
-            let err = open.expect_err("can't open flexible retrieval objects");
+            let err = read_result.expect_err("can't read flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
         } else {
-            let open = open.expect("instant retrieval files are readable");
+            assert_eq!(
+                &read_result.unwrap()[..],
+                b"hello world",
+                "instant retrieval files are readable"
+            );
             fs.release(entry.ino, open.fh, 0, None, true).await.unwrap();
         }
     }
@@ -1237,12 +1258,20 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(lookup.attr.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(lookup.attr.ino, libc::O_RDONLY, 0).await;
+        let open = fs
+            .open(lookup.attr.ino, libc::O_RDONLY, 0)
+            .await
+            .expect("open should succeed");
+        let read_result = fs.read(lookup.attr.ino, open.fh, 0, 4096, 0, None).await;
         if flexible_retrieval {
-            let err = open.expect_err("can't open flexible retrieval objects");
+            let err = read_result.expect_err("can't read flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
         } else {
-            let open = open.expect("instant retrieval files are readable");
+            assert_eq!(
+                &read_result.unwrap()[..],
+                b"hello world",
+                "instant retrieval files are readable"
+            );
             fs.release(lookup.attr.ino, open.fh, 0, None, true).await.unwrap();
         }
     }

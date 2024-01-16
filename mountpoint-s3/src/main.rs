@@ -112,6 +112,13 @@ struct CliArgs {
     )]
     pub allow_delete: bool,
 
+    #[clap(
+        long,
+        help = "Allow overwrite operations on file system",
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
+    pub allow_overwrite: bool,
+
     #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
 
@@ -574,6 +581,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     }
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
+    filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality =
         get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
 

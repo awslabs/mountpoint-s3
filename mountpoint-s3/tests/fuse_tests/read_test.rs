@@ -1,12 +1,14 @@
 use std::fs::{read_dir, File};
-use std::io::{Read as _, Seek, SeekFrom};
+use std::io::{Read as _, Seek, SeekFrom, Write};
 #[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
+use std::path::Path;
 #[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
 use fuser::BackgroundSession;
 use mountpoint_s3::data_cache::InMemoryDataCache;
+use mountpoint_s3::S3FilesystemConfig;
 #[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
@@ -17,7 +19,15 @@ use test_case::test_case;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 
-fn basic_read_test<F>(creator_fn: F, prefix: &str)
+fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<File> {
+    let mut options = File::options();
+    if !read_only {
+        options.write(true);
+    }
+    options.read(true).open(path)
+}
+
+fn basic_read_test<F>(creator_fn: F, prefix: &str, read_only: bool)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
@@ -34,15 +44,23 @@ where
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["hello.txt", "test2MiB.bin"]);
 
-    let mut hello = File::open(mount_point.path().join("hello.txt")).unwrap();
+    let mut hello_fh1 = open_for_read(mount_point.path().join("hello.txt"), read_only).unwrap();
     let mut hello_contents = String::new();
-    hello.read_to_string(&mut hello_contents).unwrap();
+    hello_fh1.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
-    drop(hello);
+
+    // We can read from a file more than once at the same time.
+    let mut hello_fh2 = open_for_read(mount_point.path().join("hello.txt"), read_only).unwrap();
+    let mut hello_contents = String::new();
+    hello_fh2.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello world");
+
+    drop(hello_fh1);
+    drop(hello_fh2);
 
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
     // so we can make it weird.
-    let mut bin = File::open(mount_point.path().join("test2MiB.bin")).unwrap();
+    let mut bin = open_for_read(mount_point.path().join("test2MiB.bin"), read_only).unwrap();
     let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
@@ -65,32 +83,40 @@ where
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn basic_read_test_s3() {
-    basic_read_test(fuse::s3_session::new, "basic_read_test");
+#[test_case(true; "read only")]
+#[test_case(false; "readwrite")]
+fn basic_read_test_s3(read_only: bool) {
+    basic_read_test(fuse::s3_session::new, "basic_read_test", read_only);
 }
 
 #[cfg(feature = "s3_tests")]
-#[test]
-fn basic_read_test_s3_with_cache() {
+#[test_case(true; "read only")]
+#[test_case(false; "readwrite")]
+fn basic_read_test_s3_with_cache(read_only: bool) {
     basic_read_test(
         fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
-        "basic_read_test",
+        "basic_read_test_with_cache",
+        read_only,
     );
 }
 
-#[test_case("")]
-#[test_case("basic_read_test")]
-fn basic_read_test_mock(prefix: &str) {
-    basic_read_test(fuse::mock_session::new, prefix);
+#[test_case("", true; "no prefix read only")]
+#[test_case("", false; "no prefix readwrite")]
+#[test_case("basic_read_test", true; "prefix read only")]
+#[test_case("basic_read_test", false; "prefix readwrite")]
+fn basic_read_test_mock(prefix: &str, read_only: bool) {
+    basic_read_test(fuse::mock_session::new, prefix, read_only);
 }
 
-#[test_case("")]
-#[test_case("basic_read_test")]
-fn basic_read_test_mock_with_cache(prefix: &str) {
+#[test_case("", true; "no prefix read only")]
+#[test_case("", false; "no prefix readwrite")]
+#[test_case("basic_read_test_with_cache", true; "prefix read only")]
+#[test_case("basic_read_test_with_cache", false; "prefix readwrite")]
+fn basic_read_test_mock_with_cache(prefix: &str, read_only: bool) {
     basic_read_test(
         fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
         prefix,
+        read_only,
     );
 }
 
@@ -222,4 +248,64 @@ fn read_flexible_retrieval_restoring_test_s3() {
         RESTORING_FILES,
         RestorationOptions::RestoreInProgress,
     );
+}
+
+fn read_errors_test<F>(creator_fn: F, prefix: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    test_client.put_object("hello.txt", b"hello world").unwrap();
+
+    let file_path = mount_point.path().join("hello.txt");
+
+    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    assert_eq!(dir_entry_names, vec!["hello.txt"]);
+
+    // Overwrite the test file and verify that we can't read from a file opened in O_WRONLY
+    let mut write_fh = File::options().write(true).open(&file_path).unwrap();
+    let mut contents = String::new();
+    let err = write_fh.read_to_string(&mut contents).expect_err("read should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+    drop(write_fh);
+
+    // We shouldn't be able to read from a file mid-write in O_RDWR
+    let mut fh = File::options()
+        .write(true)
+        .read(true)
+        .create(true)
+        .truncate(true)
+        .open(&file_path)
+        .unwrap();
+    fh.write_all(b"new contents").expect("write should succeed");
+    fh.seek(std::io::SeekFrom::End(-1)).unwrap();
+    let err = fh.read_to_string(&mut contents).expect_err("read should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+
+    // Read should also fail from different file handle
+    let mut read_fh = open_for_read(&file_path, true).unwrap();
+    let err = read_fh.read_to_string(&mut contents).expect_err("read should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn read_errors_test_s3() {
+    read_errors_test(fuse::s3_session::new, "read_errors_test");
+}
+
+#[test_case(""; "no prefix")]
+#[test_case("read_errors_test"; "prefix")]
+fn read_errors_test_mock(prefix: &str) {
+    read_errors_test(fuse::mock_session::new, prefix);
 }

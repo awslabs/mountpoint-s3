@@ -13,7 +13,7 @@ While the rest of this document gives details on specific file system behaviors,
 
 Mountpoint supports opening and reading existing objects from your S3 bucket. It is optimized for reading large files sequentially, and will automatically make multiple concurrent requests to S3 to improve throughput when reads are sequential. Mountpoint also supports random reads from an existing object, including seeking in an open file.
 
-Mountpoint supports writing only to new files, and writes to new files must be made sequentially. If you try to open an existing file with write access, the open operation will fail with a permissions error. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`.
+Mountpoint supports writing only to new files by default. Writes to existing files are allowed if `--allow-overwrite` flag is set at startup time, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. All writes must start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`.
 
 By default, Mountpoint does not allow deleting existing objects with commands like `rm`. To enable deletion, pass the `--allow-delete` flag to Mountpoint at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. We recommend that you enable [Bucket Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) to help protect against unintentionally deleting objects. You cannot delete a file while it is being written.
 
@@ -153,19 +153,23 @@ Windows-style path delimiters (`\`) are not supported.
 #### Reads
 
 Basic read-only operations are fully supported, including both sequential and random reads:
-* `open`, `openat`. A file can be opened in read-write mode (`O_RDWR`), but you cannot both read and write to the same file descriptor even in this mode.
+* `open`, `openat`
 * `read`, `readv`, `pread`, `preadv`
 * `lseek`
 * `close`
+
+`open` creates a file handle and returns it back to the kernel. A file handle can only be used for one type of operation, either read or write, for its lifetime. You can open a file in read-write mode (`O_RDWR`), but you cannot both read and write to the same file descriptor even in this mode. The first `read` or `write` will determine the type of operation you can do with the file descriptor.
 
 #### Writes
 
 Mountpoint supports sequential write operations (through `write`, `writev`, `pwrite`, `pwritev`),
 but with some limitations:
 
-* Writes are only supported to new files, and must be done sequentially.
-* Modifying existing files is not supported.
-* Truncation is not supported.
+* Writes must start at the beginning of the file and be done sequentially.
+* Modifying an existing file is only allowed with the `--allow-overwrite` flag and only when the file is opened in truncate mode (`O_TRUNC`).
+    * You cannot overwrite files that are currently being read.
+    * The upload to S3 starts as soon as Mountpoint receives the first `write` request and cannot be cancelled.
+* Modifying an existing file without using truncate mode is not supported.
 
 Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow
 further writes.
