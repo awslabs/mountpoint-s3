@@ -120,6 +120,7 @@ impl ToErrno for InodeError {
             // Not obvious what InodeNotWritable, InodeAlreadyWriting, InodeNotReadableWhileWriting should be.
             // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files.
             InodeError::InodeNotWritable(_) => libc::EPERM,
+            InodeError::InodeInvalidWriteStatus(_) => libc::EPERM,
             InodeError::InodeAlreadyWriting(_) => libc::EPERM,
             InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
             InodeError::InodeNotWritableWhileReading(_) => libc::EPERM,

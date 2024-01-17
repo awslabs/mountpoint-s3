@@ -198,7 +198,7 @@ impl ReaddirHandle {
 
 /// A single entry in a readdir stream. Remote entries have not yet been converted to inodes -- that
 /// should be done lazily by the consumer of the entry.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ReaddirEntry {
     RemotePrefix { name: String },
     RemoteObject { name: String, object_info: ObjectInfo },
@@ -406,7 +406,7 @@ mod ordered {
         local: LocalIter,
         next_remote: Option<ReaddirEntry>,
         next_local: Option<ReaddirEntry>,
-        last_name: Option<String>,
+        last_entry: Option<ReaddirEntry>,
     }
 
     impl ReaddirIter {
@@ -421,7 +421,7 @@ mod ordered {
                 local: LocalIter::new(local_entries),
                 next_remote: None,
                 next_local: None,
-                last_name: None,
+                last_entry: None,
             }
         }
 
@@ -456,13 +456,16 @@ mod ordered {
                 // Deduplicate the entry we want to return
                 match next {
                     Some(entry) => {
-                        if self.last_name.as_deref() == Some(entry.name()) {
+                        let last_name = self.last_entry.as_ref().map(|entry| entry.name());
+                        let last_description = self.last_entry.as_ref().map(|entry| entry.description());
+                        if last_name == Some(entry.name()) {
                             warn!(
-                                "{} is shadowed by another entry with the same name and will be unavailable",
+                                "{} is omitted because another {} exist with the same name.\n",
                                 entry.description(),
+                                last_description.expect("Last entry should have some value as already checked"),
                             );
                         } else {
-                            self.last_name = Some(entry.name().to_owned());
+                            self.last_entry = Some(entry.clone());
                             return Ok(Some(entry));
                         }
                     }

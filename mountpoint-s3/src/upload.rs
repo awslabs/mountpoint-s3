@@ -49,7 +49,7 @@ pub enum UploadWriteError<E: std::error::Error> {
     #[error("put request failed")]
     PutRequestFailed(#[from] E),
 
-    #[error("out of order write; expected offset {expected_offset:?} but got {write_offset:?}")]
+    #[error("out of order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
     OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
 
     #[error("object exceeded maximum upload size of {maximum_size} bytes")]

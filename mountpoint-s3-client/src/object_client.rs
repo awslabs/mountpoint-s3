@@ -365,7 +365,7 @@ pub enum RestoreStatus {
 ///
 /// See [Object](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html) in the *Amazon S3
 /// API Reference* for more details.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ObjectInfo {
     /// Key for this object.
     pub key: String,
