@@ -1198,7 +1198,10 @@ where
 
     pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
         if !self.config.allow_delete {
-            return Err(err!(libc::EPERM, "deletes are disabled"));
+            return Err(err!(
+                libc::EPERM,
+                "Deletes are disabled. Use '--allow-delete' mount option to enable it."
+            ));
         }
         Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
     }
