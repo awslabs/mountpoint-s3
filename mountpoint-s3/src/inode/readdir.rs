@@ -458,7 +458,7 @@ mod ordered {
                     (Some(entry), Some(last_entry)) => {
                         if last_entry.name() == entry.name() {
                             warn!(
-                                "{} is omitted because another {} exist with the same name.\n",
+                                "{} is omitted because another {} exist with the same name",
                                 entry.description(),
                                 last_entry.description(),
                             );
