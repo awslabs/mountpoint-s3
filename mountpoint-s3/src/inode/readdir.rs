@@ -455,20 +455,24 @@ mod ordered {
 
                 // Deduplicate the entry we want to return
                 match next {
-                    Some(entry) => {
-                        let last_name = self.last_entry.as_ref().map(|entry| entry.name());
-                        let last_description = self.last_entry.as_ref().map(|entry| entry.description());
-                        if last_name == Some(entry.name()) {
-                            warn!(
-                                "{} is omitted because another {} exist with the same name.\n",
-                                entry.description(),
-                                last_description.expect("Last entry should have some value as already checked"),
-                            );
-                        } else {
+                    Some(entry) => match &self.last_entry {
+                        Some(last_entry) => {
+                            if last_entry.name() == entry.name() {
+                                warn!(
+                                    "{} is omitted because another {} exist with the same name.\n",
+                                    entry.description(),
+                                    last_entry.description(),
+                                );
+                            } else {
+                                self.last_entry = Some(entry.clone());
+                                return Ok(Some(entry));
+                            }
+                        }
+                        None => {
                             self.last_entry = Some(entry.clone());
                             return Ok(Some(entry));
                         }
-                    }
+                    },
                     None => return Ok(None),
                 }
             }
