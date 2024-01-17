@@ -454,26 +454,24 @@ mod ordered {
                 };
 
                 // Deduplicate the entry we want to return
-                match next {
-                    Some(entry) => match &self.last_entry {
-                        Some(last_entry) => {
-                            if last_entry.name() == entry.name() {
-                                warn!(
-                                    "{} is omitted because another {} exist with the same name.\n",
-                                    entry.description(),
-                                    last_entry.description(),
-                                );
-                            } else {
-                                self.last_entry = Some(entry.clone());
-                                return Ok(Some(entry));
-                            }
-                        }
-                        None => {
+                match (next, &self.last_entry) {
+                    (Some(entry), Some(last_entry)) => {
+                        if last_entry.name() == entry.name() {
+                            warn!(
+                                "{} is omitted because another {} exist with the same name.\n",
+                                entry.description(),
+                                last_entry.description(),
+                            );
+                        } else {
                             self.last_entry = Some(entry.clone());
                             return Ok(Some(entry));
                         }
-                    },
-                    None => return Ok(None),
+                    }
+                    (Some(entry), None) => {
+                        self.last_entry = Some(entry.clone());
+                        return Ok(Some(entry));
+                    }
+                    _ => return Ok(None),
                 }
             }
         }
