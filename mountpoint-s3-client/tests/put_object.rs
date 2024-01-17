@@ -337,27 +337,22 @@ async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncrypti
     }
     let head_object_resp: aws_sdk_s3::operation::head_object::HeadObjectOutput =
         request.key(key).send().await.expect("head object should succeed");
-    let expected_sse;
-    let mut expected_key = None;
-    match input_sse {
-        ServerSideEncryption::Default => expected_sse = Some(aws_sdk_s3::types::ServerSideEncryption::Aes256),
-        ServerSideEncryption::Kms { key_id } => {
-            expected_sse = Some(aws_sdk_s3::types::ServerSideEncryption::AwsKms);
-            expected_key = key_id.clone();
-        }
-        ServerSideEncryption::DualLayerKms { key_id } => {
-            expected_sse = Some(aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse);
-            expected_key = key_id.clone();
-        }
+    let expected_sse = match input_sse {
+        ServerSideEncryption::BucketDefault => aws_sdk_s3::types::ServerSideEncryption::Aes256,
+        ServerSideEncryption::Kms { .. } => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
+        ServerSideEncryption::DualLayerKms { .. } => aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse,
     };
-    assert_eq!(
-        head_object_resp.server_side_encryption, expected_sse,
-        "unexpected sse type"
-    );
-    assert!(
-        head_object_resp.ssekms_key_id.is_some() || matches!(input_sse, ServerSideEncryption::Default),
-        "must have a key for non-default ecnryption methods"
-    );
+    let actual_sse = head_object_resp
+        .server_side_encryption
+        .expect("SSE field should always have a value for this test");
+    assert_eq!(actual_sse, expected_sse, "unexpected sse type");
+    if !matches!(input_sse, ServerSideEncryption::BucketDefault) {
+        assert!(
+            head_object_resp.ssekms_key_id.is_some(),
+            "must have a key for non-default encryption methods",
+        );
+    }
+    let expected_key = input_sse.key_id();
     if expected_key.is_some() {
         // do not check the value of AWS managed key
         assert_eq!(head_object_resp.ssekms_key_id, expected_key, "unexpected sse key")
@@ -368,7 +363,7 @@ async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncrypti
 #[test_case(ServerSideEncryption::DualLayerKms{ key_id: None })]
 #[test_case(ServerSideEncryption::Kms{ key_id: Some(get_test_kms_key_id()) })]
 #[test_case(ServerSideEncryption::Kms{ key_id: None })]
-#[test_case(ServerSideEncryption::Default)]
+#[test_case(ServerSideEncryption::BucketDefault)]
 #[tokio::test]
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse(input_sse: ServerSideEncryption) {
@@ -402,7 +397,7 @@ async fn test_put_object_sse(input_sse: ServerSideEncryption) {
 // completion panics in case when actual SSE settings returned by S3 are different from what is expected.
 #[tokio::test]
 #[should_panic(
-    expected = "PUT response headers [\"x-amz-server-side-encryption-aws-kms-key-id\"] are missing or have an unexpacted value"
+    expected = "PUT response headers [\"x-amz-server-side-encryption-aws-kms-key-id\"] are missing or have an unexpected value"
 )]
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse_unexpected_headers() {
@@ -424,7 +419,7 @@ async fn test_put_object_sse_unexpected_headers() {
     let mut request = client
         .put_object(&bucket, &key, &request_params)
         .await
-        .expect("put_object should succeed");
+        .expect("CRT should be able to start put_object meta request");
 
     request.write(&contents).await.unwrap();
     request.expected_headers = vec![

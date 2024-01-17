@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, ServerSideEncryption,
-};
+use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
@@ -47,28 +45,15 @@ impl S3CrtClient {
                 .set_header(&Header::new("x-amz-storage-class", storage_class))
                 .map_err(S3RequestError::construction_failure)?;
         }
-        let mut maybe_sse = None;
-        let mut maybe_key_id = None;
-        match params.server_side_encryption.to_owned() {
-            ServerSideEncryption::Default => (),
-            ServerSideEncryption::Kms { key_id } => {
-                maybe_sse = Some("aws:kms");
-                maybe_key_id = key_id;
-            }
-            ServerSideEncryption::DualLayerKms { key_id } => {
-                maybe_sse = Some("aws:kms:dsse");
-                maybe_key_id = key_id;
-            }
-        }
         let mut expected_headers = Vec::new();
-        if let Some(sse) = maybe_sse {
+        if let Some(sse) = params.server_side_encryption.sse_type() {
             let header_name = "x-amz-server-side-encryption";
-            expected_headers.push((header_name.to_owned(), sse.to_owned()));
+            expected_headers.push((header_name.to_owned(), sse.clone()));
             message
                 .set_header(&Header::new(header_name, sse))
                 .map_err(S3RequestError::construction_failure)?;
         }
-        if let Some(key_id) = maybe_key_id {
+        if let Some(key_id) = params.server_side_encryption.key_id() {
             let header_name = "x-amz-server-side-encryption-aws-kms-key-id";
             expected_headers.push((header_name.to_owned(), key_id.clone()));
             message
@@ -155,13 +140,18 @@ fn check_response_headers(response_headers: Arc<Mutex<Option<Headers>>>, expecte
             .as_ref()
             .expect("PUT response headers must be available at this point")
             .get(expected_name);
-        if found.is_err() || found.unwrap().value().to_str().unwrap_or("") != expected_value {
+        if !found.is_ok_and(|header| {
+            header
+                .value()
+                .to_str()
+                .is_some_and(|actual_value| actual_value == expected_value)
+        }) {
             missing.push(expected_name.clone());
         }
     }
     if !missing.is_empty() {
         panic!(
-            "PUT response headers {:?} are missing or have an unexpacted value",
+            "PUT response headers {:?} are missing or have an unexpected value",
             missing
         );
     }
@@ -199,14 +189,12 @@ impl PutObjectRequest for S3PutObjectRequest {
             self.body
         };
 
-        let result = body.await;
+        let _ = body.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        if result.is_ok() {
-            check_response_headers(self.response_headers, &self.expected_headers);
-        }
-        result.map(|_| PutObjectResult {})
+        check_response_headers(self.response_headers, &self.expected_headers);
+        Ok(PutObjectResult {})
     }
 }
