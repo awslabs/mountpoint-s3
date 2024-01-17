@@ -9,7 +9,6 @@ use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
-use mountpoint_s3_client::config::{S3ClientAuthConfig, ServerSideEncryption};
 use mountpoint_s3_client::types::PutObjectParams;
 use mountpoint_s3_client::ObjectClient;
 use tempfile::TempDir;
@@ -43,12 +42,10 @@ pub trait TestClient: Send {
 
 pub type TestClientBox = Box<dyn TestClient>;
 
-#[derive(Clone)]
 pub struct TestSessionConfig {
     pub part_size: usize,
     pub filesystem_config: S3FilesystemConfig,
     pub prefetcher_config: PrefetcherConfig,
-    pub auth_config: S3ClientAuthConfig,
 }
 
 impl Default for TestSessionConfig {
@@ -57,7 +54,6 @@ impl Default for TestSessionConfig {
             part_size: 8 * 1024 * 1024,
             filesystem_config: Default::default(),
             prefetcher_config: Default::default(),
-            auth_config: Default::default(),
         }
     }
 }
@@ -267,8 +263,7 @@ pub mod s3_session {
 
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
-            .endpoint_config(EndpointConfig::new(&region))
-            .auth_config(test_config.auth_config);
+            .endpoint_config(EndpointConfig::new(&region));
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = client.event_loop_group();
         let prefetcher = default_prefetch(runtime, test_config.prefetcher_config);
@@ -318,7 +313,7 @@ pub mod s3_session {
         }
     }
 
-    pub fn create_test_client(region: &str, bucket: &str, prefix: &str) -> TestClientBox {
+    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> TestClientBox {
         let sdk_client = tokio_block_on(async { get_test_sdk_client(region).await });
         let test_client = SDKTestClient {
             prefix: prefix.to_owned(),
@@ -367,18 +362,6 @@ pub mod s3_session {
             }
             if params.trailing_checksums {
                 request = request.set_checksum_algorithm(Some(ChecksumAlgorithm::Crc32C));
-            }
-            match params.server_side_encryption {
-                ServerSideEncryption::Default => (),
-                ServerSideEncryption::Kms { key_id } => {
-                    request = request.set_server_side_encryption(Some(aws_sdk_s3::types::ServerSideEncryption::AwsKms));
-                    request = request.set_ssekms_key_id(key_id);
-                }
-                ServerSideEncryption::DualLayerKms { key_id } => {
-                    request =
-                        request.set_server_side_encryption(Some(aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse));
-                    request = request.set_ssekms_key_id(key_id);
-                }
             }
             tokio_block_on(request.send())
                 .map(|_| ())

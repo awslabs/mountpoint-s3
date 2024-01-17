@@ -12,12 +12,8 @@ use tempfile::TempDir;
 use test_case::test_case;
 
 use mountpoint_s3::S3FilesystemConfig;
-#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use mountpoint_s3_client::config::ServerSideEncryption;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
-#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use crate::common::{get_auth_config, get_scoped_down_credentials, s3::get_test_kms_key_id, s3::tokio_block_on};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -821,83 +817,4 @@ fn overwrite_test_s3() {
 #[test_case("overwrite_test"; "prefix")]
 fn overwrite_test_mock(prefix: &str) {
     overwrite_test(fuse::mock_session::new, prefix);
-}
-
-#[cfg(feature = "s3_tests")]
-#[test]
-#[cfg(not(feature = "s3express_tests"))]
-fn write_with_sse_settings_test() {
-    let sse_key = get_test_kms_key_id();
-
-    // configure credentials
-    let policy = r#"{"Statement": [
-        {"Effect": "Allow", "Action": ["s3:*"], "Resource": "*"},
-        {"Effect": "Allow", "Action": ["kms:*"], "Resource": "*"},
-        {
-            "Effect": "Deny",
-            "Action": ["s3:PutObject"],
-            "Resource": "*",
-            "Condition": {
-                "StringNotEquals": {
-                    "s3:x-amz-server-side-encryption": "aws:kms"
-                }
-            }
-        },
-        {
-            "Effect": "Deny",
-            "Action": ["s3:PutObject"],
-            "Resource": "*",
-            "Condition": {
-                "StringNotEquals": {
-                    "s3:x-amz-server-side-encryption-aws-kms-key-id": "__SSE_KEY_ARN__"
-                }
-            }
-        }
-    ]}"#;
-    let policy = policy.replace("__SSE_KEY_ARN__", &sse_key);
-
-    let mut test_config = TestSessionConfig {
-        auth_config: get_auth_config(tokio_block_on(get_scoped_down_credentials(&policy))),
-        ..Default::default()
-    };
-
-    // run tests
-    let test_fun = |test_config, file_name, should_fail| {
-        let (mount_point, _session, test_client) = fuse::s3_session::new("sse_with_policy_test", test_config);
-        let path = mount_point.path().join(file_name);
-        let mut f = open_for_write(&path, false, true).unwrap();
-        let data = vec![0xaa; 32];
-        let write_result = f.write_all(&data);
-
-        if should_fail {
-            assert!(
-                write_result.is_err(),
-                "should not be able to write to the file without proper sse"
-            );
-            return;
-        }
-
-        assert!(
-            write_result.is_ok(),
-            "should be able to write to the file with proper sse"
-        );
-
-        drop(f);
-
-        let m = metadata(&path).unwrap();
-        assert_eq!(
-            m.len(),
-            data.len() as u64,
-            "filesystem must report correct size for the file"
-        );
-        assert!(test_client.contains_key(file_name).unwrap(), "object must exist in S3");
-    };
-
-    test_fun(test_config.clone(), "default_sse_should_fail", true);
-
-    test_config.filesystem_config.server_side_encryption = ServerSideEncryption::Kms { key_id: None };
-    test_fun(test_config.clone(), "without_kms_key_should_fail", true);
-
-    test_config.filesystem_config.server_side_encryption = ServerSideEncryption::Kms { key_id: Some(sse_key) };
-    test_fun(test_config, "proper_sse_should_succeed", false);
 }

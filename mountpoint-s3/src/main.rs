@@ -17,9 +17,7 @@ use mountpoint_s3::logging::{init_logging, LoggingConfig};
 use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{autoconfigure, metrics};
-use mountpoint_s3_client::config::{
-    AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, ServerSideEncryption,
-};
+use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
@@ -268,22 +266,6 @@ struct CliArgs {
         help_heading = ADVANCED_OPTIONS_HEADER,
     )]
     pub user_agent_prefix: Option<String>,
-
-    #[cfg(feature = "sse_kms")]
-    #[clap(
-        long,
-        help = "The server-side encryption algorithm used when storing this object in Amazon S3",
-        help_heading = BUCKET_OPTIONS_HEADER)]
-    pub server_side_encryption: Option<ServerSideEncryptionArg>,
-
-    #[cfg(feature = "sse_kms")]
-    #[clap(
-        long,
-        help = "Specifies the ID (Key ID, Key ARN, or Key Alias) of the symmetric encryption customer managed key to use for object encryption.",
-        help_heading = BUCKET_OPTIONS_HEADER,
-        requires = "server_side_encryption",
-    )]
-    pub sse_kms_key_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -298,26 +280,6 @@ impl ValueEnum for S3PersonalityArg {
         match self.0 {
             S3Personality::Standard => Some(clap::builder::PossibleValue::new("general-purpose")),
             S3Personality::ExpressOneZone => Some(clap::builder::PossibleValue::new("directory")),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ServerSideEncryptionArg(ServerSideEncryption);
-
-impl ValueEnum for ServerSideEncryptionArg {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            Self(ServerSideEncryption::Kms { key_id: None }),
-            Self(ServerSideEncryption::DualLayerKms { key_id: None }),
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        match self.0 {
-            ServerSideEncryption::Default => None,
-            ServerSideEncryption::Kms { key_id: _ } => Some(clap::builder::PossibleValue::new("aws:kms")),
-            ServerSideEncryption::DualLayerKms { key_id: _ } => Some(clap::builder::PossibleValue::new("aws:kms:dsse")),
         }
     }
 }
@@ -623,16 +585,6 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.s3_personality =
         get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
 
-    #[cfg(feature = "sse_kms")]
-    if let Some(sse) = args.server_side_encryption {
-        filesystem_config.server_side_encryption = sse.0;
-    }
-    #[cfg(feature = "sse_kms")]
-    match filesystem_config.server_side_encryption {
-        ServerSideEncryption::Default => (),
-        ServerSideEncryption::Kms { ref mut key_id } => *key_id = args.sse_kms_key_id,
-        ServerSideEncryption::DualLayerKms { ref mut key_id } => *key_id = args.sse_kms_key_id,
-    }
     let prefetcher_config = Default::default();
 
     if let Some(path) = args.cache {
