@@ -1,4 +1,4 @@
-## v0.6.2 (January 12, 2024)
+## v0.6.2 (January 18, 2024)
 
 ### Breaking changes
 

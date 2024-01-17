@@ -1,6 +1,6 @@
 ## Unreleased
 
-## v0.5.2 (January 12, 2024)
+## v0.5.2 (January 18, 2024)
 
 * Update to latest CRT dependencies
 * Return type of `common::Uri::host_port` changed from `u16` to `u32`
