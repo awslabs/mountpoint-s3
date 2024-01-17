@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1705419380071,
+  "lastUpdate": 1705506699622,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "b50ecb4ec14bd3f95d1c72166b9f8c6de676a2aa",
-          "message": "Add docs clarifications about which FS operations can be served from cache and when (#627)\n\n* Add clarification on which file system operations can be served from cache\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Add clarification on caching behavior with writing\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Update based on feedback\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2023-12-08T00:56:42Z",
-          "tree_id": "2970551ed2a78be52c844a5cc46c366976f8314e",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b50ecb4ec14bd3f95d1c72166b9f8c6de676a2aa"
-        },
-        "date": 1701999654262,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.082,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.18,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.114,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.967,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 101.6391196,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 69.8194725,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 80.4005801,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "jchorl@users.noreply.github.com",
+            "name": "Josh Chorlton",
+            "username": "jchorl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "804b8d0cda2a817cd883f0cb5f73dfc49a84b66c",
+          "message": "update network performance autotune values (#702)\n\nSigned-off-by: Josh Chorlton <jchorlton@gmail.com>",
+          "timestamp": "2024-01-17T15:18:40Z",
+          "tree_id": "eb067b4ad5ff41c941729f74530bbb1f9b0a2693",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/804b8d0cda2a817cd883f0cb5f73dfc49a84b66c"
+        },
+        "date": 1705506699111,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.071,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.175,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.12,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.415,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 80.46105659999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 68.32473859999999,
             "unit": "milliseconds"
           }
         ]
