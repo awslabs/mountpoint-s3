@@ -347,7 +347,7 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let exit_status = wait_for_exit(&mut child);
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(!exit_status.success());
@@ -367,7 +367,7 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let exit_status = wait_for_exit(&mut child);
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
