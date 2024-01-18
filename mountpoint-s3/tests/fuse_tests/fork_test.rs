@@ -6,7 +6,9 @@ use assert_cmd::prelude::*;
 use aws_sdk_sts::config::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::process::Stdio;
+use std::path::Path;
+use std::process::{Child, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 use std::{path::PathBuf, process::Command};
 use test_case::test_case;
 
@@ -24,7 +26,7 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -33,23 +35,15 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -61,7 +55,7 @@ fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>>
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -70,23 +64,15 @@ fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>>
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -100,7 +86,7 @@ fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::er
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -108,23 +94,15 @@ fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::er
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -146,17 +124,7 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        if mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
+    wait_for_mount("mountpoint-s3", mount_point.path().to_str().unwrap());
 
     // verify that process is still alive
     let child_status = child.try_wait().unwrap();
@@ -165,6 +133,8 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -176,24 +146,14 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg("--auto-unmount")
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(!exit_status.success());
@@ -209,7 +169,7 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg("--auto-unmount")
@@ -217,17 +177,7 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(!exit_status.success());
@@ -243,7 +193,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut first_mount = cmd
+    let first_mount = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -252,24 +202,14 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match first_mount.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(first_mount);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut second_mount = cmd
+    let second_mount = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -277,20 +217,12 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match second_mount.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(second_mount);
 
     // verify mount status
     assert!(!exit_status.success());
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -313,17 +245,7 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        if mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
+    wait_for_mount("mountpoint-s3", mount_point.path().to_str().unwrap());
 
     // verify that process is still alive
     let child_status = child.try_wait().unwrap();
@@ -337,6 +259,8 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     let mount_opts_str = mount_line.split_whitespace().last().unwrap();
     let mount_opts: Vec<&str> = mount_opts_str.trim_matches(&['(', ')'] as &[_]).split(',').collect();
     assert!(mount_opts.contains(&"ro"));
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -357,19 +281,9 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
     if allow_delete {
         cmd.arg("--allow-delete");
     }
-    let mut child = cmd.spawn().expect("unable to spawn child");
+    let child = cmd.spawn().expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
@@ -384,6 +298,8 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
     } else {
         result.expect_err("remove file should fail when --allow_delete is not set");
     }
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -431,16 +347,7 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(&mut child);
 
     // verify mount status and mount entry
     assert!(!exit_status.success());
@@ -460,22 +367,15 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         .spawn()
         .expect("unable to spawn child");
 
-    let st = std::time::Instant::now();
-    let exit_status = loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("wait for result timeout")
-        }
-        match child.try_wait().expect("unable to wait for result") {
-            Some(result) => break result,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    };
+    let exit_status = wait_for_exit(&mut child);
 
     // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     test_read_files(&bucket, &subprefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
 
     Ok(())
 }
@@ -535,4 +435,49 @@ fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Opti
         }
     }
     None
+}
+
+fn wait_for_exit(mut child: Child) -> ExitStatus {
+    let st = Instant::now();
+
+    loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for result timeout")
+        }
+        match child.try_wait().expect("unable to wait for result") {
+            Some(result) => break result,
+            None => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
+fn wait_for_mount(source: &str, mount_point: &str) {
+    let st = Instant::now();
+
+    loop {
+        if st.elapsed() > MAX_WAIT_DURATION {
+            panic!("wait for mount timeout")
+        }
+        if mount_exists(source, mount_point) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn unmount(mount_point: &Path) {
+    fn run_fusermount(bin: &str, mount_point: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+        let mut child = Command::new(bin).arg("-u").arg(mount_point).spawn()?;
+        let result = child.wait()?;
+        Ok(result.success())
+    }
+
+    // Try both FUSE 2 and FUSE 3 versions, since we don't know where we're running
+    for bin in ["fusermount", "fusermount3"] {
+        if matches!(run_fusermount(bin, mount_point), Ok(true)) {
+            return;
+        }
+    }
+
+    panic!("failed to unmount");
 }
