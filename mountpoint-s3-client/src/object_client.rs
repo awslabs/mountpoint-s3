@@ -282,20 +282,20 @@ pub enum ServerSideEncryption {
 
 impl ServerSideEncryption {
     /// String represantation of the SSE type as it is expected by S3 API
-    pub fn sse_type(&self) -> Option<String> {
+    pub fn sse_type(&self) -> Option<&'static str> {
         match self {
             ServerSideEncryption::BucketDefault => None,
-            ServerSideEncryption::Kms { .. } => Some("aws:kms".to_owned()),
-            ServerSideEncryption::DualLayerKms { .. } => Some("aws:kms:dsse".to_owned()),
+            ServerSideEncryption::Kms { .. } => Some("aws:kms"),
+            ServerSideEncryption::DualLayerKms { .. } => Some("aws:kms:dsse"),
         }
     }
 
     /// AWS KMS Key ID if provided
-    pub fn key_id(&self) -> Option<String> {
-        match self.to_owned() {
+    pub fn key_id(&self) -> Option<&str> {
+        match self {
             ServerSideEncryption::BucketDefault => None,
-            ServerSideEncryption::Kms { key_id } => key_id,
-            ServerSideEncryption::DualLayerKms { key_id } => key_id,
+            ServerSideEncryption::Kms { key_id } => key_id.as_ref().map(|value| value.as_str()),
+            ServerSideEncryption::DualLayerKms { key_id } => key_id.as_ref().map(|value| value.as_str()),
         }
     }
 }

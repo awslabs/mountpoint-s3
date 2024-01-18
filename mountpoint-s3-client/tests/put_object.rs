@@ -355,7 +355,11 @@ async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncrypti
     let expected_key = input_sse.key_id();
     if expected_key.is_some() {
         // do not check the value of AWS managed key
-        assert_eq!(head_object_resp.ssekms_key_id, expected_key, "unexpected sse key")
+        assert_eq!(
+            head_object_resp.ssekms_key_id,
+            Some(expected_key.unwrap().to_owned()),
+            "unexpected sse key"
+        )
     }
 }
 
@@ -395,19 +399,12 @@ async fn test_put_object_sse(input_sse: ServerSideEncryption) {
 
 // The test sets `S3PutObjectRequest::expected_headers` to a knowingly unexpected values and checks that request
 // completion panics in case when actual SSE settings returned by S3 are different from what is expected.
-#[tokio::test]
-#[should_panic(
-    expected = "PUT response headers [\"x-amz-server-side-encryption-aws-kms-key-id\"] are missing or have an unexpected value"
-)]
 #[cfg(not(feature = "s3express_tests"))]
-async fn test_put_object_sse_unexpected_headers() {
-    let input_sse = ServerSideEncryption::Kms {
-        key_id: Some(get_test_kms_key_id()),
-    };
+async fn put_object_sse_unexpected_headers(input_sse: ServerSideEncryption, unexpected_sse: ServerSideEncryption) {
     let bucket = get_test_bucket();
     let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let request_params = PutObjectParams::new().server_side_encryption(input_sse.clone());
+    let request_params = PutObjectParams::new().server_side_encryption(input_sse);
 
     let prefix = get_unique_test_prefix("test_put_object_sse_unexpected_headers");
     let key = format!("{prefix}hello");
@@ -422,12 +419,38 @@ async fn test_put_object_sse_unexpected_headers() {
         .expect("CRT should be able to start put_object meta request");
 
     request.write(&contents).await.unwrap();
-    request.expected_headers = vec![
-        ("x-amz-server-side-encryption".to_owned(), "aws:kms".to_owned()),
-        (
-            "x-amz-server-side-encryption-aws-kms-key-id".to_owned(),
-            "some_other_key_id".to_owned(),
-        ),
-    ];
+    request.server_side_encryption = unexpected_sse;
     let _ = request.complete().await;
+}
+
+#[tokio::test]
+#[should_panic(
+    expected = "SSE KMS key ID provided in CompleteMultipartUpload response does not match the requested value"
+)]
+#[cfg(not(feature = "s3express_tests"))]
+async fn test_put_object_sse_unexpected_key_id() {
+    put_object_sse_unexpected_headers(
+        ServerSideEncryption::Kms {
+            key_id: Some(get_test_kms_key_id()),
+        },
+        ServerSideEncryption::Kms {
+            key_id: Some("some_other_key_id".to_owned()),
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "SSE type provided in CompleteMultipartUpload response does not match the requested value")]
+#[cfg(not(feature = "s3express_tests"))]
+async fn test_put_object_sse_unexpected_sse_type() {
+    put_object_sse_unexpected_headers(
+        ServerSideEncryption::Kms {
+            key_id: Some(get_test_kms_key_id()),
+        },
+        ServerSideEncryption::DualLayerKms {
+            key_id: Some(get_test_kms_key_id()),
+        },
+    )
+    .await;
 }
