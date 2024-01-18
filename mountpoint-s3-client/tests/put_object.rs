@@ -374,7 +374,9 @@ async fn test_put_object_sse(input_sse: ServerSideEncryption) {
     let bucket = get_test_bucket();
     let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let request_params = PutObjectParams::new().server_side_encryption(input_sse.clone());
+    let request_params = PutObjectParams::new()
+        .server_side_encryption(input_sse.sse_type().map(|value| value.to_owned()))
+        .ssekms_key_id(input_sse.key_id().map(|value| value.to_owned()));
 
     let prefix = get_unique_test_prefix("test_put_object_sse");
     let key = format!("{prefix}hello");
@@ -404,7 +406,9 @@ async fn put_object_sse_unexpected_headers(input_sse: ServerSideEncryption, unex
     let bucket = get_test_bucket();
     let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let request_params = PutObjectParams::new().server_side_encryption(input_sse);
+    let request_params = PutObjectParams::new()
+        .server_side_encryption(input_sse.sse_type().map(|value| value.to_owned()))
+        .ssekms_key_id(input_sse.key_id().map(|value| value.to_owned()));
 
     let prefix = get_unique_test_prefix("test_put_object_sse_unexpected_headers");
     let key = format!("{prefix}hello");
@@ -419,7 +423,8 @@ async fn put_object_sse_unexpected_headers(input_sse: ServerSideEncryption, unex
         .expect("CRT should be able to start put_object meta request");
 
     request.write(&contents).await.unwrap();
-    request.server_side_encryption = unexpected_sse;
+    request.server_side_encryption = unexpected_sse.sse_type().map(|value| value.to_owned());
+    request.ssekms_key_id = unexpected_sse.key_id().map(|value| value.to_owned());
     let _ = request.complete().await;
 }
 

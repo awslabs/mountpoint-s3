@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, ServerSideEncryption,
-};
+use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
@@ -50,12 +48,12 @@ impl S3CrtClient {
                 .set_header(&Header::new("x-amz-storage-class", storage_class))
                 .map_err(S3RequestError::construction_failure)?;
         }
-        if let Some(sse) = params.server_side_encryption.sse_type() {
+        if let Some(sse) = params.server_side_encryption.as_ref() {
             message
                 .set_header(&Header::new(SSE_TYPE_HEADER_NAME, sse))
                 .map_err(S3RequestError::construction_failure)?;
         }
-        if let Some(key_id) = params.server_side_encryption.key_id() {
+        if let Some(key_id) = params.ssekms_key_id.as_ref() {
             message
                 .set_header(&Header::new(SSE_KEY_ID_HEADER_NAME, key_id))
                 .map_err(S3RequestError::construction_failure)?;
@@ -79,6 +77,7 @@ impl S3CrtClient {
             total_bytes: 0,
             response_headers,
             server_side_encryption: params.server_side_encryption.clone(),
+            ssekms_key_id: params.ssekms_key_id.clone(),
         })
     }
 }
@@ -129,18 +128,24 @@ pub struct S3PutObjectRequest {
     total_bytes: u64,
     // Headers of the CompleteMultipartUpload response, available after the request was finished
     response_headers: Arc<Mutex<Option<Headers>>>,
-    // Server-side encryption which is expected to be found in response_headers
-    pub server_side_encryption: ServerSideEncryption,
+    // Server-side encryption type which is expected to be found in response_headers
+    pub server_side_encryption: Option<String>,
+    /// Server-side encryption KMS key ID which is expected to be found in response_headers
+    pub ssekms_key_id: Option<String>,
 }
 
-/// If non-default ServerSideEncryption was used, this function checks headers
+/// If non empty `server_side_encryption` or `ssekms_key_id` were used, this function checks headers
 /// of the CompleteMultipartUpload response to contain the expected values
-fn check_response_headers(response_headers: Arc<Mutex<Option<Headers>>>, expected_sse: &ServerSideEncryption) {
+fn check_response_headers(
+    response_headers: Arc<Mutex<Option<Headers>>>,
+    expected_sse: &Option<String>,
+    expected_key_id: &Option<String>,
+) {
     let locked_value = response_headers.lock().expect("must be able to acquire headers lock");
     let actual_headers = locked_value
         .as_ref()
         .expect("PUT response headers must be available at this point");
-    if let Some(sse_type) = expected_sse.sse_type() {
+    if let Some(sse_type) = expected_sse {
         assert!(
             actual_headers.get(SSE_TYPE_HEADER_NAME).is_ok_and(|header| {
                 header
@@ -151,7 +156,7 @@ fn check_response_headers(response_headers: Arc<Mutex<Option<Headers>>>, expecte
             "SSE type provided in CompleteMultipartUpload response does not match the requested value"
         );
     }
-    if let Some(sse_key_id) = expected_sse.key_id() {
+    if let Some(sse_key_id) = expected_key_id {
         assert!(
             actual_headers.get(SSE_KEY_ID_HEADER_NAME).is_ok_and(|header| {
                 header
@@ -201,7 +206,7 @@ impl PutObjectRequest for S3PutObjectRequest {
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        check_response_headers(self.response_headers, &self.server_side_encryption);
+        check_response_headers(self.response_headers, &self.server_side_encryption, &self.ssekms_key_id);
         Ok(PutObjectResult {})
     }
 }
