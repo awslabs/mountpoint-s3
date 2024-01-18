@@ -1,14 +1,14 @@
 [package]
 name = "mountpoint-s3-client"
 # See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.5.1" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.6.0" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
