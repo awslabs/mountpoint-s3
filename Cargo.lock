@@ -2003,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "async-channel",
  "criterion",

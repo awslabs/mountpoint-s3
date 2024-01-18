@@ -8,7 +8,7 @@ repository = "https://github.com/awslabs/mountpoint-s3"
 description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.5.1" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.6.0" }
 
 async-trait = "0.1.57"
 auto_impl = "1.0.1"
