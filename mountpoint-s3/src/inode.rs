@@ -1174,7 +1174,7 @@ impl WriteHandle {
 
                 Ok(())
             }
-            _ => Err(InodeError::InodeNotWritable(inode.err())),
+            _ => Err(InodeError::InodeInvalidWriteStatus(inode.err())),
         }
     }
 }
@@ -1555,6 +1555,8 @@ pub enum InodeError {
     FileAlreadyExists(InodeErrorInfo),
     #[error("inode {0} is not writable")]
     InodeNotWritable(InodeErrorInfo),
+    #[error("Invalid state of inode {0} to be written. Aborting the write.")]
+    InodeInvalidWriteStatus(InodeErrorInfo),
     #[error("inode {0} is already being written")]
     InodeAlreadyWriting(InodeErrorInfo),
     #[error("inode {0} is not readable while being written")]
