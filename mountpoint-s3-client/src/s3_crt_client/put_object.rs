@@ -138,25 +138,21 @@ pub struct S3PutObjectRequest {
 /// of the CompleteMultipartUpload response to contain the expected values
 fn check_response_headers(response_headers: &Headers, expected_sse: Option<&str>, expected_key_id: Option<&str>) {
     if let Some(sse_type) = expected_sse {
-        assert!(
-            response_headers.get(SSE_TYPE_HEADER_NAME).is_ok_and(|header| {
-                header
-                    .value()
-                    .to_str()
-                    .is_some_and(|actual_value| actual_value == sse_type)
-            }),
-            "SSE type provided in CompleteMultipartUpload response does not match the requested value"
+        let actual_header = response_headers.get(SSE_TYPE_HEADER_NAME).ok();
+        let actual_value = actual_header.as_ref().and_then(|header| header.value().to_str());
+        assert_eq!(
+            actual_value,
+            Some(sse_type),
+            "SSE type provided in CompleteMultipartUpload response does not match the requested value",
         );
     }
     if let Some(sse_key_id) = expected_key_id {
-        assert!(
-            response_headers.get(SSE_KEY_ID_HEADER_NAME).is_ok_and(|header| {
-                header
-                    .value()
-                    .to_str()
-                    .is_some_and(|actual_value| actual_value == sse_key_id)
-            }),
-            "SSE KMS key ID provided in CompleteMultipartUpload response does not match the requested value"
+        let actual_header = response_headers.get(SSE_KEY_ID_HEADER_NAME).ok();
+        let actual_value = actual_header.as_ref().and_then(|header| header.value().to_str());
+        assert_eq!(
+            actual_value,
+            Some(sse_key_id),
+            "SSE KMS key ID provided in CompleteMultipartUpload response does not match the requested value",
         );
     }
 }
