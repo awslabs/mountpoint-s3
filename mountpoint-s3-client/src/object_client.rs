@@ -266,40 +266,6 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
-/// Server-side encryption configuration for newly created objects
-#[derive(Debug, Default, Clone)]
-pub enum ServerSideEncryption {
-    /// Use the default configuration for the bucket
-    #[default]
-    BucketDefault,
-    /// Use AWS KMS to encrypt the object.
-    /// If `key_id` is not provided, Amazon S3 will use an AWS managed key.
-    Kms { key_id: Option<String> },
-    /// Use dual-layer server-side encryption with AWS KMS to encrypt the object.
-    /// If `key_id` is not provided, Amazon S3 will use an AWS managed key.
-    DualLayerKms { key_id: Option<String> },
-}
-
-impl ServerSideEncryption {
-    /// String represantation of the SSE type as it is expected by S3 API
-    pub fn sse_type(&self) -> Option<&'static str> {
-        match self {
-            ServerSideEncryption::BucketDefault => None,
-            ServerSideEncryption::Kms { .. } => Some("aws:kms"),
-            ServerSideEncryption::DualLayerKms { .. } => Some("aws:kms:dsse"),
-        }
-    }
-
-    /// AWS KMS Key ID if provided
-    pub fn key_id(&self) -> Option<&str> {
-        match self {
-            ServerSideEncryption::BucketDefault => None,
-            ServerSideEncryption::Kms { key_id } => key_id.as_ref().map(|value| value.as_str()),
-            ServerSideEncryption::DualLayerKms { key_id } => key_id.as_ref().map(|value| value.as_str()),
-        }
-    }
-}
-
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]

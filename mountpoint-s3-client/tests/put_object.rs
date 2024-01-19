@@ -5,8 +5,6 @@ pub mod common;
 use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
-#[cfg(not(feature = "s3express_tests"))]
-use mountpoint_s3_client::config::ServerSideEncryption;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams};
@@ -329,7 +327,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncryption) {
+async fn check_sse(bucket: &String, key: &String, expected_sse: Option<&str>, expected_key: &Option<String>) {
     let sdk_client = get_test_sdk_client().await;
     let mut request = sdk_client.head_object();
     if cfg!(not(feature = "s3express_tests")) {
@@ -337,125 +335,60 @@ async fn check_sse(bucket: &String, key: &String, input_sse: &ServerSideEncrypti
     }
     let head_object_resp: aws_sdk_s3::operation::head_object::HeadObjectOutput =
         request.key(key).send().await.expect("head object should succeed");
-    let expected_sse = match input_sse {
-        ServerSideEncryption::BucketDefault => aws_sdk_s3::types::ServerSideEncryption::Aes256,
-        ServerSideEncryption::Kms { .. } => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
-        ServerSideEncryption::DualLayerKms { .. } => aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse,
+    let expected_sse = match expected_sse {
+        None => aws_sdk_s3::types::ServerSideEncryption::Aes256,
+        Some("aws:kms") => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
+        Some("aws:kms:dsse") => aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse,
+        _ => panic!("unexpected sse type was used in a test"),
     };
     let actual_sse = head_object_resp
         .server_side_encryption
         .expect("SSE field should always have a value for this test");
     assert_eq!(actual_sse, expected_sse, "unexpected sse type");
-    if !matches!(input_sse, ServerSideEncryption::BucketDefault) {
+    if !matches!(expected_sse, aws_sdk_s3::types::ServerSideEncryption::Aes256) {
         assert!(
             head_object_resp.ssekms_key_id.is_some(),
             "must have a key for non-default encryption methods",
         );
     }
-    let expected_key = input_sse.key_id();
     if expected_key.is_some() {
         // do not check the value of AWS managed key
-        assert_eq!(
-            head_object_resp.ssekms_key_id,
-            Some(expected_key.unwrap().to_owned()),
-            "unexpected sse key"
-        )
+        assert_eq!(&head_object_resp.ssekms_key_id, expected_key, "unexpected sse key")
     }
 }
 
-#[test_case(ServerSideEncryption::DualLayerKms{ key_id: Some(get_test_kms_key_id()) })]
-#[test_case(ServerSideEncryption::DualLayerKms{ key_id: None })]
-#[test_case(ServerSideEncryption::Kms{ key_id: Some(get_test_kms_key_id()) })]
-#[test_case(ServerSideEncryption::Kms{ key_id: None })]
-#[test_case(ServerSideEncryption::BucketDefault)]
+#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()))]
+#[test_case(Some("aws:kms"), None)]
+#[test_case(Some("aws:kms:dsse"), Some(get_test_kms_key_id()))]
+#[test_case(Some("aws:kms:dsse"), None)]
+#[test_case(None, None)]
 #[tokio::test]
 #[cfg(not(feature = "s3express_tests"))]
-async fn test_put_object_sse(input_sse: ServerSideEncryption) {
+async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>) {
     let bucket = get_test_bucket();
     let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let request_params = PutObjectParams::new()
-        .server_side_encryption(input_sse.sse_type().map(|value| value.to_owned()))
-        .ssekms_key_id(input_sse.key_id().map(|value| value.to_owned()));
+        .server_side_encryption(sse_type.map(|value| value.to_owned()))
+        .ssekms_key_id(kms_key_id.to_owned());
 
     let prefix = get_unique_test_prefix("test_put_object_sse");
     let key = format!("{prefix}hello");
     test_put_object(&client, &bucket, &key, request_params.clone()).await;
-    check_sse(&bucket, &key, &input_sse).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
 
     let prefix = get_unique_test_prefix("test_put_object_sse");
     let key = format!("{prefix}hello");
     test_put_object_empty(&client, &bucket, &key, request_params.clone()).await;
-    check_sse(&bucket, &key, &input_sse).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
 
     let prefix = get_unique_test_prefix("test_put_object_sse");
     let key = format!("{prefix}hello");
     test_put_object_multi_part(&client, &bucket, &key, request_params.clone()).await;
-    check_sse(&bucket, &key, &input_sse).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
 
     let prefix = get_unique_test_prefix("test_put_object_sse");
     let key = format!("{prefix}hello");
     test_put_object_large(&client, &bucket, &key, request_params.clone()).await;
-    check_sse(&bucket, &key, &input_sse).await;
-}
-
-// The test sets `S3PutObjectRequest::expected_headers` to a knowingly unexpected values and checks that request
-// completion panics in case when actual SSE settings returned by S3 are different from what is expected.
-#[cfg(not(feature = "s3express_tests"))]
-async fn put_object_sse_unexpected_headers(input_sse: ServerSideEncryption, unexpected_sse: ServerSideEncryption) {
-    let bucket = get_test_bucket();
-    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let request_params = PutObjectParams::new()
-        .server_side_encryption(input_sse.sse_type().map(|value| value.to_owned()))
-        .ssekms_key_id(input_sse.key_id().map(|value| value.to_owned()));
-
-    let prefix = get_unique_test_prefix("test_put_object_sse_unexpected_headers");
-    let key = format!("{prefix}hello");
-    let mut rng = rand::thread_rng();
-
-    let mut contents = vec![0u8; 32];
-    rng.fill(&mut contents[..]);
-
-    let mut request = client
-        .put_object(&bucket, &key, &request_params)
-        .await
-        .expect("CRT should be able to start put_object meta request");
-
-    request.write(&contents).await.unwrap();
-    request.server_side_encryption = unexpected_sse.sse_type().map(|value| value.to_owned());
-    request.ssekms_key_id = unexpected_sse.key_id().map(|value| value.to_owned());
-    let _ = request.complete().await;
-}
-
-#[tokio::test]
-#[should_panic(
-    expected = "SSE KMS key ID provided in CompleteMultipartUpload response does not match the requested value"
-)]
-#[cfg(not(feature = "s3express_tests"))]
-async fn test_put_object_sse_unexpected_key_id() {
-    put_object_sse_unexpected_headers(
-        ServerSideEncryption::Kms {
-            key_id: Some(get_test_kms_key_id()),
-        },
-        ServerSideEncryption::Kms {
-            key_id: Some("some_other_key_id".to_owned()),
-        },
-    )
-    .await;
-}
-
-#[tokio::test]
-#[should_panic(expected = "SSE type provided in CompleteMultipartUpload response does not match the requested value")]
-#[cfg(not(feature = "s3express_tests"))]
-async fn test_put_object_sse_unexpected_sse_type() {
-    put_object_sse_unexpected_headers(
-        ServerSideEncryption::Kms {
-            key_id: Some(get_test_kms_key_id()),
-        },
-        ServerSideEncryption::DualLayerKms {
-            key_id: Some(get_test_kms_key_id()),
-        },
-    )
-    .await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
 }

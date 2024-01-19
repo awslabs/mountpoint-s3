@@ -65,7 +65,6 @@ pub use s3_crt_client::{get_object::S3GetObjectRequest, put_object::S3PutObjectR
 /// Configuration for the S3 client
 pub mod config {
     pub use super::endpoint_config::{AddressingStyle, EndpointConfig};
-    pub use super::object_client::ServerSideEncryption;
     pub use super::s3_crt_client::{S3ClientAuthConfig, S3ClientConfig};
 }
 
