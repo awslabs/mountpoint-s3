@@ -194,15 +194,12 @@ impl PutObjectRequest for S3PutObjectRequest {
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        let locked_value = self
-            .response_headers
-            .lock()
-            .expect("must be able to acquire headers lock");
-        let response_headers = locked_value
-            .as_ref()
-            .expect("PUT response headers must be available at this point");
         check_response_headers(
-            response_headers,
+            self.response_headers
+                .lock()
+                .expect("must be able to acquire headers lock")
+                .as_ref()
+                .expect("PUT response headers must be available at this point"),
             self.server_side_encryption.as_deref(),
             self.ssekms_key_id.as_deref(),
         );
