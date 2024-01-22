@@ -58,6 +58,9 @@ impl S3CrtClient {
                 .set_header(&Header::new(SSE_KEY_ID_HEADER_NAME, key_id))
                 .map_err(S3RequestError::construction_failure)?;
         }
+        // Variable `response_headers` will be accessed from different threads: from CRT thread which executes `on_headers` callback
+        // and from our thread which executes `review_and_complete`. Callback `on_headers` is guaranteed to finish before this
+        // variable is accessed in `review_and_complete` (see `S3HttpRequest::poll` implementation).
         let response_headers: Arc<Mutex<Option<Headers>>> = Default::default();
         let response_headers_writer = response_headers.clone();
         let on_headers = move |headers: &Headers, _: i32| {
@@ -126,9 +129,9 @@ pub struct S3PutObjectRequest {
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
-    // Headers of the CompleteMultipartUpload response, available after the request was finished
+    /// Headers of the CompleteMultipartUpload response, available after the request was finished
     response_headers: Arc<Mutex<Option<Headers>>>,
-    // Server-side encryption type which is expected to be found in response_headers
+    /// Server-side encryption type which is expected to be found in response_headers
     server_side_encryption: Option<String>,
     /// Server-side encryption KMS key ID which is expected to be found in response_headers
     ssekms_key_id: Option<String>,
