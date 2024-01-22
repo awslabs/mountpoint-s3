@@ -274,6 +274,11 @@ pub struct PutObjectParams {
     pub trailing_checksums: bool,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
+    /// The server-side encryption algorithm to be used for this object in Amazon S3 (for example, AES256, aws:kms, aws:kms:dsse)
+    pub server_side_encryption: Option<String>,
+    /// If `server_side_encryption` has a valid value of aws:kms or aws:kms:dsse, this value may be used to specify AWS KMS key ID to be used
+    /// when creating new S3 object
+    pub ssekms_key_id: Option<String>,
 }
 
 impl PutObjectParams {
@@ -291,6 +296,18 @@ impl PutObjectParams {
     /// Set the storage class.
     pub fn storage_class(mut self, value: String) -> Self {
         self.storage_class = Some(value);
+        self
+    }
+
+    /// Set server-side encryption type.
+    pub fn server_side_encryption(mut self, value: Option<String>) -> Self {
+        self.server_side_encryption = value;
+        self
+    }
+
+    /// Set KMS key ID to be used for server-side encryption.
+    pub fn ssekms_key_id(mut self, value: Option<String>) -> Self {
+        self.ssekms_key_id = value;
         self
     }
 }

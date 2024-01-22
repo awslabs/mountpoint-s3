@@ -206,6 +206,14 @@ impl Headers {
     }
 }
 
+impl Clone for Headers {
+    fn clone(&self) -> Self {
+        // SAFETY: `self.inner` is a valid `aws_http_headers`, and on Clone it's safe and required to increment
+        // the reference count, dropping new Headers object will decrement it
+        unsafe { Headers::from_crt(self.inner) }
+    }
+}
+
 impl Drop for Headers {
     fn drop(&mut self) {
         // SAFETY: `self.inner` is a valid `aws_http_headers`, and on Drop it's safe to decrement

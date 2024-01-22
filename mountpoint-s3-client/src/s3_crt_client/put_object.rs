@@ -4,12 +4,15 @@ use std::time::Instant;
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
-use mountpoint_s3_crt::http::request_response::Header;
+use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
 use tracing::error;
 
 use super::{S3CrtClientInner, S3HttpRequest};
+
+const SSE_TYPE_HEADER_NAME: &str = "x-amz-server-side-encryption";
+const SSE_KEY_ID_HEADER_NAME: &str = "x-amz-server-side-encryption-aws-kms-key-id";
 
 impl S3CrtClient {
     pub(super) async fn put_object(
@@ -45,12 +48,29 @@ impl S3CrtClient {
                 .set_header(&Header::new("x-amz-storage-class", storage_class))
                 .map_err(S3RequestError::construction_failure)?;
         }
-
+        if let Some(sse) = params.server_side_encryption.as_ref() {
+            message
+                .set_header(&Header::new(SSE_TYPE_HEADER_NAME, sse))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+        if let Some(key_id) = params.ssekms_key_id.as_ref() {
+            message
+                .set_header(&Header::new(SSE_KEY_ID_HEADER_NAME, key_id))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+        // Variable `response_headers` will be accessed from different threads: from CRT thread which executes `on_headers` callback
+        // and from our thread which executes `review_and_complete`. Callback `on_headers` is guaranteed to finish before this
+        // variable is accessed in `review_and_complete` (see `S3HttpRequest::poll` implementation).
+        let response_headers: Arc<Mutex<Option<Headers>>> = Default::default();
+        let response_headers_writer = response_headers.clone();
+        let on_headers = move |headers: &Headers, _: i32| {
+            *response_headers_writer.lock().unwrap() = Some(headers.clone());
+        };
         let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
         options.on_upload_review(move |review| callback.invoke(review));
         let body = self
             .inner
-            .make_simple_http_request_from_options(options, span, |_| None)?;
+            .make_simple_http_request_from_options(options, span, |_| None, on_headers)?;
 
         Ok(S3PutObjectRequest {
             body,
@@ -58,6 +78,9 @@ impl S3CrtClient {
             review_callback,
             start_time: Instant::now(),
             total_bytes: 0,
+            response_headers,
+            server_side_encryption: params.server_side_encryption.clone(),
+            ssekms_key_id: params.ssekms_key_id.clone(),
         })
     }
 }
@@ -106,6 +129,35 @@ pub struct S3PutObjectRequest {
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
+    /// Headers of the CompleteMultipartUpload response, available after the request was finished
+    response_headers: Arc<Mutex<Option<Headers>>>,
+    /// Server-side encryption type which is expected to be found in response_headers
+    server_side_encryption: Option<String>,
+    /// Server-side encryption KMS key ID which is expected to be found in response_headers
+    ssekms_key_id: Option<String>,
+}
+
+/// If non empty `server_side_encryption` or `ssekms_key_id` were used, this function checks headers
+/// of the CompleteMultipartUpload response to contain the expected values
+fn check_response_headers(response_headers: &Headers, expected_sse: Option<&str>, expected_key_id: Option<&str>) {
+    if let Some(sse_type) = expected_sse {
+        let actual_header = response_headers.get(SSE_TYPE_HEADER_NAME).ok();
+        let actual_value = actual_header.as_ref().and_then(|header| header.value().to_str());
+        assert_eq!(
+            actual_value,
+            Some(sse_type),
+            "SSE type provided in CompleteMultipartUpload response does not match the requested value",
+        );
+    }
+    if let Some(sse_key_id) = expected_key_id {
+        let actual_header = response_headers.get(SSE_KEY_ID_HEADER_NAME).ok();
+        let actual_value = actual_header.as_ref().and_then(|header| header.value().to_str());
+        assert_eq!(
+            actual_value,
+            Some(sse_key_id),
+            "SSE KMS key ID provided in CompleteMultipartUpload response does not match the requested value",
+        );
+    }
 }
 
 #[cfg_attr(not(docs_rs), async_trait)]
@@ -124,6 +176,9 @@ impl PutObjectRequest for S3PutObjectRequest {
         self.review_and_complete(|_| true).await
     }
 
+    /// Note: this function will panic if an SSE was requested to be applied to the object
+    /// and we failed to check that this actually happened. This may be caused by a bug in
+    /// CRT code or HTTP headers being corrupted in transit between us and the S3 server.
     async fn review_and_complete(
         mut self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
@@ -137,11 +192,68 @@ impl PutObjectRequest for S3PutObjectRequest {
             self.body
         };
 
-        let result = body.await;
+        let _ = body.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        result.map(|_| PutObjectResult {})
+        check_response_headers(
+            self.response_headers
+                .lock()
+                .expect("must be able to acquire headers lock")
+                .as_ref()
+                .expect("PUT response headers must be available at this point"),
+            self.server_side_encryption.as_deref(),
+            self.ssekms_key_id.as_deref(),
+        );
+        Ok(PutObjectResult {})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{check_response_headers, Header, Headers, SSE_KEY_ID_HEADER_NAME, SSE_TYPE_HEADER_NAME};
+    use mountpoint_s3_crt::common::allocator::Allocator;
+    use test_case::test_case;
+
+    #[test_case(Some("sse:kms"), Some("some_key_alias"))]
+    #[test_case(Some("sse:kms:dsse"), Some("some_key_alias"))]
+    #[test_case(Some("sse:kms"), None)]
+    #[test_case(None, None)]
+    fn test_check_headers_ok(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        if let Some(sse_type) = sse_type {
+            let header = Header::new(SSE_TYPE_HEADER_NAME, sse_type);
+            headers.add_header(&header).unwrap();
+        }
+        if let Some(sse_kms_key_id) = sse_kms_key_id {
+            let header = Header::new(SSE_KEY_ID_HEADER_NAME, sse_kms_key_id);
+            headers.add_header(&header).unwrap();
+        }
+        check_response_headers(&headers, sse_type, sse_kms_key_id);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "SSE type provided in CompleteMultipartUpload response does not match the requested value"
+    )]
+    fn test_check_headers_bad_sse_type() {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new(SSE_TYPE_HEADER_NAME, "wrong");
+        headers.add_header(&header).unwrap();
+        let header = Header::new(SSE_KEY_ID_HEADER_NAME, "some_key_alias");
+        headers.add_header(&header).unwrap();
+        check_response_headers(&headers, Some("sse:kms"), Some("some_key_alias"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "SSE KMS key ID provided in CompleteMultipartUpload response does not match the requested value"
+    )]
+    fn test_check_headers_bad_sse_key() {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let header = Header::new(SSE_TYPE_HEADER_NAME, "sse:kms");
+        headers.add_header(&header).unwrap();
+        check_response_headers(&headers, Some("sse:kms"), Some("some_key_alias"));
     }
 }

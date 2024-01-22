@@ -15,16 +15,14 @@ use test_case::test_case;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
-async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object should succeed");
 
@@ -32,7 +30,7 @@ async fn test_put_object(client: &impl ObjectClient, bucket: &str, prefix: &str)
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &contents[..]).await;
@@ -42,18 +40,16 @@ object_client_test!(test_put_object);
 
 // Simple test for PUT object. Puts a single, empty object and checks that the (empty)
 // contents are correct with a GET.
-async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, prefix: &str) {
-    let key = format!("{prefix}hello");
-
+async fn test_put_object_empty(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object should succeed");
 
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &[]).await;
@@ -63,16 +59,19 @@ object_client_test!(test_put_object_empty);
 
 // Test for multi-part PUT interface. Splits up a small object into a number of pieces, and streams
 // the pieces to the object client. Checks contents are correct using a GET.
-async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object_multi_part(
+    client: &impl ObjectClient,
+    bucket: &str,
+    key: &str,
+    request_params: PutObjectParams,
+) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     let mut contents = [0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object failed");
 
@@ -83,7 +82,7 @@ async fn test_put_object_multi_part(client: &impl ObjectClient, bucket: &str, pr
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -93,10 +92,8 @@ object_client_test!(test_put_object_multi_part);
 
 // Test for multi-part PUT interface. Splits up a large object into a number of pieces, and streams
 // the pieces to the object client. Checks contents are correct using a GET.
-async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     const OBJECT_SIZE: usize = 32 * 1024 * 1024;
     const CHUNK_SIZE: usize = 1024 * 1024 + 1;
@@ -105,7 +102,7 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix:
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object failed");
 
@@ -115,7 +112,7 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix:
     request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, &key, None, None)
+        .get_object(bucket, key, None, None)
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -124,23 +121,21 @@ async fn test_put_object_large(client: &impl ObjectClient, bucket: &str, prefix:
 object_client_test!(test_put_object_large);
 
 // Test for dropped PUT object. Checks that the GET fails.
-async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, prefix: &str) {
+async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
     let mut rng = rand::thread_rng();
-
-    let key = format!("{prefix}hello");
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
     let mut request = client
-        .put_object(bucket, &key, &Default::default())
+        .put_object(bucket, key, &request_params)
         .await
         .expect("put_object should succeed");
 
     request.write(&contents).await.unwrap();
     drop(request); // Drop without calling complete().
 
-    let result = check_get_object(client, bucket, &key).await;
+    let result = check_get_object(client, bucket, key).await;
     assert!(result.is_err(), "get_object should fail for dropped PUT");
 }
 
@@ -329,4 +324,71 @@ async fn test_put_object_storage_class(storage_class: &str) {
         .unwrap();
 
     assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
+}
+
+#[cfg(not(feature = "s3express_tests"))]
+async fn check_sse(bucket: &String, key: &String, expected_sse: Option<&str>, expected_key: &Option<String>) {
+    let sdk_client = get_test_sdk_client().await;
+    let mut request = sdk_client.head_object();
+    if cfg!(not(feature = "s3express_tests")) {
+        request = request.bucket(bucket);
+    }
+    let head_object_resp: aws_sdk_s3::operation::head_object::HeadObjectOutput =
+        request.key(key).send().await.expect("head object should succeed");
+    let expected_sse = match expected_sse {
+        None => aws_sdk_s3::types::ServerSideEncryption::Aes256,
+        Some("aws:kms") => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
+        Some("aws:kms:dsse") => aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse,
+        _ => panic!("unexpected sse type was used in a test"),
+    };
+    let actual_sse = head_object_resp
+        .server_side_encryption
+        .expect("SSE field should always have a value for this test");
+    assert_eq!(actual_sse, expected_sse, "unexpected sse type");
+    if !matches!(expected_sse, aws_sdk_s3::types::ServerSideEncryption::Aes256) {
+        assert!(
+            head_object_resp.ssekms_key_id.is_some(),
+            "must have a key for non-default encryption methods",
+        );
+    }
+    if expected_key.is_some() {
+        // do not check the value of AWS managed key
+        assert_eq!(&head_object_resp.ssekms_key_id, expected_key, "unexpected sse key")
+    }
+}
+
+#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()))]
+#[test_case(Some("aws:kms"), None)]
+#[test_case(Some("aws:kms:dsse"), Some(get_test_kms_key_id()))]
+#[test_case(Some("aws:kms:dsse"), None)]
+#[test_case(None, None)]
+#[tokio::test]
+#[cfg(not(feature = "s3express_tests"))]
+async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>) {
+    let bucket = get_test_bucket();
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let request_params = PutObjectParams::new()
+        .server_side_encryption(sse_type.map(|value| value.to_owned()))
+        .ssekms_key_id(kms_key_id.to_owned());
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object_empty(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object_multi_part(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
+
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+    test_put_object_large(&client, &bucket, &key, request_params.clone()).await;
+    check_sse(&bucket, &key, sse_type, &kms_key_id).await;
 }
