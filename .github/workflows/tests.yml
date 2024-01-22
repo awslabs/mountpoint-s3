@@ -38,7 +38,7 @@ jobs:
         toolchain: stable
         override: true
     - name: Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -73,7 +73,7 @@ jobs:
         toolchain: stable
         override: true
     - name: Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -106,7 +106,7 @@ jobs:
         toolchain: stable
         override: true
     - name: Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -137,7 +137,7 @@ jobs:
         toolchain: stable
         override: true
     - name: Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -168,7 +168,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -216,7 +216,7 @@ jobs:
           override: true
           components: clippy
       - name: Cargo cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -243,7 +243,7 @@ jobs:
           toolchain: stable
           override: true
       - name: Cargo cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/

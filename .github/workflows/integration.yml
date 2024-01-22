@@ -79,7 +79,7 @@ jobs:
         override: true
     - name: Restore Cargo cache
       id: restore-cargo-cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -97,7 +97,7 @@ jobs:
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
     - name: Save Cargo cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v4
       if: inputs.environment != 'PR integration tests'
       with:
         path: |
@@ -149,7 +149,7 @@ jobs:
         override: true
     - name: Restore Cargo cache
       id: restore-cargo-cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -167,7 +167,7 @@ jobs:
     - name: Run tests
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests'
     - name: Save Cargo cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v4
       if: inputs.environment != 'PR integration tests'
       with:
         path: |
@@ -205,7 +205,7 @@ jobs:
         components: rust-src
     - name: Restore Cargo cache
       id: restore-cargo-cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -224,7 +224,7 @@ jobs:
     - name: Run tests
       run: make test-asan
     - name: Save Cargo cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v4
       if: inputs.environment != 'PR integration tests'
       with:
         path: |

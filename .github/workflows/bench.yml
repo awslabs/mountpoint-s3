@@ -53,7 +53,7 @@ jobs:
         override: true
     - name: Restore Cargo cache
       id: restore-cargo-cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -67,7 +67,7 @@ jobs:
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Save Cargo cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v4
       if: inputs.environment != 'PR benchmarks'
       with:
         path: |
@@ -122,7 +122,7 @@ jobs:
         override: true
     - name: Restore Cargo cache
       id: restore-cargo-cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -136,7 +136,7 @@ jobs:
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_latency_bench.sh
     - name: Save Cargo cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v4
       if: inputs.environment != 'PR benchmarks'
       with:
         path: |
