@@ -48,12 +48,12 @@ body:
       render: shell
     validations:
       required: true      
-  - type: textarea
-    id: behavior
-    - type: markdown
+  - type: markdown
     attributes:
       value: |
-        Please check the list of unsupported Operations and their errors from the [Troubleshooting page](doc/TROUBLESHOOTING.md) .
+        Please check the list of unsupported Operations and their errors from the [Troubleshooting page](doc/TROUBLESHOOTING.md) .      
+  - type: textarea
+    id: behavior
     attributes:
       label: What happened?
       description: Also tell us, what did you expect to happen? Please try to include as many details as you can on how to reproduce the issue.
@@ -65,8 +65,8 @@ body:
     attributes:
       label: Relevant log output
       description: |
-        Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
-        Please use `--debug` and `debug-crt` mount options to gather more detailed logs.
+        Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks. 
+        Please use --debug and --debug-crt CLI flags to gather more detailed logs.
       render: shell
     validations:
       required: false
