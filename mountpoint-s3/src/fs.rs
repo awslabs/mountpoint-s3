@@ -1145,6 +1145,7 @@ where
         let mut state = file_handle.state.into_inner();
         let request = match state {
             FileHandleState::Created { lookup, flags, pid } => {
+                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
                 // This happens when release is called before any read() or write(),
                 // since we don't know what type of handle it would be we need to consider
                 // what to do next for both cases.
@@ -1156,7 +1157,6 @@ where
                 let is_truncate = flags & libc::O_TRUNC != 0;
                 if is_new_file || is_truncate {
                     state = FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?;
-                    metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "unassigned");
                     if let FileHandleState::Write(request) = state {
                         request
                     } else {
@@ -1168,8 +1168,8 @@ where
             }
             FileHandleState::Read { .. } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
-                file_handle.inode.finish_reading()?;
                 metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "read");
+                file_handle.inode.finish_reading()?;
                 return Ok(());
             }
             FileHandleState::Write(request) => request,
