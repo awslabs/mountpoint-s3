@@ -131,63 +131,68 @@ impl Superblock {
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     pub fn forget(&self, ino: InodeNo, n: u64) {
-        // Put inode removal in a block so we don't hold the lock on the inodes table longer than needed.
-        let (inode, parent) = {
-            let mut inodes = self.inner.inodes.write().unwrap();
-            match inodes.get(&ino) {
-                None => {
-                    debug_assert!(
-                        false,
-                        "forget should not be called on inode already removed from superblock"
-                    );
-                    error!("forget called on inode {ino} already removed from the superblock");
-                    return;
-                }
-                Some(inode) => {
-                    logging::record_name(inode.name());
-                    let new_lookup_count = inode.dec_lookup_count(n);
-                    if new_lookup_count == 0 {
-                        // Safe to remove, kernel no longer has a reference to it.
-                        trace!(ino, "removing inode from superblock");
-                        let inode = inodes.remove(&ino).expect("we just retrieved it");
-
-                        // Should be impossible for this to fail (VFS inodes reference their parent, so
-                        // children need to be freed first), but let's not crash in a `forget` function...
-                        let Some(parent) = inodes.get(&inode.parent()) else {
-                            debug_assert!(false, "children should be forgotten before parents");
-                            return;
-                        };
-                        (inode, parent.clone())
-                    } else {
-                        return;
-                    }
-                }
+        let inodes = self.inner.inodes.read().unwrap();
+        match inodes.get(&ino) {
+            None => {
+                debug_assert!(
+                    false,
+                    "forget should not be called on inode already removed from superblock"
+                );
+                error!("forget called on inode {ino} already removed from the superblock");
             }
-        };
+            Some(inode) => {
+                // We have to clone the inode so it will not hold reference to the lock which we want to drop as soon as possible.
+                let inode = inode.clone();
+                drop(inodes);
+                logging::record_name(inode.name());
+                let new_lookup_count = inode.dec_lookup_count(n);
+                if new_lookup_count == 0 {
+                    // Safe to remove, kernel no longer has a reference to it.
+                    trace!(ino, "removing inode from superblock");
+                    let inode = self
+                        .inner
+                        .inodes
+                        .write()
+                        .unwrap()
+                        .remove(&ino)
+                        .expect("we just retrieved it");
 
-        let mut parent_state = parent.inner.sync.write().unwrap();
-        let InodeKindData::Directory {
-            children,
-            writing_children,
-            ..
-        } = &mut parent_state.kind_data
-        else {
-            unreachable!("parent is always a directory");
-        };
-        if let Some(child) = children.get(inode.name()) {
-            // Don't accidentally remove a newer inode (e.g. remote shadowing local)
-            if child.ino() == ino {
-                children.remove(inode.name());
+                    let inodes = self.inner.inodes.read().unwrap();
+                    // Should be impossible for this to fail (VFS inodes reference their parent, so
+                    // children need to be freed first), but let's not crash in a `forget` function...
+                    let Some(parent) = inodes.get(&inode.parent()) else {
+                        debug_assert!(false, "children should be forgotten before parents");
+                        return;
+                    };
+                    // Clone the parent inode so we can drop the lock on inodes.
+                    let parent = parent.clone();
+                    drop(inodes);
+                    let mut parent_state = parent.inner.sync.write().unwrap();
+                    let InodeKindData::Directory {
+                        children,
+                        writing_children,
+                        ..
+                    } = &mut parent_state.kind_data
+                    else {
+                        unreachable!("parent is always a directory");
+                    };
+                    if let Some(child) = children.get(inode.name()) {
+                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
+                        if child.ino() == ino {
+                            children.remove(inode.name());
+                        }
+                    }
+                    writing_children.remove(&ino);
+
+                    if let Ok(state) = inode.get_inode_state() {
+                        metrics::counter!(
+                            "metadata_cache.inode_forgotten_before_expiry",
+                            state.stat.is_valid().into(),
+                        );
+                    };
+                }
             }
         }
-        writing_children.remove(&ino);
-
-        if let Ok(state) = inode.get_inode_state() {
-            metrics::counter!(
-                "metadata_cache.inode_forgotten_before_expiry",
-                state.stat.is_valid().into(),
-            );
-        };
     }
 
     /// Lookup an inode in the parent directory with the given name and
@@ -352,7 +357,7 @@ impl Superblock {
             .ok_or_else(|| InodeError::InvalidFileName(name.to_owned()))?;
 
         // Put inode creation in a block so we don't hold the lock on the parent state longer than needed.
-        let (inode, stat) = {
+        let lookup = {
             let parent_inode = self.inner.get(dir)?;
             let mut parent_state = parent_inode.get_mut_inode_state()?;
 
@@ -391,11 +396,11 @@ impl Superblock {
             let inode = self
                 .inner
                 .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
-            (inode, stat)
+            LookedUp { inode, stat }
         };
 
-        self.inner.remember(&inode);
-        Ok(LookedUp { inode, stat })
+        self.inner.remember(&lookup.inode);
+        Ok(lookup)
     }
 
     /// Remove local-only empty directory, i.e., the ones created by mkdir.
