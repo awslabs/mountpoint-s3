@@ -149,13 +149,10 @@ impl Superblock {
                 if new_lookup_count == 0 {
                     // Safe to remove, kernel no longer has a reference to it.
                     trace!(ino, "removing inode from superblock");
-                    let inode = self
-                        .inner
-                        .inodes
-                        .write()
-                        .unwrap()
-                        .remove(&ino)
-                        .expect("we just retrieved it");
+                    let Some(inode) = self.inner.inodes.write().unwrap().remove(&ino) else {
+                        error!("forget called on inode {ino} already removed from the superblock");
+                        return;
+                    };
 
                     let inodes = self.inner.inodes.read().unwrap();
                     // Should be impossible for this to fail (VFS inodes reference their parent, so
