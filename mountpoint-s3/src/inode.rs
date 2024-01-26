@@ -131,64 +131,62 @@ impl Superblock {
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     pub fn forget(&self, ino: InodeNo, n: u64) {
-        let inodes = self.inner.inodes.read().unwrap();
-        match inodes.get(&ino) {
-            None => {
+        let inode = {
+            if let Some(inode) = self.inner.inodes.read().unwrap().get(&ino).cloned() {
+                inode
+            } else {
                 debug_assert!(
                     false,
                     "forget should not be called on inode already removed from superblock"
                 );
                 error!("forget called on inode {ino} already removed from the superblock");
+                return;
             }
-            Some(inode) => {
-                // We have to clone the inode so it will not hold reference to the lock which we want to drop as soon as possible.
-                let inode = inode.clone();
-                drop(inodes);
-                logging::record_name(inode.name());
-                let new_lookup_count = inode.dec_lookup_count(n);
-                if new_lookup_count == 0 {
-                    // Safe to remove, kernel no longer has a reference to it.
-                    trace!(ino, "removing inode from superblock");
-                    let Some(inode) = self.inner.inodes.write().unwrap().remove(&ino) else {
-                        error!("forget called on inode {ino} already removed from the superblock");
-                        return;
-                    };
+        };
 
-                    let inodes = self.inner.inodes.read().unwrap();
+        logging::record_name(inode.name());
+        let new_lookup_count = inode.dec_lookup_count(n);
+        if new_lookup_count == 0 {
+            // Safe to remove, kernel no longer has a reference to it.
+            trace!(ino, "removing inode from superblock");
+            let Some(inode) = self.inner.inodes.write().unwrap().remove(&ino) else {
+                error!("forget called on inode {ino} already removed from the superblock");
+                return;
+            };
+
+            let parent = {
+                if let Some(parent) = self.inner.inodes.read().unwrap().get(&inode.parent()).cloned() {
+                    parent
+                } else {
                     // Should be impossible for this to fail (VFS inodes reference their parent, so
                     // children need to be freed first), but let's not crash in a `forget` function...
-                    let Some(parent) = inodes.get(&inode.parent()) else {
-                        debug_assert!(false, "children should be forgotten before parents");
-                        return;
-                    };
-                    // Clone the parent inode so we can drop the lock on inodes.
-                    let parent = parent.clone();
-                    drop(inodes);
-                    let mut parent_state = parent.inner.sync.write().unwrap();
-                    let InodeKindData::Directory {
-                        children,
-                        writing_children,
-                        ..
-                    } = &mut parent_state.kind_data
-                    else {
-                        unreachable!("parent is always a directory");
-                    };
-                    if let Some(child) = children.get(inode.name()) {
-                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
-                        if child.ino() == ino {
-                            children.remove(inode.name());
-                        }
-                    }
-                    writing_children.remove(&ino);
-
-                    if let Ok(state) = inode.get_inode_state() {
-                        metrics::counter!(
-                            "metadata_cache.inode_forgotten_before_expiry",
-                            state.stat.is_valid().into(),
-                        );
-                    };
+                    debug_assert!(false, "children should be forgotten before parents");
+                    return;
+                }
+            };
+            let mut parent_state = parent.inner.sync.write().unwrap();
+            let InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } = &mut parent_state.kind_data
+            else {
+                unreachable!("parent is always a directory");
+            };
+            if let Some(child) = children.get(inode.name()) {
+                // Don't accidentally remove a newer inode (e.g. remote shadowing local)
+                if child.ino() == ino {
+                    children.remove(inode.name());
                 }
             }
+            writing_children.remove(&ino);
+
+            if let Ok(state) = inode.get_inode_state() {
+                metrics::counter!(
+                    "metadata_cache.inode_forgotten_before_expiry",
+                    state.stat.is_valid().into(),
+                );
+            };
         }
     }
 
