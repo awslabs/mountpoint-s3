@@ -15,7 +15,7 @@ but probably not the right fit for applications that:
 * make edits to existing files (don't work on your Git repository or run `vim` in Mountpoint 😄)
 
 > [!NOTE]
-> For troubleshooting operations not supported by Mountpoint which are common in Filesystem API, please visit [Troubleshooting page](doc/TROUBLESHOOTING.md).
+> For troubleshooting file operations which may not be supported by Mountpoint, see the [troubleshooting documentation](doc/TROUBLESHOOTING.md).
 
 Mountpoint for Amazon S3 does not implement all the features of a POSIX file system, and there are some differences that may affect compatibility with your application. See [Mountpoint file system behavior](doc/SEMANTICS.md) for a detailed description of Mountpoint for Amazon S3's behavior and POSIX support and how they could affect your application.
 
