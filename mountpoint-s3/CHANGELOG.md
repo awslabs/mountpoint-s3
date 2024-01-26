@@ -1,7 +1,17 @@
 ## Unreleased
 
+## v1.4.0 (January 26, 2024)
+
 ### New features
-* Allow file overwrites when mounting with `--allow-overwrite` option. The upload will start as soon as Mountpoint receives `write` request and cannot be aborted. Once it is started the file is guaranteed to be overwritten.
+* Allow file overwrites when mounting with `--allow-overwrite` option. The upload will start as soon as Mountpoint receives `write` request and cannot be aborted. Once it is started the file is guaranteed to be overwritten. ([#487](https://github.com/awslabs/mountpoint-s3/pull/487))
+
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* Update default network throughput values for newer EC2 instance types. ([#702](https://github.com/awslabs/mountpoint-s3/pull/702))
+* Improve error logging for various unsupported operations. ([#699](https://github.com/awslabs/mountpoint-s3/pull/699))
+* Fix a race condition where calling `mknod` and `forget` under the same directory could cause Mountpoint to hang indefinitely. ([#711](https://github.com/awslabs/mountpoint-s3/pull/711))
 
 ## v1.3.2 (January 11, 2024)
 
