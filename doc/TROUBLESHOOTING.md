@@ -5,6 +5,7 @@ and to write new objects sequentially from a single client at a time.
 To achieve this, Mountpoint does not implement all the features of a POSIX file system that may affect compatibility with your application.
 
 This documentation enumerates some examples of what error messages may look like when trying to perform unsupported operations. Please also take a look at Mountpoint's [semantics documentation](doc/SEMANTICS.md) for more more detailed information on the decisions and tradeoffs made.
+This troubleshooting page is based on release Mountpoint-s3 v1.4.0 .Versions earlier to that might not have same error logging.
 
 ## Random Write
 
@@ -33,6 +34,17 @@ For example, there is an preexisting file 'existing-file.txt' in mounted directo
 $ echo "Overwriting a file..." > existing-file.txt
 operation not permitted: existing-file.txt
 ```
+
+Log entries for file overwriting looks like:
+
+```
+WARN setattr{req=4 ino=21 name="existing-file.txt"}: mountpoint_s3::fuse: setattr failed: inode error: \
+inode 21 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
+```
+
+### Unreleased
+
+With improvement in error logging, we will get the following logs for file overwrite:
 
 In the logs, we get the following WARN message - 
 
@@ -128,5 +140,15 @@ And the Mountpoint Logs will show:
 
 ```
 WARN setattr{req=4 ino=21 name="init.txt"}: mountpoint_s3::fuse: setattr failed: inode error: \
-Cannot modify metadata for remote file at inode 21 (full key "init")
+inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
+```
+
+
+### Unreleased
+
+With improvement in error logging, we will get the following logs:
+
+```
+WARN setattr{req=4 ino=21 name="init.txt"}: mountpoint_s3::fuse: setattr failed: inode error: \
+Cannot modify metadata for remote file at inode 21 (full key "init.txt")
 ```
