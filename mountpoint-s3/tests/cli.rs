@@ -210,3 +210,41 @@ fn allow_other_conflict() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn max_ttl_exceeded() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let cache_dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    const INVALID_TTL: u64 = 150 * 365 * 24 * 60 * 60;
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg("--cache")
+        .arg(cache_dir.path())
+        .arg("--metadata-ttl")
+        .arg(format!("{}", INVALID_TTL));
+    let error_message = "'--metadata-ttl <SECONDS>': TTL must not be greater than 3153600000s (~100 years)";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[test]
+fn invalid_ttl() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let cache_dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    const INVALID_TTL_STRING: &str = "20000000000000000000";
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg("--cache")
+        .arg(cache_dir.path())
+        .arg("--metadata-ttl")
+        .arg(INVALID_TTL_STRING);
+    let error_message = "'--metadata-ttl <SECONDS>': number too large to fit in target type";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}

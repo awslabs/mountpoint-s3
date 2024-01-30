@@ -245,7 +245,7 @@ pub struct CliArgs {
         long,
         help = "Time-to-live (TTL) for cached metadata in seconds [default: 1s]",
         value_name = "SECONDS",
-        value_parser = parse_duration_seconds,
+        value_parser = parse_ttl_seconds,
         help_heading = CACHING_OPTIONS_HEADER,
         requires = "cache",
     )]
@@ -784,8 +784,19 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     Ok(bucket_name.to_owned())
 }
 
-fn parse_duration_seconds(seconds_str: &str) -> anyhow::Result<Duration> {
+fn parse_ttl_seconds(seconds_str: &str) -> anyhow::Result<Duration> {
+    const MAXIMUM_TTL_YEARS: u64 = 100;
+    const MAXIMUM_TTL_SECONDS: u64 = MAXIMUM_TTL_YEARS * 365 * 24 * 60 * 60;
+
     let seconds = seconds_str.parse()?;
+    if seconds > MAXIMUM_TTL_SECONDS {
+        return Err(anyhow!(
+            "TTL must not be greater than {}s (~{} years)",
+            MAXIMUM_TTL_SECONDS,
+            MAXIMUM_TTL_YEARS
+        ));
+    }
+
     let duration = Duration::from_secs(seconds);
     Ok(duration)
 }
