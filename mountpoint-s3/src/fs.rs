@@ -7,7 +7,7 @@ use std::ffi::{OsStr, OsString};
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use time::OffsetDateTime;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, Level};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
@@ -577,7 +577,17 @@ where
     pub async fn lookup(&self, parent: InodeNo, name: &OsStr) -> Result<Entry, Error> {
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
-        let lookup = self.superblock.lookup(&self.client, parent, name).await?;
+        let lookup = self
+            .superblock
+            .lookup(&self.client, parent, name)
+            .await
+            .map_err(|err| match err {
+                InodeError::FileDoesNotExist(_, _) => {
+                    // Lookup returning ENOENT is common case, and we dont want to warn in case `FileDoesNotExist` within ENOENT
+                    err!(libc::ENOENT, source: err, Level::DEBUG, "file does not exist")
+                }
+                _ => err.into(),
+            })?;
         let attr = self.make_attr(&lookup);
         Ok(Entry {
             ttl: lookup.validity(),
@@ -603,16 +613,29 @@ where
         ino: InodeNo,
         atime: Option<OffsetDateTime>,
         mtime: Option<OffsetDateTime>,
+        size: Option<u64>,
         _flags: Option<u32>,
     ) -> Result<Attr, Error> {
         tracing::info!(
-            "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?}",
+            "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?} size {:?}",
             ino,
             _flags,
             atime,
-            mtime
+            mtime,
+            size
         );
-        let lookup = self.superblock.setattr(&self.client, ino, atime, mtime).await?;
+        let setattr_result = self.superblock.setattr(&self.client, ino, atime, mtime).await;
+        let lookup = match (setattr_result, size) {
+            (Ok(lookup), _) => lookup,
+            (Err(InodeError::SetAttrNotPermittedOnRemoteInode(_)), Some(0)) if !self.config.allow_overwrite => {
+                // We want to provide better feedback to users to prompt them to opt-in to file overwrites if it looks like what the application needs.
+                // Instead of complex logic to match `setattr` truncation only, we just check for the error and if the size was set in the request.
+                // If so, we assume its probably a truncation.
+                return Err(
+                    err!(libc::EPERM, "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"));
+            }
+            (Err(e), _) => return Err(e.into()),
+        };
         let attr = self.make_attr(&lookup);
 
         Ok(Attr {

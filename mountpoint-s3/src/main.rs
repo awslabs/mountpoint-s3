@@ -507,7 +507,10 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         match autoconfigure::network_throughput(&instance_info) {
             Ok(throughput) => throughput,
             Err(e) => {
-                tracing::warn!("failed to detect network throughput: {:?}", e);
+                tracing::warn!(
+                    "failed to detect network throughput. Using {DEFAULT_TARGET_THROUGHPUT} gbps as throughput. \
+                    Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {e:?}",
+                    );
                 DEFAULT_TARGET_THROUGHPUT
             }
         }

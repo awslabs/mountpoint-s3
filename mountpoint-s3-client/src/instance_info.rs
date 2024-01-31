@@ -28,7 +28,7 @@ impl InstanceInfo {
                             Ok(identity_document)
                         }
                         Err(err) => {
-                            tracing::warn!("EC2 instance info not retrieved: {err:?}");
+                            tracing::debug!("EC2 instance info not retrieved: {err:?}");
                             Err(err)
                         }
                     }
