@@ -51,7 +51,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please check the list of unsupported Operations and their errors from the [Troubleshooting page](doc/TROUBLESHOOTING.md) .      
+        Please check the list of unsupported Operations and their errors from the [Troubleshooting page](../../doc/TROUBLESHOOTING.md) .      
   - type: textarea
     id: behavior
     attributes:
