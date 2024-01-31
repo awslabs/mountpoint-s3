@@ -4,7 +4,7 @@ Mountpoint for Amazon S3 is optimized for applications that need high read throu
 and to write new objects sequentially from a single client at a time.
 To achieve this, Mountpoint does not implement all the features of a POSIX file system that may affect compatibility with your application.
 
-This documentation enumerates some examples of what error messages may look like when trying to perform unsupported operations. Please also take a look at Mountpoint's [semantics documentation](doc/SEMANTICS.md) for more more detailed information on the decisions and tradeoffs made.
+This documentation enumerates some examples of what error messages may look like when trying to perform unsupported operations. Please also take a look at Mountpoint's [semantics documentation](../doc/SEMANTICS.md) for more more detailed information on the decisions and tradeoffs made.
 This troubleshooting page is based on release Mountpoint-s3 v1.4.0 .Versions earlier to that might not have same error logging.
 
 ## Random Write
@@ -20,15 +20,15 @@ dd: writing to 'out': Invalid argument
 In Mountpoint's logs, a warning message will be emitted similar to below:
 
 ```
-WARN write{req=52 ino=49 fh=3 offset=512 length=512 name="out"}: mountpoint_s3::fuse: write failed:upload error: \
-out of order write NOT supported by Mountpoint, aborting the upload; expected offset 0 but got 512
+WARN write{req=52 ino=49 fh=3 offset=512 length=512 name="out"}: 
+mountpoint_s3::fuse: write failed:upload error: out of order write NOT supported by Mountpoint, aborting the upload; expected offset 0 but got 512
 ```
 
 ## Writing to an existing File 
 
 Mountpoint support overwriting to existing file using mount option `--allow-overwrite` . 
 Trying to open an existing file for writing without `--allow-overwrite`  flag will fail with the error: `Operation not permitted`.
-For example, there is an preexisting file 'existing-file.txt' in mounted directory.
+For example, there is an pre-existing file 'existing-file.txt' in mounted directory.
 
 ```
 $ echo "Overwriting a file..." > existing-file.txt
@@ -38,8 +38,8 @@ operation not permitted: existing-file.txt
 Log entries for file overwriting looks like:
 
 ```
-WARN setattr{req=4 ino=21 name="existing-file.txt"}: mountpoint_s3::fuse: setattr failed: inode error: \
-inode 21 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
+WARN setattr{req=4 ino=21 name="existing-file.txt"}: 
+mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
 ```
 
 ### Unreleased
@@ -49,8 +49,8 @@ With improvement in error logging, we will get the following logs for file overw
 In the logs, we get the following WARN message - 
 
 ```
-WARN setattr{req=11 ino=2 name="existing-file.txt"}: mountpoint_s3::fuse: setattr failed: file overwrite is disabled by default, \
-you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it
+WARN setattr{req=11 ino=2 name="existing-file.txt"}: 
+mountpoint_s3::fuse: setattr failed: file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it
 ```
 
 ## Deleting file
@@ -66,8 +66,8 @@ rm: cannot remove 'test-file.txt': Operation not permitted
 In Mountpoint's logs, similar message will be emitted:
 
 ```
-WARN unlink{req=8 parent=1 name="test-file.txt"}: mountpoint_s3::fuse: unlink failed: Deletes are disabled. \
-Use '--allow-delete' mount option to enable it.
+WARN unlink{req=8 parent=1 name="test-file.txt"}: 
+mountpoint_s3::fuse: unlink failed: Deletes are disabled. Use '--allow-delete' mount option to enable it.
 ```
 
 ## Listing file which is shadowed by directory of same name
@@ -89,12 +89,11 @@ out
 Mountpoint logs will show an entry like this:
 
 ```
-WARN readdir{req=5 ino=1 fh=2 offset=17}: mountpoint_s3::inode::readdir::ordered:file 'out' (full key "out") is omitted \
-because another directory 'out' exist with the same name.
+WARN readdir{req=5 ino=1 fh=2 offset=17}: 
+mountpoint_s3::inode::readdir::ordered:file 'out' (full key "out") is omitted because another directory 'out' exist with the same name.
 ```
 
 Although, in S3 express one zone bucket both file and directory will be shown without the above warning being emitted. 
-But, any operation on `out` will refer to the directory.
 
 ## Renaming a file/directory
 
@@ -118,13 +117,13 @@ Objects in the Glacier Flexible Retrieval and Glacier Deep Archive storage class
 When listing or trying to access objects in these storage classes, Mountpoint logs will show entries like:
 
 ```
-WARN readdirplus{req=10 ino=1 fh=1 offset=0}: mountpoint_s3::inode: \
-objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored
+WARN readdirplus{req=10 ino=1 fh=1 offset=0}: 
+mountpoint_s3::inode: objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored
 ```
 
 ```
-WARN lookup{req=6 ino=1 name="class_GLACIER"}: mountpoint_s3::inode: \
-objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored
+WARN lookup{req=6 ino=1 name="class_GLACIER"}: 
+mountpoint_s3::inode: objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored
 ```
 
 ## Modifying metadata
@@ -139,16 +138,6 @@ touch: init.txt: Operation not permitted
 And the Mountpoint Logs will show:
 
 ```
-WARN setattr{req=4 ino=21 name="init.txt"}: mountpoint_s3::fuse: setattr failed: inode error: \
-inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
-```
-
-
-### Unreleased
-
-With improvement in error logging, we will get the following logs:
-
-```
-WARN setattr{req=4 ino=21 name="init.txt"}: mountpoint_s3::fuse: setattr failed: inode error: \
-Cannot modify metadata for remote file at inode 21 (full key "init.txt")
+WARN setattr{req=4 ino=21 name="init.txt"}: 
+mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
 ```
