@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1706282690019,
+  "lastUpdate": 1706713591971,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5e41487a27fce641f3f07fbab1dae50ee56ec2d2",
-          "message": "Prevent build on crate verify workflow (#685)\n\nThis prevents issues where some of the crates are updated but not published yet.\nCargo tries to build the crate using the version of its dependency on crates.io, as if its about to be published.\nIn many cases, we want to update our crates over a few commits before later publishing each of the crates together.\n\nExample of the issue: https://github.com/awslabs/mountpoint-s3/actions/runs/7356232845/job/20026056240?pr=684#step:5:229\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-01-03T15:35:31Z",
-          "tree_id": "03fe8f49336932477cbffb25f01153283856764b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5e41487a27fce641f3f07fbab1dae50ee56ec2d2"
-        },
-        "date": 1704298080814,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.075,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.168,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.064,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.333,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 58.7916535,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 76.7559376,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 58.8665123,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92aec0a0132aaf8d20093943cb40269bb57ffb2f",
+          "message": "Reduce error noise in logging for lookup and throughput configuration (#718)\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-01-31T14:26:06Z",
+          "tree_id": "9bc33a9a28479cd7d8967c8f0b0df2ebe0e05e16",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/92aec0a0132aaf8d20093943cb40269bb57ffb2f"
+        },
+        "date": 1706713591461,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.078,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.178,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.107,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.123,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 91.2959824,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 70.8350994,
             "unit": "milliseconds"
           }
         ]
