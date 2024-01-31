@@ -28,7 +28,7 @@ mountpoint_s3::fuse: write failed:upload error: out of order write NOT supported
 
 Mountpoint support overwriting to existing file using mount option `--allow-overwrite` . 
 Trying to open an existing file for writing without `--allow-overwrite`  flag will fail with the error: `Operation not permitted`.
-For example, there is an pre-existing file 'existing-file.txt' in mounted directory.
+For example, there is an pre-existing file 'existing-file.txt' in mounted directory. We try to overwrite the 'existing-file' as follow:
 
 ```
 $ echo "Overwriting a file..." > existing-file.txt
@@ -44,9 +44,9 @@ mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "existing-f
 
 ### Unreleased
 
-With improvement in error logging, we will get the following logs for file overwrite:
+With improvement in error logging, we will get the following logs for file overwrite-
 
-In the logs, we get the following WARN message - 
+In the logs, we get the following WARN message:
 
 ```
 WARN setattr{req=11 ino=2 name="existing-file.txt"}: 
@@ -56,14 +56,14 @@ mountpoint_s3::fuse: setattr failed: file overwrite is disabled by default, you 
 ## Deleting file
 
 In order to delete files using Mountpoint user need to enable it using `--allow-delete` CLI flag. To know more about the behaviour of file deletion, please visit [Delete Semantics](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#deletes)
-Without the flag, if a customer tries to delete, for example test-file.txt, they will get the following error -
+Without the flag, if a customer tries to delete, for example test-file.txt, they will get the following error:
 
 ```
 $ rm test-file.txt
 rm: cannot remove 'test-file.txt': Operation not permitted
 ```
 
-In Mountpoint's logs, similar message will be emitted:
+In Mountpoint's logs, following message will be emitted:
 
 ```
 WARN unlink{req=8 parent=1 name="test-file.txt"}: 
@@ -79,7 +79,7 @@ For example, our bucket contains the following object keys:
 * out
 * out/image.jpg
 
-When listing the content of a directory mounting the bucket in the example above:
+When listing the content of a directory mounting the bucket in the example above, we will get the following result:
 
 ```
 $ ls
