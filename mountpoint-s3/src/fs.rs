@@ -340,11 +340,18 @@ impl Default for CacheConfig {
         let file_ttl = Duration::from_millis(100);
         let dir_ttl = Duration::from_millis(1000);
 
+        // We want the negative cache to be effective but need to limit its memory usage. This value
+        // results in a maximum memory usage of ~20MB (assuming average file name length of 37 bytes)
+        // and should be large enough for many workloads. The metrics in
+        // `metadata_cache.negative_cache`, in particular `entries_evicted_before_expiry`, can be
+        // monitored to verify if this limit needs reviewing.
+        let negative_cache_size = 100_000;
+
         Self {
             serve_lookup_from_cache: false,
             file_ttl,
             dir_ttl,
-            negative_cache_size: 100_000,
+            negative_cache_size,
         }
     }
 }
