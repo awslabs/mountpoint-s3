@@ -9,6 +9,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, Parser, ValueEnum};
 use fuser::{MountOption, Session};
+use futures::task::Spawn;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::instance_info::InstanceInfo;
@@ -18,6 +19,7 @@ use mountpoint_s3_crt::auth::signing_config::SigningAlgorithm;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
 use mountpoint_s3_crt::common::uri::Uri;
+use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 use regex::Regex;
@@ -42,7 +44,7 @@ const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
 #[derive(Parser)]
 #[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
-struct CliArgs {
+pub struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
     pub bucket_name: String,
 
@@ -269,7 +271,7 @@ struct CliArgs {
 }
 
 #[derive(Debug, Clone)]
-struct S3PersonalityArg(S3Personality);
+pub struct S3PersonalityArg(S3Personality);
 
 impl ValueEnum for S3PersonalityArg {
     fn value_variants<'a>() -> &'a [Self] {
@@ -291,6 +293,10 @@ impl CliArgs {
         } else {
             AddressingStyle::Automatic
         }
+    }
+
+    fn prefix(&self) -> Prefix {
+        self.prefix.as_ref().cloned().unwrap_or_default()
     }
 
     fn logging_config(&self) -> LoggingConfig {
@@ -356,7 +362,12 @@ impl CliArgs {
     }
 }
 
-pub fn main() -> anyhow::Result<()> {
+pub fn main<ClientBuilder, Client, Runtime>(client_builder: ClientBuilder) -> anyhow::Result<()>
+where
+    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync + 'static,
+{
     let args = CliArgs::parse();
     let successful_mount_msg = format!(
         "{} is mounted at {}",
@@ -370,7 +381,7 @@ pub fn main() -> anyhow::Result<()> {
         let _metrics = metrics::install();
 
         // mount file system as a foreground process
-        let session = mount(args)?;
+        let session = mount(args, client_builder)?;
 
         println!("{successful_mount_msg}");
 
@@ -396,7 +407,7 @@ pub fn main() -> anyhow::Result<()> {
 
                 let _metrics = metrics::install();
 
-                let session = mount(args);
+                let session = mount(args, client_builder);
 
                 // close unused file descriptor, we only write from this end.
                 nix::unistd::close(read_fd).context("Failed to close unused file descriptor")?;
@@ -486,15 +497,9 @@ pub fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
+/// Create a real S3 client
+pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoopGroup, S3Personality)> {
     const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
-
-    tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
-
-    validate_mount_point(&args.mount_point)?;
-
-    let bucket_description = args.bucket_description();
-    let fuse_config = args.fuse_session_config();
 
     // Placeholder region will be filled in by [create_client_for_bucket]
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
@@ -519,13 +524,13 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
 
     let auth_config = if args.no_sign_request {
         S3ClientAuthConfig::NoSigning
-    } else if let Some(profile_name) = args.profile {
-        S3ClientAuthConfig::Profile(profile_name)
+    } else if let Some(profile_name) = &args.profile {
+        S3ClientAuthConfig::Profile(profile_name.to_owned())
     } else {
         S3ClientAuthConfig::Default
     };
 
-    let user_agent_prefix = if let Some(custom_prefix) = args.user_agent_prefix {
+    let user_agent_prefix = if let Some(custom_prefix) = &args.user_agent_prefix {
         format!("{} mountpoint-s3/{}", custom_prefix, build_info::FULL_VERSION)
     } else {
         format!("mountpoint-s3/{}", build_info::FULL_VERSION)
@@ -551,23 +556,40 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         client_config = client_config.request_payer("requester");
     }
 
-    if let Some(owner) = args.expected_bucket_owner {
-        client_config = client_config.bucket_owner(&owner);
+    if let Some(owner) = &args.expected_bucket_owner {
+        client_config = client_config.bucket_owner(owner);
     }
-
-    let prefix = args.prefix.unwrap_or_default();
 
     let client = create_client_for_bucket(
         &args.bucket_name,
-        &prefix,
-        args.region,
-        args.endpoint_url,
+        &args.prefix(),
+        args.region.clone(),
+        args.endpoint_url.clone(),
         endpoint_config,
         client_config,
         &instance_info,
     )
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
+    let s3_personality = get_s3_personality(args.bucket_type.clone(), &args.bucket_name, client.endpoint_config());
+
+    Ok((client, runtime, s3_personality))
+}
+
+fn mount<ClientBuilder, Client, Runtime>(args: CliArgs, client_builder: ClientBuilder) -> anyhow::Result<FuseSession>
+where
+    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    Client: ObjectClient + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync + 'static,
+{
+    tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
+
+    validate_mount_point(&args.mount_point)?;
+
+    let (client, runtime, s3_personality) = client_builder(&args)?;
+
+    let bucket_description = args.bucket_description();
+    let fuse_config = args.fuse_session_config();
 
     let mut filesystem_config = S3FilesystemConfig::default();
     if let Some(uid) = args.uid {
@@ -585,8 +607,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
-    filesystem_config.s3_personality =
-        get_s3_personality(args.bucket_type, &args.bucket_name, client.endpoint_config());
+    filesystem_config.s3_personality = s3_personality;
 
     let prefetcher_config = Default::default();
 
@@ -619,7 +640,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
                 client,
                 prefetcher,
                 &args.bucket_name,
-                &prefix,
+                &args.prefix.unwrap_or_default(),
                 filesystem_config,
                 fuse_config,
                 &bucket_description,
@@ -638,7 +659,7 @@ fn mount(args: CliArgs) -> anyhow::Result<FuseSession> {
         client,
         prefetcher,
         &args.bucket_name,
-        &prefix,
+        &args.prefix.unwrap_or_default(),
         filesystem_config,
         fuse_config,
         &bucket_description,
