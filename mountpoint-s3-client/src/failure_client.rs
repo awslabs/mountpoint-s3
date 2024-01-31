@@ -1,5 +1,7 @@
 //! An [`ObjectClient`] that can inject failures into requests for testing purposes.
 
+#![cfg(feature = "mock")]
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Range;
