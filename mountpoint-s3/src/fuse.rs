@@ -20,12 +20,26 @@ use fuser::{
 
 pub mod session;
 
+/// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
+/// requests based on their response status. https://github.com/tokio-rs/tracing/issues/372
+macro_rules! event {
+    ($level:expr, $($args:tt)*) => {
+        match $level {
+            ::tracing::Level::ERROR => ::tracing::event!(::tracing::Level::ERROR, $($args)*),
+            ::tracing::Level::WARN => ::tracing::event!(::tracing::Level::WARN, $($args)*),
+            ::tracing::Level::INFO => ::tracing::event!(::tracing::Level::INFO, $($args)*),
+            ::tracing::Level::DEBUG => ::tracing::event!(::tracing::Level::DEBUG, $($args)*),
+            ::tracing::Level::TRACE => ::tracing::event!(::tracing::Level::TRACE, $($args)*),
+        }
+    };
+}
+
 /// Handle an error in a FUSE handler. This logs the appropriate error message and then calls
 /// `reply` on the given replier with the error's corresponding errno.
 macro_rules! fuse_error {
     ($name:literal, $reply:expr, $err:expr) => {{
         let err = $err;
-        ::tracing::warn!("{} failed: {:#}", $name, err);
+        event!(err.level, "{} failed: {:#}", $name, err);
         ::metrics::counter!("fuse.op_failures", 1, "op" => $name);
         $reply.error(err.to_errno());
     }};
@@ -33,15 +47,18 @@ macro_rules! fuse_error {
 
 /// Generic handler for unimplemented FUSE operations
 macro_rules! fuse_unsupported {
-    ($name:literal, $reply:expr, $err:expr) => {{
-        ::tracing::warn!("{} failed: operation not supported by Mountpoint", $name);
+    ($name:literal, $reply:expr, $err:expr, $level:expr) => {{
+        event!($level, "{} failed: operation not supported by Mountpoint", $name);
         ::metrics::counter!("fuse.op_failures", 1, "op" => $name);
         ::metrics::counter!("fuse.op_unimplemented", 1, "op" => $name);
         $reply.error($err);
     }};
     ($name:literal, $reply:expr) => {
-        fuse_unsupported!($name, $reply, libc::ENOSYS);
-    }
+        fuse_unsupported!($name, $reply, libc::ENOSYS, tracing::Level::WARN)
+    };
+    ($name:literal, $reply:expr, $err:expr) => {
+        fuse_unsupported!($name, $reply, $err, tracing::Level::WARN)
+    };
 }
 
 /// This is just a thin wrapper around [S3Filesystem] that implements the actual `fuser` protocol,
@@ -346,7 +363,7 @@ where
         _mode: Option<u32>,
         _uid: Option<u32>,
         _gid: Option<u32>,
-        _size: Option<u64>,
+        size: Option<u64>,
         atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
@@ -365,7 +382,7 @@ where
             TimeOrNow::SpecificTime(st) => OffsetDateTime::from(st),
             TimeOrNow::Now => OffsetDateTime::now_utc(),
         });
-        match block_on(self.fs.setattr(ino, atime, mtime, flags).in_current_span()) {
+        match block_on(self.fs.setattr(ino, atime, mtime, size, flags).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => fuse_error!("setattr", reply, e),
         }
@@ -454,7 +471,7 @@ where
         _flags: i32,
         reply: ReplyCreate,
     ) {
-        fuse_unsupported!("create", reply);
+        fuse_unsupported!("create", reply, libc::ENOSYS, tracing::Level::DEBUG);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, pid=pid))]
