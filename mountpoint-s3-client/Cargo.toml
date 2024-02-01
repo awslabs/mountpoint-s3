@@ -46,7 +46,7 @@ aws-sdk-s3 = "0.29.0"
 aws-sdk-sts = "0.29.0"
 aws-smithy-runtime-api = "0.56.1"
 bytes = "1.2.1"
-clap = "4.1.9"
+clap = { version = "4.1.9", features = ["derive"] }
 ctor = "0.1.23"
 proptest = "1.0.0"
 rusty-fork = "0.3.0"
