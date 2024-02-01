@@ -11,6 +11,10 @@ body:
       value: |
         **Note: security issues should not be reported here.**
         Please follow the [security policy for this repository](https://github.com/awslabs/mountpoint-s3/security/policy).
+  - type: markdown
+    attributes:
+      value: |
+        Please also check the list of unsupported Operations and their errors from the [Troubleshooting page](../../doc/TROUBLESHOOTING.md).            
   - type: input
     id: project-version
     attributes:
@@ -47,11 +51,7 @@ body:
       placeholder: mount-s3 <MY_BUCKET> <MOUNT_DIR> --allow_delete
       render: shell
     validations:
-      required: true      
-  - type: markdown
-    attributes:
-      value: |
-        Please check the list of unsupported Operations and their errors from the [Troubleshooting page](../../doc/TROUBLESHOOTING.md) .      
+      required: true
   - type: textarea
     id: behavior
     attributes:

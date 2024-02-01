@@ -26,8 +26,7 @@ mountpoint_s3::fuse: write failed:upload error: out of order write NOT supported
 
 ## Writing to an existing File 
 
-Mountpoint support overwriting to existing file using mount option `--allow-overwrite` . 
-Trying to open an existing file for writing without `--allow-overwrite`  flag will fail with the error: `Operation not permitted`.
+Trying to open an existing file for writing using Mountpoint without `--allow-overwrite`  flag will fail with the error: `Operation not permitted`.
 For example, there is an pre-existing file 'existing-file.txt' in mounted directory. We try to overwrite the 'existing-file' as follow:
 
 ```
@@ -42,11 +41,13 @@ WARN setattr{req=4 ino=21 name="existing-file.txt"}:
 mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
 ```
 
+If you want to overwrite a file using Mountpoint, please use `--allow-overwrite` CLI flag during mounting the bucket on a directory. 
+
 ### Unreleased
 
 With improvement in error logging, we will get the following logs for file overwrite-
 
-In the logs, we get the following WARN message:
+In the logs, we get the following WARN message for the above example:
 
 ```
 WARN setattr{req=11 ino=2 name="existing-file.txt"}: 
@@ -55,8 +56,7 @@ mountpoint_s3::fuse: setattr failed: file overwrite is disabled by default, you 
 
 ## Deleting file
 
-In order to delete files using Mountpoint user need to enable it using `--allow-delete` CLI flag. To know more about the behaviour of file deletion, please visit [Delete Semantics](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#deletes)
-Without the flag, if a customer tries to delete, for example test-file.txt, they will get the following error:
+If a customer tries to delete a file using Mountpoint (without `--allow-delete` CLI flag), for example test-file.txt, they will get the following error:
 
 ```
 $ rm test-file.txt
@@ -70,19 +70,20 @@ WARN unlink{req=8 parent=1 name="test-file.txt"}:
 mountpoint_s3::fuse: unlink failed: Deletes are disabled. Use '--allow-delete' mount option to enable it.
 ```
 
+In order to delete files using Mountpoint user need to enable it using `--allow-delete` CLI flag. To know more about the behaviour of file deletion, please visit [Delete Semantics](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#deletes)
+
 ## Listing file which is shadowed by directory of same name
 
 A file system directory cannot contain both a file and a directory of the same name. If your bucket's directory structure would result in this state, only the directory will be accessible. The object will not be accessible. 
-For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories). 
 For example, our bucket contains the following object keys:
 
 * out
 * out/image.jpg
 
-When listing the content of a directory mounting the bucket in the example above, we will get the following result:
+When listing the content of a directory `mnt` mounting the bucket in the example above, we will get the following result:
 
 ```
-$ ls
+$ ls mnt/
 out
 ```
 
@@ -94,6 +95,8 @@ mountpoint_s3::inode::readdir::ordered:file 'out' (full key "out") is omitted be
 ```
 
 Although, in S3 express one zone bucket both file and directory will be shown without the above warning being emitted. 
+
+For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories). 
 
 ## Renaming a file/directory
 
