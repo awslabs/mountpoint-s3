@@ -29,7 +29,7 @@ mountpoint_s3::fuse: write failed: upload error: out of order write NOT supporte
 ## Writing to an existing file 
 
 Trying to open an existing file for writing using Mountpoint without `--allow-overwrite`  flag will fail with the error: `Operation not permitted`.
-For example: for a directory with existing file 'existing-file.txt', the following error will occur when trying to overwrite it:
+For example, overwriting an existing file in Mountpoint would result in the following error:
 
 ```
 $ echo "Overwriting a file..." > existing-file.txt
