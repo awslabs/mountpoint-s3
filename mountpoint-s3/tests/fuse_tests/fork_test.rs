@@ -472,11 +472,15 @@ fn unmount(mount_point: &Path) {
         Ok(result.success())
     }
 
-    // Try both FUSE 2 and FUSE 3 versions, since we don't know where we're running
-    for bin in ["fusermount", "fusermount3"] {
-        if matches!(run_fusermount(bin, mount_point), Ok(true)) {
-            return;
+    // Loop a bit to give any slow/async FUSE requests time to finish
+    for i in 1..4 {
+        // Try both FUSE 2 and FUSE 3 versions, since we don't know where we're running
+        for bin in ["fusermount", "fusermount3"] {
+            if matches!(run_fusermount(bin, mount_point), Ok(true)) {
+                return;
+            }
         }
+        std::thread::sleep(i * Duration::from_secs(1));
     }
 
     panic!("failed to unmount");
