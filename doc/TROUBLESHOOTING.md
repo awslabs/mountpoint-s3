@@ -36,11 +36,16 @@ $ echo "Overwriting a file..." > existing-file.txt
 operation not permitted: existing-file.txt
 ```
 
-Log entries for file overwriting looks like:
+Log entries for overwriting a file looks like one of the following depending on the Mountpoint version:
 
 ```
 WARN setattr{req=11 ino=2 name="existing-file.txt"}: 
 mountpoint_s3::fuse: setattr failed: inode error: inode 2 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
+```
+
+```
+WARN setattr{req=11 ino=2 name="existing-file.txt"}: 
+mountpoint_s3::fuse: setattr failed: file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it
 ```
 
 If you want to overwrite a file using Mountpoint, please use `--allow-overwrite` CLI flag during mounting the bucket on a directory. 
