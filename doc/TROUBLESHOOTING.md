@@ -28,7 +28,7 @@ mountpoint_s3::fuse: write failed: upload error: out of order write NOT supporte
 
 ## Writing to an existing file
 
-Trying to delete a file using Mountpoint without the `--allow-delete` CLI flag will fail with `Operation not permitted`.
+Trying to open an existing file for writing using Mountpoint without the `--allow-overwrite` flag will fail with the error: `Operation not permitted`.
 For example, overwriting an existing file in Mountpoint would result in the following error:
 
 ```
