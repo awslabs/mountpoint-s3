@@ -1,5 +1,7 @@
 //! A mock implementation of an object client for use in tests.
 
+#![cfg(feature = "mock")]
+
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
@@ -26,6 +28,9 @@ use crate::object_client::{
     ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams,
     PutObjectRequest, PutObjectResult, RestoreStatus, UploadReview, UploadReviewPart,
 };
+
+mod leaky_bucket;
+pub mod throughput_client;
 
 pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));

@@ -46,6 +46,8 @@ fs2 = "0.4.3"
 procfs = { version = "0.15.1", default-features = false }
 
 [dev-dependencies]
+mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
+
 assert_cmd = "2.0.6"
 assert_fs = "1.0.9"
 aws-config = "0.56.0"

@@ -1,3 +1,13 @@
+## Unreleased
+
+### Breaking changes
+
+* The `mock_client` module is no longer enabled by default, and is now available by enabling the `mock` feature for this crate. ([#723](https://github.com/awslabs/mountpoint-s3/pull/723))
+
+### Other changes
+
+* Introduced a new `ThroughputMockClient` that simulates a target network throughput from an in-memory mock S3 client. This client requires the `mock` feature flag. ([#723](https://github.com/awslabs/mountpoint-s3/pull/723)) 
+
 ## v0.6.2 (January 18, 2024)
 
 ### Breaking changes
