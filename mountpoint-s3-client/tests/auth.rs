@@ -71,12 +71,11 @@ async fn test_static_provider() {
     check_get_result(result, None, &body[..]).await;
 
     // Try it again but corrupt the credentials so that we know they're actually being used. The
-    // client can't tell that the corrupted secret access key is invalid, so the request gets sent,
-    // but fails.
-    let bogus_secret_access_key = credentials.secret_access_key().split_at(5).0;
+    // client doesn't check anything about access key IDs, so the request will get sent, but fails.
+    let bogus_access_key_id = credentials.access_key_id().split_at(10).0;
     let config = CredentialsProviderStaticOptions {
-        access_key_id: credentials.access_key_id(),
-        secret_access_key: bogus_secret_access_key,
+        access_key_id: bogus_access_key_id,
+        secret_access_key: credentials.secret_access_key(),
         session_token: credentials.session_token(),
     };
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
@@ -130,22 +129,21 @@ async fn test_profile_provider_async() {
         .await
         .expect("static credentials should be available");
 
-    // Write the credentials in CLI config format into a temp file
+    // Write the credentials in CLI config format into a temp file. The ordering is a little funny
+    // because we'll be truncating the access key ID later, so we want it last in the file.
     let profile_name = "mountpoint-profile";
     let mut config_file = NamedTempFile::new().unwrap();
-    writeln!(
-        config_file,
-        "[profile {}]
-aws_access_key_id = {}
-aws_secret_access_key = {}",
-        profile_name,
-        credentials.access_key_id(),
-        credentials.secret_access_key()
-    )
-    .unwrap();
+    writeln!(config_file, "[profile {}]", profile_name).unwrap();
     if let Some(session_token) = credentials.session_token() {
         writeln!(config_file, "aws_session_token = {}", session_token).unwrap()
     }
+    writeln!(
+        config_file,
+        "aws_secret_access_key = {}",
+        credentials.secret_access_key()
+    )
+    .unwrap();
+    writeln!(config_file, "aws_access_key_id = {}", credentials.access_key_id()).unwrap();
 
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
@@ -163,9 +161,8 @@ aws_secret_access_key = {}",
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
 
-    // Try it again, but scribble over the credentials, so we know it's not succeeding by accident.
-    // The client can't tell that the corrupted session token is invalid, so the request gets sent,
-    // but fails.
+    // Try it again but corrupt the credentials so that we know they're actually being used. The
+    // client doesn't check anything about access key IDs, so the request will get sent, but fails.
     let length = config_file.as_file().metadata().unwrap().len();
     config_file.as_file_mut().set_len(length - 5).unwrap();
 
