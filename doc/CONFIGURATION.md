@@ -174,11 +174,7 @@ Mountpoint automatically configures reasonable defaults for file system settings
 
 ### File modifications and deletions
 
-By default, Mountpoint allows creating new files, and does not allow deleting existing objects or overwriting existing objects. You can adjust these defaults in two ways:
-* If you want to allow file deletion, use the `--allow-delete` command-line flag. When you delete a file from your Mountpoint file system with this flag enabled, the corresponding object is immediately deleted from your S3 bucket.
-* If you want to forbid all mutating actions on your S3 bucket, use the `--read-only` command-line flag.
-
-You cannot currently use Mountpoint to overwrite existing objects. However, if you use the `--allow-delete` flag, you can first delete the object and then create it again.
+By default, Mountpoint supports writing only to new files. Writes to existing files are allowed if `--allow-overwrite` flag is set at startup time, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. All writes must start from the beginning of the file and must be made sequentially. By default, Mountpoint does not allow deleting existing objects with commands like `rm`. If you want to allow file deletion, use the `--allow-delete` flag at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. If you want to forbid all mutating actions on your S3 bucket, use the `--read-only` command-line flag. See the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information. 
 
 ### S3 storage classes
 
