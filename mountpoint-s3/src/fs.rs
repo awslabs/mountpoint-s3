@@ -378,6 +378,8 @@ pub struct S3FilesystemConfig {
     pub storage_class: Option<String>,
     /// S3 personality (for different S3 semantics)
     pub s3_personality: S3Personality,
+    /// Server side encryption configuration to be used when creating new S3 object
+    pub server_side_encryption: ServerSideEncryption,
 }
 
 impl Default for S3FilesystemConfig {
@@ -396,6 +398,7 @@ impl Default for S3FilesystemConfig {
             allow_overwrite: false,
             storage_class: None,
             s3_personality: S3Personality::Standard,
+            server_side_encryption: Default::default(),
         }
     }
 }
@@ -418,6 +421,34 @@ impl S3Personality {
             Self::Standard => true,
             Self::ExpressOneZone => false,
         }
+    }
+}
+
+/// Server-side encryption configuration for newly created objects
+#[derive(Debug, Clone, Default)]
+pub struct ServerSideEncryption {
+    sse_type: Option<String>,
+    sse_kms_key_id: Option<String>,
+}
+
+impl ServerSideEncryption {
+    /// Construct SSE settings from raw values provided via CLI
+    pub fn new(sse_type: Option<String>, sse_kms_key_id: Option<String>) -> Self {
+        // TODO: compute checksum
+        Self {
+            sse_type,
+            sse_kms_key_id,
+        }
+    }
+
+    /// String representation of the SSE type as it is expected by S3 API
+    pub fn sse_type(&self) -> Option<String> {
+        self.sse_type.clone()
+    }
+
+    /// AWS KMS Key ID, if provided
+    pub fn key_id(&self) -> Option<String> {
+        self.sse_kms_key_id.clone()
     }
 }
 
@@ -462,7 +493,11 @@ where
 
         let client = Arc::new(client);
 
-        let uploader = Uploader::new(client.clone(), config.storage_class.to_owned());
+        let uploader = Uploader::new(
+            client.clone(),
+            config.storage_class.to_owned(),
+            config.server_side_encryption.clone(),
+        );
 
         Self {
             config,

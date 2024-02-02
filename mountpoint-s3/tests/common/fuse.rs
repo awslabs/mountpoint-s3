@@ -9,8 +9,11 @@ use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::PutObjectParams;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::common::allocator::Allocator;
 use tempfile::TempDir;
 
 pub trait TestClient: Send {
@@ -46,6 +49,7 @@ pub struct TestSessionConfig {
     pub part_size: usize,
     pub filesystem_config: S3FilesystemConfig,
     pub prefetcher_config: PrefetcherConfig,
+    pub auth_config: S3ClientAuthConfig,
 }
 
 impl Default for TestSessionConfig {
@@ -54,7 +58,21 @@ impl Default for TestSessionConfig {
             part_size: 8 * 1024 * 1024,
             filesystem_config: Default::default(),
             prefetcher_config: Default::default(),
+            auth_config: Default::default(),
         }
+    }
+}
+
+impl TestSessionConfig {
+    pub fn with_credentials(mut self, credentials: aws_sdk_s3::config::Credentials) -> Self {
+        let auth_config = CredentialsProviderStaticOptions {
+            access_key_id: credentials.access_key_id(),
+            secret_access_key: credentials.secret_access_key(),
+            session_token: credentials.session_token(),
+        };
+        let credentials_provider = CredentialsProvider::new_static(&Allocator::default(), auth_config).unwrap();
+        self.auth_config = S3ClientAuthConfig::Provider(credentials_provider);
+        self
     }
 }
 
@@ -256,7 +274,8 @@ pub mod s3_session {
 
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
-            .endpoint_config(EndpointConfig::new(&region));
+            .endpoint_config(EndpointConfig::new(&region))
+            .auth_config(test_config.auth_config);
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = client.event_loop_group();
         let prefetcher = default_prefetch(runtime, test_config.prefetcher_config);
