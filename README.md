@@ -16,6 +16,9 @@ but probably not the right fit for applications that:
 
 Mountpoint for Amazon S3 does not implement all the features of a POSIX file system, and there are some differences that may affect compatibility with your application. See [Mountpoint file system behavior](doc/SEMANTICS.md) for a detailed description of Mountpoint for Amazon S3's behavior and POSIX support and how they could affect your application.
 
+> [!NOTE]
+> For troubleshooting file operations which may not be supported by Mountpoint, see the [troubleshooting documentation](doc/TROUBLESHOOTING.md).
+
 ## Current status
 
 Mountpoint for Amazon S3 is generally available! We're tracking future feature development on the [Mountpoint for Amazon S3 public roadmap](https://github.com/orgs/awslabs/projects/84). We're always interested in feedback on features, performance, and compatibility. Please send feedback by [opening a new GitHub issue](https://github.com/awslabs/mountpoint-s3/issues/new/choose) or adding your input to an existing roadmap issue.

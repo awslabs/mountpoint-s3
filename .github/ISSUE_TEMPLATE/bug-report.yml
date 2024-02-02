@@ -11,6 +11,15 @@ body:
       value: |
         **Note: security issues should not be reported here.**
         Please follow the [security policy for this repository](https://github.com/awslabs/mountpoint-s3/security/policy).
+  - type: markdown
+    attributes:
+      value: |
+        ### Before opening a new bug report...
+
+        * Have you checked if the issue/error you are facing is mentioned in our [troubleshooting documentation](../../doc/TROUBLESHOOTING.md)?
+        * Is your workload/application depending on behavior or operations which are unsupported by Mountpoint?
+
+        Please check Mountpoint's [semantics documentation](../../doc/SEMANTICS.md) for more information.
   - type: input
     id: project-version
     attributes:
@@ -47,7 +56,7 @@ body:
       placeholder: mount-s3 <MY_BUCKET> <MOUNT_DIR> --allow_delete
       render: shell
     validations:
-      required: true      
+      required: true
   - type: textarea
     id: behavior
     attributes:
@@ -60,7 +69,9 @@ body:
     id: logs
     attributes:
       label: Relevant log output
-      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      description: |
+        Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+        Use --debug and --debug-crt CLI flags to gather more detailed logs.
       render: shell
     validations:
       required: false
