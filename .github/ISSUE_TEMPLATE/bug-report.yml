@@ -14,7 +14,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please also check the list of unsupported Operations and their errors from the [Troubleshooting page](../../doc/TROUBLESHOOTING.md).            
+        ## Before opening a new bug report...
+        * Have you checked if the issue/error you are facing is mentioned in our [troubleshooting document](../../doc/TROUBLESHOOTING.md)?
+        * Is your workload/application depending on behavior or operations which are unsupported by Mountpoint? 
+        Please check Mountpoint's [semantics documentation](../../doc/SEMANTICS.md) for more information.
   - type: input
     id: project-version
     attributes:
