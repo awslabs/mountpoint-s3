@@ -19,12 +19,16 @@ static_assertions = "1.1.0"
 thiserror = "1.0.35"
 
 [dev-dependencies]
+anyhow = { version = "1.0.64", features = ["backtrace"] }
+clap = { version = "4.1.9", features = ["derive"] }
 criterion = "0.5.1"
 ctor = "0.2.6"
 futures-timer = "3.0.2"
 rand = { version = "0.8.5", features = ["small_rng"] }
+serde_json = "1.0.104"
 tempfile = "3.4.0"
 test-case = "2.2.2"
+tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
 
 [[bench]]
