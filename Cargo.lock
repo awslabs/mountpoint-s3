@@ -1694,16 +1694,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
-name = "libc-stdhandle"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dac2473dc28934c5e0b82250dab231c9d3b94160d91fe9ff483323b05797551"
-dependencies = [
- "cc",
- "libc",
-]
-
-[[package]]
 name = "libgit2-sys"
 version = "0.16.1+1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1943,7 +1933,6 @@ dependencies = [
  "futures",
  "lazy_static",
  "libc",
- "libc-stdhandle",
  "md-5",
  "metrics",
  "mountpoint-s3-client",

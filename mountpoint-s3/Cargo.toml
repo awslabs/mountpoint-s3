@@ -37,9 +37,9 @@ supports-color = "2.0.0"
 syslog = "6.1.0"
 thiserror = "1.0.34"
 time = { version = "0.3.17", features = ["macros", "formatting"] }
-tracing = { version = "0.1.35", default-features = false, features = ["std", "log", "attributes"] }
+tracing = { version = "0.1.35", features = ["log"] }
 tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.14", features = ["fmt", "env-filter"] }
+tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.16.0", default-features = false }
@@ -55,6 +55,7 @@ aws-sdk-sts = "0.30.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
 ctor = "0.2.6"
 filetime = "0.2.21"
+futures = { version = "*", features = ["thread-pool"] }
 predicates = "3.1.0"
 proptest = "1.4.0"
 proptest-derive = "0.4.0"
