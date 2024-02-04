@@ -24,11 +24,9 @@ async fn test_head_object() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -157,7 +155,10 @@ async fn test_head_object_restored() {
             RestoreRequest::builder()
                 .set_days(Some(1))
                 .set_glacier_job_parameters(Some(
-                    GlacierJobParameters::builder().set_tier(Some(Tier::Expedited)).build(),
+                    GlacierJobParameters::builder()
+                        .set_tier(Some(Tier::Expedited))
+                        .build()
+                        .unwrap(),
                 ))
                 .build(),
         )

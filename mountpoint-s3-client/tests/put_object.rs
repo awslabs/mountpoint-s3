@@ -200,17 +200,15 @@ async fn test_put_checksums() {
     request.complete().await.unwrap();
 
     let sdk_client = get_test_sdk_client().await;
-    let mut request = sdk_client.get_object_attributes();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    let attributes: aws_sdk_s3::operation::get_object_attributes::GetObjectAttributesOutput = request
+    let attributes = sdk_client
+        .get_object_attributes()
+        .bucket(&bucket)
         .key(key)
         .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
         .send()
         .await
         .unwrap();
-    let parts = attributes.object_parts().unwrap().parts().unwrap();
+    let parts = attributes.object_parts().unwrap().parts();
     let checksums: Vec<_> = parts.iter().map(|p| p.checksum_crc32_c().unwrap()).collect();
     let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
 
@@ -329,12 +327,13 @@ async fn test_put_object_storage_class(storage_class: &str) {
 #[cfg(not(feature = "s3express_tests"))]
 async fn check_sse(bucket: &String, key: &String, expected_sse: Option<&str>, expected_key: &Option<String>) {
     let sdk_client = get_test_sdk_client().await;
-    let mut request = sdk_client.head_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(bucket);
-    }
-    let head_object_resp: aws_sdk_s3::operation::head_object::HeadObjectOutput =
-        request.key(key).send().await.expect("head object should succeed");
+    let head_object_resp = sdk_client
+        .head_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .expect("head object should succeed");
     let expected_sse = match expected_sse {
         None => aws_sdk_s3::types::ServerSideEncryption::Aes256,
         Some("aws:kms") => aws_sdk_s3::types::ServerSideEncryption::AwsKms,

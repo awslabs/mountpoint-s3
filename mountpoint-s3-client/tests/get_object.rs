@@ -30,11 +30,9 @@ async fn test_get_object(size: usize, range: Option<Range<u64>>) {
 
     let key = format!("{prefix}/test");
     let body = vec![0x42; size];
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(body.clone()))
         .send()
@@ -102,11 +100,10 @@ async fn test_get_object_success_if_match() {
     // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    let response = request
+
+    let response = sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -131,11 +128,9 @@ async fn test_get_object_412_if_match() {
     // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()

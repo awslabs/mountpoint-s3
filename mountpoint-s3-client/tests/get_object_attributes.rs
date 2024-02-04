@@ -28,11 +28,7 @@ async fn create_mpu_object(
 ) -> (Vec<CompletedPart>, CompleteMultipartUploadOutput) {
     let sdk_client = get_test_sdk_client().await;
 
-    let mut request = sdk_client.create_multipart_upload();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(bucket);
-    }
-    let mut create_mpu = request.key(key);
+    let mut create_mpu = sdk_client.create_multipart_upload().bucket(bucket).key(key);
     if let Some(algorithm) = &checksum_algorithm {
         create_mpu = create_mpu.checksum_algorithm(algorithm.to_owned());
     }
@@ -46,11 +42,9 @@ async fn create_mpu_object(
         let part_body = vec![0; part_size.to_owned()];
         let part_num = (part_index + 1) as i32;
 
-        let mut request = sdk_client.upload_part();
-        if cfg!(not(feature = "s3express_tests")) {
-            request = request.bucket(bucket);
-        }
-        let mut upload_part = request
+        let mut upload_part = sdk_client
+            .upload_part()
+            .bucket(bucket)
             .key(key)
             .part_number(part_num)
             .upload_id(upload_id)
@@ -92,11 +86,9 @@ async fn create_mpu_object(
         .set_parts(Some(completed_parts.clone()))
         .build();
 
-    let mut request = sdk_client.complete_multipart_upload();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(bucket);
-    }
-    let complete_mpu_output = request
+    let complete_mpu_output = sdk_client
+        .complete_multipart_upload()
+        .bucket(bucket)
         .key(key)
         .upload_id(upload_id)
         .multipart_upload(completed_mpu)
@@ -115,11 +107,9 @@ async fn test_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
 
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    let put_object_output = request
+    let put_object_output = sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .checksum_algorithm(checksum_algorithm.clone())
         .body(ByteStream::from(Bytes::from_static(body)))
@@ -181,11 +171,9 @@ async fn test_get_attributes() {
     // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    let put_object_output = request
+    let put_object_output = sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -234,11 +222,9 @@ async fn test_get_attributes_all_none() {
     // Create one object named "hello"
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .checksum_algorithm(ChecksumAlgorithm::Crc32C)
         .body(ByteStream::from(Bytes::from_static(body)))

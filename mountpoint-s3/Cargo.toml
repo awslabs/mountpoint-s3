@@ -49,9 +49,9 @@ mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
 
 assert_cmd = "2.0.6"
 assert_fs = "1.1.1"
-aws-config = "0.56.0"
-aws-sdk-s3 = "0.30.0"
-aws-sdk-sts = "0.30.0"
+aws-config = "1.1.4"
+aws-sdk-s3 = "1.14.0"
+aws-sdk-sts = "1.12.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
 ctor = "0.2.6"
 filetime = "0.2.21"

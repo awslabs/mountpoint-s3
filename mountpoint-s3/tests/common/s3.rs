@@ -1,5 +1,5 @@
+use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_sts::config::Region;
 use futures::Future;
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
@@ -36,30 +36,65 @@ pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
-pub fn get_s3express_endpoint() -> String {
-    std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT").expect("Set S3_EXPRESS_ONE_ZONE_ENDPOINT to run integration tests")
+pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
+    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new(region.to_owned()))
+        .load()
+        .await;
+    let mut s3_config = aws_sdk_s3::config::Builder::from(&sdk_config);
+
+    // TODO: remove when the Rust SDK supports S3 Express One Zone. For now, we force the SDK to
+    // always use SigV4, because it doesn't yet know about the `sigv4-s3express` auth scheme.
+    if cfg!(feature = "s3express_tests") {
+        #[derive(Debug)]
+        struct ForceSigV4EndpointResolver;
+
+        impl aws_sdk_s3::config::endpoint::ResolveEndpoint for ForceSigV4EndpointResolver {
+            fn resolve_endpoint<'a>(
+                &'a self,
+                params: &'a aws_sdk_s3::config::endpoint::Params,
+            ) -> aws_sdk_s3::config::endpoint::EndpointFuture<'a> {
+                let fut = async {
+                    let resolver = aws_sdk_s3::config::endpoint::DefaultResolver::new();
+                    let endpoint = resolver.resolve_endpoint(params).await?;
+                    // Build new properties that force SigV4
+                    let mut auth_schemes = endpoint
+                        .properties()
+                        .get("authSchemes")
+                        .expect("no auth scheme")
+                        .clone();
+                    let auth_scheme = auth_schemes.as_array_mut().unwrap().get_mut(0).unwrap();
+                    let auth_scheme_map = auth_scheme.as_object_mut().unwrap();
+                    assert_eq!(
+                        auth_scheme_map.get("name").unwrap().as_string().unwrap(),
+                        "sigv4-s3express"
+                    );
+                    auth_scheme_map.insert("name".to_string(), "sigv4".to_string().into());
+                    // Replace the properties and return the endpoint
+                    Ok(endpoint.into_builder().property("authSchemes", auth_schemes).build())
+                };
+                aws_sdk_s3::config::endpoint::EndpointFuture::new(fut)
+            }
+        }
+
+        s3_config = s3_config.endpoint_resolver(ForceSigV4EndpointResolver);
+    }
+
+    aws_sdk_s3::Client::from_conf(s3_config.build())
 }
 
 pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value: &[u8]) {
-    let mut config = aws_config::from_env().region(Region::new(region.to_string()));
-    if cfg!(feature = "s3express_tests") {
-        config = config.endpoint_url(get_s3express_endpoint());
-    }
-    let config = tokio_block_on(config.load());
-    let sdk_client = aws_sdk_s3::Client::new(&config);
+    let sdk_client = tokio_block_on(get_test_sdk_client(region));
     let full_key = format!("{prefix}{key}");
-    tokio_block_on(async move {
-        let mut request = sdk_client.put_object();
-        if cfg!(not(feature = "s3express_tests")) {
-            request = request.bucket(bucket);
-        }
-        request
+    tokio_block_on(
+        sdk_client
+            .put_object()
+            .bucket(bucket)
             .key(full_key)
             .body(ByteStream::from(value.to_vec()))
-            .send()
-            .await
-            .unwrap()
-    });
+            .send(),
+    )
+    .unwrap();
 }
 
 pub fn tokio_block_on<F: Future>(future: F) -> F::Output {

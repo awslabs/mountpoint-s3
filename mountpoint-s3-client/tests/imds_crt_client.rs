@@ -6,10 +6,10 @@ use serde_json::Value;
 
 #[tokio::test]
 async fn test_get_identity_document() {
-    let sdk_client = Client::builder().build().await.unwrap();
+    let sdk_client = Client::builder().build();
     match sdk_client.get("/latest/dynamic/instance-identity/document").await {
         Ok(expected_json) => {
-            let expected_doc: Value = serde_json::from_str(&expected_json).unwrap();
+            let expected_doc: Value = serde_json::from_str(expected_json.as_ref()).unwrap();
             let expected_region = expected_doc.get("region").unwrap().as_str().unwrap();
             let expected_instance_type = expected_doc.get("instanceType").unwrap().as_str().unwrap();
 

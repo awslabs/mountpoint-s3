@@ -15,11 +15,9 @@ async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket:
     // Create one object named "hello"
     let key = format!("{prefix}hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()

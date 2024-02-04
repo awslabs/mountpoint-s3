@@ -1,5 +1,6 @@
 #![cfg(feature = "s3_tests")]
 
+use aws_config::BehaviorVersion;
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::error::SdkError;
@@ -109,28 +110,59 @@ pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
-pub fn get_s3express_endpoint() -> String {
-    std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT").expect("Set S3_EXPRESS_ONE_ZONE_ENDPOINT to run integration tests")
-}
-
 pub async fn get_test_sdk_client() -> s3::Client {
-    let mut config = aws_config::from_env().region(Region::new(get_test_region()));
+    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new(get_test_region()))
+        .load()
+        .await;
+    let mut s3_config = s3::config::Builder::from(&sdk_config);
+
+    // TODO: remove when the Rust SDK supports S3 Express One Zone. For now, we force the SDK to
+    // always use SigV4, because it doesn't yet know about the `sigv4-s3express` auth scheme.
     if cfg!(feature = "s3express_tests") {
-        config = config.endpoint_url(get_s3express_endpoint());
+        #[derive(Debug)]
+        struct ForceSigV4EndpointResolver;
+
+        impl s3::config::endpoint::ResolveEndpoint for ForceSigV4EndpointResolver {
+            fn resolve_endpoint<'a>(
+                &'a self,
+                params: &'a s3::config::endpoint::Params,
+            ) -> s3::config::endpoint::EndpointFuture<'a> {
+                let fut = async {
+                    let resolver = s3::config::endpoint::DefaultResolver::new();
+                    let endpoint = resolver.resolve_endpoint(params).await?;
+                    // Build new properties that force SigV4
+                    let mut auth_schemes = endpoint
+                        .properties()
+                        .get("authSchemes")
+                        .expect("no auth scheme")
+                        .clone();
+                    let auth_scheme = auth_schemes.as_array_mut().unwrap().get_mut(0).unwrap();
+                    let auth_scheme_map = auth_scheme.as_object_mut().unwrap();
+                    assert_eq!(
+                        auth_scheme_map.get("name").unwrap().as_string().unwrap(),
+                        "sigv4-s3express"
+                    );
+                    auth_scheme_map.insert("name".to_string(), "sigv4".to_string().into());
+                    // Replace the properties and return the endpoint
+                    Ok(endpoint.into_builder().property("authSchemes", auth_schemes).build())
+                };
+                s3::config::endpoint::EndpointFuture::new(fut)
+            }
+        }
+
+        s3_config = s3_config.endpoint_resolver(ForceSigV4EndpointResolver);
     }
-    let config = config.load().await;
-    s3::Client::new(&config)
+
+    s3::Client::from_conf(s3_config.build())
 }
 
 /// Create some objects in a prefix for testing.
 pub async fn create_objects_for_test(client: &s3::Client, bucket: &str, prefix: &str, names: &[impl AsRef<str>]) {
     for name in names {
-        let mut request = client.put_object();
-        if cfg!(not(feature = "s3express_tests")) {
-            request = request.bucket(bucket);
-        }
-
-        request
+        client
+            .put_object()
+            .bucket(bucket)
             .key(format!("{}{}", prefix, name.as_ref()))
             .body(ByteStream::from(Bytes::from_static(b".")))
             .send()
@@ -145,20 +177,18 @@ pub async fn get_mpu_count_for_key(
     prefix: &str,
     key: &str,
 ) -> Result<usize, SdkError<ListMultipartUploadsError, HttpResponse>> {
-    let mut request = client.list_multipart_uploads();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(bucket);
-    }
-
     // This could be broken if we have initiated more than one multipart upload using the same key
     // since ListMultipartUploads returns all multipart uploads for that key.
-    let upload_count = request
+    let upload_count = client
+        .list_multipart_uploads()
+        .bucket(bucket)
         .prefix(prefix)
         .send()
         .await?
         .uploads()
-        .map(|upload| upload.iter().filter(|&u| u.key() == Some(key)).collect::<Vec<_>>())
-        .map_or(0, |u| u.len());
+        .iter()
+        .filter(|&u| u.key() == Some(key))
+        .count();
 
     Ok(upload_count)
 }
