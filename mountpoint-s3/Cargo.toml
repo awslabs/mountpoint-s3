@@ -21,7 +21,6 @@ const_format = "0.2.30"
 crc32c = "0.6.3"
 ctrlc = { version = "3.2.3", features = ["termination"] }
 dashmap = "5.5.0"
-fs2 = "0.4.3"
 futures = "0.3.24"
 hdrhistogram = { version = "7.5.2", default-features = false }
 hex = "0.4.3"
