@@ -91,10 +91,14 @@ To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the 
 When this option is provided, Mountpoint will check S3 to ensure the object exists and return the latest object content.
 Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
-Caching does not affect the behavior of writing new files.
-New files that are being written to remain unavailable for reading until the file is closed, consistent with behavior without caching.
-After the new file is closed, it is possible to open it for reading.
-Parts of the file that are read from S3 will then be cached and available for subsequent repeated reads.
+When caching is enabled, Mountpoint can also remember queries for missing keys. Once you try to
+access a file that does not exist on S3, subsequent attempts (within the configured TTL) may still
+not detect it, even if it was independently added to S3.
+
+Caching does not affect the behavior of writing to files. Files that are being written to remain
+unavailable for reading until the file is closed, consistent with behavior without caching.
+After the file is closed, it is possible to open it for reading. Parts of the file that are read
+from S3 will then be cached and available for subsequent repeated reads.
 
 ## Durability
 
