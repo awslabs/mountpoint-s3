@@ -11,8 +11,6 @@ use std::{
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use md5::{Digest, Md5};
-
 /// A single element of a [`get_object`](ObjectClient::get_object) response stream is a pair of
 /// offset within the object and the bytes starting at that offset.
 pub type GetBodyPart = (u64, Box<[u8]>);
@@ -42,8 +40,11 @@ impl ETag {
 
     /// Creating unique etag from bytes
     #[doc(hidden)]
+    #[cfg(feature = "mock")]
     pub fn from_object_bytes(data: &[u8]) -> Self {
-        let mut hasher = Md5::new();
+        use md5::Digest as _;
+
+        let mut hasher = md5::Md5::new();
         hasher.update(data);
 
         let hash = hasher.finalize();

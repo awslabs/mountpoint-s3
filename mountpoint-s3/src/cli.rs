@@ -873,7 +873,7 @@ fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
             }
         };
 
-        if mounts.iter().any(|mount| mount.mount_point == path.as_ref()) {
+        if mounts.0.iter().any(|mount| mount.mount_point == path.as_ref()) {
             return Err(anyhow!("mount point {} is already mounted", path.as_ref().display()));
         }
     }

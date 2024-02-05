@@ -302,9 +302,9 @@ impl DiskDataCache {
             CacheLimit::Unbounded => false,
             CacheLimit::TotalSize { max_size } => size > max_size,
             CacheLimit::AvailableSpace { min_ratio } => {
-                let stats = match fs2::statvfs(&self.cache_directory) {
-                    Ok(stats) if stats.total_space() == 0 => {
-                        warn!("unable to determine available space");
+                let stats = match nix::sys::statvfs::statvfs(&self.cache_directory) {
+                    Ok(stats) if stats.blocks() == 0 => {
+                        warn!("unable to determine available space (0 blocks reported)");
                         return false;
                     }
                     Ok(stats) => stats,
@@ -313,7 +313,7 @@ impl DiskDataCache {
                         return false;
                     }
                 };
-                (stats.available_space() as f64) < min_ratio * (stats.total_space() as f64)
+                (stats.blocks_free() as f64) < min_ratio * (stats.blocks() as f64)
             }
         }
     }
