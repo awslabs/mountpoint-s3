@@ -200,7 +200,7 @@ jobs:
     - name: Install nightly Rust
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly
+        toolchain: stable
         override: true
         components: rust-src
     - name: Restore Cargo cache
