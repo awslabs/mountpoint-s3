@@ -32,12 +32,12 @@ You can use the following steps.
                 --fuse-version 2 \
                 --with-fio --with-libunwind
 
-2. Set environment variables related to the benchmark. There are four required environment variables you need to set in order to run the benchmark.
+2. Set environment variables related to the benchmark. There are four required environment variables you need to set in order to run the benchmark. These variables can be set to any name, but be consistent with it in subsequent steps.
 
         export S3_BUCKET_NAME=bucket_name
-        export S3_BUCKET_TEST_PREFIX=prefix_path/
-        export S3_BUCKET_BENCH_FILE=bench_file_name
-        export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
+        export S3_BUCKET_TEST_PREFIX=benchmark/
+        export S3_BUCKET_BENCH_FILE=bench100GB.bin
+        export S3_BUCKET_SMALL_BENCH_FILE=bench5MB.bin
 
 3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
 
