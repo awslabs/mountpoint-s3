@@ -31,11 +31,9 @@ async fn test_static_provider() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -108,11 +106,9 @@ async fn test_profile_provider_async() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -205,6 +201,8 @@ rusty_fork_test! {
 // S3 Express One Zone doesn't support scoped credentials
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_scoped_credentials() {
+    use aws_config::BehaviorVersion;
+
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_scoped_credentials");
     let subsession_role = get_subsession_iam_role();
@@ -220,7 +218,7 @@ async fn test_scoped_credentials() {
             .unwrap();
     }
 
-    let config = aws_config::from_env()
+    let config = aws_config::defaults(BehaviorVersion::latest())
         .region(Region::new(get_test_region()))
         .load()
         .await;
@@ -246,9 +244,9 @@ async fn test_scoped_credentials() {
 
     // Build a S3CrtClient that uses a static credentials provider with the creds we just got
     let config = CredentialsProviderStaticOptions {
-        access_key_id: credentials.access_key_id().unwrap(),
-        secret_access_key: credentials.secret_access_key().unwrap(),
-        session_token: credentials.session_token(),
+        access_key_id: credentials.access_key_id(),
+        secret_access_key: credentials.secret_access_key(),
+        session_token: Some(credentials.session_token()),
     };
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
     let config = S3ClientConfig::new()

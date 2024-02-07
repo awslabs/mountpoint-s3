@@ -3,6 +3,8 @@
 
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
+use aws_config::BehaviorVersion;
+#[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_sts::config::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -320,7 +322,11 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__", "Condition": {"StringLike": {"s3:prefix": "__PREFIX__*"}}}
     ]}"#;
     let policy = policy.replace("__BUCKET__", &bucket).replace("__PREFIX__", &subprefix);
-    let config = tokio_block_on(aws_config::from_env().region(Region::new(get_test_region())).load());
+    let config = tokio_block_on(
+        aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(get_test_region()))
+            .load(),
+    );
     let sts_client = aws_sdk_sts::Client::new(&config);
     let credentials = tokio_block_on(
         sts_client
@@ -335,15 +341,15 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
 
     // First try without the subprefix -- mount should fail as we don't have permissions on it
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg(format!("--region={region}"))
-        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id().unwrap())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key().unwrap())
-        .env("AWS_SESSION_TOKEN", credentials.session_token().unwrap())
+        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key())
+        .env("AWS_SESSION_TOKEN", credentials.session_token())
         .spawn()
         .expect("unable to spawn child");
 
@@ -355,15 +361,15 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
 
     // Now try with the subprefix -- mount should work since we have the right permissions
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
+    let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={subprefix}"))
         .arg("--auto-unmount")
         .arg(format!("--region={region}"))
-        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id().unwrap())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key().unwrap())
-        .env("AWS_SESSION_TOKEN", credentials.session_token().unwrap())
+        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key())
+        .env("AWS_SESSION_TOKEN", credentials.session_token())
         .spawn()
         .expect("unable to spawn child");
 

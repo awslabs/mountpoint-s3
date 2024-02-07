@@ -15,11 +15,9 @@ async fn test_delete_object() {
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
-    let mut request = sdk_client.put_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    request
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
         .key(&key)
         .body(ByteStream::from(Bytes::from_static(body)))
         .send()
@@ -32,11 +30,13 @@ async fn test_delete_object() {
         .await
         .expect("delete_object should succeed");
 
-    let mut request = sdk_client.head_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    let head_obj_err = request.key(&key).send().await.expect_err("object should not exist");
+    let head_obj_err = sdk_client
+        .head_object()
+        .bucket(&bucket)
+        .key(&key)
+        .send()
+        .await
+        .expect_err("object should not exist");
 
     assert!(head_obj_err.into_service_error().is_not_found());
 }
@@ -48,11 +48,9 @@ async fn test_delete_object_no_obj() {
 
     let key = format!("{prefix}/nonexistent_key");
 
-    let mut request = sdk_client.head_object();
-    if cfg!(not(feature = "s3express_tests")) {
-        request = request.bucket(&bucket);
-    }
-    let head_obj_err = request
+    let head_obj_err = sdk_client
+        .head_object()
+        .bucket(&bucket)
         .bucket(&bucket)
         .key(&key)
         .send()
