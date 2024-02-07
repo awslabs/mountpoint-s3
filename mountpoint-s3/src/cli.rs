@@ -271,7 +271,7 @@ pub struct CliArgs {
 }
 
 #[derive(Debug, Clone)]
-pub struct S3PersonalityArg(S3Personality);
+pub struct S3PersonalityArg(pub S3Personality);
 
 impl ValueEnum for S3PersonalityArg {
     fn value_variants<'a>() -> &'a [Self] {
