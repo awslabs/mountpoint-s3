@@ -170,6 +170,7 @@ async fn test_read_dir_nested(prefix: &str) {
     fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
 }
 
+#[cfg(feature = "negative_cache")]
 #[tokio::test]
 async fn test_lookup_negative_cached() {
     let fs_config = S3FilesystemConfig {
@@ -177,6 +178,7 @@ async fn test_lookup_negative_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -192,29 +194,52 @@ async fn test_lookup_negative_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    // Check no negative caching
+    // Check negative caching
     let _ = fs
         .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
         .await
         .expect_err("should fail as no object exists");
-    assert_eq!(head_counter.count(), 2);
-    assert_eq!(list_counter.count(), 2);
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
 
     client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let _ = fs
         .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
         .await
-        .expect("should succeed as object exists and no negative cache");
-    assert_eq!(head_counter.count(), 3);
-    assert_eq!(list_counter.count(), 3);
+        .expect_err("should fail as mountpoint should use negative cache");
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 1);
+
+    // Use readdirplus to discover the new file
+    {
+        let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+        let mut reply = Default::default();
+        let _reply = fs
+            .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+            .await
+            .unwrap();
+
+        assert_eq!(reply.entries.len(), 2 + 1);
+
+        let mut entries = reply.entries.iter();
+        let _ = entries.next().expect("should have current directory");
+        let _ = entries.next().expect("should have parent directory");
+
+        let entry = entries.next().expect("should have file1.txt in entries");
+        let expected = OsString::from("file1.txt");
+        assert_eq!(entry.name, expected);
+        assert_eq!(entry.attr.kind, FileType::RegularFile);
+    }
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 2);
 
     let _ = fs
         .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
         .await
         .expect("should succeed as object is cached and exists");
-    assert_eq!(head_counter.count(), 3);
-    assert_eq!(list_counter.count(), 3);
+    assert_eq!(head_counter.count(), 1);
+    assert_eq!(list_counter.count(), 2);
 }
 
 #[tokio::test]
@@ -224,6 +249,7 @@ async fn test_lookup_then_open_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -289,6 +315,7 @@ async fn test_readdir_then_open_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -339,6 +366,7 @@ async fn test_unlink_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            ..Default::default()
         },
         allow_delete: true,
         ..Default::default()
@@ -388,6 +416,7 @@ async fn test_mknod_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            ..Default::default()
         },
         ..Default::default()
     };
