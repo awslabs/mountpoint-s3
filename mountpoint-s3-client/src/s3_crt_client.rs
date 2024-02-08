@@ -245,7 +245,8 @@ impl S3CrtClientInner {
 
         let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
         // Match the SDK "legacy" retry strategies
-        retry_strategy_options.backoff_retry_options.max_retries = 3;
+        retry_strategy_options.backoff_retry_options.max_retries = 16;
+        retry_strategy_options.backoff_retry_options.max_backoff_secs = 120;
         retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
         retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
         let retry_strategy = RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap();
