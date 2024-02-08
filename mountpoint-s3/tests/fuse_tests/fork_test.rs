@@ -424,11 +424,10 @@ fn mount_with_sse(
 }
 
 #[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
-fn erroneous_write_sse(mount_point: &Path) {
-    let mut f = fs::File::create(mount_point.join("file.txt")).expect("should be able to open file for writing");
+fn write_to_file(mount_point: &Path, file_name: &str) -> Result<(), std::io::Error> {
+    let mut f = fs::File::create(mount_point.join(file_name)).expect("should be able to open file for writing");
     let data = vec![0xaa; 32];
-    let write_result = f.write_all(&data);
-    write_result.expect_err("should not be able to write to the file without proper sse");
+    f.write_all(&data)
 }
 
 #[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
@@ -438,7 +437,7 @@ fn write_with_inexistent_key_sse() {
     let key_id = "SOME_INVALID_KEY";
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
     let child = mount_with_sse(&bucket, mount_point.path(), &prefix, key_id, None);
-    erroneous_write_sse(mount_point.path());
+    write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
 
     let expected_log_line =
         regex::Regex::new(r"^.*WARN.*KMS.NotFoundException.*Invalid keyId \\'SOME_INVALID_KEY\\'.*$").unwrap();
@@ -457,7 +456,7 @@ fn write_with_no_permissions_for_a_key_sse() {
     let key_id = get_test_kms_key_id();
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
     let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, Some(credentials));
-    erroneous_write_sse(mount_point.path());
+    write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
 
     let log_line_pattern = format!("^.*WARN.*User: [^ ]* is not authorized to perform: kms:GenerateDataKey on resource: {key_id} because no session policy allows the kms:GenerateDataKey action.*$");
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
