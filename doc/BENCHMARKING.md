@@ -32,14 +32,7 @@ You can use the following steps.
                 --fuse-version 2 \
                 --with-fio --with-libunwind
 
-2. Set environment variables related to the benchmark. There are four required environment variables you need to set in order to run the benchmark. These variables can be set to any name, but be consistent with it in subsequent steps.
-
-        export S3_BUCKET_NAME=bucket_name
-        export S3_BUCKET_TEST_PREFIX=benchmark/
-        export S3_BUCKET_BENCH_FILE=bench100GB.bin
-        export S3_BUCKET_SMALL_BENCH_FILE=bench5MB.bin
-
-3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
+2. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
 
         MOUNT_DIR=path/to/mount
         mount-s3 DOC-EXAMPLE-BUCKET $MOUNT_DIR/ --prefix benchmark/ --part-size=16777216
@@ -51,6 +44,13 @@ You can use the following steps.
         fio --directory=$MOUNT_DIR/bench_dir_1000 create/create_files_1000.fio
         fio --directory=$MOUNT_DIR/bench_dir_10000 create/create_files_10000.fio
         fio --directory=$MOUNT_DIR/bench_dir_100000 create/create_files_100000.fio
+
+3. Set environment variables related to the benchmark. There are four required environment variables you need to set in order to run the benchmark. These variable names should be the same as the resource names used in the previous step.
+
+        export S3_BUCKET_NAME=DOC-EXAMPLE-BUCKET
+        export S3_BUCKET_TEST_PREFIX=benchmark/
+        export S3_BUCKET_BENCH_FILE=bench100GB.bin
+        export S3_BUCKET_SMALL_BENCH_FILE=bench5MB.bin
 
 4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
