@@ -432,7 +432,7 @@ fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Opti
     let stdout_reader = BufReader::new(stdout);
     let stdout_lines = stdout_reader.lines();
 
-    for line in stdout_lines.flatten() {
+    for line in stdout_lines.map_while(Result::ok) {
         let str: Vec<&str> = line.split_whitespace().collect();
         let source_rec = str[0];
         let mount_point_rec = str[2];
