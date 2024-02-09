@@ -26,6 +26,8 @@ use regex::Regex;
 
 use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
+#[cfg(feature = "sse_kms")]
+use crate::fs::ServerSideEncryption;
 use crate::fs::{CacheConfig, S3FilesystemConfig, S3Personality};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
@@ -268,6 +270,23 @@ pub struct CliArgs {
         help_heading = ADVANCED_OPTIONS_HEADER,
     )]
     pub user_agent_prefix: Option<String>,
+
+    #[cfg(feature = "sse_kms")]
+    #[clap(
+        long,
+        help = "Server-side encryption algorithm to use when uploading new objects",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse"]))]
+    pub sse: Option<String>,
+
+    #[cfg(feature = "sse_kms")]
+    #[clap(
+        long,
+        help = "AWS Key Management Service (KMS) key ID to use with KMS server-side encryption when uploading new objects",
+        help_heading = BUCKET_OPTIONS_HEADER,
+        requires = "sse",
+    )]
+    pub sse_kms_key_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -608,6 +627,10 @@ where
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality = s3_personality;
+    #[cfg(feature = "sse_kms")]
+    {
+        filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
+    }
 
     let prefetcher_config = Default::default();
 

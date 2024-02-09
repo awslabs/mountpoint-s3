@@ -10,6 +10,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::checksums::combine_checksums;
+use crate::fs::ServerSideEncryption;
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -25,12 +26,21 @@ pub struct Uploader<Client> {
 struct UploaderInner<Client> {
     client: Arc<Client>,
     storage_class: Option<String>,
+    server_side_encryption: ServerSideEncryption,
 }
 
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Arc<Client>, storage_class: Option<String>) -> Self {
-        let inner = UploaderInner { client, storage_class };
+    pub fn new(
+        client: Arc<Client>,
+        storage_class: Option<String>,
+        server_side_encryption: ServerSideEncryption,
+    ) -> Self {
+        let inner = UploaderInner {
+            client,
+            storage_class,
+            server_side_encryption,
+        };
         Self { inner: Arc::new(inner) }
     }
 
@@ -79,6 +89,8 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
         }
+        params = params.server_side_encryption(inner.server_side_encryption.sse_type());
+        params = params.ssekms_key_id(inner.server_side_encryption.key_id());
 
         let request = inner.client.put_object(bucket, key, &params).await?;
         let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
@@ -204,7 +216,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None);
+        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default());
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -228,7 +240,11 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), Some(storage_class.to_owned()));
+        let uploader = Uploader::new(
+            client.clone(),
+            Some(storage_class.to_owned()),
+            ServerSideEncryption::default(),
+        );
 
         let mut request = uploader.put(bucket, key).await.unwrap();
 
@@ -277,7 +293,7 @@ mod tests {
             put_failures,
         ));
 
-        let uploader = Uploader::new(failure_client.clone(), None);
+        let uploader = Uploader::new(failure_client.clone(), None, ServerSideEncryption::default());
 
         // First request fails on first write.
         {
@@ -318,7 +334,7 @@ mod tests {
             part_size: PART_SIZE,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None);
+        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default());
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;

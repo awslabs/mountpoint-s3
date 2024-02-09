@@ -4,10 +4,14 @@
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_config::BehaviorVersion;
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+use aws_sdk_s3::primitives::ByteStream;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_sts::config::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Child, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -16,6 +20,8 @@ use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region};
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id, get_test_sdk_client};
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::{get_subsession_iam_role, tokio_block_on};
 
@@ -386,6 +392,132 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+fn mount_with_sse(
+    bucket: &str,
+    mount_point: &Path,
+    prefix: &str,
+    key_id: &str,
+    credentials: Option<aws_sdk_s3::config::Credentials>,
+) -> Child {
+    let region = get_test_region();
+    let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
+    cmd.stdout(Stdio::piped())
+        .arg(bucket)
+        .arg(mount_point)
+        .arg(format!("--region={region}"))
+        .arg(format!("--prefix={prefix}"))
+        .arg("--sse=aws:kms:dsse")
+        .arg(format!("--sse-kms-key-id={key_id}"))
+        .arg("--auto-unmount")
+        .arg("--foreground");
+    if let Some(credentials) = credentials {
+        cmd.env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
+            .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
+        if let Some(token) = credentials.session_token() {
+            cmd.env("AWS_SESSION_TOKEN", token);
+        }
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
+    wait_for_mount("mountpoint-s3", mount_point.to_str().unwrap());
+    child
+}
+
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+fn write_to_file(mount_point: &Path, file_name: &str) -> Result<(), std::io::Error> {
+    let mut f = fs::File::create(mount_point.join(file_name)).expect("should be able to open file for writing");
+    let data = vec![0xaa; 32];
+    f.write_all(&data)
+}
+
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[test]
+fn write_with_inexistent_key_sse() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_inexistent_key_sse");
+    let key_id = "SOME_INVALID_KEY";
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+    let child = mount_with_sse(&bucket, mount_point.path(), &prefix, key_id, None);
+    write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
+
+    let expected_log_line =
+        regex::Regex::new(r"^.*WARN.*KMS.NotFoundException.*Invalid keyId \\'SOME_INVALID_KEY\\'.*$").unwrap();
+    unmount_and_check_log(child, mount_point.path(), &expected_log_line);
+}
+
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[test]
+fn write_with_no_permissions_for_a_key_sse() {
+    let policy_with_no_kms_perms = r#"{"Statement": [
+        {"Effect": "Allow", "Action": ["s3:*"], "Resource": "*"}
+    ]}"#;
+    let credentials = tokio_block_on(get_scoped_down_credentials(policy_with_no_kms_perms));
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_no_permissions_for_a_key_sse");
+    let key_id = get_test_kms_key_id();
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+    let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, Some(credentials));
+    write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
+
+    let log_line_pattern = format!("^.*WARN.*User: [^ ]* is not authorized to perform: kms:GenerateDataKey on resource: {key_id} because no session policy allows the kms:GenerateDataKey action.*$");
+    let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
+    unmount_and_check_log(child, mount_point.path(), &expected_log_line);
+}
+
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[test]
+fn read_with_no_permissions_for_a_key_sse() {
+    let policy_with_no_kms_perms = r#"{"Statement": [
+        {"Effect": "Allow", "Action": ["s3:*"], "Resource": "*"}
+    ]}"#;
+    let credentials = tokio_block_on(get_scoped_down_credentials(policy_with_no_kms_perms));
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("read_with_no_permissions_for_a_key_sse");
+    let key_id = get_test_kms_key_id();
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+
+    let encrypted_object = "encrypted_with_kms";
+    let unencrypted_object = "unencrypted_with_s3_keys";
+    {
+        // create files
+        let test_client = tokio_block_on(get_test_sdk_client(get_test_region().as_str()));
+        let data = vec![0xaa; 32];
+        let mut request = test_client
+            .put_object()
+            .bucket(&bucket)
+            .key(format!("{prefix}{encrypted_object}"))
+            .body(ByteStream::from(data.clone()));
+        request =
+            request.set_server_side_encryption(Some(aws_sdk_s3::types::ServerSideEncryption::from("aws:kms:dsse")));
+        request = request.set_ssekms_key_id(Some(key_id.clone()));
+        tokio_block_on(request.send()).expect("should be able to upload object to S3 via SDK client");
+        let request = test_client
+            .put_object()
+            .bucket(&bucket)
+            .key(format!("{prefix}{unencrypted_object}"))
+            .body(ByteStream::from(data));
+        tokio_block_on(request.send()).expect("should be able to upload object to S3 via SDK client");
+    }
+
+    let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, Some(credentials));
+    {
+        // attempting to read files using Mountpoint, this scoped block also limits file lifetimes
+        let encrypted_object = mount_point.join(encrypted_object);
+        let mut data = Vec::new();
+        let mut f = fs::File::open(encrypted_object).expect("can not open file for read");
+        let read_result = f.read_to_end(&mut data);
+        read_result.expect_err("should not be able to read a kms-encrypted file without kms permissions");
+
+        let unencrypted_object = mount_point.join(unencrypted_object);
+        let mut f = fs::File::open(unencrypted_object).expect("can not open file for read");
+        let read_result = f.read_to_end(&mut data);
+        read_result.expect("should be able to read a default-encrypted file after the first read failure");
+    }
+
+    let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read failed: get request failed: get object request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
+    let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
+    unmount_and_check_log(child, mount_point.path(), &expected_log_line);
+}
+
 fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathBuf) {
     // create objects for test
     create_objects(bucket, prefix, region, "file1.txt", b"hello world");
@@ -490,4 +622,25 @@ fn unmount(mount_point: &Path) {
     }
 
     panic!("failed to unmount");
+}
+
+#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+fn unmount_and_check_log(mut process: Child, mount_path: &Path, expected_log_line: &regex::Regex) {
+    unmount(mount_path);
+    let mut stdout = process
+        .stdout
+        .take()
+        .expect("stdout shouldn't be consumed at this point");
+    wait_for_exit(process);
+    let mut buf = Vec::new();
+    stdout
+        .read_to_end(&mut buf)
+        .expect("failed to read mountpoint log from pipe");
+    let log = String::from_utf8(buf).expect("mountpoint log is not a valid UTF-8");
+    for line in log.lines() {
+        if expected_log_line.is_match(line) {
+            return;
+        }
+    }
+    panic!("can not find a matching line in log: [{log}]");
 }
