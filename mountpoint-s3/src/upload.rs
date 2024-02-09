@@ -76,6 +76,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     hasher: Hasher,
     request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
+    sse: ServerSideEncryption,
 }
 
 impl<Client: ObjectClient> UploadRequest<Client> {
@@ -89,8 +90,15 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
         }
-        params = params.server_side_encryption(inner.server_side_encryption.sse_type());
-        params = params.ssekms_key_id(inner.server_side_encryption.key_id());
+
+        let (sse_type, key_id) = inner.server_side_encryption.clone().into_inner().unwrap_or_else(|err| {
+            panic!(
+                "SSE settings were corrupted, object {} was NOT uploaded to S3, panicing, error: {}",
+                key, err
+            );
+        });
+        params = params.server_side_encryption(sse_type);
+        params = params.ssekms_key_id(key_id);
 
         let request = inner.client.put_object(bucket, key, &params).await?;
         let maximum_upload_size = inner.client.part_size().map(|ps| ps * MAX_S3_MULTIPART_UPLOAD_PARTS);
@@ -102,6 +110,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             hasher: Hasher::new(),
             request,
             maximum_upload_size,
+            sse: inner.server_side_encryption.clone(),
         })
     }
 
@@ -136,9 +145,19 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
-        self.request
+        let result = self
+            .request
             .review_and_complete(move |review| verify_checksums(review, size, checksum))
-            .await
+            .await?;
+        self.sse
+            .verify_response(result.sse_type.as_deref(), result.sse_kms_key_id.as_deref())
+            .unwrap_or_else(|err| {
+                panic!(
+                    "SSE settings were corrupted, object {} WAS uploaded to S3, panicing, error: {}",
+                    self.key, err
+                );
+            });
+        Ok(result)
     }
 }
 

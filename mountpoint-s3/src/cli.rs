@@ -285,6 +285,7 @@ pub struct CliArgs {
         help = "AWS Key Management Service (KMS) key ID to use with KMS server-side encryption when uploading new objects",
         help_heading = BUCKET_OPTIONS_HEADER,
         requires = "sse",
+        value_parser = clap::builder::NonEmptyStringValueParser::new(),
     )]
     pub sse_kms_key_id: Option<String>,
 }
@@ -630,6 +631,10 @@ where
     #[cfg(feature = "sse_kms")]
     {
         filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
+        tracing::info!(
+            "using server-side encryption - {}",
+            filesystem_config.server_side_encryption
+        );
     }
 
     let prefetcher_config = Default::default();

@@ -351,9 +351,14 @@ pub trait PutObjectRequest: Send {
 
 /// Result of a [ObjectClient::put_object] request
 // TODO: Populate this struct with return fields from the S3 API, e.g., etag.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[non_exhaustive]
-pub struct PutObjectResult {}
+pub struct PutObjectResult {
+    /// Server-side encryption type that was used to store new object (reported by S3)
+    pub sse_type: Option<String>,
+    /// Server-side encryption KMS key ID that was used to store new object (reported by S3)
+    pub sse_kms_key_id: Option<String>,
+}
 
 /// Errors returned by a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Error, PartialEq, Eq)]

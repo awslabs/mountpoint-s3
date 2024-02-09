@@ -1,9 +1,11 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
 use bytes::Bytes;
+use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::fmt::Display;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use time::OffsetDateTime;
@@ -15,6 +17,7 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
+use crate::checksums::IntegrityError;
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
 use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
@@ -397,30 +400,92 @@ impl S3Personality {
 }
 
 /// Server-side encryption configuration for newly created objects
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ServerSideEncryption {
     sse_type: Option<String>,
     sse_kms_key_id: Option<String>,
+    checksum: Crc32c,
+}
+
+impl Default for ServerSideEncryption {
+    fn default() -> Self {
+        Self {
+            sse_type: Default::default(),
+            sse_kms_key_id: Default::default(),
+            checksum: Crc32c::new(0),
+        }
+    }
 }
 
 impl ServerSideEncryption {
     /// Construct SSE settings from raw values provided via CLI
     pub fn new(sse_type: Option<String>, sse_kms_key_id: Option<String>) -> Self {
-        // TODO: compute checksum
+        let checksum = Self::compute_checksum(sse_type.as_deref(), sse_kms_key_id.as_deref());
         Self {
             sse_type,
             sse_kms_key_id,
+            checksum,
         }
     }
 
-    /// String representation of the SSE type as it is expected by S3 API
-    pub fn sse_type(&self) -> Option<String> {
-        self.sse_type.clone()
+    /// Computes the checksum of SSE settings by combining two strings containing the type and the key
+    /// Note, that this implementation yields the same result for Some("") and None, but we may safely
+    /// assume that it will never be called with an empty string as one of its parameters.
+    fn compute_checksum(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> Crc32c {
+        let mut hasher: Hasher = Hasher::new();
+        if let Some(maybe_sse_sype) = sse_type {
+            hasher.update(maybe_sse_sype.as_bytes().as_ref());
+        }
+        if let Some(maybe_sse_sype) = sse_kms_key_id {
+            hasher.update(maybe_sse_sype.as_bytes().as_ref());
+        }
+        hasher.finalize()
     }
 
-    /// AWS KMS Key ID, if provided
-    pub fn key_id(&self) -> Option<String> {
-        self.sse_kms_key_id.clone()
+    /// Checks that SSE settings still match the checksum and returns the string representations of:
+    /// 1. the SSE type as it is expected by S3 API and;
+    /// 2. AWS KMS Key ID, if provided.
+    pub fn into_inner(self) -> Result<(Option<String>, Option<String>), IntegrityError> {
+        let computed = Self::compute_checksum(self.sse_type.as_deref(), self.sse_kms_key_id.as_deref());
+        if computed == self.checksum {
+            Ok((self.sse_type, self.sse_kms_key_id))
+        } else {
+            Err(IntegrityError::ChecksumMismatch(self.checksum, computed))
+        }
+    }
+
+    /// Checks that values provided as arguments to this function match the checksum stored in the object.
+    /// S3 will return some values for sse type and key even if they were not set on our side. We want to check
+    /// only the values which we set, thus response values are only added to checksum if they are present in this object.
+    pub fn verify_response(&self, sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> Result<(), IntegrityError> {
+        // we first validate in-memory values, since we are using them to compute a response's checksum
+        let computed = Self::compute_checksum(self.sse_type.as_deref(), self.sse_kms_key_id.as_deref());
+        if computed != self.checksum {
+            return Err(IntegrityError::ChecksumMismatch(self.checksum, computed));
+        }
+        // computing a response's checksum, adding values only if they were present in a request
+        let sse_type = self.sse_type.as_ref().and(sse_type);
+        let sse_kms_key_id = self.sse_kms_key_id.as_ref().and(sse_kms_key_id);
+        let computed = Self::compute_checksum(sse_type, sse_kms_key_id);
+        if computed == self.checksum {
+            Ok(())
+        } else {
+            Err(IntegrityError::ChecksumMismatch(self.checksum, computed))
+        }
+    }
+}
+
+impl Display for ServerSideEncryption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let sse_type_log = match &self.sse_type {
+            None => "bucket_default",
+            Some(sse_type) => sse_type.as_str(),
+        };
+        let sse_key_log = match &self.sse_kms_key_id {
+            None => "default",
+            Some(sse_kms_key_id) => sse_kms_key_id.as_str(),
+        };
+        write!(f, "type: {}, key id: {}", sse_type_log, sse_key_log)
     }
 }
 
@@ -1171,5 +1236,71 @@ where
             ));
         }
         Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kmr"), Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), Some("some_key_ali`s"))]
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), None, Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), None)]
+    #[test_case(Some("aws:kms"), None, Some("aws:kmr"), None)]
+    #[test_case(None, None, Some("garbage"), None)]
+    fn test_sse_corrupted_on_into_inner(
+        sse_type: Option<&str>,
+        key_id: Option<&str>,
+        sse_type_corrupted: Option<&str>,
+        key_id_corrupted: Option<&str>,
+    ) {
+        let mut sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
+        sse.sse_type = sse_type_corrupted.map(String::from);
+        sse.sse_kms_key_id = key_id_corrupted.map(String::from);
+        sse.into_inner()
+            .expect_err("into_inner() should produce an error when values do no match the checksum");
+    }
+
+    #[test_case(Some("aws:kms"), Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), None)]
+    #[test_case(None, None)]
+    fn test_sse_into_inner_ok(sse_type: Option<&str>, key_id: Option<&str>) {
+        let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
+        let (returned_sse_type, returned_key_id) = sse
+            .into_inner()
+            .expect("into_inner() should return values when they match the checksum");
+        assert_eq!(sse_type, returned_sse_type.as_deref());
+        assert_eq!(key_id, returned_key_id.as_deref());
+    }
+
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kmr"), Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), Some("some_key_ali`s"))]
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), None, Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), None)]
+    fn test_sse_response_corrupted_on_verify_response(
+        sse_type: Option<&str>,
+        key_id: Option<&str>,
+        sse_type_corrupted: Option<&str>,
+        key_id_corrupted: Option<&str>,
+    ) {
+        let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
+        sse.verify_response(sse_type_corrupted, key_id_corrupted)
+            .expect_err("verify_response() should produce an error when response values do no match the checksum");
+    }
+
+    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), None, Some("aws:kms"), Some("some_key_alias"))]
+    #[test_case(None, None, Some("aws:kms"), Some("some_key_alias"))]
+    fn test_sse_verify_response_ok(
+        sse_type: Option<&str>,
+        key_id: Option<&str>,
+        sse_type_response: Option<&str>,
+        key_id_response: Option<&str>,
+    ) {
+        let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
+        sse.verify_response(sse_type_response, key_id_response)
+            .expect("verify_response() should return Ok(()) when values match the checksum")
     }
 }

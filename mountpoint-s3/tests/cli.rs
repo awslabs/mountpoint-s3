@@ -248,3 +248,25 @@ fn invalid_ttl() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(feature = "sse_kms")]
+#[test]
+fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg("--sse=");
+    let error_message = "a value is required for '--sse <SSE>' but none was supplied";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg("--sse=aws:kms")
+        .arg("--sse-kms-key-id=");
+    let error_message = "a value is required for '--sse-kms-key-id <SSE_KMS_KEY_ID>' but none was supplied";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
