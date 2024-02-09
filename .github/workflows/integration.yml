@@ -196,7 +196,7 @@ jobs:
       with:
         ref: ${{ inputs.ref }}
         submodules: true
-    - name: Install nightly Rust
+    - name: Set up stable Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
