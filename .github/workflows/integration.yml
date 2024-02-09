@@ -202,17 +202,6 @@ jobs:
         toolchain: stable
         override: true
         components: rust-src
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-integration-asan-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -222,14 +211,3 @@ jobs:
       run: make test-asan-working
     - name: Run tests
       run: make test-asan
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR integration tests'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
