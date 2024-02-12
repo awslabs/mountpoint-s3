@@ -1,5 +1,5 @@
-//! A small shim that the `aws-crt-s3` crate uses to connect to a logging implementation. The CRT's
-//! logging implementation uses varargs, but Rust hasn't stablized those, so we need a small C
+//! A small shim that the `mountpoint-s3-crt` crate uses to connect to a logging implementation. The
+//! CRT's logging implementation uses varargs, but Rust hasn't stablized those, so we need a small C
 //! trampoline to translate varargs to Rust strings.
 
 use std::sync::atomic::{AtomicBool, Ordering};
