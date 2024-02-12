@@ -254,9 +254,7 @@ fn invalid_ttl() -> Result<(), Box<dyn std::error::Error>> {
 fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    cmd.arg("test-bucket")
-        .arg(dir.path())
-        .arg("--sse=");
+    cmd.arg("test-bucket").arg(dir.path()).arg("--sse=");
     let error_message = "a value is required for '--sse <SSE>' but none was supplied";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
