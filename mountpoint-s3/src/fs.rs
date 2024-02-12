@@ -433,11 +433,11 @@ impl ServerSideEncryption {
     /// assume that it will never be called with an empty string as one of its parameters.
     fn compute_checksum(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> Crc32c {
         let mut hasher: Hasher = Hasher::new();
-        if let Some(maybe_sse_sype) = sse_type {
-            hasher.update(maybe_sse_sype.as_bytes().as_ref());
+        if let Some(maybe_sse_type) = sse_type {
+            hasher.update(maybe_sse_type.as_bytes().as_ref());
         }
-        if let Some(maybe_sse_sype) = sse_kms_key_id {
-            hasher.update(maybe_sse_sype.as_bytes().as_ref());
+        if let Some(maybe_sse_kms_key_id) = sse_kms_key_id {
+            hasher.update(maybe_sse_kms_key_id.as_bytes().as_ref());
         }
         hasher.finalize()
     }
