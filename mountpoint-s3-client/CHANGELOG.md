@@ -1,4 +1,4 @@
-## Unreleased
+## v0.6.3 (February 12, 2023)
 
 ### Breaking changes
 
@@ -7,6 +7,7 @@
 ### Other changes
 
 * Introduced a new `ThroughputMockClient` that simulates a target network throughput from an in-memory mock S3 client. This client requires the `mock` feature flag. ([#723](https://github.com/awslabs/mountpoint-s3/pull/723)) 
+*  Updated some of the dependencies that aim to clean up our dependency closure. It includes the update of built dependency which fixes a vulnerability in libgit2-sys. ([#731] (https://github.com/awslabs/mountpoint-s3/pull/731))
 
 ## v0.6.2 (January 18, 2024)
 
