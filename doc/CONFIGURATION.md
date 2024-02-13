@@ -158,9 +158,7 @@ If necessary, you can use the `--endpoint-url` command-line argument to fully ov
 
 ### Data encryption
 
-Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).
-
-New objects can be encrypted using different SSE settings than the bucket's default. To use a different setting, the argument `--sse <aws:kms|aws:kms:dsse>` should be used to specify the SSE encryption type, and `--sse-kms-key-id <KEY_ARN>` may be used to optionally specify a KMS key ID. When the `--sse` argument is used without providing a KMS key ID, S3 will use an [AWS managed KMS key](https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-mgmt), which is created automatically. Please note that these command line arguments only configure server-side encryption for *new* objects created with Mountpoint, all of the *existing* objects will remain encrypted with settings specified at the time of their creation.
+Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C). Mountpoint does not allow further configuring encryption, and you cannot encrypt new objects written with Mountpoint using a different encryption setting than the bucket's default.
 
 Mountpoint does not support client-side encryption using the Amazon S3 Encryption Client.
 
@@ -184,7 +182,7 @@ If you want to allow file deletion, use the `--allow-delete` flag at mount time.
 
 If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use the `--read-only` command-line flag.
 
-For more details on the behavior of file operations with Mountpoint, see the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information.
+For more details on the behavior of file operations with Mountpoint, see the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information. 
 
 ### S3 storage classes
 

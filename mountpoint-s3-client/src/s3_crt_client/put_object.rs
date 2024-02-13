@@ -132,6 +132,10 @@ pub struct S3PutObjectRequest {
     response_headers: Arc<Mutex<Option<Headers>>>,
 }
 
+fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
+    headers.get(key).ok()?.value().clone().into_string().ok()
+}
+
 #[cfg_attr(not(docs_rs), async_trait)]
 impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
@@ -156,9 +160,6 @@ impl PutObjectRequest for S3PutObjectRequest {
         self.review_and_complete(|_| true).await
     }
 
-    /// Note: this function will panic if an SSE was requested to be applied to the object
-    /// and we failed to check that this actually happened. This may be caused by a bug in
-    /// CRT code or HTTP headers being corrupted in transit between us and the S3 server.
     async fn review_and_complete(
         mut self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
@@ -187,23 +188,15 @@ impl PutObjectRequest for S3PutObjectRequest {
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        let response_headers_lock = self
+        let response_headers = self
             .response_headers
             .lock()
-            .expect("must be able to acquire headers lock");
-        let response_headers = response_headers_lock
-            .as_ref()
+            .expect("must be able to acquire headers lock")
+            .take()
             .expect("PUT response headers must be available at this point");
-        let try_get_header_value = |headers: &Headers, key: &str| -> Option<String> {
-            headers
-                .get(key)
-                .ok()
-                .as_ref()
-                .and_then(|header| header.value().clone().into_string().ok())
-        };
         Ok(PutObjectResult {
-            sse_type: try_get_header_value(response_headers, SSE_TYPE_HEADER_NAME),
-            sse_kms_key_id: try_get_header_value(response_headers, SSE_KEY_ID_HEADER_NAME),
+            sse_type: try_get_header_value(&response_headers, SSE_TYPE_HEADER_NAME),
+            sse_kms_key_id: try_get_header_value(&response_headers, SSE_KEY_ID_HEADER_NAME),
         })
     }
 }

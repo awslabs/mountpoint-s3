@@ -8,6 +8,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Display;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
+use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, Level};
 
@@ -17,7 +18,6 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
-use crate::checksums::IntegrityError;
 use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
 use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
@@ -434,45 +434,64 @@ impl ServerSideEncryption {
     fn compute_checksum(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> Crc32c {
         let mut hasher: Hasher = Hasher::new();
         if let Some(maybe_sse_type) = sse_type {
-            hasher.update(maybe_sse_type.as_bytes().as_ref());
+            hasher.update(maybe_sse_type.as_bytes());
         }
         if let Some(maybe_sse_kms_key_id) = sse_kms_key_id {
-            hasher.update(maybe_sse_kms_key_id.as_bytes().as_ref());
+            hasher.update(maybe_sse_kms_key_id.as_bytes());
         }
         hasher.finalize()
     }
 
-    /// Checks that SSE settings still match the checksum and returns the string representations of:
-    /// 1. the SSE type as it is expected by S3 API and;
-    /// 2. AWS KMS Key ID, if provided.
-    pub fn into_inner(self) -> Result<(Option<String>, Option<String>), IntegrityError> {
+    fn validate(&self) -> Result<(), SSECorruptedError> {
         let computed = Self::compute_checksum(self.sse_type.as_deref(), self.sse_kms_key_id.as_deref());
-        if computed == self.checksum {
-            Ok((self.sse_type, self.sse_kms_key_id))
-        } else {
-            Err(IntegrityError::ChecksumMismatch(self.checksum, computed))
-        }
-    }
-
-    /// Checks that values provided as arguments to this function match the checksum stored in the object.
-    /// S3 will return some values for sse type and key even if they were not set on our side. We want to check
-    /// only the values which we set, thus response values are only added to checksum if they are present in this object.
-    pub fn verify_response(&self, sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> Result<(), IntegrityError> {
-        // we first validate in-memory values, since we are using them to compute a response's checksum
-        let computed = Self::compute_checksum(self.sse_type.as_deref(), self.sse_kms_key_id.as_deref());
-        if computed != self.checksum {
-            return Err(IntegrityError::ChecksumMismatch(self.checksum, computed));
-        }
-        // computing a response's checksum, adding values only if they were present in a request
-        let sse_type = self.sse_type.as_ref().and(sse_type);
-        let sse_kms_key_id = self.sse_kms_key_id.as_ref().and(sse_kms_key_id);
-        let computed = Self::compute_checksum(sse_type, sse_kms_key_id);
         if computed == self.checksum {
             Ok(())
         } else {
-            Err(IntegrityError::ChecksumMismatch(self.checksum, computed))
+            Err(SSECorruptedError::ChecksumMismatch(self.checksum, computed))
         }
     }
+
+    /// Checks that SSE settings still match the checksum and returns the string representations of:
+    /// 1. the SSE type as it is expected by S3 API;
+    /// 2. and AWS KMS Key ID, if provided.
+    pub fn into_inner(self) -> Result<(Option<String>, Option<String>), SSECorruptedError> {
+        self.validate()?;
+        Ok((self.sse_type, self.sse_kms_key_id))
+    }
+
+    /// Checks that values provided as arguments to this function match the values stored in the object.
+    /// S3 will return some values for sse type and key even if they were not set on our side.
+    /// We want to check only the values which we set.
+    pub fn verify_response(
+        &self,
+        sse_type: Option<&str>,
+        sse_kms_key_id: Option<&str>,
+    ) -> Result<(), SSECorruptedError> {
+        self.validate()?; // validate in-memory values, as we are using them to decide whether to skip the response check or not
+        if self.sse_type.is_some() && self.sse_type.as_deref() != sse_type {
+            return Err(SSECorruptedError::TypeMismatch(
+                self.sse_type.clone(),
+                sse_type.map(str::to_string),
+            ));
+        }
+        if self.sse_kms_key_id.is_some() && self.sse_kms_key_id.as_deref() != sse_kms_key_id {
+            return Err(SSECorruptedError::KeyMismatch(
+                self.sse_kms_key_id.clone(),
+                sse_kms_key_id.map(str::to_string),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum SSECorruptedError {
+    #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
+    ChecksumMismatch(Crc32c, Crc32c),
+    #[error("SSE type mismatch. expected: {0:?}, actual: {1:?}")]
+    TypeMismatch(Option<String>, Option<String>),
+    #[error("SSE KMS key ID mismatch. expected: {0:?}, actual: {1:?}")]
+    KeyMismatch(Option<String>, Option<String>),
 }
 
 impl Display for ServerSideEncryption {
