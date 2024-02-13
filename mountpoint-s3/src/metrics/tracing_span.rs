@@ -8,18 +8,21 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
 use tracing_subscriber::Layer;
 
+/// The name of the module containing the FUSE operations whose spans this layer will track.
+const FUSE_MODULE_NAME: &str = "mountpoint_s3::fuse";
+
 /// A [tracing::Layer] that publishes metrics about important [Span]s (mostly the root span of FUSE
 /// and S3 client requests) into the aggregate metrics.
 ///
 /// This layer "knows about" some of our Span targets and names, and uses them to decide when and
-/// how to emit metrics. If those names change, this needs to change as well.
+/// how to emit metrics.
 #[derive(Debug)]
 struct MetricsTracingSpanLayer;
 
 impl MetricsTracingSpanLayer {
     fn should_instrument_request_time<'a, S: LookupSpan<'a>>(span: Option<SpanRef<'a, S>>) -> bool {
         if let Some(data) = span {
-            if data.metadata().target() == "mountpoint_s3::fuse" && data.parent().is_none() {
+            if data.metadata().target() == FUSE_MODULE_NAME && data.parent().is_none() {
                 return true;
             }
         }
@@ -51,7 +54,7 @@ pub fn metrics_tracing_span_layer<S>() -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    MetricsTracingSpanLayer.with_filter(Targets::new().with_target("mountpoint_s3::fuse", Level::DEBUG))
+    MetricsTracingSpanLayer.with_filter(Targets::new().with_target(FUSE_MODULE_NAME, Level::WARN))
 }
 
 /// The time at which a request started
