@@ -310,10 +310,12 @@ fn read_errors_test_mock(prefix: &str) {
     read_errors_test(fuse::mock_session::new, prefix);
 }
 
-#[test]
-fn bad_descriptor_test() {
+fn read_after_flush_test<F>(creator_fn: F)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
     const KEY: &str = "data.bin";
-    let (mount_point, _session, mut test_client) = fuse::mock_session::new("bad_descriptor_test", Default::default());
+    let (mount_point, _session, mut test_client) = creator_fn("read_after_flush_test", Default::default());
 
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
@@ -328,8 +330,23 @@ fn bad_descriptor_test() {
 
     let mut f_dup = f.try_clone().unwrap();
 
+    // Close the file. Triggers a flush on the file handle.
     drop(f);
 
-    f_dup.seek(SeekFrom::End(-(content.len() as i64))).unwrap();
+    // Read using the duplicated instance (same underlying handle).
+    // Seek to the end of the file to avoid relying on the kernel cache.
+    let pos = f_dup.seek(SeekFrom::End(-(content.len() as i64))).unwrap() as usize;
     f_dup.read_exact(&mut content).unwrap();
+    assert_eq!(content, two_mib_body[pos..]);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn read_after_flush_test_s3() {
+    read_after_flush_test(fuse::s3_session::new);
+}
+
+#[test]
+fn read_after_flush_test_mock() {
+    read_after_flush_test(fuse::mock_session::new);
 }
