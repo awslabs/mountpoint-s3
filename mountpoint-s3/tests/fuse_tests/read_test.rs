@@ -1,5 +1,5 @@
 use std::fs::{read_dir, File};
-use std::io::{Read as _, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
@@ -308,4 +308,28 @@ fn read_errors_test_s3() {
 #[test_case("read_errors_test"; "prefix")]
 fn read_errors_test_mock(prefix: &str) {
     read_errors_test(fuse::mock_session::new, prefix);
+}
+
+#[test]
+fn bad_descriptor_test() {
+    const KEY: &str = "data.bin";
+    let (mount_point, _session, mut test_client) = fuse::mock_session::new("bad_descriptor_test", Default::default());
+
+    let mut rng = ChaChaRng::seed_from_u64(0x87654321);
+    let mut two_mib_body = vec![0; 2 * 1024 * 1024];
+    rng.fill_bytes(&mut two_mib_body);
+    test_client.put_object(KEY, &two_mib_body).unwrap();
+
+    let path = mount_point.path().join(KEY);
+    let mut f = open_for_read(path, true).unwrap();
+
+    let mut content = vec![0; 128];
+    f.read_exact(&mut content).unwrap();
+
+    let mut f_dup = f.try_clone().unwrap();
+
+    drop(f);
+
+    f_dup.seek(SeekFrom::End(-(content.len() as i64))).unwrap();
+    f_dup.read_exact(&mut content).unwrap();
 }
