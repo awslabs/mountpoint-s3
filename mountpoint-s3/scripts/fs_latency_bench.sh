@@ -50,7 +50,7 @@ do
     echo "Running ${job_name}"
 
     # mount file system
-    cargo run --bin mount-s3 --release ${S3_BUCKET_NAME} ${mount_dir} \
+    cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
         --debug \
         --allow-delete \
         --log-directory=$log_dir \
@@ -123,7 +123,7 @@ for job_file in "${jobs_dir}"/*.fio; do
   echo "Running ${job_name}"
 
   # mount file system
-  cargo run --bin mount-s3 --release ${S3_BUCKET_NAME} ${mount_dir} \
+  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
     --debug \
     --allow-delete \
     --log-directory=$log_dir \

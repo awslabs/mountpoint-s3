@@ -94,7 +94,7 @@ read_benchmark () {
 
     # mount file system
     set +e
-    cargo run --bin mount-s3 --quiet --release -- \
+    cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --debug \
       --allow-delete \
@@ -139,7 +139,7 @@ write_benchmark () {
     # mount file system
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
     set +e
-    cargo run --bin mount-s3 --quiet --release -- \
+    cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --debug \
       --allow-delete \

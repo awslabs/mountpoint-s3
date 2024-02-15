@@ -4,6 +4,7 @@ version = "1.4.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
+default-run = "mount-s3"
 
 [dependencies]
 fuser = { path = "../vendor/fuser", version = "0.14.0", features = ["abi-7-28"] }
