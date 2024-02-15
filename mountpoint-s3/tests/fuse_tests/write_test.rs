@@ -89,17 +89,6 @@ where
     let read_dir_iter = read_dir(&subdir).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt"]);
-
-    if append {
-        // We can't append existing files
-        let err = open_for_write(&path, append, write_only).expect_err("can't append existing file");
-        assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    } else {
-        // We shouldn't be allowed to write the file again
-        let mut f = open_for_write(&path, append, write_only).expect("should be able to open the file");
-        let err = f.write(b"hello world").expect_err("can't write existing file");
-        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
-    }
 }
 
 #[cfg(feature = "s3_tests")]
@@ -136,8 +125,7 @@ where
     // Existing files should not be writable even in O_APPEND
     let err = open_for_write(&path, true, true).expect_err("can't append existing file");
     assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    let mut f = open_for_write(&path, false, true).expect("should be able to open the file");
-    let err = f.write(b"hello world").expect_err("can't write existing file");
+    let err = open_for_write(&path, false, true).expect_err("can't open existing file for write");
     assert_eq!(err.kind(), ErrorKind::PermissionDenied);
 
     // New files can't be opened with O_SYNC
@@ -168,11 +156,18 @@ where
     // For default config, existing files can be opened O_RDWR but only reading should work on them
     let mut file = File::options().read(true).write(true).create(true).open(&path).unwrap();
     assert!(file.read(&mut [0u8; 1]).is_ok());
-
-    let mut file = File::options().read(true).write(true).create(true).open(&path).unwrap();
     let err = file
         .write(b"hello world")
         .expect_err("write to an existing file should fail");
+    assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+
+    // For default config, existing files cannot be opened with O_TRUNC
+    let err = File::options()
+        .read(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("existing file cannot be opened with O_TRUNC");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 }
 
@@ -758,14 +753,14 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
     let mut options = File::options();
-    let mut write_fh = options.write(true).open(&path).unwrap();
-    let err = write_fh
-        .write(b"hello world")
-        .expect_err("writing to a file is being read should fail");
+    let err = options
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is being read should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
     drop(fh);
-    drop(write_fh);
 }
 
 #[cfg(feature = "s3_tests")]
@@ -802,17 +797,25 @@ where
     let _subdir = mount_point.path().join("dir");
     let path = mount_point.path().join("dir/hello.txt");
 
-    // Writes should fail when open the file without truncate flag
+    // Open should fail without truncate flag
     let mut options = File::options();
     if !write_only {
-        options.read(true);
+        let mut read_fh = options
+            .read(true)
+            .write(true)
+            .open(path)
+            .expect("using RW should open for read");
+        let err = read_fh
+            .write(b"hello world")
+            .expect_err("writing to a file opened for read should fail");
+        assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+    } else {
+        let err = options
+            .write(true)
+            .open(path)
+            .expect_err("overwriting a file opened without truncate flag should fail");
+        assert_eq!(err.raw_os_error(), Some(libc::EPERM));
     }
-    let mut write_fh = options.write(true).open(path).unwrap();
-    let err = write_fh
-        .write(b"hello world")
-        .expect_err("overwriting a file opened without truncate flag should fail");
-    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
-    drop(write_fh);
 }
 
 #[cfg(feature = "s3_tests")]
@@ -834,55 +837,6 @@ fn overwrite_fail_on_write_without_truncate_test_mock(write_only: bool) {
         "overwrite_fail_on_write_without_truncate_test",
         write_only,
     );
-}
-
-fn overwrite_no_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let filesystem_config = S3FilesystemConfig {
-        allow_overwrite: true,
-        ..Default::default()
-    };
-    let test_config = TestSessionConfig {
-        filesystem_config,
-        ..Default::default()
-    };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
-
-    // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
-
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
-
-    // Open the file in non-truncate mode and do nothing
-    let mut options = File::options();
-    if !write_only {
-        options.read(true);
-    }
-    let write_fh = options.write(true).open(&path).expect("open should succeed");
-    drop(write_fh);
-
-    // File content should not be changed
-    let mut options = File::options();
-    let mut fh = options.read(true).write(true).open(&path).unwrap();
-    let mut hello_contents = String::new();
-    fh.read_to_string(&mut hello_contents).unwrap();
-    assert_eq!(hello_contents, "hello world");
-}
-
-#[cfg(feature = "s3_tests")]
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_no_truncate_test_s3(write_only: bool) {
-    overwrite_no_truncate_test(fuse::s3_session::new, "overwrite_no_truncate_test", write_only);
-}
-
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_no_truncate_test_mock(write_only: bool) {
-    overwrite_no_truncate_test(fuse::mock_session::new, "overwrite_no_truncate_test", write_only);
 }
 
 fn overwrite_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)

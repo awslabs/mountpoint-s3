@@ -273,7 +273,7 @@ where
     assert_eq!(dir_entry_names, vec!["hello.txt"]);
 
     // Overwrite the test file and verify that we can't read from a file opened in O_WRONLY
-    let mut write_fh = File::options().write(true).open(&file_path).unwrap();
+    let mut write_fh = File::options().write(true).truncate(true).open(&file_path).unwrap();
     let mut contents = String::new();
     let err = write_fh.read_to_string(&mut contents).expect_err("read should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
@@ -293,8 +293,7 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
     // Read should also fail from different file handle
-    let mut read_fh = open_for_read(&file_path, true).unwrap();
-    let err = read_fh.read_to_string(&mut contents).expect_err("read should fail");
+    let err = open_for_read(&file_path, true).expect_err("read should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 }
 
