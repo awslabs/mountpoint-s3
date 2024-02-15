@@ -45,6 +45,9 @@ Not all S3 object keys correspond to valid file names, and these objects will no
 
 then mounting your bucket with Mountpoint will show only the `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. See the [detailed semantics](#mapping-s3-object-keys-to-files-and-directories) below for more information about invalid object keys.
 
+> [!IMPORTANT]
+> Please note, that there is a known [issue](https://github.com/awslabs/mountpoint-s3/issues/725) with `readdir` operation (used to list files in a directory), which results in duplicate files in the response. Duplicate files may occur for any type of a bucket if it contains keys which should be hidden according to the semantics described above. E.g. for bucket with keys `blue` and `blue/image.jpg` two files with the name `blue` may be shown, and none of those may be a directory file.
+
 ### Modifying directories
 
 Mountpoint allows creating new directories with commands like `mkdir`. Creating a new directory is a local operation and no changes are made to your S3 bucket. A new directory will only be visible to other clients once a file has been written and uploaded inside it. If you restart Mountpoint or your instance before writing any files into the new directory, it will not be preserved.
