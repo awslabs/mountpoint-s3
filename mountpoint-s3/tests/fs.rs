@@ -170,7 +170,6 @@ async fn test_read_dir_nested(prefix: &str) {
     fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
 }
 
-#[cfg(feature = "negative_cache")]
 #[tokio::test]
 async fn test_lookup_negative_cached() {
     let fs_config = S3FilesystemConfig {

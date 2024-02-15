@@ -658,7 +658,7 @@ impl SuperblockInner {
                 }
             };
 
-            if cfg!(feature = "negative_cache") && superblock.negative_cache.contains(parent.ino(), name) {
+            if superblock.negative_cache.contains(parent.ino(), name) {
                 return Some(Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err())));
             }
 
@@ -822,7 +822,7 @@ impl SuperblockInner {
             return Err(InodeError::NotADirectory(parent.err()));
         }
 
-        if cfg!(feature = "negative_cache") && self.config.cache_config.serve_lookup_from_cache {
+        if self.config.cache_config.serve_lookup_from_cache {
             match &remote {
                 // Remove negative cache entry.
                 Some(_) => self.negative_cache.remove(parent_ino, name),
@@ -1880,7 +1880,7 @@ mod tests {
 
         for entry in entries {
             let lookup = superblock.lookup(&client, FUSE_ROOT_INODE, entry.as_ref()).await;
-            if cached && cfg!(feature = "negative_cache") {
+            if cached {
                 lookup.expect_err("negative entry should still be valid in the cache, so the new key should not have been looked up in S3");
             } else {
                 lookup.expect("new object should have been looked up in S3");
