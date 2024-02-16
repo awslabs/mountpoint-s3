@@ -702,11 +702,11 @@ where
             let is_truncate = flags & libc::O_TRUNC != 0;
             if !remote_file || (self.config.allow_overwrite && is_truncate) {
                 // If the file is new or opened in truncate mode, we know it must be a write handle.
-                trace!("fs:open choosing write handle for O_RDWR");
+                debug!("fs:open choosing write handle for O_RDWR");
                 FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?
             } else {
                 // Otherwise, it must be a read handle.
-                trace!("fs:open choosing read handle for O_RDWR");
+                debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
         } else if flags & libc::O_WRONLY != 0 {
