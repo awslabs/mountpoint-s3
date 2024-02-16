@@ -672,7 +672,7 @@ fn multi_thread_test() {
     .unwrap();
 }
 
-fn overwrite_test<F>(creator_fn: F, prefix: &str)
+fn overwrite_test<F>(creator_fn: F, prefix: &str, write_only: bool)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
@@ -692,32 +692,66 @@ where
     let _subdir = mount_point.path().join("dir");
     let path = mount_point.path().join("dir/hello.txt");
 
-    // Open the file with O_RDWR in non-truncate mode and do nothing
+    // Open with O_TRUNC and write something to the file
     let mut options = File::options();
-    let write_fh = options
-        .read(true)
-        .write(true)
-        .open(&path)
-        .expect("open with O_RDWR should succeed");
+    if !write_only {
+        options.read(true);
+    }
+    let mut write_fh = options.write(true).truncate(true).open(&path).unwrap();
+    write_fh.write_all(b"overwrite").expect("write should succeed");
+    write_fh.sync_all().unwrap();
     drop(write_fh);
 
-    // Open the file with O_WRONLY in non-truncate mode and do nothing
+    // Check the new file content
     let mut options = File::options();
-    let write_fh = options
-        .write(true)
-        .open(&path)
-        .expect("open with O_WRONLY should succeed");
-    drop(write_fh);
+    let mut read_fh = options.read(true).open(&path).unwrap();
+    let mut hello_contents = String::new();
+    read_fh.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "overwrite");
+    drop(read_fh);
+}
 
-    // File content should not be changed
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_test_s3(write_only: bool) {
+    overwrite_test(fuse::s3_session::new, "overwrite_test", write_only);
+}
+
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_test_mock(write_only: bool) {
+    overwrite_test(fuse::mock_session::new, "overwrite_test", write_only);
+}
+
+fn overwrite_disallowed_on_concurrent_read_test<F>(creator_fn: F, prefix: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let _subdir = mount_point.path().join("dir");
+    let path = mount_point.path().join("dir/hello.txt");
+
+    // We can't write to the file that is being read
+    // from both the same file handle or a new one
     let mut options = File::options();
     let mut fh = options.read(true).write(true).open(&path).unwrap();
     let mut hello_contents = String::new();
     fh.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
 
-    // We can't write to the file that is being read
-    // from both the same file handle or a new one
     let err = fh
         .write(b"hello world")
         .expect_err("writing to a file is being read should fail");
@@ -732,41 +766,151 @@ where
 
     drop(fh);
     drop(write_fh);
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn overwrite_disallowed_on_concurrent_read_test_s3() {
+    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test");
+}
+
+#[test]
+fn overwrite_disallowed_on_concurrent_read_test_mock() {
+    overwrite_disallowed_on_concurrent_read_test(
+        fuse::mock_session::new,
+        "overwrite_disallowed_on_concurrent_read_test",
+    );
+}
+
+fn overwrite_fail_on_write_without_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let _subdir = mount_point.path().join("dir");
+    let path = mount_point.path().join("dir/hello.txt");
 
     // Writes should fail when open the file without truncate flag
     let mut options = File::options();
-    let mut write_fh = options.read(true).write(true).open(&path).unwrap();
+    if !write_only {
+        options.read(true);
+    }
+    let mut write_fh = options.write(true).open(path).unwrap();
     let err = write_fh
         .write(b"hello world")
         .expect_err("overwriting a file opened without truncate flag should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+    drop(write_fh);
+}
 
-    let mut write_fh = options.write(true).open(&path).unwrap();
-    let err: std::io::Error = write_fh
-        .write(b"hello world")
-        .expect_err("overwriting a file opened without truncate flag should fail");
-    assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_fail_on_write_without_truncate_test_s3(write_only: bool) {
+    overwrite_fail_on_write_without_truncate_test(
+        fuse::s3_session::new,
+        "overwrite_fail_on_write_without_truncate_test",
+        write_only,
+    );
+}
+
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_fail_on_write_without_truncate_test_mock(write_only: bool) {
+    overwrite_fail_on_write_without_truncate_test(
+        fuse::mock_session::new,
+        "overwrite_fail_on_write_without_truncate_test",
+        write_only,
+    );
+}
+
+fn overwrite_no_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let _subdir = mount_point.path().join("dir");
+    let path = mount_point.path().join("dir/hello.txt");
+
+    // Open the file in non-truncate mode and do nothing
+    let mut options = File::options();
+    if !write_only {
+        options.read(true);
+    }
+    let write_fh = options.write(true).open(&path).expect("open should succeed");
     drop(write_fh);
 
-    // Open with O_RDWR and write something to the file
+    // File content should not be changed
     let mut options = File::options();
-    let mut write_fh = options.read(true).write(true).truncate(true).open(&path).unwrap();
-    write_fh.write_all(b"first overwrite").expect("write should succeed");
-    write_fh.sync_all().unwrap();
-    drop(write_fh);
-
-    // Check the new file content
-    let mut options = File::options();
-    let mut read_fh = options.read(true).open(&path).unwrap();
+    let mut fh = options.read(true).write(true).open(&path).unwrap();
     let mut hello_contents = String::new();
-    read_fh.read_to_string(&mut hello_contents).unwrap();
-    assert_eq!(hello_contents, "first overwrite");
-    drop(read_fh);
+    fh.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello world");
+}
 
-    // File should be empty when opened with O_RDWR and O_TRUNC even without any write
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_no_truncate_test_s3(write_only: bool) {
+    overwrite_no_truncate_test(fuse::s3_session::new, "overwrite_no_truncate_test", write_only);
+}
+
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_no_truncate_test_mock(write_only: bool) {
+    overwrite_no_truncate_test(fuse::mock_session::new, "overwrite_no_truncate_test", write_only);
+}
+
+fn overwrite_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let _subdir = mount_point.path().join("dir");
+    let path = mount_point.path().join("dir/hello.txt");
+
+    // File should be empty when opened with O_TRUNC even without any write
     let mut options = File::options();
+    if !write_only {
+        options.read(true);
+    }
     let write_fh = options
-        .read(true)
         .write(true)
         .truncate(true)
         .open(&path)
@@ -778,21 +922,47 @@ where
     let mut hello_contents = String::new();
     read_fh.read_to_string(&mut hello_contents).unwrap();
     assert!(hello_contents.is_empty());
-    drop(read_fh);
+}
 
-    // Open with O_WRONLY and write something to the file
-    let mut options = File::options();
-    let mut write_fh = options.write(true).truncate(true).open(&path).unwrap();
-    write_fh.write_all(b"second overwrite").expect("write should succeed");
-    write_fh.sync_all().unwrap();
-    drop(write_fh);
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_truncate_test_s3(write_only: bool) {
+    overwrite_truncate_test(fuse::s3_session::new, "overwrite_truncate_test", write_only);
+}
 
-    // Check the new file content
+#[test_case(true; "write_only")]
+#[test_case(false; "read_write")]
+fn overwrite_truncate_test_mock(write_only: bool) {
+    overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", write_only);
+}
+
+fn read_overwrite_read_test<F>(creator_fn: F, prefix: &str)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let _subdir = mount_point.path().join("dir");
+    let path = mount_point.path().join("dir/hello.txt");
+
+    // Read first
     let mut options = File::options();
     let mut read_fh = options.read(true).open(&path).unwrap();
     let mut hello_contents = String::new();
     read_fh.read_to_string(&mut hello_contents).unwrap();
-    assert_eq!(hello_contents, "second overwrite");
+    assert_eq!(hello_contents, "hello world");
     drop(read_fh);
 
     // File should be empty when opened with O_WRONLY and O_TRUNC even without any write
@@ -809,6 +979,18 @@ where
     let mut hello_contents = String::new();
     read_fh.read_to_string(&mut hello_contents).unwrap();
     assert!(hello_contents.is_empty());
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn read_overwrite_read_test_s3() {
+    read_overwrite_read_test(fuse::s3_session::new, "read_overwrite_read_test");
+}
+
+#[test_case(""; "no prefix")]
+#[test_case("read_overwrite_read_test"; "prefix")]
+fn read_overwrite_read_test_mock(prefix: &str) {
+    read_overwrite_read_test(fuse::mock_session::new, prefix);
 }
 
 // This test checks that a write can be performed when IAM session policy enforces the usage of the specific SSE type and a KMS key ID
@@ -873,16 +1055,4 @@ fn write_with_sse_settings_test(sse: ServerSideEncryption, should_fail: bool) {
         "filesystem must report correct size for the file"
     );
     assert!(test_client.contains_key(file_name).unwrap(), "object must exist in S3");
-}
-
-#[cfg(feature = "s3_tests")]
-#[test]
-fn overwrite_test_s3() {
-    overwrite_test(fuse::s3_session::new, "overwrite_test");
-}
-
-#[test_case(""; "no prefix")]
-#[test_case("overwrite_test"; "prefix")]
-fn overwrite_test_mock(prefix: &str) {
-    overwrite_test(fuse::mock_session::new, prefix);
 }
