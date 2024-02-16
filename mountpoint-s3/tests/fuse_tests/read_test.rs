@@ -293,7 +293,8 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
     // Read should also fail from different file handle
-    let err = open_for_read(&file_path, true).expect_err("read should fail");
+    let err =
+        open_for_read(&file_path, true).expect_err("opening for read should fail with pending write handles open");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 }
 
