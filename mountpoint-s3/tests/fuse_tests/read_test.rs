@@ -277,6 +277,7 @@ where
     let mut contents = String::new();
     let err = write_fh.read_to_string(&mut contents).expect_err("read should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+    write_fh.sync_all().unwrap();
     drop(write_fh);
 
     // We shouldn't be able to read from a file mid-write in O_RDWR
