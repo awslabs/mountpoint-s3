@@ -347,20 +347,12 @@ impl Harness {
             return;
         };
 
-        let open = self
-            .fs
-            .open(inflight_write.inode, libc::O_WRONLY, 0)
-            .await
-            .expect("open should succeed");
-        if inflight_write.written > 0 {
-            // Shouldn't be able to write to a file that is being written
-            let write = self
-                .fs
-                .write(inflight_write.inode, open.fh, 0, &[0; 8], 0, 0, None)
-                .await
-                .expect_err("write from another file handle should fail");
-            assert_eq!(write.to_errno(), libc::EPERM);
+        let open = self.fs.open(inflight_write.inode, libc::O_WRONLY, 0).await;
+        if inflight_write.file_handle.is_some() {
+            // Shouldn't be able to reopen a file that's already open for writing
+            assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
         } else {
+            let open = open.expect("open should succeed");
             let inflight_write = self.inflight_writes.get_mut(index).unwrap();
             inflight_write.file_handle = Some(open.fh);
         }
@@ -710,14 +702,8 @@ impl Harness {
     /// readable (open should fail).
     async fn check_local_file(&self, inode: InodeNo) {
         let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
-        let open = self
-            .fs
-            .open(inode, libc::O_RDONLY, 0)
-            .await
-            .expect("open should succeed");
-        let read_result = self.fs.read(inode, open.fh, 0, 4096, 0, None).await;
-        let error = read_result.expect_err("read should fail");
-        assert_eq!(error.to_errno(), libc::EPERM);
+        let open = self.fs.open(inode, libc::O_RDONLY, 0).await;
+        assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
     }
 }
 
