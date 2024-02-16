@@ -941,6 +941,54 @@ fn overwrite_after_read_test_mock(prefix: &str) {
     overwrite_after_read_test(fuse::mock_session::new, prefix);
 }
 
+fn write_handle_no_update_existing_empty_file<F>(creator_fn: F, prefix: &str, allow_overwrite: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_client.put_object("dir/hello.txt", b"").unwrap();
+
+    let _subdir = mount_point.path().join("dir");
+    let path = mount_point.path().join("dir/hello.txt");
+
+    // Open the file in non-truncate mode and do nothing
+    File::options()
+        .write(true)
+        .open(path)
+        .expect_err("write-only open should not succeed without O_TRUNC");
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "allow overwrite")]
+#[test_case(false; "disallow overwrite")]
+fn write_handle_no_update_existing_empty_file_s3(allow_overwrite: bool) {
+    write_handle_no_update_existing_empty_file(
+        fuse::s3_session::new,
+        "write_handle_no_update_existing_empty_file",
+        allow_overwrite,
+    );
+}
+
+#[test_case(true; "allow overwrite")]
+#[test_case(false; "disallow overwrite")]
+fn write_handle_no_update_existing_empty_file_mock(allow_overwrite: bool) {
+    write_handle_no_update_existing_empty_file(
+        fuse::mock_session::new,
+        "write_handle_no_update_existing_empty_file",
+        allow_overwrite,
+    );
+}
+
 // This test checks that a write can be performed when IAM session policy enforces the usage of the specific SSE type and a KMS key ID
 // This test also contains error cases, that check that IAM session policy actually rejects writes with wrong SSE
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
