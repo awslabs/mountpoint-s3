@@ -26,6 +26,10 @@ if [[ -z "${S3_BUCKET_SMALL_BENCH_FILE}" ]]; then
   exit 1
 fi
 
+if [[ -n "${JOB_NAME_FILTER}" ]]; then
+  echo "Will only run fio jobs which match $JOB_NAME_FILTER"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -33,7 +37,7 @@ cd ${project_dir}
 results_dir=results
 runtime_seconds=30
 startdelay_seconds=30
-iterations=10
+iterations=1
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
@@ -80,10 +84,29 @@ run_fio_job() {
       else $job.write.bw / 1024 end)) | {name: .name, value: (.value / .len), unit: "MiB/s"}' ${results_dir}/${job_name}_iter*.json | tee ${results_dir}/${job_name}_parsed.json
 }
 
+should_run_job() {
+    job_file=$1
+    if [[ -n "${JOB_NAME_FILTER}" ]]; then
+      if [[ "${job_file}" == *"${JOB_NAME_FILTER}"* ]]; then
+        # job name matches filter
+        return 0
+      else
+        # job name does not match filter
+        return 1
+      fi
+    fi
+}
+
 read_benchmark () {
   jobs_dir=mountpoint-s3/scripts/fio/read
 
   for job_file in "${jobs_dir}"/*.fio; do
+
+    if ! should_run_job "${job_file}"; then
+      echo "Skipping job ${job_file} because it does not match ${JOB_NAME_FILTER}"
+      continue
+    fi
+
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
 
     job_name=$(basename "${job_file}")
@@ -130,6 +153,12 @@ write_benchmark () {
   jobs_dir=mountpoint-s3/scripts/fio/write
 
   for job_file in "${jobs_dir}"/*.fio; do
+
+    if ! should_run_job "${job_file}"; then
+      echo "Skipping job ${job_file} because it does not match ${JOB_NAME_FILTER}"
+      continue
+    fi
+
     job_name=$(basename "${job_file}")
     job_name="${job_name%.*}"
     log_dir=logs/${job_name}
