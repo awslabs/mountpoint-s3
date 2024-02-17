@@ -97,6 +97,76 @@ should_run_job() {
     fi
 }
 
+cache_benchmark () {
+  jobs_dir=mountpoint-s3/scripts/fio/read_cache
+
+  for job_file in "${jobs_dir}"/*.fio; do
+
+    if ! should_run_job "${job_file}"; then
+      echo "Skipping job ${job_file} because it does not match ${JOB_NAME_FILTER}"
+      continue
+    fi
+
+    mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
+    # creates a cache directoy with the suffix of the mount directory
+    cache_dir=$(mktemp -d -t `basename "${mount_dir}"`-cache-XXXXXXXXXXXX)
+
+    job_name=$(basename "${job_file}")
+    job_name="${job_name%.*}"
+    log_dir=logs/${job_name}
+
+    # cleanup mount directory and log directory
+    cleanup() {
+      # unmount file system
+      sudo umount ${mount_dir} 2> /dev/null
+      rm -rf ${mount_dir}
+      rm -rf ${cache_dir} # umount should clean this, but just in case
+      rm -rf ${log_dir}
+    }
+
+    # trap cleanup on exit
+    trap 'cleanup' EXIT
+
+    rm -rf ${log_dir}
+    mkdir -p ${log_dir}
+
+    # mount file system
+    set +e
+    cargo run --quiet --release -- \
+      ${S3_BUCKET_NAME} ${mount_dir} \
+      --debug \
+      --cache=${cache_dir} \
+      --log-directory=${log_dir} \
+      --prefix=${S3_BUCKET_TEST_PREFIX}
+    mount_status=$?
+    set -e
+    if [ $mount_status -ne 0 ]; then
+      echo "Failed to mount file system"
+      exit 1
+    fi
+
+    # set bench file
+    bench_file=${S3_BUCKET_BENCH_FILE}
+    # run against small file if the job file ends with small.fio
+    if [[ $job_file == *small.fio ]]; then
+      bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
+    fi
+
+    # let's read the file so that it is cached
+    cat ${mount_dir}/${bench_file} > /dev/null
+
+    if [ -z "$(ls -A ${cache_dir}/mountpoint-cache/)" ]; then
+      echo "cache directory is empty, something is wrong..."
+      exit 1
+    fi
+
+    # run the benchmark
+    run_fio_job $job_file $bench_file $mount_dir $log_dir
+
+
+  done
+}
+
 read_benchmark () {
   jobs_dir=mountpoint-s3/scripts/fio/read
 
@@ -112,6 +182,18 @@ read_benchmark () {
     job_name=$(basename "${job_file}")
     job_name="${job_name%.*}"
     log_dir=logs/${job_name}
+
+    # cleanup mount directory and log directory
+    cleanup() {
+      # unmount file system
+      sudo umount ${mount_dir} 2> /dev/null
+      rm -rf ${mount_dir}
+      rm -rf ${log_dir}
+    }
+
+    # trap cleanup on exit
+    trap 'cleanup' EXIT
+
     rm -rf ${log_dir}
     mkdir -p ${log_dir}
 
@@ -140,12 +222,6 @@ read_benchmark () {
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
 
-    # unmount file system
-    sudo umount ${mount_dir}
-
-    # cleanup mount directory and log directory
-    rm -rf ${mount_dir}
-    rm -rf ${log_dir}
   done
 }
 
@@ -162,6 +238,19 @@ write_benchmark () {
     job_name=$(basename "${job_file}")
     job_name="${job_name%.*}"
     log_dir=logs/${job_name}
+
+
+    # cleanup mount directory and log directory
+    cleanup() {
+      # unmount file system
+      sudo umount ${mount_dir} 2> /dev/null
+      rm -rf ${mount_dir}
+      rm -rf ${log_dir}
+    }
+
+    # trap cleanup on exit
+    trap 'cleanup' EXIT
+
     rm -rf ${log_dir}
     mkdir -p ${log_dir}
 
@@ -187,17 +276,12 @@ write_benchmark () {
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
 
-    # unmount file system
-    sudo umount ${mount_dir}
-
-    # cleanup mount directory and log directory
-    rm -rf ${mount_dir}
-    rm -rf ${log_dir}
   done
 }
 
 read_benchmark
 write_benchmark
+cache_benchmark
 
 # combine all bench results into one json file
 jq -n '[inputs]' ${results_dir}/*_parsed.json | tee ${results_dir}/output.json
