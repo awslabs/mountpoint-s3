@@ -117,11 +117,12 @@ cache_benchmark () {
 
     # cleanup mount directory and log directory
     cleanup() {
-      # unmount file system
-      sudo umount ${mount_dir} 2> /dev/null
-      rm -rf ${mount_dir}
-      rm -rf ${cache_dir} # umount should clean this, but just in case
-      rm -rf ${log_dir}
+      echo "cache_benchmark:cleanup"
+      # unmount file system only if it is mounted
+      ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
+      sudo rm -rf ${mount_dir}
+      sudo rm -rf ${cache_dir} # umount should clean this, but just in case
+      sudo rm -rf ${log_dir}
     }
 
     # trap cleanup on exit
@@ -163,7 +164,7 @@ cache_benchmark () {
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
 
-
+    cleanup
   done
 }
 
@@ -185,10 +186,11 @@ read_benchmark () {
 
     # cleanup mount directory and log directory
     cleanup() {
-      # unmount file system
-      sudo umount ${mount_dir} 2> /dev/null
-      rm -rf ${mount_dir}
-      rm -rf ${log_dir}
+      echo "read_benchmark:cleanup"
+      # unmount file system only if it is mounted
+      ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
+      sudo rm -rf ${mount_dir}
+      sudo rm -rf ${log_dir}
     }
 
     # trap cleanup on exit
@@ -222,6 +224,8 @@ read_benchmark () {
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
 
+    cleanup
+
   done
 }
 
@@ -242,10 +246,11 @@ write_benchmark () {
 
     # cleanup mount directory and log directory
     cleanup() {
-      # unmount file system
-      sudo umount ${mount_dir} 2> /dev/null
-      rm -rf ${mount_dir}
-      rm -rf ${log_dir}
+      echo "write_benchmark:cleanup"
+      # unmount file system only if it is mounted
+      ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
+      sudo rm -rf ${mount_dir}
+      sudo rm -rf ${log_dir}
     }
 
     # trap cleanup on exit
@@ -275,6 +280,8 @@ write_benchmark () {
 
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
+
+    cleanup
 
   done
 }

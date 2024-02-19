@@ -5,7 +5,7 @@ runtime=30s
 time_based
 group_reporting
 
-[sequential_read_small_file]
+[cache_sequential_read_small_file]
 size=5m
 rw=read
 ioengine=sync
