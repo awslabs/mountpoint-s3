@@ -121,7 +121,6 @@ cache_benchmark () {
       # unmount file system only if it is mounted
       ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
       sudo rm -rf ${mount_dir}
-      sudo rm -rf ${cache_dir} # umount should clean this, but just in case
       sudo rm -rf ${log_dir}
     }
 
