@@ -2038,7 +2038,9 @@ dependencies = [
 name = "mountpoint-s3-crt"
 version = "0.6.1"
 dependencies = [
+ "anyhow",
  "async-channel",
+ "clap",
  "criterion",
  "ctor",
  "futures",
@@ -2047,11 +2049,13 @@ dependencies = [
  "log",
  "mountpoint-s3-crt-sys",
  "rand",
+ "serde_json",
  "smallstr",
  "static_assertions",
  "tempfile",
  "test-case",
  "thiserror",
+ "tracing",
  "tracing-subscriber",
 ]
 

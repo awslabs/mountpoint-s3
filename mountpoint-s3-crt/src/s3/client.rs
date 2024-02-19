@@ -356,6 +356,14 @@ impl MetaRequestOptions {
         options.inner.type_ = request_type.into();
         self
     }
+
+    /// Set the part size of this request
+    pub fn part_size(&mut self, part_size: u64) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.inner.part_size = part_size;
+        self
+    }
 }
 
 impl Default for MetaRequestOptions {
