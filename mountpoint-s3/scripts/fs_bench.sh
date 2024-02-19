@@ -37,7 +37,7 @@ cd ${project_dir}
 results_dir=results
 runtime_seconds=30
 startdelay_seconds=30
-iterations=1
+iterations=10
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
