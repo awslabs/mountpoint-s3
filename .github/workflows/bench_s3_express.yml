@@ -1,0 +1,162 @@
+name: Benchmark (s3-express one zone)
+
+# We use environments to require approval to run benchmarks on PRs, but not on pushes to `main`
+# (which have been approved already since PRs are required for `main`).
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+      ref:
+        required: true
+        type: string
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  S3_BUCKET_NAME: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME }}
+  S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
+  S3_BUCKET_BENCH_FILE: ${{ vars.BENCH_FILE_NAME || 'bench100GB.bin' }}
+  S3_BUCKET_SMALL_BENCH_FILE: ${{ vars.SMALL_BENCH_FILE_NAME || 'bench5MB.bin' }}
+  S3_REGION: ${{ vars.S3_REGION }}
+
+jobs:
+  bench:
+    name: Benchmark (Throughput)
+    runs-on: [self-hosted, linux, x64, high-performance]
+
+    environment: ${{ inputs.environment }}
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+        role-duration-seconds: 21600
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Restore Cargo cache
+      id: restore-cargo-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Build
+      run: cargo build --release
+    - name: Run Benchmark
+      run: mountpoint-s3/scripts/fs_bench.sh
+    - name: Save Cargo cache
+      uses: actions/cache/save@v3
+      if: inputs.environment != 'PR benchmarks'
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
+    - name: Check benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customBiggerIsBetter'
+        output-file-path: results/output.json
+        alert-threshold: "200%"
+        fail-on-alert: true
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        comment-on-alert: true
+        max-items-in-chart: 20
+  
+  latency-bench:
+    name: Benchmark (Latency)
+    runs-on: [self-hosted, linux, x64, high-performance]
+
+    environment: ${{ inputs.environment }}
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Restore Cargo cache
+      id: restore-cargo-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Build
+      run: cargo build --release
+    - name: Run Benchmark
+      run: mountpoint-s3/scripts/fs_latency_bench.sh
+    - name: Save Cargo cache
+      uses: actions/cache/save@v3
+      if: inputs.environment != 'PR benchmarks'
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
+    - name: Check benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/output.json
+        benchmark-data-dir-path: dev/latency_bench
+        alert-threshold: "200%"
+        fail-on-alert: true
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        comment-on-alert: true
+        max-items-in-chart: 20

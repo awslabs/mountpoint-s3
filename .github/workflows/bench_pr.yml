@@ -13,6 +13,7 @@ jobs:
   integration:
     name: Benchmarks
     uses: ./.github/workflows/bench.yml
+    uses: ./.github/workflows/bench_s3_express.yml
     if: ${{ contains(github.event.pull_request.labels.*.name, 'performance') }}
     with:
       environment: PR benchmarks
