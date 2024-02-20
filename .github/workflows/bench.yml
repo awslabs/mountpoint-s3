@@ -197,7 +197,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
-        tool: 'customSmallerIsBetter'
+        tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/cache_bench
         alert-threshold: "200%"
