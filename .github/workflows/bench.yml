@@ -160,3 +160,51 @@ jobs:
         auto-push: ${{ inputs.environment && 'false' || 'true' }}
         comment-on-alert: true
         max-items-in-chart: 20
+
+  cache-bench:
+    name: Benchmark (Cache)
+    runs-on: [self-hosted, linux, x64, high-performance]
+
+    environment: ${{ inputs.environment }}
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
+    - name: Set up stable Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Build
+      run: cargo build --release
+    - name: Run Benchmark
+      run: mountpoint-s3/scripts/fs_cache_bench.sh
+    - name: Check benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/output.json
+        benchmark-data-dir-path: dev/cache_bench
+        alert-threshold: "200%"
+        fail-on-alert: true
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        comment-on-alert: true
+        max-items-in-chart: 20
