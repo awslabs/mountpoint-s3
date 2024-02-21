@@ -2,7 +2,7 @@ name: Benchmarks (PR)
 
 on:
   pull_request_target:
-    branches: [ "main" ]
+    branches: [ "main", "s3-express-benchmark" ]
     types: [ labeled, opened, reopened, synchronize ]
 
 permissions:
@@ -13,6 +13,13 @@ jobs:
   integration:
     name: Benchmarks
     uses: ./.github/workflows/bench.yml
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'performance') }}
+    with:
+      environment: PR benchmarks
+      ref: ${{ github.event.pull_request.head.sha }}
+  s3express-integration:
+    name: Benchmarks (s3express)
+    uses: ./.github/workflows/bench_s3express.yml
     if: ${{ contains(github.event.pull_request.labels.*.name, 'performance') }}
     with:
       environment: PR benchmarks
