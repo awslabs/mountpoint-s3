@@ -13,7 +13,13 @@ jobs:
   integration:
     name: Benchmarks
     uses: ./.github/workflows/bench.yml
-    uses: ./.github/workflows/bench_s3_express.yml
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'performance') }}
+    with:
+      environment: PR benchmarks
+      ref: ${{ github.event.pull_request.head.sha }}
+  s3express-integration:
+    name: Benchmarks (s3express)
+    uses: ./.github/workflows/bench_s3express.yml
     if: ${{ contains(github.event.pull_request.labels.*.name, 'performance') }}
     with:
       environment: PR benchmarks

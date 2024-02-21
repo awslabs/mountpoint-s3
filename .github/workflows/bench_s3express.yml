@@ -81,7 +81,8 @@ jobs:
       uses: benchmark-action/github-action-benchmark@v1
       with:
         tool: 'customBiggerIsBetter'
-        output-file-path: results/output.json
+        output-file-path: results/output_s3_express.json
+        benchmark-data-dir-path: dev/s3-express/bench
         alert-threshold: "200%"
         fail-on-alert: true
         # GitHub API token to make a commit comment
@@ -150,8 +151,8 @@ jobs:
       uses: benchmark-action/github-action-benchmark@v1
       with:
         tool: 'customSmallerIsBetter'
-        output-file-path: results/output.json
-        benchmark-data-dir-path: dev/latency_bench
+        output-file-path: results/output_s3_express.json
+        benchmark-data-dir-path: dev/s3-express/latency_bench
         alert-threshold: "200%"
         fail-on-alert: true
         # GitHub API token to make a commit comment
