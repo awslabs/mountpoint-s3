@@ -2,7 +2,7 @@ name: Benchmarks
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "s3-express-benchmark" ]
 
 permissions:
   id-token: write
