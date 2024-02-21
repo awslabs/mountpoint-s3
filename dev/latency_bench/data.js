@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708528395478,
+  "lastUpdate": 1708528598087,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "158502535+andrewatamzn@users.noreply.github.com",
-            "name": "andrewatamzn",
-            "username": "andrewatamzn"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "778aad3ee2379c270c3ff9979e86415f956cb1c5",
-          "message": "Update configuration documentation page (#727)\n\n* Update CONFIGURATION.md\n\nupdate the file modifications and deletions section with the release of overwrites \n\nSigned-off-by: andrewatamzn <158502535+andrewatamzn@users.noreply.github.com>\n\n* Update doc/CONFIGURATION.md\n\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>\nSigned-off-by: James Bornholt <jamesbornholt@gmail.com>\n\n---------\n\nSigned-off-by: andrewatamzn <158502535+andrewatamzn@users.noreply.github.com>\nSigned-off-by: James Bornholt <jamesbornholt@gmail.com>\nCo-authored-by: James Bornholt <jamesbornholt@gmail.com>\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>",
-          "timestamp": "2024-02-02T17:49:34Z",
-          "tree_id": "01ede06aa332f257045ceb49aeb8f68952a85416",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/778aad3ee2379c270c3ff9979e86415f956cb1c5"
-        },
-        "date": 1706898141564,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.076,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.178,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.153,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.549,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 91.7995803,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 57.0287728,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 68.76308279999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d136fb45d4f2540f36ee8e5038c0217b6222f3a0",
+          "message": "Allow branches which names start with wf-changes/ to trigger workflows. (#765)\n\n* Allow branches which names start with wf-changes/ to trigger workflows.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n* Only on push allow branches wf-changes/** to trigger workflows.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n* Remove extra `]`.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n---------\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-02-21T14:47:17Z",
+          "tree_id": "bf4c1eb6fd89bd8ec0fd527534040482d5c52ea1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d136fb45d4f2540f36ee8e5038c0217b6222f3a0"
+        },
+        "date": 1708528597615,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.08,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.174,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.166,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.488,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 63.2571152,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 62.7909384,
             "unit": "milliseconds"
           }
         ]
