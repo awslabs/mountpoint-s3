@@ -2,7 +2,7 @@ name: Benchmarks (PR)
 
 on:
   pull_request_target:
-    branches: [ "main", "s3-express-benchmark" ]
+    branches: [ "main" ]
     types: [ labeled, opened, reopened, synchronize ]
 
 permissions:
