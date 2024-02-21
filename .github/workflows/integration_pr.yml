@@ -2,7 +2,7 @@ name: Integration tests (PR)
 
 on:
   pull_request_target:
-    branches: [ "main" ]
+    branches: [ "main", "wf-changes/**"]
 
 permissions:
   id-token: write
