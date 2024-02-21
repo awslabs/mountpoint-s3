@@ -36,13 +36,10 @@ mkdir -p ${results_dir}
 
 # start readdir benchmarking
 dir_size=100
-jobs_dir=mountpoint-s3/scripts/fio/create
-
 while [ $dir_size -le 100000 ]
 do
     sum=0
     job_name="readdir_${dir_size}"
-    job_file="${jobs_dir}/create_files_${dir_size}.fio"
     mount_dir=$(mktemp -d /tmp/mount-s3-XXXXXXXXXXXX)
     target_dir="${mount_dir}/bench_dir_${dir_size}"
     startdelay=30
@@ -64,9 +61,11 @@ do
         exit 1
     fi
 
-    # create the target directory if it does not exist before running the benchmark
-    mkdir -p ${target_dir}
-    fio --thread --directory=${target_dir} ${job_file}
+    # verify that the target directory exists before running the benchmark
+    if [ ! -d "${target_dir}" ]; then
+      echo "Target directory ${target_dir} does not exist."
+      exit 1
+    fi
 
     sleep $startdelay
     # run each case for 10 iterations

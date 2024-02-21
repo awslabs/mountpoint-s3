@@ -2,7 +2,7 @@ name: Benchmarks
 
 on:
   push:
-    branches: [ "main", "s3-express-benchmark" ]
+    branches: [ "main" ]
 
 permissions:
   id-token: write
@@ -14,8 +14,3 @@ jobs:
     uses: ./.github/workflows/bench.yml
     with:
       ref: ${{ github.event.after }}
-  s3express-integration:
-    name: Benchmarks (s3express)
-    uses: ./.github/workflows/bench_s3express.yml
-    with:
-      ref: ${{ github.event.after }}      

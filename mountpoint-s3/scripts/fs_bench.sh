@@ -99,8 +99,7 @@ read_benchmark () {
       --debug \
       --allow-delete \
       --log-directory=${log_dir} \
-      --prefix=${S3_BUCKET_TEST_PREFIX} \
-      --part-size=16777216
+      --prefix=${S3_BUCKET_TEST_PREFIX}
     mount_status=$?
     set -e
     if [ $mount_status -ne 0 ]; then
