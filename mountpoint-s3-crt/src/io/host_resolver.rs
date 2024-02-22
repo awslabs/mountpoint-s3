@@ -2,6 +2,7 @@
 
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
+use crate::common::string;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::io_library_init;
 use crate::CrtError as _;
@@ -43,6 +44,17 @@ impl HostResolver {
 
         Ok(Self { inner })
     }
+
+    /// Get the current number of known host addresses for a given hostname
+    pub fn get_host_address_count(&self, hostname: &str, kinds: AddressKinds) -> Result<usize, Error> {
+        let hostname = string::String::from_str(hostname, &Allocator::default());
+
+        // SAFETY: self.inner is a valid aws_host_resolver
+        let count =
+            unsafe { aws_host_resolver_get_host_address_count(self.inner.as_ptr(), hostname.as_ptr(), kinds.inner) };
+
+        Ok(count)
+    }
 }
 
 impl Clone for HostResolver {
@@ -61,6 +73,47 @@ impl Drop for HostResolver {
         // so it's safe to call release (which will decrement the refcnt).
         unsafe {
             aws_host_resolver_release(self.inner.as_ptr());
+        }
+    }
+}
+
+// SAFETY: `aws_host_resolver` is reference counted and its methods are thread-safe
+unsafe impl Send for HostResolver {}
+// SAFETY: `aws_host_resolver` is reference counted and its methods are thread-safe
+unsafe impl Sync for HostResolver {}
+
+/// A set of address kinds to retrieve with [HostResolver::get_host_address_count]
+#[derive(Debug, Default)]
+pub struct AddressKinds {
+    inner: u32,
+}
+
+impl AddressKinds {
+    /// Retrieve A records
+    pub fn a() -> Self {
+        Self {
+            inner: aws_get_host_address_flags::AWS_GET_HOST_ADDRESS_COUNT_RECORD_TYPE_A as u32,
+        }
+    }
+
+    /// Retrieve AAAA records
+    pub fn aaaa() -> Self {
+        Self {
+            inner: aws_get_host_address_flags::AWS_GET_HOST_ADDRESS_COUNT_RECORD_TYPE_AAAA as u32,
+        }
+    }
+
+    /// Add A records to the set of kinds
+    pub fn with_a(self) -> Self {
+        Self {
+            inner: self.inner & aws_get_host_address_flags::AWS_GET_HOST_ADDRESS_COUNT_RECORD_TYPE_A as u32,
+        }
+    }
+
+    /// Add AAAA records to the set of kinds
+    pub fn with_aaaa(self) -> Self {
+        Self {
+            inner: self.inner & aws_get_host_address_flags::AWS_GET_HOST_ADDRESS_COUNT_RECORD_TYPE_AAAA as u32,
         }
     }
 }
