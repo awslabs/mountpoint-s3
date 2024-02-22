@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708616908824,
+  "lastUpdate": 1708620237945,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -303,6 +303,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.7652692,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "6cf6753be2d7193ca551fd72114734fe151886a2",
+          "message": "Checking the number of files before starting fio job for creating files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-22T16:02:08Z",
+          "tree_id": "c55bd481f52f5e9fec49276ffa3dd1b77f2788b6",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6cf6753be2d7193ca551fd72114734fe151886a2"
+        },
+        "date": 1708620237459,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.139,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.52,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.264,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.312,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 23.372809399999998,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.9862335,
             "unit": "milliseconds"
           }
         ]
