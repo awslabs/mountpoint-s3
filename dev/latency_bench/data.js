@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708534505656,
+  "lastUpdate": 1708565848315,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9bb6ced313e3a4f4cc3f3d31d01796e9ae3f2f9c",
-          "message": "Introduce negative_cache feature flag (#733)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-02-06T18:14:18Z",
-          "tree_id": "8d6ac78d68015fa62d2bc2b19ebdbc3d9be41c19",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/9bb6ced313e3a4f4cc3f3d31d01796e9ae3f2f9c"
-        },
-        "date": 1707245325651,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.075,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.166,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.153,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.191,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 80.03925559999999,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 57.0388365,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 62.883121700000004,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "158502535+andrewatamzn@users.noreply.github.com",
+            "name": "andrewatamzn",
+            "username": "andrewatamzn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a67f78995879857cff5003ff900f5793d945abc",
+          "message": "update caching docs (#763)\n\nSigned-off-by: andrewatamzn <158502535+andrewatamzn@users.noreply.github.com>",
+          "timestamp": "2024-02-22T01:12:31Z",
+          "tree_id": "65a84a5bd829b46bb56d2c3fd3afd4b4fbc08a5a",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6a67f78995879857cff5003ff900f5793d945abc"
+        },
+        "date": 1708565847846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.077,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.165,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.162,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.371,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 82.8969205,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 67.7937735,
             "unit": "milliseconds"
           }
         ]
