@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708604211710,
+  "lastUpdate": 1708608952941,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -161,6 +161,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 23.5997353,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "d74df7690cc7b288d0de6a0dd2a7049c31460d6f",
+          "message": "Changed the number of threads to 50 for creating 100000 files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-22T12:54:18Z",
+          "tree_id": "8802628707fc907211af8e72e1b0adcab28906d1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d74df7690cc7b288d0de6a0dd2a7049c31460d6f"
+        },
+        "date": 1708608952432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.146,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.525,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.265,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.229,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.2408895,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.572957,
             "unit": "milliseconds"
           }
         ]
