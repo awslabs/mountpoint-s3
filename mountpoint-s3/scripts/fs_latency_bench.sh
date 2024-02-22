@@ -66,7 +66,7 @@ do
 
     # create the target directory if it does not exist before running the benchmark
     mkdir -p ${target_dir}
-    fio --directory=${target_dir} ${job_file}
+    fio --thread --directory=${target_dir} ${job_file}
 
     sleep $startdelay
     # run each case for 10 iterations
