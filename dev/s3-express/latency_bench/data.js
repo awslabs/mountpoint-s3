@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708608952941,
+  "lastUpdate": 1708615144083,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -215,6 +215,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.572957,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "e97d10023952f31465635a703f63adf184e77f04",
+          "message": "Changed the number of threads to 40 for creating 100000 files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-22T14:35:19Z",
+          "tree_id": "2046c187bd61bef040b04848a2889017d93241a3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e97d10023952f31465635a703f63adf184e77f04"
+        },
+        "date": 1708615143584,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.15,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.532,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.224,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.293,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 24.067795800000003,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 23.5345989,
             "unit": "milliseconds"
           }
         ]
