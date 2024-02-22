@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708597806210,
+  "lastUpdate": 1708604211710,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -107,6 +107,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 24.1051341,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "158502535+andrewatamzn@users.noreply.github.com",
+            "name": "andrewatamzn",
+            "username": "andrewatamzn"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "30b2b6ac4957ab92058b2d51db3b0b0a9404aeea",
+          "message": "update caching docs (#763)\n\nSigned-off-by: andrewatamzn <158502535+andrewatamzn@users.noreply.github.com>",
+          "timestamp": "2024-02-22T11:33:26Z",
+          "tree_id": "0977e18d85617a7c8b76805983ce19f1132d9fae",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/30b2b6ac4957ab92058b2d51db3b0b0a9404aeea"
+        },
+        "date": 1708604211233,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.147,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.541,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.268,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 6.75,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 24.629948300000002,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 23.5997353,
             "unit": "milliseconds"
           }
         ]
