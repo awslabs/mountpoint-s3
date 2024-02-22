@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708618413406,
+  "lastUpdate": 1708619226608,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "14e1496716b3dd02d1033951ba045d8d24df7f5f",
-          "message": "Update CRT submodules to latest releases (#737)\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-07T16:12:13Z",
-          "tree_id": "d4ec4f76c2799c694da9d1e2f42697cb4d520de6",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/14e1496716b3dd02d1033951ba045d8d24df7f5f"
-        },
-        "date": 1707324635399,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.076,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.176,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.157,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.578,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 79.1393427,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 60.0180539,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1005,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 62.887647799999996,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "distinct": true,
+          "id": "53a99635e9a300df165bf87978f7bd701b1a021c",
+          "message": "Just read 2GB when testing caching due to disk space.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-02-22T16:15:36Z",
+          "tree_id": "5c1310deaaa6ac88b1682cd58d8b86332573c7c1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/53a99635e9a300df165bf87978f7bd701b1a021c"
+        },
+        "date": 1708619225994,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.072,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.173,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.119,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 11,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 77.9464428,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 59.2502546,
             "unit": "milliseconds"
           }
         ]
