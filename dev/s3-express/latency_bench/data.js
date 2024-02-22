@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708615144083,
+  "lastUpdate": 1708616908824,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -269,6 +269,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 23.5345989,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "f005b582948894e38053679841fc64a9b70d516d",
+          "message": "Checking the number of files before starting fio job for creating files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-22T15:40:59Z",
+          "tree_id": "561230d5e2d4d99b9212690b82ed821fc14cef74",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f005b582948894e38053679841fc64a9b70d516d"
+        },
+        "date": 1708616908101,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.2964579,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.7652692,
             "unit": "milliseconds"
           }
         ]
