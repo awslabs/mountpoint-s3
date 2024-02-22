@@ -1,6 +1,6 @@
 [global]
 create_only=1
-nrfiles=10000
+nrfiles=5000
 ioengine=filecreate
 fallocate=none
 filesize=4k
@@ -16,3 +16,13 @@ openfiles=1
 [t7]
 [t8]
 [t9]
+[t10]
+[t11]
+[t12]
+[t13]
+[t14]
+[t15]
+[t16]
+[t17]
+[t18]
+[t19]
