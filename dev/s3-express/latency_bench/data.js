@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708620237945,
+  "lastUpdate": 1708707454075,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -357,6 +357,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.9862335,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "8f1660f1ec8f95032b9a119c4fb38aa69f88a0e1",
+          "message": "Changed the mode of file creation to create_only as it reduces the time it takes to run the benchmark\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-23T16:10:00Z",
+          "tree_id": "f8befe30e45b6305b0ca5ab703ffd8ccb83cca07",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8f1660f1ec8f95032b9a119c4fb38aa69f88a0e1"
+        },
+        "date": 1708707453591,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.147,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.544,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.291,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 0.03,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 23.503238399999997,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.3236407,
             "unit": "milliseconds"
           }
         ]
