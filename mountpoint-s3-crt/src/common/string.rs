@@ -8,13 +8,16 @@ use mountpoint_s3_crt_sys::*;
 use crate::common::allocator::Allocator;
 
 /// An immutable string holding either text or binary data.
+// We call this `AwsString` just because Rust's `String` type is in the prelude and we don't want to
+// confuse the two.
 #[derive(Debug)]
-pub struct String {
+pub struct AwsString {
     inner: NonNull<aws_string>,
 }
 
-impl String {
-    /// Create a new String from the given Rust string.
+impl AwsString {
+    /// Create a new [AwsString] from the given Rust string. The new string will be automatically
+    /// freed when dropped.
     pub fn from_str<S: AsRef<str>>(s: S, allocator: &Allocator) -> Self {
         let bytes = s.as_ref().as_bytes();
         // SAFETY: `aws_string_new_from_array` will copy the bytes out of `bytes`
@@ -28,7 +31,7 @@ impl String {
     }
 }
 
-impl Drop for String {
+impl Drop for AwsString {
     fn drop(&mut self) {
         // SAFETY: we own the underlying `aws_string`
         unsafe {

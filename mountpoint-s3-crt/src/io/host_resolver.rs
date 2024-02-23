@@ -2,7 +2,7 @@
 
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
-use crate::common::string;
+use crate::common::string::AwsString;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::io_library_init;
 use crate::CrtError as _;
@@ -46,9 +46,7 @@ impl HostResolver {
     }
 
     /// Get the current number of known host addresses for a given hostname
-    pub fn get_host_address_count(&self, hostname: &str, kinds: AddressKinds) -> Result<usize, Error> {
-        let hostname = string::String::from_str(hostname, &Allocator::default());
-
+    pub fn get_host_address_count(&self, hostname: &AwsString, kinds: AddressKinds) -> Result<usize, Error> {
         // SAFETY: self.inner is a valid aws_host_resolver
         let count =
             unsafe { aws_host_resolver_get_host_address_count(self.inner.as_ptr(), hostname.as_ptr(), kinds.inner) };

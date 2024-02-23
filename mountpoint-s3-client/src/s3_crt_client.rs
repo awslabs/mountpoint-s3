@@ -14,6 +14,7 @@ use mountpoint_s3_crt::auth::credentials::{
 };
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
+use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
 use mountpoint_s3_crt::io::async_stream::AsyncInputStream;
@@ -516,7 +517,8 @@ impl S3CrtClientInner {
                 if op == "get_object" {
                     emit_throughput_metric(total_bytes, duration, op);
                 }
-                if let Ok(host_count) = host_resolver.get_host_address_count(&hostname, AddressKinds::a()) {
+                let hostname_awsstring = AwsString::from_str(&hostname, &Allocator::default());
+                if let Ok(host_count) = host_resolver.get_host_address_count(&hostname_awsstring, AddressKinds::a()) {
                     metrics::absolute_counter!("s3.client.host_count", host_count as u64, "host" => hostname);
                 }
 
