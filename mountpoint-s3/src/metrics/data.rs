@@ -1,6 +1,4 @@
-use std::sync::atomic::AtomicBool;
-
-use crate::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use crate::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex};
 
 /// A single metric
