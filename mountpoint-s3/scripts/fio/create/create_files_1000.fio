@@ -1,5 +1,5 @@
 [global]
-create_on_open=1
+create_only=1
 nrfiles=100
 ioengine=filecreate
 fallocate=none

@@ -276,7 +276,6 @@ You can instead manually configure the maximum size of the cache with the `--max
 
 We recommend using local storage, such as Amazon EC2 instance storage or an Amazon EBS volume, as the target of the Mountpoint cache.
 When caching to EBS, you can use your instance's root EBS volume, or create and attach a new volume just for caching.
-There are several factors that can affect the performance of EBS volumes. See the [EBS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) for more details about EBS volume types and their performance characteristics. 
 If you create a new EBS volume or use EC2 instance storage, you will first need to [create a file system](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/add-instance-store-volumes.html#making-instance-stores-available-on-your-instances) on that storage and mount it at a path such as `/mnt/mp-cache`.
 The user running Mountpoint needs write access to the mounted file system,
 and we recommend setting the permissions on the file system to not allow reads by any other users (e.g., `chmod 0700 /mnt/mp-cache`).
