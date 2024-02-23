@@ -23,6 +23,11 @@ Mountpoint for Amazon S3 does not implement all the features of a POSIX file sys
 
 Mountpoint for Amazon S3 is generally available! We're tracking future feature development on the [Mountpoint for Amazon S3 public roadmap](https://github.com/orgs/awslabs/projects/84). We're always interested in feedback on features, performance, and compatibility. Please send feedback by [opening a new GitHub issue](https://github.com/awslabs/mountpoint-s3/issues/new/choose) or adding your input to an existing roadmap issue.
 
+### Notices
+
+> [!IMPORTANT]
+> Mountpoint for Amazon S3 v1.4.0 released on January 26, 2024, contains an issue that causes intermittent read failures. Amazon S3 fixed the issue and released Mountpoint for Amazon S3 v1.4.1 on February 16, 2024.
+
 ## Getting started
 
 Run these two commands to install Mountpoint for Amazon S3 on your Amazon Linux EC2 instance (for Graviton instances, replace `x86_64` with `arm64` in the URL):
