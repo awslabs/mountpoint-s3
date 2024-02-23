@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708705275309,
+  "lastUpdate": 1708714463031,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dce1480c723aa6ecfef7e0caca6581c64266c9c7",
-          "message": "Raise filter for metrics tracing spans to WARN (#748)\n\nThis change avoids unnecessary invocations of the CRT log handlers,\nwhich are fairly expensive and therefore worth avoiding, but it's a bit\nof a journey to explain why and how.\n\nThe `MetricsTracingSpanLayer` is how we get end-to-end latencies for\nFUSE operations. It tracks the spans created by the `fuse` module and\nemits latency metrics at the end of them. To do this, it filters for\nthose spans, and that filter specifies both a target name and a maximum\nlevel, which is currently DEBUG. This tracing layer gets added to the\nregistry we construct in `init_tracing_subscriber` at mount time.\n\nBecause this filter asks for DEBUG-level spans, the overall tracing\nsubscriber sets its maximum level to DEBUG, even though (in our default\nconfiguration) we only emit logs at WARN and below. This maximum level\nis how `tracing` and `log` can cheaply check whether to skip\nconstructing a log event -- they check if the log event's level is\nhigher than the maximum level. So setting the maximum level to DEBUG\nmakes this cheap filtering less effective, and some log messages will be\nconstructed but not emitted (because they'll fail the actual, more\nexpensive check) as a result.\n\nOne place that uses this cheap filtering is our CRT log adapter. The CRT\nlogging macros call `get_log_level` to find out what the maximum log\nlevel currently being emitted is, and skip calling the actual log method\nif they're trying to emit a log message at a higher level than that. Our\nimplementation of `get_log_level` checks the maximum level set by the\ntracing subscriber (via `log::max_level()`, which is set by\n`tracing-log`).\n\nThe net result is that the CRT logging macros end up calling their\nactual log methods more often than they need to, because even though we\nset CRT logging to off by default, the `log::max_level()` is set to\nDEBUG because of the logic above. And because of some Rust/C FFI\nweirdness, these methods are somewhat expensive: they need to construct\nthe entire log message before they can filter to decide if the message\nshould actually be emitted (this is what the the\n`aws_crt_s3_rs_logging_shim_log_fn_trampoline` method does). In\nbenchmarks, this log construction can show up in profiles as up to 5% of\nour CPU cycles even though none of these log messages will actually be\nemitted.\n\nTo fix this, we can change the maximum level of the\n`MetricsTracingSpanLayer`'s filter to WARN. The spans it's interested in\nhave been at warning severity for quite a while, so this doesn't change\nanything about our actual logging. But it does mean that the tracing\nsubscriber can now set its maximum level to WARN instead of DEBUG, which\nmakes the cheap filtering effective for the CRT log handlers, avoiding\nconstructing every DEBUG-or-below log message only to throw it away.\n\nAs a simple test, we can use perf to count how often the CRT log handler\nis invoked:\n\n    $ sudo perf probe -x target/release/mount-s3 -a aws_crt_s3_rs_logging_shim_log_fn\n\nBefore this change:\n\n    $ sudo perf stat -e probe_mount:aws_crt_s3_rs_logging_shim_log_fn -- target/release/mount-s3 bornholt-test-bucket ~/mnt -f\n    2024-02-12T20:05:56.471429Z  WARN list_objects{id=0 bucket=\"bornholt-test-bucket\" continued=false delimiter=\"\" max_keys=\"0\" prefix=\"\"}: mountpoint_s3_client::s3_crt_client: meta request failed duration=33.846617ms error=ClientError(Forbidden(\"Access Denied\"))\n    Error: Failed to create S3 client\n\n    Caused by:\n        0: initial ListObjectsV2 failed for bucket bornholt-test-bucket in region us-west-2\n        1: Client error\n        2: Forbidden: Access Denied\n\n    Performance counter stats for 'target/release/mount-s3 bornholt-test-bucket /home/bornholt/mnt -f':\n\n                592      probe_mount:aws_crt_s3_rs_logging_shim_log_fn\n\nAfter this change:\n\n    $ sudo perf stat -e probe_mount:aws_crt_s3_rs_logging_shim_log_fn -- target/release/mount-s3 bornholt-test-bucket ~/mnt -f\n    2024-02-12T20:01:17.588700Z  WARN list_objects{id=0 bucket=\"bornholt-test-bucket\" continued=false delimiter=\"\" max_keys=\"0\" prefix=\"\"}: mountpoint_s3_client::s3_crt_client: meta request failed duration=41.092086ms error=ClientError(Forbidden(\"Access Denied\"))\n    Error: Failed to create S3 client\n\n    Caused by:\n        0: initial ListObjectsV2 failed for bucket bornholt-test-bucket in region us-west-2\n        1: Client error\n        2: Forbidden: Access Denied\n\n    Performance counter stats for 'target/release/mount-s3 bornholt-test-bucket /home/bornholt/mnt -f':\n\n                    8      probe_mount:aws_crt_s3_rs_logging_shim_log_fn\n\n        0.071456784 seconds time elapsed\n\n        0.019072000 seconds user\n        0.012727000 seconds sys\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2024-02-13T14:04:05Z",
-          "tree_id": "567dd0565fdd8f5903e618e6acd24741334987e8",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/dce1480c723aa6ecfef7e0caca6581c64266c9c7"
-        },
-        "date": 1707834602262,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.075,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.18,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.126,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 10.192,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 86.0265695,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 81.45742059999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1005,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 51.5058729,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "distinct": true,
+          "id": "2fd440ecf2f9a58d840986d9c153150632abd035",
+          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-02-23T18:42:11Z",
+          "tree_id": "eb577495504390b45581ac76b37985bb8063bd88",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/2fd440ecf2f9a58d840986d9c153150632abd035"
+        },
+        "date": 1708714462581,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.076,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.18,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.14,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.563,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 94.1626999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 51.818972200000005,
             "unit": "milliseconds"
           }
         ]
