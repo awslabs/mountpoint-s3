@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicBool;
+
 use crate::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex};
 
@@ -56,7 +58,7 @@ impl Metric {
                 }
             }
             // Gauges can't reset because they can be incremented/decremented
-            Metric::Gauge(inner) => inner.load().map(|value| format!("{}", value)),
+            Metric::Gauge(inner) => inner.load_if_changed().map(|value| format!("{}", value)),
             Metric::Histogram(histogram) => histogram.run_and_reset(|histogram| {
                 format!(
                     "n={}: min={} p10={} p50={} avg={:.2} p90={} p99={} p99.9={} max={}",
@@ -112,6 +114,7 @@ impl ValueAndCount {
 #[derive(Debug, Default)]
 pub struct AtomicGauge {
     bits: AtomicU64,
+    changed: AtomicBool,
 }
 
 impl metrics::GaugeFn for AtomicGauge {
@@ -135,14 +138,17 @@ impl AtomicGauge {
                 Some(f(f64::from_bits(old_bits)).to_bits())
             })
             .expect("closure always returns Some");
+        self.changed.store(true, Ordering::SeqCst);
     }
 
-    pub fn load(&self) -> Option<f64> {
-        let value = f64::from_bits(self.bits.load(Ordering::SeqCst));
-        if value == 0.0 {
-            None
+    /// Return the current value of this gauge if it has changed since the last call to this method.
+    /// Note that "changed" just means another `gauge!()` call has occurred; the actual value may
+    /// still be the same.
+    pub fn load_if_changed(&self) -> Option<f64> {
+        if self.changed.swap(false, Ordering::SeqCst) {
+            Some(f64::from_bits(self.bits.load(Ordering::SeqCst)))
         } else {
-            Some(value)
+            None
         }
     }
 }
