@@ -9,6 +9,9 @@ For more detailed information, please refer to Mountpoint's [semantics documenta
 This document aims to capture errors from the latest versions of Mountpoint.
 If you are using an older version of Mountpoint, please refer to older versions of this document.
 
+A great first step for troubleshooting Mountpoint is to inspect its logs,
+which are emitted to `journald` by default. See the [logging documentation](LOGGING.md) for more details on how to access Mountpoint logs.
+
 ## Random writes
 
 Mountpoint supports writing to a file sequentially. Random writes, or 'out-of-order' writes, will return an error to FUSE which may appear in applications with the error message "Invalid argument".

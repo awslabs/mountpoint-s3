@@ -9,17 +9,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Note: security issues should not be reported here.**
-        Please follow the [security policy for this repository](https://github.com/awslabs/mountpoint-s3/security/policy).
+        **Note: security issues should not be reported here.** Please follow the [security policy for this repository](https://github.com/awslabs/mountpoint-s3/security/policy).
   - type: markdown
     attributes:
       value: |
         ### Before opening a new bug report...
 
-        * Have you checked if the issue/error you are facing is mentioned in our [troubleshooting documentation](../../doc/TROUBLESHOOTING.md)?
-        * Is your workload/application depending on behavior or operations which are unsupported by Mountpoint?
-
-        Please check Mountpoint's [semantics documentation](../../doc/SEMANTICS.md) for more information.
+        * Have you checked if the issue/error you are facing is mentioned in our [troubleshooting documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/TROUBLESHOOTING.md)?
+        * Is your workload/application depending on behavior or operations that are unsupported by Mountpoint? Please check Mountpoint's [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md) for more information.
   - type: input
     id: project-version
     attributes:
@@ -43,8 +40,12 @@ body:
     attributes:
       label: Describe the running environment
       description: |
-        What else can you tell us about the environment you\'re running the project?
-        For example, was this using Amazon EC2 or Amazon ECS?
+        What else can you tell us about the environment you\'re running the project? For example:
+        * Are you running in Amazon EC2 or elsewhere?
+        * For Kubernetes, are you using the [Mountpoint for Amazon S3 CSI driver](https://github.com/awslabs/mountpoint-s3-csi-driver)?
+        * How do you provide [AWS credentials](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials) to Mountpoint?
+        * What operating system are you using?
+        * Any other details about your environment?
       placeholder: Running in EC2 on Amazon Linux 2 using instance profile credentials against an S3 Bucket in the same account.
     validations:
       required: true
@@ -71,7 +72,7 @@ body:
       label: Relevant log output
       description: |
         Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
-        Use --debug and --debug-crt CLI flags to gather more detailed logs.
+        Use the `--debug` and `--debug-crt` CLI flags to gather detailed logs. See the [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md) for more details.
       render: shell
     validations:
       required: false
