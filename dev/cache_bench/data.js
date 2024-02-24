@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708531912829,
+  "lastUpdate": 1708787941870,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -63,6 +63,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "cache_sequential_read_small_file",
             "value": 1130.8037109375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "distinct": true,
+          "id": "5b8fb205480b65f470e362af50f753e3793e63bb",
+          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-02-24T13:45:46Z",
+          "tree_id": "0bf38fa5d14d8b4fd6a8654e92e2cbf795fcc33c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5b8fb205480b65f470e362af50f753e3793e63bb"
+        },
+        "date": 1708787941402,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "cache_sequential_read_four_threads_direct_io",
+            "value": 3620.27763671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads_direct_io_small_file",
+            "value": 3987.08125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads",
+            "value": 985.04033203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads_small_file",
+            "value": 1312.069140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_direct_io",
+            "value": 1153.2044921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_direct_io_small_file",
+            "value": 1180.8869140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read",
+            "value": 1218.14150390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_small_file",
+            "value": 1172.87958984375,
             "unit": "MiB/s"
           }
         ]
