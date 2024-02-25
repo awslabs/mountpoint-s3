@@ -85,7 +85,7 @@ pub struct Superblock {
 #[derive(Debug)]
 struct SuperblockInner {
     bucket: String,
-    inodes: RwLock<HashMap<InodeNo, Inode>>,
+    inodes: RwLock<InodeMap>,
     negative_cache: NegativeCache,
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
@@ -121,7 +121,7 @@ impl Superblock {
             },
         );
 
-        let mut inodes = HashMap::new();
+        let mut inodes = InodeMap::default();
         inodes.insert(ROOT_INODE_NO, root);
 
         let negative_cache = NegativeCache::new(config.cache_config.negative_cache_size, config.cache_config.file_ttl);
@@ -1023,12 +1023,7 @@ impl SuperblockInner {
         is_new_file: bool,
     ) -> Result<Inode, InodeError> {
         if !valid_inode_name(name) {
-            let kind = if kind == InodeKind::Directory {
-                "directory"
-            } else {
-                "file"
-            };
-            warn!(?name, "invalid file name; {} will not be available", kind);
+            warn!(?name, "invalid file name; {} will not be available", kind.as_str());
             return Err(InodeError::InvalidFileName(OsString::from(name)));
         }
 
@@ -1432,6 +1427,15 @@ pub enum InodeKind {
     Directory,
 }
 
+impl InodeKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            InodeKind::File => "file",
+            InodeKind::Directory => "directory",
+        }
+    }
+}
+
 impl From<InodeKind> for FileType {
     fn from(kind: InodeKind) -> Self {
         match kind {
@@ -1568,6 +1572,34 @@ impl InodeStat {
 
     fn update_validity(&mut self, validity: Duration) {
         self.expiry = Expiry::from_now(validity);
+    }
+}
+
+/// A wrapper around a `HashMap<InodeNo, Inode>`` that just takes care of metrics when inodes are
+/// added or removed.
+#[derive(Debug, Default)]
+struct InodeMap {
+    map: HashMap<InodeNo, Inode>,
+}
+
+impl InodeMap {
+    fn get(&self, ino: &InodeNo) -> Option<&Inode> {
+        self.map.get(ino)
+    }
+
+    fn insert(&mut self, ino: InodeNo, inode: Inode) -> Option<Inode> {
+        metrics::increment_gauge!("fs.inodes", 1.0);
+        metrics::increment_gauge!("fs.inode_kinds", 1.0, "kind" => inode.kind().as_str());
+        self.map.insert(ino, inode).inspect(Self::remove_metrics)
+    }
+
+    fn remove(&mut self, ino: &InodeNo) -> Option<Inode> {
+        self.map.remove(ino).inspect(Self::remove_metrics)
+    }
+
+    fn remove_metrics(inode: &Inode) {
+        metrics::decrement_gauge!("fs.inodes", 1.0);
+        metrics::decrement_gauge!("fs.inode_kinds", 1.0, "kind" => inode.kind().as_str());
     }
 }
 
