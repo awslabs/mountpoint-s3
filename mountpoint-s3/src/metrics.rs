@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use dashmap::DashMap;
-use metrics::{Key, Recorder};
+use metrics::{Key, Metadata, Recorder};
 
 use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::Arc;
@@ -56,7 +56,7 @@ pub fn install() -> MetricsSinkHandle {
     };
 
     let recorder = MetricsRecorder { sink };
-    metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
+    metrics::set_global_recorder(recorder).unwrap();
 
     handle
 }
@@ -154,15 +154,15 @@ impl Recorder for MetricsRecorder {
         // No-op -- we don't implement descriptions
     }
 
-    fn register_counter(&self, key: &Key) -> metrics::Counter {
+    fn register_counter(&self, key: &Key, _metadata: &Metadata<'_>) -> metrics::Counter {
         self.sink.counter(key)
     }
 
-    fn register_gauge(&self, key: &Key) -> metrics::Gauge {
+    fn register_gauge(&self, key: &Key, _metadata: &Metadata<'_>) -> metrics::Gauge {
         self.sink.gauge(key)
     }
 
-    fn register_histogram(&self, key: &Key) -> metrics::Histogram {
+    fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> metrics::Histogram {
         self.sink.histogram(key)
     }
 }
@@ -185,40 +185,34 @@ impl Drop for MetricsSinkHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use metrics::Label;
-    use rusty_fork::rusty_fork_test;
+    use metrics::{with_local_recorder, Label};
 
     const TEST_COUNTER: &str = "test_counter";
     const TEST_GAUGE: &str = "test_gauge";
     const TEST_HISTOGRAM: &str = "test_histogram";
 
-    // Since `metric` crate operates on global recorders,
-    // we need to make sure we're evaluating against the metrics emitted
-    // by this test without interference from other tests.
-    rusty_fork_test! {
-        #[test]
-        fn basic_metrics() {
-            let sink = Arc::new(MetricsSink::new());
-            let recorder = MetricsRecorder { sink: sink.clone() };
-            metrics::set_boxed_recorder(Box::new(recorder)).unwrap();
-
+    #[test]
+    fn basic_metrics() {
+        let sink = Arc::new(MetricsSink::new());
+        let recorder = MetricsRecorder { sink: sink.clone() };
+        with_local_recorder(&recorder, || {
             // Run twice to check reset works
             for _ in 0..2 {
-                metrics::counter!(TEST_COUNTER, 1, "type" => "get");
-                metrics::counter!(TEST_COUNTER, 1, "type" => "put");
-                metrics::counter!(TEST_COUNTER, 2, "type" => "get");
-                metrics::counter!(TEST_COUNTER, 2, "type" => "put");
-                metrics::counter!(TEST_COUNTER, 3, "type" => "get");
-                metrics::counter!(TEST_COUNTER, 4, "type" => "put");
+                metrics::counter!(TEST_COUNTER, "type" => "get").increment(1);
+                metrics::counter!(TEST_COUNTER, "type" => "put").increment(1);
+                metrics::counter!(TEST_COUNTER, "type" => "get").increment(2);
+                metrics::counter!(TEST_COUNTER, "type" => "put").increment(2);
+                metrics::counter!(TEST_COUNTER, "type" => "get").increment(3);
+                metrics::counter!(TEST_COUNTER, "type" => "put").increment(4);
 
-                metrics::gauge!(TEST_GAUGE, 5.0, "type" => "processing");
-                metrics::gauge!(TEST_GAUGE, 5.0, "type" => "in_queue");
-                metrics::gauge!(TEST_GAUGE, 2.0, "type" => "processing");
-                metrics::gauge!(TEST_GAUGE, 3.0, "type" => "in_queue");
+                metrics::gauge!(TEST_GAUGE, "type" => "processing").set(5.0);
+                metrics::gauge!(TEST_GAUGE, "type" => "in_queue").set(5.0);
+                metrics::gauge!(TEST_GAUGE, "type" => "processing").set(2.0);
+                metrics::gauge!(TEST_GAUGE, "type" => "in_queue").set(3.0);
 
-                metrics::histogram!(TEST_HISTOGRAM, 3.0, "type" => "get");
-                metrics::histogram!(TEST_HISTOGRAM, 4.0, "type" => "put");
-                metrics::histogram!(TEST_HISTOGRAM, 4.0, "type" => "put");
+                metrics::histogram!(TEST_HISTOGRAM, "type" => "get").record(3.0);
+                metrics::histogram!(TEST_HISTOGRAM, "type" => "put").record(4.0);
+                metrics::histogram!(TEST_HISTOGRAM, "type" => "put").record(4.0);
 
                 for mut entry in sink.metrics.iter_mut() {
                     let (key, metric) = entry.pair_mut();
@@ -277,8 +271,8 @@ mod tests {
             }
 
             // Set the gauges to zero and check they emit their change only once
-            metrics::gauge!(TEST_GAUGE, 0.0, "type" => "processing");
-            metrics::gauge!(TEST_GAUGE, 0.0, "type" => "in_queue");
+            metrics::gauge!(TEST_GAUGE, "type" => "processing").set(0.0);
+            metrics::gauge!(TEST_GAUGE, "type" => "in_queue").set(0.0);
             for mut entry in sink.metrics.iter_mut() {
                 let metric = entry.value_mut();
                 let Metric::Gauge(inner) = metric else {
@@ -288,6 +282,6 @@ mod tests {
                 assert!(inner.load_if_changed().is_some());
                 assert!(inner.load_if_changed().is_none());
             }
-        }
+        });
     }
 }

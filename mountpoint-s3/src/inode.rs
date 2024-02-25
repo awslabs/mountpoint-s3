@@ -192,10 +192,8 @@ impl Superblock {
             writing_children.remove(&ino);
 
             if let Ok(state) = inode.get_inode_state() {
-                metrics::counter!(
-                    "metadata_cache.inode_forgotten_before_expiry",
-                    state.stat.is_valid().into(),
-                );
+                metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
+                    .increment(state.stat.is_valid().into());
             };
         }
     }
@@ -674,7 +672,7 @@ impl SuperblockInner {
             Some(lookup) => trace!("lookup returned from cache: {:?}", lookup),
             None => trace!("no lookup available from cache"),
         }
-        metrics::counter!("metadata_cache.cache_hit", lookup.is_some().into());
+        metrics::counter!("metadata_cache.cache_hit").increment(lookup.is_some().into());
 
         lookup
     }
@@ -1588,8 +1586,8 @@ impl InodeMap {
     }
 
     fn insert(&mut self, ino: InodeNo, inode: Inode) -> Option<Inode> {
-        metrics::increment_gauge!("fs.inodes", 1.0);
-        metrics::increment_gauge!("fs.inode_kinds", 1.0, "kind" => inode.kind().as_str());
+        metrics::gauge!("fs.inodes").increment(1.0);
+        metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).increment(1.0);
         self.map.insert(ino, inode).inspect(Self::remove_metrics)
     }
 
@@ -1598,8 +1596,8 @@ impl InodeMap {
     }
 
     fn remove_metrics(inode: &Inode) {
-        metrics::decrement_gauge!("fs.inodes", 1.0);
-        metrics::decrement_gauge!("fs.inode_kinds", 1.0, "kind" => inode.kind().as_str());
+        metrics::gauge!("fs.inodes").decrement(1.0);
+        metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).decrement(1.0);
     }
 }
 

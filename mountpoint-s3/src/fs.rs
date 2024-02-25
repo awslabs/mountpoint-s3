@@ -117,7 +117,7 @@ where
             }
             Ok(request) => FileHandleState::Write(UploadState::InProgress { request, handle }),
         };
-        metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "write");
+        metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
         Ok(handle)
     }
 
@@ -142,7 +142,7 @@ where
             .prefetcher
             .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone());
         let handle = FileHandleState::Read(request);
-        metrics::increment_gauge!("fs.current_handles", 1.0, "type" => "read");
+        metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
     }
 }
@@ -1136,7 +1136,7 @@ where
         let request = match file_handle.state.into_inner() {
             FileHandleState::Read { .. } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
-                metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "read");
+                metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
                 file_handle.inode.finish_reading()?;
                 return Ok(());
             }
@@ -1144,7 +1144,7 @@ where
         };
 
         let result = request.complete_if_in_progress(&file_handle.full_key).await;
-        metrics::decrement_gauge!("fs.current_handles", 1.0, "type" => "write");
+        metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
         // Errors won't actually be seen by the user because `release` is async,
         // but it's the right thing to do.
         result

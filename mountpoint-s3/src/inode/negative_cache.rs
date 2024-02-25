@@ -49,10 +49,10 @@ impl NegativeCache {
             .is_some_and(|expiry| !expiry.is_expired());
         metrics::histogram!(
             "metadata_cache.negative_cache.operation_duration_us",
-            start.elapsed().as_micros() as f64,
             "op" => "contains",
-        );
-        metrics::counter!("metadata_cache.negative_cache.cache_hit", contains_current.into());
+        )
+        .record(start.elapsed().as_micros() as f64);
+        metrics::counter!("metadata_cache.negative_cache.cache_hit").increment(contains_current.into());
         contains_current
     }
 
@@ -65,13 +65,13 @@ impl NegativeCache {
         let start = Instant::now();
         let mut map = self.map.write().unwrap();
         if map.remove(&key).is_some() {
-            metrics::gauge!("metadata_cache.negative_cache.entries", map.len() as f64);
+            metrics::gauge!("metadata_cache.negative_cache.entries").set(map.len() as f64);
         }
         metrics::histogram!(
             "metadata_cache.negative_cache.operation_duration_us",
-            start.elapsed().as_micros() as f64,
             "op" => "remove",
-        );
+        )
+        .record(start.elapsed().as_micros() as f64);
     }
 
     /// Insert an entry into the cache. If the entry already existed,
@@ -98,19 +98,17 @@ impl NegativeCache {
                     break;
                 };
                 // Report how many entries are evicted while still current.
-                metrics::counter!(
-                    "metadata_cache.negative_cache.entries_evicted_before_expiry",
-                    (!e.is_expired()).into()
-                );
+                metrics::counter!("metadata_cache.negative_cache.entries_evicted_before_expiry")
+                    .increment((!e.is_expired()).into());
             }
-            metrics::gauge!("metadata_cache.negative_cache.entries", map.len() as f64);
+            metrics::gauge!("metadata_cache.negative_cache.entries").set(map.len() as f64);
         }
 
         metrics::histogram!(
             "metadata_cache.negative_cache.operation_duration_us",
-            start.elapsed().as_micros() as f64,
             "op" => "insert",
-        );
+        )
+        .record(start.elapsed().as_micros() as f64);
     }
 }
 
