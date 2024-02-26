@@ -286,6 +286,11 @@ impl MetaRequestOptions {
         self
     }
 
+    /// Get the endpoint of the request
+    pub fn get_endpoint(&self) -> Option<Uri> {
+        self.0.as_ref().endpoint.clone()
+    }
+
     /// Set the checksum config used for this message.
     pub fn checksum_config(&mut self, checksum_config: ChecksumConfig) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.

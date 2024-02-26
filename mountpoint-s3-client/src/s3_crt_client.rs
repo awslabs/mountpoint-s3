@@ -14,12 +14,13 @@ use mountpoint_s3_crt::auth::credentials::{
 };
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
+use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
 use mountpoint_s3_crt::io::async_stream::AsyncInputStream;
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
-use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
+use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
     init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
@@ -219,6 +220,7 @@ struct S3CrtClientInner {
     part_size: usize,
     bucket_owner: Option<String>,
     credentials_provider: Option<CredentialsProvider>,
+    host_resolver: HostResolver,
 }
 
 impl S3CrtClientInner {
@@ -314,6 +316,7 @@ impl S3CrtClientInner {
             part_size: config.part_size,
             bucket_owner: config.bucket_owner,
             credentials_provider: Some(credentials_provider),
+            host_resolver,
         })
     }
 
@@ -437,6 +440,10 @@ impl S3CrtClientInner {
         let span_body = request_span.clone();
         let span_finish = request_span;
 
+        let endpoint = options.get_endpoint().expect("S3Message always has an endpoint");
+        let hostname = endpoint.host_name().to_str().unwrap().to_owned();
+        let host_resolver = self.host_resolver.clone();
+
         let start_time = Instant::now();
         let first_body_part = Arc::new(AtomicBool::new(true));
         let first_body_part_clone = Arc::clone(&first_body_part);
@@ -509,6 +516,10 @@ impl S3CrtClientInner {
                 // implementation rather than these callbacks, so we can only do GET here.
                 if op == "get_object" {
                     emit_throughput_metric(total_bytes, duration, op);
+                }
+                let hostname_awsstring = AwsString::from_str(&hostname, &Allocator::default());
+                if let Ok(host_count) = host_resolver.get_host_address_count(&hostname_awsstring, AddressKinds::a()) {
+                    metrics::absolute_counter!("s3.client.host_count", host_count as u64, "host" => hostname);
                 }
 
                 let log_level = status_code_to_log_level(request_result.response_status);
