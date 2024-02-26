@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708949978759,
+  "lastUpdate": 1708965397353,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -465,6 +465,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.749873,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "080fda178ddb94d0db8bb0cc71bd9ffb588a6339",
+          "message": "Changed the Assume Role duration to 6 hours for latency benchmarks also\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-26T10:37:07Z",
+          "tree_id": "374c66d99ba667109393fb701cedf4a9f1eff04f",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/080fda178ddb94d0db8bb0cc71bd9ffb588a6339"
+        },
+        "date": 1708965396852,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.164,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.552,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.28,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.54,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 25.0945013,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 24.5750171,
             "unit": "milliseconds"
           }
         ]
