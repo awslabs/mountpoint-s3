@@ -148,3 +148,69 @@ Mountpoint logs should contain an error similar to below:
 WARN setattr{req=4 ino=21 name="init.txt"}:
 mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
 ```
+
+## Invalid Hostname for DNS resolution
+
+Mountpoint by default resolves endpoint for requests in [virtual hosted style](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+If your storage provider does not support virtual style hosted bucket, you may recieve the following error:
+
+```
+Error: Failed to create S3 client
+
+Caused by:
+    0: initial ListObjectsV2 failed for bucket my-bucket in region us-east-1
+    1: Client error
+    2: Unknown CRT error
+    3: CRT error 1059: aws-c-io: AWS_IO_DNS_INVALID_NAME, Host name was invalid for dns resolution.
+Error: Failed to create mount process
+```
+
+In this case, try using `--force-path-style` CLI option when you are mounting the bucket using Mountpoint.
+
+NOTE - Third party storage provider are not officially supported by Mountpoint for Amazon S3.
+
+## Directory disappear after deleting all the files within it
+
+Amazon S3 does not support directories and objects are just grouped using prefix.
+Mountpoint automatically infers a directory structure for your bucket by treating the `/` separator after prefix in your object keys as a delimiter between directories.
+
+So, if all the files within a prefix is deleted, the prefix itself cease to exist.
+In this case, it is expected that mountpoint will not be able to show the directory for listing or other file system operation.
+
+Workaround to persist a directory could be creating a hidden empty file (for example, `.keep`).
+
+For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories).
+
+## Input/output error after running workload for some time
+
+It is possible that your AWS credentials may get expired while your bucket is still mounted using Mountpoint.
+In that case you will get following errors for filesystem operations:
+
+```
+ls: reading directory '.': Input/output error
+```
+
+```
+cat: new_file.txt: Input/output error
+```
+
+Please check the Mountpoint logs. If you see the following errors, then your AWS credentials have expired.
+
+```
+[WARN] lookup{req=104 ino=1 name="Input"}:
+list_objects{id=20 bucket=plutodemo continued=false delimiter=/ max_keys=1 prefix=Input/}: mountpoint_s3_client::s3_crt_client:
+meta request failed duration=10.023623ms error=ClientError(Forbidden("The provided token has expired."))
+
+[WARN] lookup{req=106 ino=1 name="Input"}:
+head_object{id=21 bucket=plutodemo key=Input}: mountpoint_s3_client::s3_crt_client:
+meta request failed duration=11.087781ms error=ClientError(Forbidden("<no message>"))
+```
+
+You might need to have a fresh mount of your bucket with valid credentials.
+For more details to configure AWS credentials, see the [configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials).
+
+## Throttling Errors
+
+When looking at the logs, these will appear as failed requests with `http_status=503` or `http_status=429` .
+The 503 or 429 status codes means the request limits have been exceeded.
+Mountpoint itself does not do any throttling, so any throttling will be from S3 or possibly dependent services, like STS which is used to provide credentials.
