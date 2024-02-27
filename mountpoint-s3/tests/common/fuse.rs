@@ -92,7 +92,6 @@ where
         MountOption::DefaultPermissions,
         MountOption::FSName("mountpoint-s3".to_string()),
         MountOption::NoAtime,
-        MountOption::AutoUnmount,
         MountOption::AllowOther,
     ];
 
