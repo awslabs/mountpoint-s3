@@ -20,15 +20,3 @@ ignore-dev-dependencies = true
 no-clearly-defined = true
 
 workarounds = ["ring"]
-
-[zerocopy.clarify]
-license = "BSD-2-Clause"
-[[zerocopy.clarify.files]]
-path = "LICENSE"
-checksum = "83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32"
-
-[zerocopy-derive.clarify]
-license = "BSD-2-Clause"
-[[zerocopy-derive.clarify.files]]
-path = "LICENSE"
-checksum = "83c1763356e822adde0a2cae748d938a73fdc263849ccff6b27776dff213bd32"
