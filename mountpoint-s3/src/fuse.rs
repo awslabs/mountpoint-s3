@@ -40,7 +40,7 @@ macro_rules! fuse_error {
     ($name:literal, $reply:expr, $err:expr) => {{
         let err = $err;
         event!(err.level, "{} failed: {:#}", $name, err);
-        ::metrics::counter!("fuse.op_failures", 1, "op" => $name);
+        ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
         $reply.error(err.to_errno());
     }};
 }
@@ -49,8 +49,8 @@ macro_rules! fuse_error {
 macro_rules! fuse_unsupported {
     ($name:literal, $reply:expr, $err:expr, $level:expr) => {{
         event!($level, "{} failed: operation not supported by Mountpoint", $name);
-        ::metrics::counter!("fuse.op_failures", 1, "op" => $name);
-        ::metrics::counter!("fuse.op_unimplemented", 1, "op" => $name);
+        ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
+        ::metrics::counter!("fuse.op_unimplemented","op" => $name).increment(1);
         $reply.error($err);
     }};
     ($name:literal, $reply:expr) => {
@@ -150,8 +150,8 @@ where
             Err(err) => fuse_error!("read", reply, err),
         }
 
-        metrics::counter!("fuse.total_bytes", bytes_sent as u64, "type" => "read");
-        metrics::histogram!("fuse.io_size", bytes_sent as f64, "type" => "read");
+        metrics::counter!("fuse.total_bytes", "type" => "read").increment(bytes_sent as u64);
+        metrics::histogram!("fuse.io_size", "type" => "read").record(bytes_sent as f64);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, name=field::Empty))]
@@ -188,7 +188,7 @@ where
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdir.entries", count as u64);
+                metrics::counter!("fuse.readdir.entries").increment(count as u64);
             }
             Err(e) => fuse_error!("readdir", reply, e),
         }
@@ -234,7 +234,7 @@ where
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdirplus.entries", count as u64);
+                metrics::counter!("fuse.readdirplus.entries").increment(count as u64);
             }
             Err(e) => fuse_error!("readdirplus", reply, e),
         }
@@ -332,8 +332,8 @@ where
         ) {
             Ok(bytes_written) => {
                 reply.written(bytes_written);
-                metrics::counter!("fuse.total_bytes", bytes_written as u64, "type" => "write");
-                metrics::histogram!("fuse.io_size", bytes_written as f64, "type" => "write");
+                metrics::counter!("fuse.total_bytes", "type" => "write").increment(bytes_written as u64);
+                metrics::histogram!("fuse.io_size", "type" => "write").record(bytes_written as f64);
             }
             Err(e) => fuse_error!("write", reply, e),
         }

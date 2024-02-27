@@ -473,12 +473,12 @@ impl S3CrtClientInner {
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {
-                    metrics::histogram!("s3.requests.first_byte_latency_us", ttfb.as_micros() as f64, "op" => op, "type" => request_type);
+                    metrics::histogram!("s3.requests.first_byte_latency_us", "op" => op, "type" => request_type).record(ttfb.as_micros() as f64);
                 }
-                metrics::histogram!("s3.requests.total_latency_us", duration.as_micros() as f64, "op" => op, "type" => request_type);
-                metrics::counter!("s3.requests", 1, "op" => op, "type" => request_type);
+                metrics::histogram!("s3.requests.total_latency_us", "op" => op, "type" => request_type).record(duration.as_micros() as f64);
+                metrics::counter!("s3.requests", "op" => op, "type" => request_type).increment(1);
                 if request_failure {
-                    metrics::counter!("s3.requests.failures", 1, "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string());
+                    metrics::counter!("s3.requests.failures", "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string()).increment(1);
                 }
             })
             .on_headers(move |headers, response_status| {
@@ -490,7 +490,7 @@ impl S3CrtClientInner {
                 if first_body_part.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).ok() == Some(true) {
                     let latency = start_time.elapsed().as_micros() as f64;
                     let op = span_body.metadata().map(|m| m.name()).unwrap_or("unknown");
-                    metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
+                    metrics::histogram!("s3.meta_requests.first_byte_latency_us", "op" => op).record(latency);
                 }
                 total_bytes.fetch_add(data.len() as u64, Ordering::SeqCst);
 
@@ -504,12 +504,12 @@ impl S3CrtClientInner {
                 let op = span_finish.metadata().map(|m| m.name()).unwrap_or("unknown");
                 let duration = start_time.elapsed();
 
-                metrics::counter!("s3.meta_requests", 1, "op" => op);
-                metrics::histogram!("s3.meta_requests.total_latency_us", duration.as_micros() as f64, "op" => op);
+                metrics::counter!("s3.meta_requests", "op" => op).increment(1);
+                metrics::histogram!("s3.meta_requests.total_latency_us", "op" => op).record(duration.as_micros() as f64);
                 // Some HTTP requests (like HEAD) don't have a body to stream back, so calculate TTFB now
                 if first_body_part_clone.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).ok() == Some(true)  {
                     let latency = duration.as_micros() as f64;
-                    metrics::histogram!("s3.meta_requests.first_byte_latency_us", latency, "op" => op);
+                    metrics::histogram!("s3.meta_requests.first_byte_latency_us", "op" => op).record(latency);
                 }
                 let total_bytes = total_bytes_clone.load(Ordering::SeqCst);
                 // We only log throughput of object data. PUT needs to be measured in its stream
@@ -519,7 +519,7 @@ impl S3CrtClientInner {
                 }
                 let hostname_awsstring = AwsString::from_str(&hostname, &Allocator::default());
                 if let Ok(host_count) = host_resolver.get_host_address_count(&hostname_awsstring, AddressKinds::a()) {
-                    metrics::absolute_counter!("s3.client.host_count", host_count as u64, "host" => hostname);
+                    metrics::gauge!("s3.client.host_count", "host" => hostname).set(host_count as f64);
                 }
 
                 let log_level = status_code_to_log_level(request_result.response_status);
@@ -548,7 +548,7 @@ impl S3CrtClientInner {
                         } else {
                             -request_result.crt_error.raw_error()
                         };
-                        metrics::counter!("s3.meta_requests.failures", 1, "op" => op, "status" => format!("{error_status}"));
+                        metrics::counter!("s3.meta_requests.failures", "op" => op, "status" => format!("{error_status}")).increment(1);
 
                         // Fill in a generic error if we weren't able to parse one
                         Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
@@ -618,40 +618,19 @@ impl S3CrtClientInner {
 
     fn poll_client_metrics(s3_client: &Client) {
         let metrics = s3_client.poll_client_metrics();
-        metrics::gauge!(
-            "s3.client.num_requests_being_processed",
-            metrics.num_requests_tracked_requests as f64
-        );
-        metrics::gauge!(
-            "s3.client.num_requests_being_prepared",
-            metrics.num_requests_being_prepared as f64
-        );
-        metrics::gauge!("s3.client.request_queue_size", metrics.request_queue_size as f64);
-        metrics::gauge!(
-            "s3.client.num_auto_default_network_io",
-            metrics.num_auto_default_network_io as f64
-        );
-        metrics::gauge!(
-            "s3.client.num_auto_ranged_get_network_io",
-            metrics.num_auto_ranged_get_network_io as f64
-        );
-        metrics::gauge!(
-            "s3.client.num_auto_ranged_put_network_io",
-            metrics.num_auto_ranged_put_network_io as f64
-        );
-        metrics::gauge!(
-            "s3.client.num_auto_ranged_copy_network_io",
-            metrics.num_auto_ranged_copy_network_io as f64
-        );
-        metrics::gauge!("s3.client.num_total_network_io", metrics.num_total_network_io() as f64);
-        metrics::gauge!(
-            "s3.client.num_requests_stream_queued_waiting",
-            metrics.num_requests_stream_queued_waiting as f64
-        );
-        metrics::gauge!(
-            "s3.client.num_requests_streaming_response",
-            metrics.num_requests_streaming_response as f64
-        );
+        metrics::gauge!("s3.client.num_requests_being_processed").set(metrics.num_requests_tracked_requests as f64);
+        metrics::gauge!("s3.client.num_requests_being_prepared").set(metrics.num_requests_being_prepared as f64);
+        metrics::gauge!("s3.client.request_queue_size").set(metrics.request_queue_size as f64);
+        metrics::gauge!("s3.client.num_auto_default_network_io").set(metrics.num_auto_default_network_io as f64);
+        metrics::gauge!("s3.client.num_auto_ranged_get_network_io").set(metrics.num_auto_ranged_get_network_io as f64);
+        metrics::gauge!("s3.client.num_auto_ranged_put_network_io").set(metrics.num_auto_ranged_put_network_io as f64);
+        metrics::gauge!("s3.client.num_auto_ranged_copy_network_io")
+            .set(metrics.num_auto_ranged_copy_network_io as f64);
+        metrics::gauge!("s3.client.num_total_network_io").set(metrics.num_total_network_io() as f64);
+        metrics::gauge!("s3.client.num_requests_stream_queued_waiting")
+            .set(metrics.num_requests_stream_queued_waiting as f64);
+        metrics::gauge!("s3.client.num_requests_streaming_response")
+            .set(metrics.num_requests_streaming_response as f64);
     }
 
     fn next_request_counter(&self) -> u64 {
@@ -959,7 +938,7 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
     } else {
         ">16MiB"
     };
-    metrics::histogram!("s3.meta_requests.throughput_mibs", throughput_mbps, "op" => op, "size" => bucket);
+    metrics::histogram!("s3.meta_requests.throughput_mibs", "op" => op, "size" => bucket).record(throughput_mbps);
 }
 
 #[cfg_attr(not(docs_rs), async_trait)]

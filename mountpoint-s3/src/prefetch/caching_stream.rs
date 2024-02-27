@@ -139,14 +139,14 @@ where
                 ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
-            metrics::counter!("prefetch.blocks_served_from_cache", block_index - block_range.start);
-            metrics::counter!("prefetch.blocks_requested_to_client", block_range.end - block_index);
+            metrics::counter!("prefetch.blocks_served_from_cache").increment(block_index - block_range.start);
+            metrics::counter!("prefetch.blocks_requested_to_client").increment(block_range.end - block_index);
             return self
                 .get_from_client(range.trim_start(block_offset), block_index..block_range.end)
                 .await;
         }
         // We served the whole range from cache.
-        metrics::counter!("prefetch.blocks_served_from_cache", block_range.end - block_range.start);
+        metrics::counter!("prefetch.blocks_served_from_cache").increment(block_range.end - block_range.start);
     }
 
     async fn get_from_client(&self, range: RequestRange, block_range: Range<u64>) {
@@ -269,7 +269,7 @@ where
                 warn!(key=?self.cache_key.key(), block_index, ?error, "failed to update cache");
             }
         };
-        metrics::histogram!("prefetch.cache_update_duration_us", start.elapsed().as_micros() as f64);
+        metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
     }
 
     /// Creates a Part that can be streamed to the prefetcher from the given cache block.

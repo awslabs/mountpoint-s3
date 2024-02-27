@@ -28,7 +28,7 @@ hex = "0.4.3"
 lazy_static = "1.4.0"
 libc = "0.2.126"
 linked-hash-map = "0.5.6"
-metrics = "0.21.1"
+metrics = "0.22.1"
 nix = { version = "0.27.1", features = ["user"] }
 regex = "1.7.1"
 serde = { version = "1.0.190", features = ["derive"] }
@@ -62,7 +62,6 @@ proptest = "1.4.0"
 proptest-derive = "0.4.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
-rusty-fork = "0.3.0"
 serial_test = "2.0.0"
 sha2 = "0.10.6"
 shuttle = { version = "0.5.0" }

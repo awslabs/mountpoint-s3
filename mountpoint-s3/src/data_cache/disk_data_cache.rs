@@ -366,14 +366,14 @@ impl DataCache for DiskDataCache {
         match self.read_block(&path, cache_key, block_idx, block_offset) {
             Ok(None) => {
                 // Cache miss.
-                metrics::counter!("disk_data_cache.block_hit", 0);
+                metrics::counter!("disk_data_cache.block_hit").increment(0);
                 Ok(None)
             }
             Ok(Some(bytes)) => {
                 // Cache hit.
-                metrics::counter!("disk_data_cache.block_hit", 1);
-                metrics::counter!("disk_data_cache.total_bytes", bytes.len() as u64, "type" => "read");
-                metrics::histogram!("disk_data_cache.read_duration_us", start.elapsed().as_micros() as f64);
+                metrics::counter!("disk_data_cache.block_hit").increment(1);
+                metrics::counter!("disk_data_cache.total_bytes", "type" => "read").increment(bytes.len() as u64);
+                metrics::histogram!("disk_data_cache.read_duration_us").record(start.elapsed().as_micros() as f64);
                 if let Some(usage) = &self.usage {
                     usage.lock().unwrap().refresh(&block_key);
                 }
@@ -381,8 +381,8 @@ impl DataCache for DiskDataCache {
             }
             Err(err) => {
                 // Invalid block. Count as cache miss.
-                metrics::counter!("disk_data_cache.block_hit", 0);
-                metrics::counter!("disk_data_cache.block_err", 1);
+                metrics::counter!("disk_data_cache.block_hit").increment(0);
+                metrics::counter!("disk_data_cache.block_err").increment(1);
                 match fs::remove_file(&path) {
                     Ok(()) => {
                         if let Some(usage) = &self.usage {
@@ -419,20 +419,15 @@ impl DataCache for DiskDataCache {
         {
             let eviction_start = Instant::now();
             let result = self.evict_if_needed();
-            metrics::histogram!(
-                "disk_data_cache.eviction_duration_us",
-                eviction_start.elapsed().as_micros() as f64
-            );
+            metrics::histogram!("disk_data_cache.eviction_duration_us")
+                .record(eviction_start.elapsed().as_micros() as f64);
             result
         }?;
 
         let write_start = Instant::now();
         let size = self.write_block(path, block)?;
-        metrics::histogram!(
-            "disk_data_cache.write_duration_us",
-            write_start.elapsed().as_micros() as f64
-        );
-        metrics::counter!("disk_data_cache.total_bytes", bytes_len as u64, "type" => "write");
+        metrics::histogram!("disk_data_cache.write_duration_us").record(write_start.elapsed().as_micros() as f64);
+        metrics::counter!("disk_data_cache.total_bytes", "type" => "write").increment(bytes_len as u64);
         if let Some(usage) = &self.usage {
             usage.lock().unwrap().add(block_key, size);
         }

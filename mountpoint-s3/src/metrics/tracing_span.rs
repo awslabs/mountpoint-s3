@@ -45,7 +45,7 @@ where
         if Self::should_instrument_request_time(ctx.span(&id)) {
             let data = ctx.span(&id).unwrap();
             let RequestTime(start_time) = *data.extensions().get::<RequestTime>().unwrap();
-            histogram!("fuse.op_latency_us", start_time.elapsed().as_micros() as f64, "op" => data.name());
+            histogram!("fuse.op_latency_us", "op" => data.name()).record(start_time.elapsed().as_micros() as f64);
         }
     }
 }
