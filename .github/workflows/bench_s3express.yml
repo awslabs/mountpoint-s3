@@ -153,7 +153,7 @@ jobs:
       with:
         tool: 'customSmallerIsBetter'
         output-file-path: results/output.json
-        benchmark-data-dir-path: dev/test/latency_bench
+        benchmark-data-dir-path: dev/s3-express/latency_bench
         alert-threshold: "200%"
         fail-on-alert: true
         # GitHub API token to make a commit comment
