@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709058052699,
+  "lastUpdate": 1709115467380,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "hernaa@amazon.com",
-            "name": "Andres Santana",
-            "username": "arsh"
-          },
-          "committer": {
-            "email": "hernaa@amazon.com",
-            "name": "Andres Santana",
-            "username": "arsh"
-          },
-          "distinct": true,
-          "id": "53a99635e9a300df165bf87978f7bd701b1a021c",
-          "message": "Just read 2GB when testing caching due to disk space.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
-          "timestamp": "2024-02-22T16:15:36Z",
-          "tree_id": "5c1310deaaa6ac88b1682cd58d8b86332573c7c1",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/53a99635e9a300df165bf87978f7bd701b1a021c"
-        },
-        "date": 1708619225994,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.072,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.173,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.119,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 77.9464428,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 59.2502546,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 80.7718497,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "committer": {
+            "email": "sauraank@amazon.co.uk",
+            "name": "Ankit Saurabh",
+            "username": "sauraank"
+          },
+          "distinct": true,
+          "id": "310cf4387fddac8a9b9a517bb07643a6b9f12c37",
+          "message": "Reverting the test change\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
+          "timestamp": "2024-02-28T10:06:50Z",
+          "tree_id": "374c66d99ba667109393fb701cedf4a9f1eff04f",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/310cf4387fddac8a9b9a517bb07643a6b9f12c37"
+        },
+        "date": 1709115466875,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.073,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.183,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.151,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.493,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 71.3380725,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 71.89426420000001,
             "unit": "milliseconds"
           }
         ]
