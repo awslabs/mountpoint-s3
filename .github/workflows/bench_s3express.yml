@@ -1,4 +1,4 @@
-name: Benchmark
+name: Benchmark (s3-express one zone)
 
 # We use environments to require approval to run benchmarks on PRs, but not on pushes to `main`
 # (which have been approved already since PRs are required for `main`).
@@ -14,7 +14,7 @@ on:
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
-  S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+  S3_BUCKET_NAME: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME }}
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
   S3_BUCKET_BENCH_FILE: ${{ vars.BENCH_FILE_NAME || 'bench100GB.bin' }}
   S3_BUCKET_SMALL_BENCH_FILE: ${{ vars.SMALL_BENCH_FILE_NAME || 'bench5MB.bin' }}
@@ -82,6 +82,7 @@ jobs:
       with:
         tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
+        benchmark-data-dir-path: dev/s3-express/bench
         alert-threshold: "200%"
         fail-on-alert: true
         # GitHub API token to make a commit comment
@@ -152,7 +153,7 @@ jobs:
       with:
         tool: 'customSmallerIsBetter'
         output-file-path: results/output.json
-        benchmark-data-dir-path: dev/latency_bench
+        benchmark-data-dir-path: dev/s3-express/latency_bench
         alert-threshold: "200%"
         fail-on-alert: true
         # GitHub API token to make a commit comment
