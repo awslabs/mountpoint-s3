@@ -15,12 +15,21 @@ use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::ops::Range;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt as _;
+use tracing_subscriber::{EnvFilter, Layer};
+
+pub mod tracing_test;
 
 /// Enable tracing and CRT logging when running unit tests.
 #[ctor::ctor]
 fn init_tracing_subscriber() {
     let _ = RustLogAdapter::try_init();
-    let _ = tracing_subscriber::fmt::try_init();
+
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
+        .with(self::tracing_test::TracingTestLayer::get());
+    let _ = subscriber.try_init();
 }
 
 pub enum AccessPointType {

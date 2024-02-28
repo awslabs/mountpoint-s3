@@ -2000,6 +2000,7 @@ dependencies = [
  "metrics",
  "mountpoint-s3-client",
  "mountpoint-s3-crt",
+ "mountpoint-s3-crt-sys",
  "once_cell",
  "percent-encoding",
  "pin-project",
