@@ -152,3 +152,48 @@ async fn test_get_object_412_if_match() {
         Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed))
     ));
 }
+
+#[test_case(false; "early")]
+#[test_case(true; "after read")]
+#[tokio::test]
+async fn test_get_object_cancel(read: bool) {
+    const OBJECT_SIZE: usize = 30_000_000;
+
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_cancel");
+
+    // Create one large object named "hello"
+    let key = format!("{prefix}/hello");
+    let body = vec![0x42; OBJECT_SIZE];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body))
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+
+    let mut request = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
+
+    if read {
+        let mut bytes = 0;
+        while let Some(next) = request.next().await {
+            let (_offset, body) = next.expect("part download should succeed");
+            bytes += body.len();
+        }
+        assert_eq!(bytes, OBJECT_SIZE);
+    } else {
+        // Wait a bit for the request to make some progress. This is very racy, but should be short
+        // enough that there are still requests outstanding.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    // Explicitly cancel the request.
+    drop(request);
+}

@@ -142,14 +142,16 @@ async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: 
 object_client_test!(test_put_object_dropped);
 
 // Test for abort PUT object.
+#[test_case(30; "small")]
+#[test_case(30_000_000; "large")]
 #[tokio::test]
-async fn test_put_object_abort() {
+async fn test_put_object_abort(size: usize) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
     let mut rng = rand::thread_rng();
-    let mut contents = vec![0u8; 32];
+    let mut contents = vec![0u8; size];
     rng.fill(&mut contents[..]);
 
     let mut request = client
@@ -167,9 +169,51 @@ async fn test_put_object_abort() {
 
     drop(request); // Drop without calling complete().
 
-    // Allow for the AbortMultipartUpload to complete.
+    // Try to wait a while for the async abort to complete. For the larger object, this might be
+    // quite slow, especially in CI.
+    for _ in 0..20 {
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
+            .await
+            .unwrap();
+        if uploads_in_progress == 0 {
+            return;
+        }
+    }
+    panic!("upload did not get cleaned up");
+}
+
+#[tokio::test]
+async fn test_put_object_initiate_failure() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_initiate_failure");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let params = PutObjectParams::new().storage_class("INVALID_STORAGE_CLASS".into());
+
+    let mut request = client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect("put_object should succeed");
+
+    // The MPU initiation should fail, so we should get an error when we try to write.
+    let _err = request.write(&[1, 2, 3, 4]).await.expect_err("write should fail");
+
+    // Try again just to make sure the failure is fused correctly and doesn't block forever if
+    // someone (incorrectly) tries to write again after a failure.
+    let _err = request
+        .write(&[1, 2, 3, 4])
+        .await
+        .expect_err("second write should fail");
+
+    // Abort the request (which should already have been canceled)
+    drop(request);
+
+    // Wait a bit to let any requests settle.
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
+    let sdk_client = get_test_sdk_client().await;
     let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
         .await
         .unwrap();

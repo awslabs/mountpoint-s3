@@ -23,14 +23,14 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
-    init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequestOptions, MetaRequestResult, MetaRequestType,
-    RequestType,
+    init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
+    MetaRequestType, RequestType,
 };
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use pin_project::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
@@ -558,12 +558,14 @@ impl S3CrtClientInner {
                 let _ = tx.send(result);
             });
 
-        // Issue the HTTP request using the CRT's S3 meta request API. We don't need to hold on to
-        // the resulting meta request, as it's a reference-counted object.
-        self.s3_client.make_meta_request(options)?;
+        // Issue the HTTP request using the CRT's S3 meta request API
+        let meta_request = self.s3_client.make_meta_request(options)?;
         Self::poll_client_metrics(&self.s3_client);
 
-        Ok(S3HttpRequest { receiver: rx })
+        Ok(S3HttpRequest {
+            receiver: rx,
+            meta_request,
+        })
     }
 
     /// Make an HTTP request using this S3 client that returns the body on success or invokes the
@@ -729,10 +731,11 @@ impl S3Message {
 }
 
 #[derive(Debug)]
-#[pin_project]
+#[pin_project(PinnedDrop)]
 struct S3HttpRequest<T, E> {
     #[pin]
     receiver: oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>,
+    meta_request: MetaRequest,
 }
 
 impl<T: Send, E: Send> Future for S3HttpRequest<T, E> {
@@ -747,6 +750,13 @@ impl<T: Send, E: Send> Future for S3HttpRequest<T, E> {
                 ))))
             })
         })
+    }
+}
+
+#[pinned_drop]
+impl<T, E> PinnedDrop for S3HttpRequest<T, E> {
+    fn drop(self: Pin<&mut Self>) {
+        self.meta_request.cancel();
     }
 }
 
