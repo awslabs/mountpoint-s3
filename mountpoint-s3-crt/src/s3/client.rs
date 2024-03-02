@@ -748,6 +748,11 @@ impl MetaRequestResult {
         self.crt_error.is_err()
     }
 
+    /// Return whether this request was canceled according to its error code.
+    pub fn is_canceled(&self) -> bool {
+        self.crt_error.raw_error() == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_CANCELED as i32
+    }
+
     /// Convert the CRT's meta request result struct into a safe, owned result.
     /// SAFETY: This copies from the raw pointer inside of the request result, so only call on
     /// results given to us from the CRT.
@@ -1027,6 +1032,11 @@ impl RequestMetrics {
                 .ok()?;
         };
         Some(Duration::from_nanos(receive_start.saturating_sub(send_end)))
+    }
+
+    /// Return whether the request was canceled according to its error code
+    pub fn is_canceled(&self) -> bool {
+        self.error().raw_error() == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_CANCELED as i32
     }
 }
 

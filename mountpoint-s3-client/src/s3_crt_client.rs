@@ -455,7 +455,8 @@ impl S3CrtClientInner {
                 let _guard = span_telemetry.enter();
 
                 let http_status = metrics.status_code();
-                let request_failure = http_status.map(|status| !(200..299).contains(&status)).unwrap_or(true);
+                let request_canceled = metrics.is_canceled();
+                let request_failure = http_status.map(|status| !(200..299).contains(&status)).unwrap_or(!request_canceled);
                 let crt_error = Some(metrics.error()).filter(|e| e.is_err());
                 let request_type = request_type_to_metrics_string(metrics.request_type());
                 let request_id = metrics.request_id().unwrap_or_else(|| "<unknown>".into());
@@ -465,6 +466,8 @@ impl S3CrtClientInner {
 
                 let message = if request_failure {
                     "CRT request failed"
+                } else if request_canceled {
+                    "CRT request canceled"
                 } else {
                     "CRT request finished"
                 };
@@ -479,6 +482,8 @@ impl S3CrtClientInner {
                 metrics::counter!("s3.requests", "op" => op, "type" => request_type).increment(1);
                 if request_failure {
                     metrics::counter!("s3.requests.failures", "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string()).increment(1);
+                } else if request_canceled {
+                    metrics::counter!("s3.requests.canceled", "op" => op, "type" => request_type).increment(1);
                 }
             })
             .on_headers(move |headers, response_status| {
@@ -522,7 +527,12 @@ impl S3CrtClientInner {
                     metrics::gauge!("s3.client.host_count", "host" => hostname).set(host_count as f64);
                 }
 
-                let log_level = status_code_to_log_level(request_result.response_status);
+                let status_code = request_result.response_status;
+                let log_level = if (200..=399).contains(&status_code) || status_code == 404 || request_result.is_canceled() {
+                    tracing::Level::DEBUG
+                } else {
+                    tracing::Level::WARN
+                };
 
                 // The `on_finish` callback has a choice of whether to give us an error or not. If
                 // not, fall back to generic error parsing (e.g. for permissions errors), or just no
@@ -535,20 +545,29 @@ impl S3CrtClientInner {
                         Ok(t)
                     }
                     Err(maybe_err) => {
-                        if let Some(error) = &maybe_err {
-                            event!(log_level, ?duration, ?error, "meta request failed");
-                            debug!("failed meta request result: {:?}", request_result);
+                        let message = if request_result.is_canceled() {
+                            "meta request canceled"
                         } else {
-                            event!(log_level, ?duration, ?request_result, "meta request failed");
+                            "meta request failed"
+                        };
+                        if let Some(error) = &maybe_err {
+                            event!(log_level, ?duration, ?error, message);
+                            debug!("meta request result: {:?}", request_result);
+                        } else {
+                            event!(log_level, ?duration, ?request_result, message);
                         }
 
-                        // If it's not a real HTTP status, encode the CRT error in the metric instead
-                        let error_status = if request_result.response_status >= 100 {
-                            request_result.response_status
+                        if request_result.is_canceled() {
+                            metrics::counter!("s3.meta_requests.canceled", "op" => op).increment(1);
                         } else {
-                            -request_result.crt_error.raw_error()
-                        };
-                        metrics::counter!("s3.meta_requests.failures", "op" => op, "status" => format!("{error_status}")).increment(1);
+                            // If it's not a real HTTP status, encode the CRT error in the metric instead
+                            let error_status = if request_result.response_status >= 100 {
+                                request_result.response_status
+                            } else {
+                                -request_result.crt_error.raw_error()
+                            };
+                            metrics::counter!("s3.meta_requests.failures", "op" => op, "status" => format!("{error_status}")).increment(1);
+                        }
 
                         // Fill in a generic error if we weren't able to parse one
                         Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
@@ -808,6 +827,10 @@ pub enum S3RequestError {
     /// No signing credential is set for requests
     #[error("No signing credentials found")]
     NoSigningCredentials,
+
+    /// The request was canceled
+    #[error("Request canceled")]
+    RequestCanceled,
 }
 
 impl S3RequestError {
@@ -825,16 +848,6 @@ pub enum ConstructionError {
     /// The S3 endpoint was invalid
     #[error("Invalid S3 endpoint")]
     InvalidEndpoint(#[from] EndpointError),
-}
-
-/// Some requests are expected failures, and we want to log those at a different level to unexpected
-/// ones.
-fn status_code_to_log_level(status_code: i32) -> tracing::Level {
-    if (200..=399).contains(&status_code) || status_code == 404 {
-        tracing::Level::DEBUG
-    } else {
-        tracing::Level::WARN
-    }
 }
 
 /// Return a string version of a [RequestType] for use in metrics
@@ -924,13 +937,18 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
+    /// Handle canceled requests
+    fn try_parse_canceled_request(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        request_result.is_canceled().then_some(S3RequestError::RequestCanceled)
+    }
+
     match request_result.response_status {
         301 => try_parse_redirect(request_result),
         // 400 is overloaded, it can be an access error (invalid token) or (for MRAP) a bucket
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
-        0 => try_parse_no_credentials(request_result),
+        0 => try_parse_no_credentials(request_result).or_else(|| try_parse_canceled_request(request_result)),
         _ => None,
     }
 }
