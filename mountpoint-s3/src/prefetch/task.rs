@@ -66,6 +66,10 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
         self.remaining
     }
 
+    pub fn downloaded(&self) -> usize {
+        self.part_queue.downloaded()
+    }
+
     /// Some requests aren't actually streaming data (they're fake, created by backwards seeks), and
     /// shouldn't be counted for prefetcher progress.
     pub fn is_streaming(&self) -> bool {

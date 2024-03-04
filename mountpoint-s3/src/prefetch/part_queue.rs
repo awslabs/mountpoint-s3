@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 use std::time::Instant;
 
 use tracing::trace;
@@ -15,23 +17,27 @@ pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
     receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
     failed: AtomicBool,
+    downloaded: Arc<AtomicUsize>,
 }
 
 /// Producer side of the queue of [Part]s.
 #[derive(Debug)]
 pub struct PartQueueProducer<E: std::error::Error> {
     sender: Sender<Result<Part, PrefetchReadError<E>>>,
+    downloaded: Arc<AtomicUsize>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
     let (sender, receiver) = unbounded();
+    let downloaded = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
         receiver,
         failed: AtomicBool::new(false),
+        downloaded: Arc::clone(&downloaded),
     };
-    let part_queue_producer = PartQueueProducer { sender };
+    let part_queue_producer = PartQueueProducer { sender, downloaded };
     (part_queue, part_queue_producer)
 }
 
@@ -84,13 +90,21 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             Ok(part)
         }
     }
+
+    pub fn downloaded(&self) -> usize {
+        self.downloaded.load(Ordering::SeqCst)
+    }
 }
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
         // Unbounded channel will never actually block
+        let part_size = part.as_ref().ok().map(|part| part.len());
         let send_result = self.sender.send_blocking(part);
+        if let Some(part_size) = part_size {
+            self.downloaded.fetch_add(part_size, Ordering::SeqCst);
+        }
         if send_result.is_err() {
             trace!("closed channel");
         }

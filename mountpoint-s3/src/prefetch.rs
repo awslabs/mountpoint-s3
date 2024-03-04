@@ -461,9 +461,7 @@ where
             return Ok(false);
         };
         let future_remaining = self.future_tasks.iter().map(|task| task.remaining()).sum::<usize>() as u64;
-        if total_seek_distance
-            >= (current_task.remaining() as u64 + future_remaining).min(self.config.max_forward_seek_distance)
-        {
+        if total_seek_distance >= (current_task.remaining() as u64 + future_remaining) {
             // TODO maybe adjust the next_request_size somehow if we were still within
             // max_forward_seek_distance, so that strides > first_request_size can still get
             // prefetched.
@@ -496,6 +494,14 @@ where
             .current_task
             .as_mut()
             .expect("a request existed that covered this seek offset");
+        let seek_distance_from_task_start = offset - current_task.start_offset();
+        let downloaded = current_task.downloaded();
+        if seek_distance_from_task_start > downloaded as u64
+            && (seek_distance_from_task_start - downloaded as u64) > self.config.max_forward_seek_distance
+        {
+            trace!(current_offset=?self.next_sequential_read_offset, requested_offset=?offset, "seek failed: not enough downloaded data");
+            return Ok(false);
+        }
         while seek_distance > 0 {
             let part = current_task.read(seek_distance as usize).await?;
             seek_distance -= part.len() as u64;
