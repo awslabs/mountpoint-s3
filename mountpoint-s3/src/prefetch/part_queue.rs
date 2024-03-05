@@ -17,27 +17,32 @@ pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
     receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
     failed: AtomicBool,
-    downloaded: Arc<AtomicUsize>,
+    /// The total number of bytes sent to the underlying queue of `self.receiver`
+    bytes_arrived_total: Arc<AtomicUsize>,
 }
 
 /// Producer side of the queue of [Part]s.
 #[derive(Debug)]
 pub struct PartQueueProducer<E: std::error::Error> {
     sender: Sender<Result<Part, PrefetchReadError<E>>>,
-    downloaded: Arc<AtomicUsize>,
+    /// The total number of bytes sent to `self.sender`
+    bytes_sent: Arc<AtomicUsize>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
     let (sender, receiver) = unbounded();
-    let downloaded = Arc::new(AtomicUsize::new(0));
+    let bytes_counter = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
         receiver,
         failed: AtomicBool::new(false),
-        downloaded: Arc::clone(&downloaded),
+        bytes_arrived_total: Arc::clone(&bytes_counter),
     };
-    let part_queue_producer = PartQueueProducer { sender, downloaded };
+    let part_queue_producer = PartQueueProducer {
+        sender,
+        bytes_sent: bytes_counter,
+    };
     (part_queue, part_queue_producer)
 }
 
@@ -91,8 +96,8 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         }
     }
 
-    pub fn downloaded(&self) -> usize {
-        self.downloaded.load(Ordering::SeqCst)
+    pub fn bytes_arrived_total(&self) -> usize {
+        self.bytes_arrived_total.load(Ordering::SeqCst)
     }
 }
 
@@ -103,7 +108,7 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
         let part_size = part.as_ref().ok().map(|part| part.len());
         let send_result = self.sender.send_blocking(part);
         if let Some(part_size) = part_size {
-            self.downloaded.fetch_add(part_size, Ordering::SeqCst);
+            self.bytes_sent.fetch_add(part_size, Ordering::SeqCst);
         }
         if send_result.is_err() {
             trace!("closed channel");

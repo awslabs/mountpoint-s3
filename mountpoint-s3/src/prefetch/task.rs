@@ -66,8 +66,9 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
         self.remaining
     }
 
-    pub fn downloaded(&self) -> usize {
-        self.part_queue.downloaded()
+    /// Maximum offset which data is known to be already in the `self.part_queue`
+    pub fn available_offset(&self) -> u64 {
+        self.start_offset + self.part_queue.bytes_arrived_total() as u64
     }
 
     /// Some requests aren't actually streaming data (they're fake, created by backwards seeks), and

@@ -460,18 +460,10 @@ where
             // Can't seek if there's no requests in flight at all
             return Ok(false);
         };
-        let future_remaining = self.future_tasks.iter().map(|task| task.remaining()).sum::<usize>() as u64;
-        if total_seek_distance >= (current_task.remaining() as u64 + future_remaining) {
-            // TODO maybe adjust the next_request_size somehow if we were still within
-            // max_forward_seek_distance, so that strides > first_request_size can still get
-            // prefetched.
-            trace!(current_task_remaining=?current_task.remaining(), ?future_remaining, "seek failed: not enough inflight data");
-            return Ok(false);
-        }
 
         // Jump ahead to the right request
-        if total_seek_distance >= current_task.remaining() as u64 {
-            self.next_sequential_read_offset += current_task.remaining() as u64;
+        if offset >= current_task.end_offset() {
+            self.next_sequential_read_offset = current_task.end_offset();
             self.current_task = None;
             while let Some(next_request) = self.future_tasks.pop_front() {
                 if next_request.end_offset() > offset {
@@ -481,27 +473,33 @@ where
                     self.next_sequential_read_offset = next_request.end_offset();
                 }
             }
-            // We checked there was an inflight task that contained the target offset, so this
-            // is impossible.
-            assert!(self.current_task.is_some());
+            if self.current_task.is_none() {
+                // No inflight task containing the target offset.
+                trace!(current_offset=?self.next_sequential_read_offset, requested_offset=?offset, "seek failed: not enough inflight data");
+                return Ok(false);
+            }
             // We could try harder to preserve the backwards seek buffer if we're near the
             // request boundary, but it's probably not worth the trouble.
             self.backward_seek_window.clear();
         }
-        let mut seek_distance = offset - self.next_sequential_read_offset;
 
         let current_task = self
             .current_task
             .as_mut()
             .expect("a request existed that covered this seek offset");
-        let seek_distance_from_task_start = offset - current_task.start_offset();
-        let downloaded = current_task.downloaded();
-        if seek_distance_from_task_start > downloaded as u64
-            && (seek_distance_from_task_start - downloaded as u64) > self.config.max_forward_seek_distance
-        {
-            trace!(current_offset=?self.next_sequential_read_offset, requested_offset=?offset, "seek failed: not enough downloaded data");
+        // If we have enough bytes already downloaded (`available`) to skip straight to this read, then do
+        // it. Otherwise, we're willing to wait for the bytes to download only if they're coming "soon", where
+        // soon is defined as up to `max_forward_seek_distance` bytes ahead of the available offset.
+        let available_offset = current_task.available_offset();
+        if offset > available_offset.saturating_add(self.config.max_forward_seek_distance) {
+            trace!(
+                requested_offset = offset,
+                available_offset = available_offset,
+                "seek failed: not enough data available"
+            );
             return Ok(false);
         }
+        let mut seek_distance = offset - self.next_sequential_read_offset;
         while seek_distance > 0 {
             let part = current_task.read(seek_distance as usize).await?;
             seek_distance -= part.len() as u64;
