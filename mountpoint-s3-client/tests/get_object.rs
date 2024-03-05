@@ -194,6 +194,7 @@ async fn test_get_object_cancel(read: bool) {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
-    // Explicitly cancel the request.
+    // Explicitly cancel the request. We don't have a good way to test that any inflight requests
+    // were actually cancelled, but we can at least check that the drop doesn't panic/deadlock.
     drop(request);
 }
