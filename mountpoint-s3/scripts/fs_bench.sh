@@ -73,7 +73,8 @@ run_fio_job() {
   echo "done"
 
   # combine the results and find an average value
-  jq -n 'reduce inputs.jobs[] as $job (null; .name = $job.jobname | .len += 1 | .value += (if ($job."job options".rw == "read")
+  # TODO: requires testing
+  jq -n 'reduce inputs.jobs[] as $job (null; .name = $job.jobname | .len += 1 | .value += (if ($job."job options".rw | startswith("read"))
       then $job.read.bw / 1024
       elif ($job."job options".rw == "randread") then $job.read.bw / 1024
       elif ($job."job options".rw == "randwrite") then $job.write.bw / 1024
