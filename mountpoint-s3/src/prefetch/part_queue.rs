@@ -1,6 +1,3 @@
-// TODO: use `crate::sync` in statements below when issues with task termination are fixed in shuttle
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
 use std::time::Instant;
 
 use tracing::trace;
@@ -8,8 +5,8 @@ use tracing::trace;
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
-use crate::sync::atomic::{AtomicBool, Ordering};
-use crate::sync::AsyncMutex;
+use crate::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use crate::sync::{Arc, AsyncMutex};
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
@@ -105,14 +102,13 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
-        let part_size = part.as_ref().ok().map(|part| part.len());
+        if let Ok(ref part) = part {
+            self.bytes_sent.fetch_add(part.len(), Ordering::SeqCst);
+        }
         // Unbounded channel will never actually block
         let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {
             trace!("closed channel");
-        }
-        if let Some(part_size) = part_size {
-            self.bytes_sent.fetch_add(part_size, Ordering::SeqCst);
         }
     }
 }
