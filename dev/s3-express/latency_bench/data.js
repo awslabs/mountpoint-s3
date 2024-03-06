@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709720354924,
+  "lastUpdate": 1709734974343,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -789,6 +789,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.8370212,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "distinct": true,
+          "id": "0a7b9e94f31c7e986f11c7b9c72558585805750d",
+          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-03-06T10:24:42Z",
+          "tree_id": "089297cc57ed3e4647366f70d418693bb34aab18",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0a7b9e94f31c7e986f11c7b9c72558585805750d"
+        },
+        "date": 1709734973844,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.155,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.549,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.306,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.572,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 24.4396525,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 24.418074100000002,
             "unit": "milliseconds"
           }
         ]
