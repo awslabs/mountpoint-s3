@@ -1,5 +1,3 @@
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
 use std::time::Instant;
 
 use tracing::trace;
@@ -7,8 +5,8 @@ use tracing::trace;
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
-use crate::sync::atomic::{AtomicBool, Ordering};
-use crate::sync::AsyncMutex;
+use crate::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use crate::sync::{Arc, AsyncMutex};
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
@@ -18,7 +16,7 @@ pub struct PartQueue<E: std::error::Error> {
     receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
     failed: AtomicBool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
-    bytes_arrived_total: Arc<AtomicUsize>,
+    bytes_received: Arc<AtomicUsize>,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -37,7 +35,7 @@ pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueP
         current_part: AsyncMutex::new(None),
         receiver,
         failed: AtomicBool::new(false),
-        bytes_arrived_total: Arc::clone(&bytes_counter),
+        bytes_received: Arc::clone(&bytes_counter),
     };
     let part_queue_producer = PartQueueProducer {
         sender,
@@ -96,20 +94,20 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         }
     }
 
-    pub fn bytes_arrived_total(&self) -> usize {
-        self.bytes_arrived_total.load(Ordering::SeqCst)
+    pub fn bytes_received(&self) -> usize {
+        self.bytes_received.load(Ordering::SeqCst)
     }
 }
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
-        // Unbounded channel will never actually block
         let part_size = part.as_ref().ok().map(|part| part.len());
         let send_result = self.sender.send_blocking(part);
         if let Some(part_size) = part_size {
             self.bytes_sent.fetch_add(part_size, Ordering::SeqCst);
         }
+        // Unbounded channel will never actually block
         if send_result.is_err() {
             trace!("closed channel");
         }

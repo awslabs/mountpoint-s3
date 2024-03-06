@@ -118,9 +118,9 @@ pub struct PrefetcherConfig {
     pub sequential_prefetch_multiplier: usize,
     /// Timeout to wait for a part to become available
     pub read_timeout: Duration,
-    /// The maximum distance the prefetcher will seek forwards before resetting and starting a new
-    /// S3 request
-    pub max_forward_seek_distance: u64,
+    /// The maximum amount of unavailable data the prefetcher will tolerate during a seek operation
+    /// before resetting and starting a new S3 request.
+    pub max_forward_seek_wait_distance: u64,
     /// The maximum distance the prefetcher will seek backwards before resetting and starting a new
     /// S3 request. We keep this much data in memory in addition to any inflight requests.
     pub max_backward_seek_distance: u64,
@@ -146,7 +146,7 @@ impl Default for PrefetcherConfig {
             // is at most 256KiB backwards and then 512KiB forwards. For forwards seeks, we're also
             // making a guess about where the optimal cut-off point is before it would be faster to
             // just start a new request instead.
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 1 * 1024 * 1024,
         }
     }
@@ -483,15 +483,16 @@ where
             self.backward_seek_window.clear();
         }
 
+        // At this point it's guaranteed by the previous if-block that `offset` is in the range of `self.current_task`
         let current_task = self
             .current_task
             .as_mut()
             .expect("a request existed that covered this seek offset");
         // If we have enough bytes already downloaded (`available`) to skip straight to this read, then do
         // it. Otherwise, we're willing to wait for the bytes to download only if they're coming "soon", where
-        // soon is defined as up to `max_forward_seek_distance` bytes ahead of the available offset.
+        // soon is defined as up to `max_forward_seek_wait_distance` bytes ahead of the available offset.
         let available_offset = current_task.available_offset();
-        if offset > available_offset.saturating_add(self.config.max_forward_seek_distance) {
+        if offset > available_offset.saturating_add(self.config.max_forward_seek_wait_distance) {
             trace!(
                 requested_offset = offset,
                 available_offset = available_offset,
@@ -584,7 +585,7 @@ mod tests {
         #[proptest(strategy = "16usize..2*1024*1024")]
         client_part_size: usize,
         #[proptest(strategy = "1u64..4*1024*1024")]
-        max_forward_seek_distance: u64,
+        max_forward_seek_wait_distance: u64,
         #[proptest(strategy = "1u64..4*1024*1024")]
         max_backward_seek_distance: u64,
     }
@@ -622,7 +623,7 @@ mod tests {
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             read_timeout: Duration::from_secs(5),
-            max_forward_seek_distance: test_config.max_forward_seek_distance,
+            max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
         };
 
@@ -654,7 +655,7 @@ mod tests {
             max_request_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
         run_sequential_read_test(part_stream, 1024 * 1024 + 111, 1024 * 1024, config);
@@ -671,7 +672,7 @@ mod tests {
             max_request_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
         run_sequential_read_test(part_stream, 16 * 1024 * 1024 + 111, 1024 * 1024, config);
@@ -688,7 +689,7 @@ mod tests {
             max_request_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
 
@@ -757,7 +758,7 @@ mod tests {
             max_request_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
 
@@ -817,7 +818,7 @@ mod tests {
             max_request_size: 81509,
             sequential_prefetch_multiplier: 1,
             client_part_size: 181682,
-            max_forward_seek_distance: 1,
+            max_forward_seek_wait_distance: 1,
             max_backward_seek_distance: 18668,
         };
         run_sequential_read_test(default_stream(), object_size, read_size, config);
@@ -844,7 +845,7 @@ mod tests {
             first_request_size: test_config.first_request_size,
             max_request_size: test_config.max_request_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            max_forward_seek_distance: test_config.max_forward_seek_distance,
+            max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
             ..Default::default()
         };
@@ -917,7 +918,7 @@ mod tests {
             max_request_size: 2147621,
             sequential_prefetch_multiplier: 4,
             client_part_size: 516882,
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
@@ -932,7 +933,7 @@ mod tests {
             max_request_size: 105938,
             sequential_prefetch_multiplier: 7,
             client_part_size: 1219731,
-            max_forward_seek_distance: 16 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
@@ -947,7 +948,7 @@ mod tests {
             max_request_size: 105938,
             sequential_prefetch_multiplier: 7,
             client_part_size: 1219731,
-            max_forward_seek_distance: 2260662,
+            max_forward_seek_wait_distance: 2260662,
             max_backward_seek_distance: 2369799,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
@@ -962,7 +963,7 @@ mod tests {
             max_request_size: 863511,
             sequential_prefetch_multiplier: 5,
             client_part_size: 1972409,
-            max_forward_seek_distance: 2810651,
+            max_forward_seek_wait_distance: 2810651,
             max_backward_seek_distance: 3531090,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
@@ -1069,7 +1070,7 @@ mod tests {
             let max_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
             let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
-            let max_forward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
+            let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
             let config = MockClientConfig {
@@ -1087,7 +1088,7 @@ mod tests {
                 first_request_size,
                 max_request_size,
                 sequential_prefetch_multiplier,
-                max_forward_seek_distance,
+                max_forward_seek_wait_distance,
                 max_backward_seek_distance,
                 ..Default::default()
             };
@@ -1126,7 +1127,7 @@ mod tests {
             let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
             let part_size = rng.gen_range(16usize..128 * 1024);
-            let max_forward_seek_distance = rng.gen_range(16u64..192 * 1024);
+            let max_forward_seek_wait_distance = rng.gen_range(16u64..192 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..192 * 1024);
 
             let config = MockClientConfig {
@@ -1144,7 +1145,7 @@ mod tests {
                 first_request_size,
                 max_request_size,
                 sequential_prefetch_multiplier,
-                max_forward_seek_distance,
+                max_forward_seek_wait_distance,
                 max_backward_seek_distance,
                 ..Default::default()
             };
