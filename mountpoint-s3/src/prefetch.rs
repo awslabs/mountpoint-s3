@@ -492,7 +492,7 @@ where
         // it. Otherwise, we're willing to wait for the bytes to download only if they're coming "soon", where
         // soon is defined as up to `max_forward_seek_wait_distance` bytes ahead of the available offset.
         let available_offset = current_task.available_offset();
-        if offset > available_offset.saturating_add(self.config.max_forward_seek_wait_distance) {
+        if offset >= available_offset.saturating_add(self.config.max_forward_seek_wait_distance) {
             trace!(
                 requested_offset = offset,
                 available_offset = available_offset,
