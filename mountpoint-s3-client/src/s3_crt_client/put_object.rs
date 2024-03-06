@@ -4,6 +4,7 @@ use std::time::Instant;
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
+use futures::{select_biased, FutureExt as _};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
@@ -165,11 +166,19 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
-        self.total_bytes += slice.len() as u64;
-        self.writer
-            .write(slice)
-            .await
-            .map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
+        // Check if the request has already finished (which can only happen because of an error in
+        // the request), and fail the write if so. Ordering doesn't matter here as it should be
+        // impossible for the request to succeed while we still hold `&mut self`, as no one can call
+        // `complete()`.
+        select_biased! {
+            result = self.writer.write(slice).fuse() => {
+                self.total_bytes += slice.len() as u64;
+                result.map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
+            }
+
+            // Request can't have succeeded if we still own `&mut self`
+            result = (&mut self.body).fuse() => Err(result.expect_err("request can't succeed while still writing")),
+        }
     }
 
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
@@ -184,15 +193,25 @@ impl PutObjectRequest for S3PutObjectRequest {
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.review_callback.set(review_callback);
-        let body = {
-            self.writer
-                .complete()
-                .await
-                .map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
-            self.body
-        };
 
-        let _ = body.await?;
+        let mut request = self.body.fuse();
+
+        // Check if the request has already finished (because of an error), and fail the write if
+        // so. Ordering here is significant: if both futures are ready (which could happen if we
+        // were not polled for a long time, and so the request succeeded _because_ of the
+        // `self.writer.complete()` call), we want to proceed with the complete path.
+        select_biased! {
+            result = self.writer.complete().fuse() => {
+                let _ = result.map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
+
+                // Now wait for the request to finish.
+                let _ = request.await?;
+            }
+
+            // Request can't have succeeded if we still own it and the `complete()` future is still
+            // incomplete, which we know it is because this is a biased select.
+            result = request => return Err(result.expect_err("request can't succeed while still completing")),
+        };
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
