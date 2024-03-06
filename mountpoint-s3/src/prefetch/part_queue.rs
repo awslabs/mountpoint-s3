@@ -106,8 +106,8 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
         let part_size = part.as_ref().ok().map(|part| part.len());
-        let send_result = self.sender.send_blocking(part);
         // Unbounded channel will never actually block
+        let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {
             trace!("closed channel");
         }
