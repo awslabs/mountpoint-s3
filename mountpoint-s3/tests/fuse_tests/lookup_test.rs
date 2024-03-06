@@ -235,14 +235,12 @@ where
     assert!(m.file_type().is_file());
 }
 
-#[cfg(feature = "negative_cache")]
 #[cfg(feature = "s3_tests")]
 #[test]
 fn lookup_with_negative_cache_s3() {
     lookup_with_negative_cache(fuse::s3_session::new);
 }
 
-#[cfg(feature = "negative_cache")]
 #[test]
 fn lookup_with_negative_cache_mock() {
     lookup_with_negative_cache(fuse::mock_session::new);
