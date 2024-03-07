@@ -1109,8 +1109,6 @@ mod tests {
             assert_eq!(next_offset, object_size);
         }
 
-        // TODO: reenable this test when issues with task termination are fixed in shuttle
-        #[ignore]
         #[test]
         fn sequential_read_stress() {
             check_random(sequential_read_stress_helper, 1000);
@@ -1175,8 +1173,6 @@ mod tests {
             }
         }
 
-        // TODO: reenable this test when issues with task termination are fixed in shuttle
-        #[ignore]
         #[test]
         fn random_read_stress() {
             check_random(random_read_stress_helper, 1000);
