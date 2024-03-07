@@ -5,8 +5,8 @@ use tracing::trace;
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
-use crate::sync::atomic::{AtomicBool, Ordering};
-use crate::sync::AsyncMutex;
+use crate::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use crate::sync::{Arc, AsyncMutex};
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
@@ -15,23 +15,32 @@ pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
     receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
     failed: AtomicBool,
+    /// The total number of bytes sent to the underlying queue of `self.receiver`
+    bytes_received: Arc<AtomicUsize>,
 }
 
 /// Producer side of the queue of [Part]s.
 #[derive(Debug)]
 pub struct PartQueueProducer<E: std::error::Error> {
     sender: Sender<Result<Part, PrefetchReadError<E>>>,
+    /// The total number of bytes sent to `self.sender`
+    bytes_sent: Arc<AtomicUsize>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
     let (sender, receiver) = unbounded();
+    let bytes_counter = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
         receiver,
         failed: AtomicBool::new(false),
+        bytes_received: Arc::clone(&bytes_counter),
     };
-    let part_queue_producer = PartQueueProducer { sender };
+    let part_queue_producer = PartQueueProducer {
+        sender,
+        bytes_sent: bytes_counter,
+    };
     (part_queue, part_queue_producer)
 }
 
@@ -84,11 +93,18 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             Ok(part)
         }
     }
+
+    pub fn bytes_received(&self) -> usize {
+        self.bytes_received.load(Ordering::SeqCst)
+    }
 }
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
+        if let Ok(ref part) = part {
+            self.bytes_sent.fetch_add(part.len(), Ordering::SeqCst);
+        }
         // Unbounded channel will never actually block
         let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {
