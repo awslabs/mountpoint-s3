@@ -1,3 +1,14 @@
+## v0.8.0 (March 8, 2024)
+
+### Breaking changes
+
+* S3 requests are now canceled when dropped. As part of this change, there is a new `S3RequestError::RequestCanceled` enum variant. ([#794](https://github.com/awslabs/mountpoint-s3/pull/794))
+
+### Other changes
+
+* Added new metrics to track number of known S3 endpoint IPs. ([#778](https://github.com/awslabs/mountpoint-s3/pull/778))
+* Request IDs are now logged for meta request failures. ([#790](https://github.com/awslabs/mountpoint-s3/pull/790))
+
 ## v0.7.0 (February 12, 2023)
 
 ### Breaking changes
