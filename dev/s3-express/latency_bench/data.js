@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709814682414,
+  "lastUpdate": 1709820481682,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "158502535+andrewatamzn@users.noreply.github.com",
-            "name": "andrewatamzn",
-            "username": "andrewatamzn"
-          },
-          "committer": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "distinct": true,
-          "id": "30b2b6ac4957ab92058b2d51db3b0b0a9404aeea",
-          "message": "update caching docs (#763)\n\nSigned-off-by: andrewatamzn <158502535+andrewatamzn@users.noreply.github.com>",
-          "timestamp": "2024-02-22T11:33:26Z",
-          "tree_id": "0977e18d85617a7c8b76805983ce19f1132d9fae",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/30b2b6ac4957ab92058b2d51db3b0b0a9404aeea"
-        },
-        "date": 1708604211233,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.147,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.541,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.268,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 6.75,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 24.629948300000002,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 23.5997353,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1005,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.662889399999997,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "846f026e87ade3e59afbaabaa5c2adf9967aee5f",
+          "message": "Add request ID to meta request failures and add tests (#790)\n\nA side effect of https://github.com/awslabs/mountpoint-s3/pull/669 was\nthat there's now no way to get request IDs for failed requests at the\ndefault logging settings, as only DEBUG-level messages include the\nrequest IDs. This change adds request IDs to the meta request failure\nmessage when available, so that these WARN-level messages still include\nrequest IDs.\n\nI also added some new infrastructure to test metrics and log messages.\nFor metrics, we build a new `metrics::Recorder` that collects all the\nmetrics and can then be searched to find them. For log messages, we\nbuild a `tracing_subscriber::Layer` that collects all tracing events\nemitted while enabled. In both cases, the new objects aren't thread\nsafe, as both `Recorder`s and `Layer`s are global state. So these tests\nneed to continue to use `rusty_fork` to split into a new process per\ntest.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-03-07T12:05:58Z",
+          "tree_id": "0325df875d36498b013aeec3f2f2e81a05f60972",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/846f026e87ade3e59afbaabaa5c2adf9967aee5f"
+        },
+        "date": 1709820478439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.141,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.514,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.278,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.984,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.808343,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 21.7155274,
             "unit": "milliseconds"
           }
         ]
