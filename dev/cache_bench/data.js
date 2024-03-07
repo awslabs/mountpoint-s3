@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709746042445,
+  "lastUpdate": 1709816025295,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -399,6 +399,110 @@ window.BENCHMARK_DATA = {
           {
             "name": "cache_sequential_read_small_file",
             "value": 976.47158203125,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "distinct": true,
+          "id": "77476b751afc1cc17e79be4caea4992daaeed639",
+          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-03-07T09:38:37Z",
+          "tree_id": "5c34c94f0ae5728da675462b29266d63c77c12a4",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/77476b751afc1cc17e79be4caea4992daaeed639"
+        },
+        "date": 1709816024825,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "cache_random_read_four_threads_direct_io",
+            "value": 43.32783203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read_four_threads_direct_io_small_file",
+            "value": 2043.347265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read_four_threads",
+            "value": 47.5982421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read_four_threads_small_file",
+            "value": 1554.104296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read_direct_io",
+            "value": 9.734765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read_direct_io_small_file",
+            "value": 394.48212890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read",
+            "value": 13.01767578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_random_read_small_file",
+            "value": 274.252734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads_direct_io",
+            "value": 721.394140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads_direct_io_small_file",
+            "value": 4229.0392578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads",
+            "value": 515.9423828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_four_threads_small_file",
+            "value": 1343.7630859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_direct_io",
+            "value": 308.34853515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_direct_io_small_file",
+            "value": 1555.741796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read",
+            "value": 314.7466796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "cache_sequential_read_small_file",
+            "value": 1116.0875,
             "unit": "MiB/s"
           }
         ]
