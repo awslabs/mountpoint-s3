@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709811782151,
+  "lastUpdate": 1709814682414,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fa20a26234a485999f73272337a6d6525aab9dee",
-          "message": "added 20 threads for creating files for S3 express benchmark (#776)\n\n* Added S3 express benchmark\r\n\r\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\r\n\r\n* Made the output file for benchmark result same for S3 express and standard S3\r\n\r\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\r\n\r\n* Adding create only instead on create on open as it is failing\r\n\r\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\r\n\r\n* Added threads for file creation fio job\r\n\r\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\r\n\r\n* Added 20 threads to create 100000 files\r\n\r\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\r\n\r\n---------\r\n\r\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-22T09:44:13Z",
-          "tree_id": "93384b6bcc3d3a7a46c8498397b812a40fd29c73",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fa20a26234a485999f73272337a6d6525aab9dee"
-        },
-        "date": 1708597805698,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.153,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.544,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.265,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.301,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 24.8160137,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 24.1051341,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1005,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.279349800000002,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d61d688f93ffb3f35fa1019a0b36f6c2e8228107",
+          "message": "Record seek_distance metrics whether or not the seek triggers a reset (#800)\n\nBy always recording the length of a seek attempt, we should get a better picture of the read pattern. The `out_of_order` metric can already be used to determine whether or not the seek could be performed without resetting the prefetcher.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-03-07T11:16:43Z",
+          "tree_id": "ed96e6c7ad34c0ec4ac7da40278fda7b058f06f7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d61d688f93ffb3f35fa1019a0b36f6c2e8228107"
+        },
+        "date": 1709814681898,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.14,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.516,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.248,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.534,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 23.2947208,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.662889399999997,
             "unit": "milliseconds"
           }
         ]
