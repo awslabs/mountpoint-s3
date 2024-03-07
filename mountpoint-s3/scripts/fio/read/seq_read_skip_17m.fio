@@ -1,0 +1,13 @@
+[global]
+name=fs_bench
+bs=256m
+runtime=30s
+time_based
+group_reporting
+
+[seq_read_skip_17m]
+size=100G
+rw=read:17m
+ioengine=sync
+fallocate=none
+startdelay=30s

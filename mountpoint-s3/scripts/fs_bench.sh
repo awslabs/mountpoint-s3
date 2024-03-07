@@ -77,6 +77,7 @@ run_fio_job() {
       then $job.read.bw / 1024
       elif ($job."job options".rw == "randread") then $job.read.bw / 1024
       elif ($job."job options".rw == "randwrite") then $job.write.bw / 1024
+      elif ($job."job options".rw | startswith("read")) then $job.read.bw / 1024
       else $job.write.bw / 1024 end)) | {name: .name, value: (.value / .len), unit: "MiB/s"}' ${results_dir}/${job_name}_iter*.json | tee ${results_dir}/${job_name}_parsed.json
 }
 
