@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709820560063,
+  "lastUpdate": 1709824537960,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "hernaa@amazon.com",
-            "name": "Andres Santana",
-            "username": "arsh"
-          },
-          "committer": {
-            "email": "hernaa@amazon.com",
-            "name": "Andres Santana",
-            "username": "arsh"
-          },
-          "distinct": true,
-          "id": "5b8fb205480b65f470e362af50f753e3793e63bb",
-          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
-          "timestamp": "2024-02-24T13:45:46Z",
-          "tree_id": "0bf38fa5d14d8b4fd6a8654e92e2cbf795fcc33c",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5b8fb205480b65f470e362af50f753e3793e63bb"
-        },
-        "date": 1708783005326,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.073,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.183,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.14,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.969,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 62.348918399999995,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 62.7843646,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 55.8887609,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "56591e7b6dd2b49acefa9ce8df7eaacb5f3f9647",
+          "message": "Release v1.5.0 (#801)\n\n* Release v1.5.0\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add CRT change\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-03-07T14:49:54Z",
+          "tree_id": "b6750d5d5d3efa2d4f04a0ea66ab5d785cc30a75",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/56591e7b6dd2b49acefa9ce8df7eaacb5f3f9647"
+        },
+        "date": 1709824537354,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.081,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.166,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.215,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 10.924,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 72.1332263,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 61.4512896,
             "unit": "milliseconds"
           }
         ]
