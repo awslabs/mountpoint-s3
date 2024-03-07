@@ -1,42 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709834553469,
+  "lastUpdate": 1709849806459,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "distinct": true,
-          "id": "f005b582948894e38053679841fc64a9b70d516d",
-          "message": "Checking the number of files before starting fio job for creating files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-22T15:40:59Z",
-          "tree_id": "561230d5e2d4d99b9212690b82ed821fc14cef74",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/f005b582948894e38053679841fc64a9b70d516d"
-        },
-        "date": 1708616908101,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "time_to_first_byte_read",
-            "value": 22.2964579,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.7652692,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 23.138090899999998,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "distinct": true,
+          "id": "9aecc8cda680228b149d8aba37c6ce5ddfd12a12",
+          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-03-07T17:52:08Z",
+          "tree_id": "98a46e7fa1f8d9345aecbb5a800173d55fc12440",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/9aecc8cda680228b149d8aba37c6ce5ddfd12a12"
+        },
+        "date": 1709849805970,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.149,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.519,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.227,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 9.002,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 21.322874300000002,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.3913442,
             "unit": "milliseconds"
           }
         ]
