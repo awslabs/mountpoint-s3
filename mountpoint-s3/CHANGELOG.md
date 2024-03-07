@@ -1,5 +1,14 @@
 ## Unreleased
 
+## v1.5.0 (March 7, 2024)
+
+### New features
+* When caching is enabled, Mountpoint also remembers when objects do **not** exist, in order to reduce repeated lookups. ([#696](https://github.com/awslabs/mountpoint-s3/pull/696))
+
+### Other changes
+* Cancel S3 requests when dropped. Addresses an issue where the prefetcher could keep streaming up to 2GB of data that would never be used. ([#794](https://github.com/awslabs/mountpoint-s3/pull/794))
+* Improve read throughput in more non-sequential access patterns by better accounting for the progress of in-flight prefetch requests. ([#797](https://github.com/awslabs/mountpoint-s3/pull/797))
+
 ## v1.4.1 (February 16, 2024)
 
 ### Other changes
