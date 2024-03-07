@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709824472657,
+  "lastUpdate": 1709834553469,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "distinct": true,
-          "id": "e97d10023952f31465635a703f63adf184e77f04",
-          "message": "Changed the number of threads to 40 for creating 100000 files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-22T14:35:19Z",
-          "tree_id": "2046c187bd61bef040b04848a2889017d93241a3",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/e97d10023952f31465635a703f63adf184e77f04"
-        },
-        "date": 1708615143584,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.15,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.532,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.224,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.293,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 24.067795800000003,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 23.5345989,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1059,6 +1005,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.3208865,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "56591e7b6dd2b49acefa9ce8df7eaacb5f3f9647",
+          "message": "Release v1.5.0 (#801)\n\n* Release v1.5.0\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add CRT change\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-03-07T14:49:54Z",
+          "tree_id": "b6750d5d5d3efa2d4f04a0ea66ab5d785cc30a75",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/56591e7b6dd2b49acefa9ce8df7eaacb5f3f9647"
+        },
+        "date": 1709834552873,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.143,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.523,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.289,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.538,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 24.0006828,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 23.138090899999998,
             "unit": "milliseconds"
           }
         ]
