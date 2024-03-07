@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709849806459,
+  "lastUpdate": 1709851526383,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "distinct": true,
-          "id": "6cf6753be2d7193ca551fd72114734fe151886a2",
-          "message": "Checking the number of files before starting fio job for creating files\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-22T16:02:08Z",
-          "tree_id": "c55bd481f52f5e9fec49276ffa3dd1b77f2788b6",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/6cf6753be2d7193ca551fd72114734fe151886a2"
-        },
-        "date": 1708620237459,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.139,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.52,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.264,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.312,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 23.372809399999998,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.9862335,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.3913442,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "f5436c6ac8ae5438932b0a0fa629285780f8eddd",
+          "message": "Re-enable Shuttle tests (#804)\n\nThe Shuttle issue was fixed by https://github.com/awslabs/shuttle/pull/139\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-03-07T22:18:35Z",
+          "tree_id": "e4c1fe6bba7a8221b14b84ac07af56790a49335d",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f5436c6ac8ae5438932b0a0fa629285780f8eddd"
+        },
+        "date": 1709851525812,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.139,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.528,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.293,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.528,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 23.1306547,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.9771759,
             "unit": "milliseconds"
           }
         ]
