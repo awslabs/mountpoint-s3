@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709851526383,
+  "lastUpdate": 1709851646037,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "distinct": true,
-          "id": "8f1660f1ec8f95032b9a119c4fb38aa69f88a0e1",
-          "message": "Changed the mode of file creation to create_only as it reduces the time it takes to run the benchmark\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-23T16:10:00Z",
-          "tree_id": "f8befe30e45b6305b0ca5ab703ffd8ccb83cca07",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/8f1660f1ec8f95032b9a119c4fb38aa69f88a0e1"
-        },
-        "date": 1708707453591,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.147,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.544,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.291,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 0.03,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 23.503238399999997,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.3236407,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.9771759,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afd42dd6f8eb33a2d6546173fd87c616f4cfe11b",
+          "message": "Adding benchmarks that use caching. (#783)\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-03-07T22:21:07Z",
+          "tree_id": "b721d6a5afd6d6f0111c172beda953b9be70f590",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/afd42dd6f8eb33a2d6546173fd87c616f4cfe11b"
+        },
+        "date": 1709851645501,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.14,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.529,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.285,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.667,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.7953212,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.977201,
             "unit": "milliseconds"
           }
         ]
