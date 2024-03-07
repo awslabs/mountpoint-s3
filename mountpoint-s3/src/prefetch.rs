@@ -456,6 +456,8 @@ where
     async fn try_seek_forward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
         assert!(offset > self.next_sequential_read_offset);
         let total_seek_distance = offset - self.next_sequential_read_offset;
+        histogram!("prefetch.seek_distance", "dir" => "forward").record(total_seek_distance as f64);
+
         let Some(current_task) = self.current_task.as_mut() else {
             // Can't seek if there's no requests in flight at all
             return Ok(false);
@@ -507,15 +509,14 @@ where
             self.next_sequential_read_offset += part.len() as u64;
             self.backward_seek_window.push(part);
         }
-
-        histogram!("prefetch.seek_distance", "dir" => "forward").record(total_seek_distance as f64);
-
         Ok(true)
     }
 
     fn try_seek_backward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
         assert!(offset < self.next_sequential_read_offset);
         let backwards_length_needed = self.next_sequential_read_offset - offset;
+        histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
+
         let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize) else {
             trace!("seek failed: not enough data in backwards seek window");
             return Ok(false);
@@ -529,9 +530,6 @@ where
         }
         self.current_task = Some(request);
         self.next_sequential_read_offset = offset;
-
-        histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
-
         Ok(true)
     }
 }
