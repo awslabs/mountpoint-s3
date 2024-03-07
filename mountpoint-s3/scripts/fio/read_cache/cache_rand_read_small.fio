@@ -1,0 +1,12 @@
+[global]
+name=fs_cache_bench
+bs=256k
+runtime=30s
+time_based
+group_reporting
+
+[cache_random_read_small_file]
+size=5m
+rw=randread
+ioengine=sync
+fallocate=none
