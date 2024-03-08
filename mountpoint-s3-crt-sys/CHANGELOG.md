@@ -1,5 +1,6 @@
-## Unreleased (February 7, 2024)
+## v0.6.2 (March 7, 2024)
 
+* Incremented version number to be in lockstep with the `mountpoint-s3-crt` crate.
 * Update to latest CRT dependencies
 
 ## v0.5.3 (January 25, 2024)
