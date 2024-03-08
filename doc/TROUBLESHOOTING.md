@@ -167,53 +167,21 @@ Error: Failed to create mount process
 
 In this case, try using `--force-path-style` CLI option when you are mounting the bucket using Mountpoint.
 
-NOTE - Third party storage provider are not officially supported by Mountpoint for Amazon S3.
-
 For more details on how Mountpoint handles endpoint, please see our [configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#endpoints-and-aws-privatelink).
 
-## Directory disappear after deleting all the files within it
+## Directory disappears after deleting all the files within it
 
-Amazon S3 does not support directories and objects are just grouped using prefix.
+The Amazon S3 data model is a flat structure, with no hierarchy of subdirectories.
 Mountpoint automatically infers a directory structure for your bucket by treating the `/` separator after prefix in your object keys as a delimiter between directories.
 
-So, if all the files within a prefix are deleted, the prefix itself and the corresponding directory cease to exist.
-In this case, it is expected that mountpoint will not be able to show the directory for listing or other file system operation.
-
-Workaround to persist a directory could be creating an empty file (for example, `.keep`). These files can be hidden as `ls` filters out files with prefix `.` without `-a` option.
+If all the files within a prefix are deleted, the prefix itself and the corresponding directory cease to exist.
+In this case, it is expected that Mountpoint will no longer show the directory or be able to create new files within it. You can recreate the directory with `mkdir` and then continue creating new files within it. Alternatively, you can prevent a directory from disappearing by creating an empty, hidden file (for example, `.keep`) inside it.
 
 For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories).
 
-## Input/output error after running workload for some time
-
-It is possible that your AWS credentials may get expired while your bucket is still mounted using Mountpoint.
-In that case you will get following errors for filesystem operations:
-
-```
-ls: reading directory '.': Input/output error
-```
-
-```
-cat: new_file.txt: Input/output error
-```
-
-Please check the Mountpoint logs. If you see the following errors, then your AWS credentials have expired.
-
-```
-[WARN] lookup{req=104 ino=1 name="Input"}:
-list_objects{id=20 bucket=plutodemo continued=false delimiter=/ max_keys=1 prefix=Input/}: mountpoint_s3_client::s3_crt_client:
-meta request failed duration=10.023623ms error=ClientError(Forbidden("The provided token has expired."))
-
-[WARN] lookup{req=106 ino=1 name="Input"}:
-head_object{id=21 bucket=plutodemo key=Input}: mountpoint_s3_client::s3_crt_client:
-meta request failed duration=11.087781ms error=ClientError(Forbidden("<no message>"))
-```
-
-You might need to have a fresh mount of your bucket with valid credentials or increase your credential session duration if that suits your use case.
-For more details to configure AWS credentials, see the [configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials).
-
 ## Throttling Errors
 
-When looking at the logs, these errors will appear as failed requests with `http_status=503` or `http_status=429` . For example:
+When looking at the logs, throttling errors will appear as failed requests with `http_status=503` or `http_status=429`. For example:
 
 ```
 [WARN] lookup{req=20094 ino=109 name="***"}:
@@ -226,8 +194,10 @@ request failed request_type=Default http_status=503 range=None duration=314.0218
 ```
 
 The 503 or 429 status codes means the request limits have been exceeded.
-Mountpoint itself does not do any throttling, so any throttling will be from S3 or possibly dependent services, like STS which is used to provide credentials.
+Mountpoint itself does not do any throttling. These errors are returned from S3 or from dependent services, like STS which is used to provide credentials.
 
-You can try to mitigate  throttling (503 Slow Down) by distributing objects across multiple prefixes if your use case allows it.
-Since, you can send 3,500 PUT/COPY/POST/DELETE or 5,500 GET/HEAD requests per second per prefix in an S3 bucket, increasing the prefix in the bucket would allow more requests to be processed by S3.
-Amazon S3 gradually scales up to handle requests for each of the prefixes separately.
+Amazon S3 automatically scales to high request rates.
+Your application can achieve at least 3,500 PUT/COPY/POST/DELETE or 5,500 GET/HEAD requests per second per partitioned Amazon S3 prefix.
+You can reduce the impact of throttling errors by distributing objects across multiple prefixes in your bucket.
+
+For more details on optimizing Amazon S3 performance and avoid throttling errors, see the [S3 best practices documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html).
