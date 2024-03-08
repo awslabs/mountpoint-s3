@@ -18,7 +18,7 @@ In general, we run each IO operation for 30 seconds against a 100 GiB file. But 
 ***write workload*** - we measure write throughput by using fio to simulate sequential write workloads. The fio configuration files for write workloads can be found at path [mountpoint-s3/scripts/fio/write/](../mountpoint-s3/scripts/fio/write).
 
 ### Regression Testing
-Our CI runs the benchmark automatically for any new commits to the main branch or specific pull requests that we have reviewed and tagged with **performance** label. Every benchmark from the CI workflow will be running on `m5n.24xlarge` EC2 instances (100 Gbps network speed) with Ubuntu 22.04 in us-east-1 against a bucket in us-east-1.
+Our CI runs the benchmark automatically for any new commits to the main branch or specific pull requests that we have reviewed and tagged with **performance** label. Every benchmark from the CI workflow will be running on `m5dn.24xlarge` EC2 instances (100 Gbps network speed) with Ubuntu 22.04 in us-east-1 against a bucket in us-east-1.
 
 We keep the records of benchmarking results in `gh-pages` branch and the performance charts are available for viewing as [throughput chart](https://awslabs.github.io/mountpoint-s3/dev/bench/) and [latency chart](https://awslabs.github.io/mountpoint-s3/dev/latency_bench/).
 
