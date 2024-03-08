@@ -26,8 +26,8 @@ if [[ -z "${S3_BUCKET_SMALL_BENCH_FILE}" ]]; then
   exit 1
 fi
 
-if [[ -n "${JOB_NAME_FILTER}" ]]; then
-  echo "Will only run fio jobs which match $JOB_NAME_FILTER"
+if [[ -n "${S3_JOB_NAME_FILTER}" ]]; then
+  echo "Will only run fio jobs which match $S3_JOB_NAME_FILTER"
 fi
 
 base_dir=$(dirname "$0")
@@ -87,8 +87,8 @@ run_fio_job() {
 
 should_run_job() {
     job_file=$1
-    if [[ -n "${JOB_NAME_FILTER}" ]]; then
-      if [[ "${job_file}" == *"${JOB_NAME_FILTER}"* ]]; then
+    if [[ -n "${S3_JOB_NAME_FILTER}" ]]; then
+      if [[ "${job_file}" == *"${S3_JOB_NAME_FILTER}"* ]]; then
         # job name matches filter
         return 0
       else
@@ -104,7 +104,7 @@ read_benchmark () {
   for job_file in "${jobs_dir}"/*.fio; do
 
     if ! should_run_job "${job_file}"; then
-      echo "Skipping job ${job_file} because it does not match ${JOB_NAME_FILTER}"
+      echo "Skipping job ${job_file} because it does not match ${S3_JOB_NAME_FILTER}"
       continue
     fi
 
@@ -166,7 +166,7 @@ write_benchmark () {
   for job_file in "${jobs_dir}"/*.fio; do
 
     if ! should_run_job "${job_file}"; then
-      echo "Skipping job ${job_file} because it does not match ${JOB_NAME_FILTER}"
+      echo "Skipping job ${job_file} because it does not match ${S3_JOB_NAME_FILTER}"
       continue
     fi
 

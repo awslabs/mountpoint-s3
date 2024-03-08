@@ -5,7 +5,7 @@ To avoid new changes introducing performance regressions, we run a performance b
 
 ### Workloads
 
-***read workload*** - we measure two aspects of the read operation, throughput and latency. For the first part, we use fio to simulate IO workloads for sequential read or random read for a specific duration then measure their throughput. On the latency side, we are using time to first byte as data points by running workloads that read one byte off of existing files on Mountpoint and measure the time it takes to complete the operation. Each of the test is defined in a separate .fio file, and the file name indicates what is the test case for that file, for example `seq_read.fio` is the benchmark for sequential read. All of fio configuration files can be found at path [mountpoint-s3/scripts/fio/read/](../mountpoint-s3/scripts/fio/read) and [mountpoint-s3/scripts/fio/read_latency/](../mountpoint-s3/scripts/fio/read_latency).
+***read workload*** - we measure two aspects of the read operation, throughput (with and without caching enabled) and latency. For the first part, we use fio to simulate IO workloads for sequential read or random read for a specific duration then measure their throughput. On the latency side, we are using time to first byte as data points by running workloads that read one byte off of existing files on Mountpoint and measure the time it takes to complete the operation. Each of the test is defined in a separate .fio file, and the file name indicates what is the test case for that file, for example `seq_read.fio` is the benchmark for sequential read. All of fio configuration files can be found at path [mountpoint-s3/scripts/fio/read/](../mountpoint-s3/scripts/fio/read) and [mountpoint-s3/scripts/fio/read_latency/](../mountpoint-s3/scripts/fio/read_latency).
 
 In general, we run each IO operation for 30 seconds against a 100 GiB file. But there are some variants in configuration where we also want to test to see how Mountpoint would perform with these configurations. Here is the list of all the variants we have tested.
 
@@ -20,7 +20,7 @@ In general, we run each IO operation for 30 seconds against a 100 GiB file. But 
 ### Regression Testing
 Our CI runs the benchmark automatically for any new commits to the main branch or specific pull requests that we have reviewed and tagged with **performance** label. Every benchmark from the CI workflow will be running on `m5dn.24xlarge` EC2 instances (100 Gbps network speed) with Ubuntu 22.04 in us-east-1 against a bucket in us-east-1.
 
-We keep the records of benchmarking results in `gh-pages` branch and the performance charts are available for viewing as [throughput chart](https://awslabs.github.io/mountpoint-s3/dev/bench/) and [latency chart](https://awslabs.github.io/mountpoint-s3/dev/latency_bench/).
+We keep the records of benchmarking results in `gh-pages` branch and the performance charts are available for viewing as [throughput chart](https://awslabs.github.io/mountpoint-s3/dev/bench/), [throughput (with cache) chart](https://awslabs.github.io/mountpoint-s3/dev/cache_bench/) and [latency chart](https://awslabs.github.io/mountpoint-s3/dev/latency_bench/).
 
 ### Running the benchmark
 While our benchmark script is written for CI testing only, it is possible to run manually.
@@ -38,6 +38,10 @@ You can use the following steps.
         export S3_BUCKET_TEST_PREFIX=prefix_path/
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
+        # to filter by job name; e.g. to only run small jobs
+        export S3_JOB_NAME_FILTER=small
+        # to skip setting up local EC2 storage for caching benchmarks; the value is not important
+        export S3_SKIP_STORAGE_SETUP=
 
 3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
 
@@ -52,7 +56,7 @@ You can use the following steps.
         fio --directory=$MOUNT_DIR/bench_dir_10000 create/create_files_10000.fio
         fio --directory=$MOUNT_DIR/bench_dir_100000 create/create_files_100000.fio
 
-4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
+4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh), [throughput with caching](../mountpoint-s3/scripts/fs_cache_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
         ./mountpoint-s3/scripts/fs_bench.sh
 
