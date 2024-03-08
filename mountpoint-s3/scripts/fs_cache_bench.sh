@@ -51,6 +51,7 @@ run_fio_job() {
   job_name=$(basename "${job_file}")
   job_name="${job_name%.*}"
 
+
   echo -n "Running job ${job_name} for ${iterations} iterations... "
 
   for i in $(seq 1 $iterations);
@@ -81,7 +82,6 @@ run_fio_job() {
       then $job.read.bw / 1024
       elif ($job."job options".rw == "randread") then $job.read.bw / 1024
       elif ($job."job options".rw == "randwrite") then $job.write.bw / 1024
-      elif ($job."job options".rw | startswith("read")) then $job.read.bw / 1024
       else $job.write.bw / 1024 end)) | {name: .name, value: (.value / .len), unit: "MiB/s"}' ${results_dir}/${job_name}_iter*.json | tee ${results_dir}/${job_name}_parsed.json
 }
 
@@ -98,8 +98,30 @@ should_run_job() {
     fi
 }
 
-read_benchmark () {
-  jobs_dir=mountpoint-s3/scripts/fio/read
+should_setup_storage() {
+    if [[ -n "${SKIP_STORAGE_SETUP}" ]]; then
+      echo "Skipping storage setup"
+      return 1
+    else
+      echo "Setting up storage"
+      return 0
+    fi
+}
+
+cache_benchmark () {
+  jobs_dir=mountpoint-s3/scripts/fio/read_cache
+
+  if should_setup_storage; then
+    local_storage=/localstorage
+    sudo mkfs -t ext4 /dev/nvme1n1 #/dev/nvme0n1 is used by root EBS vol
+    sudo mkdir $local_storage
+    current_user_id=$(id -u)
+    sudo mount /dev/nvme1n1 $local_storage
+    sudo chown -R $current_user_id $local_storage
+    echo "mounted local file system at $local_storage"
+  else
+    local_storage=/tmp
+  fi
 
   for job_file in "${jobs_dir}"/*.fio; do
 
@@ -109,6 +131,8 @@ read_benchmark () {
     fi
 
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
+    # creates a cache directoy with the suffix of the mount directory
+    cache_dir=$(mktemp -d -p $local_storage -t `basename "${mount_dir}"`-cache-XXXXXXXXXXXX)
 
     job_name=$(basename "${job_file}")
     job_name="${job_name%.*}"
@@ -116,7 +140,7 @@ read_benchmark () {
 
     # cleanup mount directory and log directory
     cleanup() {
-      echo "read_benchmark:cleanup"
+      echo "cache_benchmark:cleanup"
       # unmount file system only if it is mounted
       ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
       rm -rf ${mount_dir}
@@ -135,6 +159,7 @@ read_benchmark () {
       ${S3_BUCKET_NAME} ${mount_dir} \
       --debug \
       --allow-delete \
+      --cache=${cache_dir} \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --part-size=16777216
@@ -152,73 +177,22 @@ read_benchmark () {
       bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
     fi
 
-    # run the benchmark
-    run_fio_job $job_file $bench_file $mount_dir $log_dir
-
-    cleanup
-
-  done
-}
-
-write_benchmark () {
-  jobs_dir=mountpoint-s3/scripts/fio/write
-
-  for job_file in "${jobs_dir}"/*.fio; do
-
-    if ! should_run_job "${job_file}"; then
-      echo "Skipping job ${job_file} because it does not match ${JOB_NAME_FILTER}"
-      continue
-    fi
-
-    job_name=$(basename "${job_file}")
-    job_name="${job_name%.*}"
-    log_dir=logs/${job_name}
-
-
-    # cleanup mount directory and log directory
-    cleanup() {
-      echo "write_benchmark:cleanup"
-      # unmount file system only if it is mounted
-      ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
-      rm -rf ${mount_dir}
-      rm -rf ${log_dir}
-    }
-
-    # trap cleanup on exit
-    trap 'cleanup' EXIT
-
-    rm -rf ${log_dir}
-    mkdir -p ${log_dir}
-
-    # mount file system
-    mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-    set +e
-    cargo run --quiet --release -- \
-      ${S3_BUCKET_NAME} ${mount_dir} \
-      --debug \
-      --allow-delete \
-      --log-directory=${log_dir} \
-      --prefix=${S3_BUCKET_TEST_PREFIX}
-    mount_status=$?
-    set -e
-    if [ $mount_status -ne 0 ]; then
-      echo "Failed to mount file system"
+    echo "caching data in ${cache_dir} for ${job_file}"
+    cat $mount_dir/${bench_file} > /dev/null
+    if [ -z "$(ls -A ${cache_dir}/mountpoint-cache/)" ]; then
+      echo "cache directory ${cache_dir} is empty, exiting..."
       exit 1
     fi
-
-    # set bench file
-    bench_file=${job_name}_${RANDOM}.dat
-
+    # report disk usage
+    df -hT
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
 
     cleanup
-
   done
 }
 
-read_benchmark
-write_benchmark
+cache_benchmark
 
 # combine all bench results into one json file
 jq -n '[inputs]' ${results_dir}/*_parsed.json | tee ${results_dir}/output.json
