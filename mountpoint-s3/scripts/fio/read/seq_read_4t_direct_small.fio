@@ -12,4 +12,3 @@ ioengine=sync
 fallocate=none
 direct=1
 numjobs=4
-startdelay=30s
