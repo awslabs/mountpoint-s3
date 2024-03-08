@@ -20,7 +20,12 @@ In general, we run each IO operation for 30 seconds against a 100 GiB file. But 
 ### Regression Testing
 Our CI runs the benchmark automatically for any new commits to the main branch or specific pull requests that we have reviewed and tagged with **performance** label. Every benchmark from the CI workflow will be running on `m5dn.24xlarge` EC2 instances (100 Gbps network speed) with Ubuntu 22.04 in us-east-1 against a bucket in us-east-1.
 
-We keep the records of benchmarking results in `gh-pages` branch and the performance charts are available for viewing as [throughput chart](https://awslabs.github.io/mountpoint-s3/dev/bench/), [throughput (with cache) chart](https://awslabs.github.io/mountpoint-s3/dev/cache_bench/) and [latency chart](https://awslabs.github.io/mountpoint-s3/dev/latency_bench/).
+We keep the records of benchmarking results in `gh-pages` branch and the performance charts are available for viewing:
+- [throughput chart](https://awslabs.github.io/mountpoint-s3/dev/bench/)
+- [throughput (with cache) chart](https://awslabs.github.io/mountpoint-s3/dev/cache_bench/)
+- [throughput (s3-express) chart](https://awslabs.github.io/mountpoint-s3/dev/s3-express/bench)
+- [latency chart](https://awslabs.github.io/mountpoint-s3/dev/latency_bench/)
+- [latency (s3-express) chart](https://awslabs.github.io/mountpoint-s3/dev/s3-express/latency_bench/)
 
 ### Running the benchmark
 While our benchmark script is written for CI testing only, it is possible to run manually.
@@ -40,24 +45,16 @@ You can use the following steps.
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
         # to filter by job name; e.g. to only run small jobs
         export S3_JOB_NAME_FILTER=small
-        # to skip setting up local EC2 storage for caching benchmarks; the value is not important
-        export S3_SKIP_STORAGE_SETUP=
+        # when running locally, we skip setting up local EC2 storage by default; to override that you can pass the following (value of the variable does not matter)
+        export S3_MOUNT_LOCAL_STORAGE=yes
 
-3. Create the bench files manually in your S3 bucket. You can do that by mounting the bucket on your machine using Mountpoint. Then, running fio jobs against your mount directory to let fio create the files for you.
+3. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh), [throughput with caching](../mountpoint-s3/scripts/fs_cache_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
-        MOUNT_DIR=path/to/mount
-        mount-s3 DOC-EXAMPLE-BUCKET $MOUNT_DIR/ --prefix benchmark/ --part-size=16777216
-        cd mountpoint-s3/scripts/fio/
-        fio --directory=$MOUNT_DIR/ --filename=bench5MB.bin --create_only=1 read/seq_read_small.fio
-        fio --directory=$MOUNT_DIR/ --filename=bench100GB.bin --create_only=1 read/seq_read.fio
-        mkdir $MOUNT_DIR/bench_dir_100/ $MOUNT_DIR/bench_dir_1000/ $MOUNT_DIR/bench_dir_10000/ $MOUNT_DIR/bench_dir_100000/
-        fio --directory=$MOUNT_DIR/bench_dir_100 create/create_files_100.fio
-        fio --directory=$MOUNT_DIR/bench_dir_1000 create/create_files_1000.fio
-        fio --directory=$MOUNT_DIR/bench_dir_10000 create/create_files_10000.fio
-        fio --directory=$MOUNT_DIR/bench_dir_100000 create/create_files_100000.fio
-
-4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh), [throughput with caching](../mountpoint-s3/scripts/fs_cache_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
-
+        # to run throughput benchmarks
         ./mountpoint-s3/scripts/fs_bench.sh
+        # to run throughput benchmarks with caching enabled
+        ./mountpoint-s3/scripts/fs_cache_bench.sh
+        # to run latency benchmarks
+        ./mountpoint-s3/scripts/fs_latency_bench.sh
 
-5. You should see the benchmark logs in `bench.out` file in the project root directory. The combined results will be saved into a JSON file at `results/output.json`.
+4. You should see the benchmark logs in `bench.out` file in the project root directory. The combined results will be saved into a JSON file at `results/output.json`.

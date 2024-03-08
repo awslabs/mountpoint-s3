@@ -99,7 +99,7 @@ should_run_job() {
 }
 
 should_setup_storage() {
-    if [[ -n "${S3_SKIP_STORAGE_SETUP}" ]]; then
+    if [[ -z "${S3_MOUNT_LOCAL_STORAGE}" ]]; then
       echo "Skipping storage setup"
       return 1
     else
