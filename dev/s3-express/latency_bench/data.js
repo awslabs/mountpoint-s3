@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1709906310568,
+  "lastUpdate": 1709910105886,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "distinct": true,
-          "id": "080fda178ddb94d0db8bb0cc71bd9ffb588a6339",
-          "message": "Changed the Assume Role duration to 6 hours for latency benchmarks also\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>",
-          "timestamp": "2024-02-26T10:37:07Z",
-          "tree_id": "374c66d99ba667109393fb701cedf4a9f1eff04f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/080fda178ddb94d0db8bb0cc71bd9ffb588a6339"
-        },
-        "date": 1709031840138,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.156,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.546,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.291,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.182,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 25.2974094,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 24.334791,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 23.060989399999997,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hernaa@amazon.com",
+            "name": "Andres Santana",
+            "username": "arsh"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "471abc12a33ce76139d7f094682bd41aedc6898c",
+          "message": "Benchmarks improvements (#806)\n\n* Use same fio files for caching benchmarks and remove start delay.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n* Switching from high-performance to nvme-high-performance runner.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n* Update documentation for benchmarking and make env var name consistent.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n* Do not mount local storage by default and update documentation.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>\n\n---------\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
+          "timestamp": "2024-03-08T13:34:57Z",
+          "tree_id": "43e834235e9caa5c2bba8c7a3b0638baefc7e980",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/471abc12a33ce76139d7f094682bd41aedc6898c"
+        },
+        "date": 1709910105369,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.138,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.529,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.27,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 9.002,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 21.6165018,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.1169339,
             "unit": "milliseconds"
           }
         ]
