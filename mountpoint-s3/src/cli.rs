@@ -44,7 +44,7 @@ const LOGGING_OPTIONS_HEADER: &str = "Logging options";
 const CACHING_OPTIONS_HEADER: &str = "Caching options";
 const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
 pub struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
@@ -285,6 +285,7 @@ pub struct CliArgs {
         help = "AWS Key Management Service (KMS) key ID to use with KMS server-side encryption when uploading new objects",
         help_heading = BUCKET_OPTIONS_HEADER,
         requires = "sse",
+        value_parser = clap::builder::NonEmptyStringValueParser::new(),
     )]
     pub sse_kms_key_id: Option<String>,
 }
@@ -602,6 +603,7 @@ where
     Runtime: Spawn + Send + Sync + 'static,
 {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
+    tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
 
