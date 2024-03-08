@@ -91,16 +91,16 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             params = params.storage_class(storage_class.clone());
         }
 
-        let (sse_type, key_id) = inner.server_side_encryption.clone().into_inner().unwrap_or_else(|err| {
-            error!(
-                "SSE settings were corrupted, object {} was NOT uploaded to S3, panicing, error: {}",
-                key, err
-            );
-            // Reaching this point is unlikely and means that a bit flip has happened in RAM. This is a relatively low-risk error as data can not be uploaded
-            // with wrong SSE settings yet. At the same time, after encountering this, MP would only be able to serve reads, all of the writes would fail. In
-            // future we may consider returning an error here instead of exiting.
-            std::process::exit(1);
-        });
+        let (sse_type, key_id) = match inner.server_side_encryption.clone().into_inner() {
+            Ok(sse_tuple) => sse_tuple,
+            Err(err) => {
+                error!(?key, error=?err, "SSE settings were corrupted before the upload");
+                // Reaching this point is unlikely and means that a bit flip has happened in RAM. This is a relatively low-risk error as data can not be uploaded
+                // with wrong SSE settings yet. At the same time, after encountering this, MP would only be able to serve reads, all of the writes would fail. In
+                // future we may consider returning an error here instead of exiting.
+                std::process::exit(1);
+            }
+        };
         params = params.server_side_encryption(sse_type);
         params = params.ssekms_key_id(key_id);
 
@@ -153,20 +153,18 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             .request
             .review_and_complete(move |review| verify_checksums(review, size, checksum))
             .await?;
-        self.sse
+        if let Err(err) = self
+            .sse
             .verify_response(result.sse_type.as_deref(), result.sse_kms_key_id.as_deref())
-            .unwrap_or_else(|err| {
-                error!(
-                    "SSE settings were corrupted, object {} WAS uploaded to S3, terminating, error: {}",
-                    self.key, err
-                );
-                // Reaching this point is very unlikely and means that SSE settings were corrupted in transit or on S3 side, this may be a sign of a bug
-                // in CRT code or S3. Thus, we terminate Mountpoint to send the most noticeable signal to customer about the issue. We conciously choose
-                // exiting instead of returning an error because:
-                // 1. this error would only be reported on `flush` which many applications ignore and
-                // 2. the reported error is severe as the object was already uploaded to S3.
-                std::process::exit(1);
-            });
+        {
+            error!(key=?self.key, error=?err, "SSE settings were corrupted after the upload completion");
+            // Reaching this point is very unlikely and means that SSE settings were corrupted in transit or on S3 side, this may be a sign of a bug
+            // in CRT code or S3. Thus, we terminate Mountpoint to send the most noticeable signal to customer about the issue. We prefer exiting
+            // instead of returning an error because:
+            // 1. this error would only be reported on `flush` which many applications ignore and
+            // 2. the reported error is severe as the object was already uploaded to S3.
+            std::process::exit(1);
+        }
         Ok(result)
     }
 }

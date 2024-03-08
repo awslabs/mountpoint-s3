@@ -5,7 +5,6 @@ use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
 use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::fmt::Display;
 use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
@@ -442,19 +441,19 @@ impl ServerSideEncryption {
         hasher.finalize()
     }
 
-    fn validate(&self) -> Result<(), SSECorruptedError> {
+    fn validate(&self) -> Result<(), SseCorruptedError> {
         let computed = Self::compute_checksum(self.sse_type.as_deref(), self.sse_kms_key_id.as_deref());
         if computed == self.checksum {
             Ok(())
         } else {
-            Err(SSECorruptedError::ChecksumMismatch(self.checksum, computed))
+            Err(SseCorruptedError::ChecksumMismatch(self.checksum, computed))
         }
     }
 
     /// Checks that SSE settings still match the checksum and returns the string representations of:
     /// 1. the SSE type as it is expected by S3 API;
     /// 2. and AWS KMS Key ID, if provided.
-    pub fn into_inner(self) -> Result<(Option<String>, Option<String>), SSECorruptedError> {
+    pub fn into_inner(self) -> Result<(Option<String>, Option<String>), SseCorruptedError> {
         self.validate()?;
         Ok((self.sse_type, self.sse_kms_key_id))
     }
@@ -466,17 +465,17 @@ impl ServerSideEncryption {
         &self,
         sse_type: Option<&str>,
         sse_kms_key_id: Option<&str>,
-    ) -> Result<(), SSECorruptedError> {
+    ) -> Result<(), SseCorruptedError> {
         self.validate()?; // validate in-memory values, as we are using them to decide whether to skip the response check or not
         if self.sse_type.is_some() && self.sse_type.as_deref() != sse_type {
-            return Err(SSECorruptedError::TypeMismatch(
-                self.sse_type.clone(),
+            return Err(SseCorruptedError::TypeMismatch(
+                self.sse_type.as_ref().unwrap().clone(),
                 sse_type.map(str::to_string),
             ));
         }
         if self.sse_kms_key_id.is_some() && self.sse_kms_key_id.as_deref() != sse_kms_key_id {
-            return Err(SSECorruptedError::KeyMismatch(
-                self.sse_kms_key_id.clone(),
+            return Err(SseCorruptedError::KeyMismatch(
+                self.sse_kms_key_id.as_ref().unwrap().clone(),
                 sse_kms_key_id.map(str::to_string),
             ));
         }
@@ -485,27 +484,13 @@ impl ServerSideEncryption {
 }
 
 #[derive(Debug, Error)]
-pub enum SSECorruptedError {
+pub enum SseCorruptedError {
     #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
     ChecksumMismatch(Crc32c, Crc32c),
     #[error("SSE type mismatch. expected: {0:?}, actual: {1:?}")]
-    TypeMismatch(Option<String>, Option<String>),
+    TypeMismatch(String, Option<String>),
     #[error("SSE KMS key ID mismatch. expected: {0:?}, actual: {1:?}")]
-    KeyMismatch(Option<String>, Option<String>),
-}
-
-impl Display for ServerSideEncryption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let sse_type_log = match &self.sse_type {
-            None => "bucket_default",
-            Some(sse_type) => sse_type.as_str(),
-        };
-        let sse_key_log = match &self.sse_kms_key_id {
-            None => "default",
-            Some(sse_kms_key_id) => sse_kms_key_id.as_str(),
-        };
-        write!(f, "type: {}, key id: {}", sse_type_log, sse_key_log)
-    }
+    KeyMismatch(String, Option<String>),
 }
 
 #[derive(Debug)]

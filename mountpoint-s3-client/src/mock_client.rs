@@ -749,7 +749,10 @@ impl PutObjectRequest for MockPutObjectRequest {
         let mut object: MockObject = buffer.into();
         object.set_storage_class(self.params.storage_class.clone());
         add_object(&self.objects, &self.key, object);
-        Ok(Default::default())
+        Ok(PutObjectResult {
+            sse_type: None,
+            sse_kms_key_id: None,
+        })
     }
 
     async fn review_and_complete(

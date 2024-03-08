@@ -44,7 +44,7 @@ const LOGGING_OPTIONS_HEADER: &str = "Logging options";
 const CACHING_OPTIONS_HEADER: &str = "Caching options";
 const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(name = "mount-s3", about = "Mountpoint for Amazon S3", version = build_info::FULL_VERSION)]
 pub struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
@@ -603,6 +603,7 @@ where
     Runtime: Spawn + Send + Sync + 'static,
 {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
+    tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
 
@@ -631,10 +632,6 @@ where
     #[cfg(feature = "sse_kms")]
     {
         filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
-        tracing::info!(
-            "using server-side encryption - {}",
-            filesystem_config.server_side_encryption
-        );
     }
 
     let prefetcher_config = Default::default();
