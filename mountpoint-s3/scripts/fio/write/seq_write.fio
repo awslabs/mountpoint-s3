@@ -13,4 +13,3 @@ fallocate=none
 create_on_open=1
 fsync_on_close=1
 unlink=1
-startdelay=30s

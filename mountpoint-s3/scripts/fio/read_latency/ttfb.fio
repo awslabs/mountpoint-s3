@@ -8,5 +8,4 @@ rw=read
 ioengine=sync
 fallocate=none
 direct=1
-startdelay=30s
 loops=10
