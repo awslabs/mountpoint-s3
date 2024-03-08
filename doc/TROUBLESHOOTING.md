@@ -148,3 +148,56 @@ Mountpoint logs should contain an error similar to below:
 WARN setattr{req=4 ino=21 name="init.txt"}:
 mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
 ```
+
+## Invalid Hostname for DNS resolution
+
+Mountpoint by default resolves endpoint for requests in [virtual hosted style](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+If your storage provider does not support virtual style hosted bucket, you may recieve the following error:
+
+```
+Error: Failed to create S3 client
+
+Caused by:
+    0: initial ListObjectsV2 failed for bucket my-bucket in region us-east-1
+    1: Client error
+    2: Unknown CRT error
+    3: CRT error 1059: aws-c-io: AWS_IO_DNS_INVALID_NAME, Host name was invalid for dns resolution.
+Error: Failed to create mount process
+```
+
+In this case, try using `--force-path-style` CLI option when you are mounting the bucket using Mountpoint.
+
+For more details on how Mountpoint handles endpoint, please see our [configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#endpoints-and-aws-privatelink).
+
+## Directory disappears after deleting all the files within it
+
+The Amazon S3 data model is a flat structure, with no hierarchy of subdirectories.
+Mountpoint automatically infers a directory structure for your bucket by treating the `/` separator after prefix in your object keys as a delimiter between directories.
+
+If all the files within a prefix are deleted, the prefix itself and the corresponding directory cease to exist.
+In this case, it is expected that Mountpoint will no longer show the directory or be able to create new files within it. You can recreate the directory with `mkdir` and then continue creating new files within it. Alternatively, you can prevent a directory from disappearing by creating an empty, hidden file (for example, `.keep`) inside it.
+
+For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories).
+
+## Throttling Errors
+
+When looking at the logs, throttling errors will appear as failed requests with `http_status=503` or `http_status=429`. For example:
+
+```
+[WARN] lookup{req=20094 ino=109 name="***"}:
+list_objects{id=16589 bucket=*** continued=false delimiter=/ max_keys=1 prefix=***}: mountpoint_s3_client::s3_crt_client:
+request failed request_type=Default http_status=503 range=None duration=426.995805ms ttfb=Some(7.681499ms) request_id=***
+
+[WARN] open{req=20158 ino=1706 pid=1759}:
+list_objects{id=16643 bucket=*** continued=false delimiter=/ max_keys=1 prefix=***}: mountpoint_s3_client::s3_crt_client:
+request failed request_type=Default http_status=503 range=None duration=314.021865ms ttfb=Some(8.180981ms) request_id=***
+```
+
+The 503 or 429 status codes means the request limits have been exceeded.
+Mountpoint itself does not do any throttling. These errors are returned from S3 or from dependent services, like STS which is used to provide credentials.
+
+Amazon S3 automatically scales to high request rates.
+Your application can achieve at least 3,500 PUT/COPY/POST/DELETE or 5,500 GET/HEAD requests per second per partitioned Amazon S3 prefix.
+You can reduce the impact of throttling errors by distributing objects across multiple prefixes in your bucket.
+
+For more details on optimizing Amazon S3 performance and avoid throttling errors, see the [S3 best practices documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html).
