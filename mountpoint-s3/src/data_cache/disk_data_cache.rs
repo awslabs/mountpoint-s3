@@ -291,7 +291,7 @@ impl DiskDataCache {
             .open(path.as_ref())?;
         file.write_all(CACHE_VERSION.as_bytes())?;
         let writer = &self.config.writer;
-        writer.write_to_file(&mut file, &block)
+        writer.write_to_file(&file, &block)
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {

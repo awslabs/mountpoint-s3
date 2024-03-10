@@ -61,7 +61,7 @@ fn write_file(data: &Vec<u8>) {
     file.write_all(data.as_slice()).expect("is able to write file");
 }
 
-fn write_cache_bincode(data: &Vec<u8>) {
+fn write_cache_bincode(data: &[u8]) {
     let config = DiskDataCacheConfig {
         block_size: BLOCK_SIZE,
         limit: mountpoint_s3::data_cache::CacheLimit::Unbounded,
@@ -71,13 +71,13 @@ fn write_cache_bincode(data: &Vec<u8>) {
     let cache_dir = PathBuf::from("/tmp/mp-cache1/");
     let cache = DiskDataCache::new(cache_dir, config);
     let cache_key = ObjectId::new("a".into(), ETag::for_tests());
-    let data = ChecksummedBytes::new(data.clone().into());
+    let data = ChecksummedBytes::new(data.to_owned().into());
     cache
         .put_block(cache_key.clone(), 0, 0, data)
         .expect("is able to write to cache");
 }
 
-fn write_cache_bincode2(data: &Vec<u8>) {
+fn write_cache_bincode2(data: &[u8]) {
     let config = DiskDataCacheConfig {
         block_size: BLOCK_SIZE,
         limit: mountpoint_s3::data_cache::CacheLimit::Unbounded,
@@ -88,7 +88,7 @@ fn write_cache_bincode2(data: &Vec<u8>) {
     let cache_dir = PathBuf::from("/tmp/mp-cache2/");
     let cache = DiskDataCache::new(cache_dir, config);
     let cache_key = ObjectId::new("a".into(), ETag::for_tests());
-    let data = ChecksummedBytes::new(data.clone().into());
+    let data = ChecksummedBytes::new(data.to_owned().into());
     cache
         .put_block(cache_key.clone(), 0, 0, data)
         .expect("is able to write to cache");
@@ -110,9 +110,9 @@ fn setup() {
 pub fn criterion_benchmark(c: &mut Criterion) {
     setup();
 
-    c.bench_function("read_cache_bincode", |b| b.iter(|| read_cache_bincode()));
-    c.bench_function("read_cache_bincode2", |b| b.iter(|| read_cache_bincode2()));
-    c.bench_function("read_file", |b| b.iter(|| read_file()));
+    c.bench_function("read_cache_bincode", |b| b.iter(read_cache_bincode));
+    c.bench_function("read_cache_bincode2", |b| b.iter(read_cache_bincode2));
+    c.bench_function("read_file", |b| b.iter(read_file));
 
     cleanup();
 }
