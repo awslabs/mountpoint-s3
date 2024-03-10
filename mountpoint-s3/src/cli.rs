@@ -668,7 +668,7 @@ where
                 filesystem_config,
                 fuse_config,
                 &bucket_description,
-            )?;
+             )?;
 
             fuse_session.run_on_close(Box::new(move || {
                 drop(managed_cache_dir);

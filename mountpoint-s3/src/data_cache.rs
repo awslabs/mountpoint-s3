@@ -6,16 +6,20 @@
 
 mod cache_directory;
 mod disk_data_cache;
+mod disk_data_cache_io;
 mod in_memory_data_cache;
 
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
 pub use crate::data_cache::cache_directory::ManagedCacheDir;
-pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskBlock, DiskDataCache, DiskDataCacheConfig};
+pub use crate::data_cache::disk_data_cache_io::{
+    Bincode2DiskBlockFileReader, Bincode2DiskBlockFileWriter, BincodeDiskBlockFileReader, BincodeDiskBlockFileWriter,
+    DiskDataReader, DiskDataWriter,
+};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
-
-use crate::object::ObjectId;
+pub use crate::object::ObjectId;
 
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;

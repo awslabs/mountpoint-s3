@@ -1,9 +1,10 @@
 //! Module for the on-disk data cache implementation.
 
 use std::fs;
-use std::io::{ErrorKind, Read, Seek, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use bytes::Bytes;
@@ -19,6 +20,9 @@ use crate::data_cache::DataCacheError;
 use crate::object::ObjectId;
 use crate::sync::Mutex;
 
+use super::disk_data_cache_io::{
+    BincodeDiskBlockFileReader, BincodeDiskBlockFileWriter, DiskDataReader, DiskDataWriter,
+};
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// Disk and file-layout versioning.
@@ -42,6 +46,8 @@ pub struct DiskDataCacheConfig {
     pub block_size: u64,
     /// How to limit the cache size.
     pub limit: CacheLimit,
+    pub reader: Arc<dyn DiskDataReader + Send + Sync>,
+    pub writer: Arc<dyn DiskDataWriter + Send + Sync>,
 }
 
 impl Default for DiskDataCacheConfig {
@@ -49,6 +55,8 @@ impl Default for DiskDataCacheConfig {
         Self {
             block_size: 1024 * 1024,                               // 1 MiB block size
             limit: CacheLimit::AvailableSpace { min_ratio: 0.05 }, // Preserve 5% available space
+            reader: Arc::new(BincodeDiskBlockFileReader {}),
+            writer: Arc::new(BincodeDiskBlockFileWriter {}),
         }
     }
 }
@@ -159,7 +167,7 @@ impl DiskBlockHeader {
 
 /// Represents a fixed-size chunk of data that can be serialized.
 #[derive(Serialize, Deserialize, Debug)]
-struct DiskBlock {
+pub struct DiskBlock {
     /// Information describing the content of `data`, to be used to verify correctness
     header: DiskBlockHeader,
     /// Cached bytes
@@ -246,13 +254,8 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block: DiskBlock = match bincode::deserialize_from(&file) {
-            Ok(block) => block,
-            Err(e) => {
-                warn!("block could not be deserialized: {:?}", e);
-                return Err(DataCacheError::InvalidBlockContent);
-            }
-        };
+        let reader = &self.config.reader;
+        let block: DiskBlock = reader.read_from_file(&file)?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
             .map_err(|err| match err {
@@ -287,14 +290,8 @@ impl DiskDataCache {
             .mode(0o600)
             .open(path.as_ref())?;
         file.write_all(CACHE_VERSION.as_bytes())?;
-        let serialize_result = bincode::serialize_into(&mut file, &block);
-        if let Err(err) = serialize_result {
-            return match *err {
-                bincode::ErrorKind::Io(io_err) => return Err(DataCacheError::from(io_err)),
-                _ => Err(DataCacheError::InvalidBlockContent),
-            };
-        };
-        Ok(file.stream_position()? as usize)
+        let writer = &self.config.writer;
+        writer.write_to_file(&mut file, &block)
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
@@ -547,6 +544,7 @@ mod tests {
             116, 97, 103, 11, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 9, 85, 128,
             46, 29, 32, 6, 192, 3, 0, 0, 0, 0, 0, 0, 0, 70, 111, 111,
         ];
+        // TODO: find a way to remove this reference to bincode
         let serialized_bytes = bincode::serialize(&block).unwrap();
         assert_eq!(
             expected_bytes, serialized_bytes,
@@ -572,6 +570,7 @@ mod tests {
             DiskDataCacheConfig {
                 block_size: 1024,
                 limit: CacheLimit::Unbounded,
+                ..Default::default()
             },
         );
 
@@ -602,6 +601,7 @@ mod tests {
             DiskDataCacheConfig {
                 block_size: 1024,
                 limit: CacheLimit::Unbounded,
+                ..Default::default()
             },
         );
 
@@ -637,6 +637,7 @@ mod tests {
             DiskDataCacheConfig {
                 block_size,
                 limit: CacheLimit::Unbounded,
+                ..Default::default()
             },
         );
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
@@ -713,6 +714,7 @@ mod tests {
             DiskDataCacheConfig {
                 block_size: 8 * 1024 * 1024,
                 limit: CacheLimit::Unbounded,
+                ..Default::default()
             },
         );
         let cache_key = ObjectId::new("a".into(), ETag::for_tests());
@@ -789,6 +791,7 @@ mod tests {
             DiskDataCacheConfig {
                 block_size: BLOCK_SIZE as u64,
                 limit: CacheLimit::TotalSize { max_size: CACHE_LIMIT },
+                ..Default::default()
             },
         );
 

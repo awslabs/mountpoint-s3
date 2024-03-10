@@ -623,6 +623,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f49f6183038e081170ebbbadee6678966c7d54728938a3e7de7f4e780770318f"
+dependencies = [
+ "byteorder",
+ "serde",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.66.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1935,11 +1945,13 @@ dependencies = [
  "aws-sdk-sts",
  "base16ct",
  "bincode",
+ "bincode2",
  "built",
  "bytes",
  "clap",
  "const_format",
  "crc32c",
+ "criterion",
  "ctor",
  "ctrlc",
  "dashmap",
