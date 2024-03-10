@@ -200,7 +200,7 @@ fn main() {
         lookup_cnt,
     };
 
-    let session = fuser::Session::new(fs, opts.mount_point.as_ref(), &options).unwrap();
+    let session = fuser::Session::new(fs, opts.mount_point, &options).unwrap();
     let notifier = session.notifier();
     let _bg = session.spawn().unwrap();
 

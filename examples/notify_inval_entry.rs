@@ -162,7 +162,7 @@ fn main() {
         timeout: Duration::from_secs_f32(opts.timeout),
     };
 
-    let session = fuser::Session::new(fs, opts.mount_point.as_ref(), &options).unwrap();
+    let session = fuser::Session::new(fs, opts.mount_point, &options).unwrap();
     let notifier = session.notifier();
     let _bg = session.spawn().unwrap();
 

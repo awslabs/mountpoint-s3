@@ -65,11 +65,12 @@ pub struct Session<FS: Filesystem> {
 
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
-    pub fn new(
+    pub fn new<P: AsRef<Path>>(
         filesystem: FS,
-        mountpoint: &Path,
+        mountpoint: P,
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
+        let mountpoint = mountpoint.as_ref();
         info!("Mounting {}", mountpoint.display());
         // If AutoUnmount is requested, but not AllowRoot or AllowOther we enforce the ACL
         // ourself and implicitly set AllowOther because fusermount needs allow_root or allow_other

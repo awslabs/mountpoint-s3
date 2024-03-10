@@ -337,7 +337,7 @@ fn main() {
     let fs = FSelFS { data: data.clone() };
 
     let mntpt = std::env::args().nth(1).unwrap();
-    let session = fuser::Session::new(fs, mntpt.as_ref(), &options).unwrap();
+    let session = fuser::Session::new(fs, mntpt, &options).unwrap();
     let bg = session.spawn().unwrap();
 
     producer(&data, &bg.notifier());
