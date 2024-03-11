@@ -1,11 +1,12 @@
 # Installing Mountpoint for Amazon S3
 
-We recommend installing Mountpoint for Amazon S3 by downloading and installing prebuilt packages using the command line.
-Other installation options are also available, but are not officially supported by AWS.
+We recommend installing Mountpoint for Amazon S3 by [downloading and installing prebuilt packages using the command line](#download-and-install-mountpoint-for-amazon-s3-from-the-command-line),
+or [using the Mountpoint for Amazon S3 CSI driver for Kubernetes](#install-in-a-kubernetes-cluster-with-the-mountpoint-for-amazon-s3-csi-driver).
+Other installation options are also available.
 
 Mountpoint for Amazon S3 is only available for Linux operating systems.
 
-## Download and install Mountpoint for Amazon S3 from the command line (recommended)
+## Download and install Mountpoint for Amazon S3 from the command line
 
 The instructions for downloading and installing Mountpoint for Amazon S3 depend on which Linux operating system you are using.
 
@@ -147,37 +148,13 @@ To verify the authenticity and integrity of a downloaded Mountpoint for Amazon S
    ```
    The output should report a `Good signature`. If the output includes the phrase `BAD signature`, re-download the Mountpoint for Amazon S3 package file and repeat these steps. If the issue persists, do not finish installing Mountpoint for Amazon S3. The output may include a warning about a trusted signature. This does not indicate a problem, only that you have not independently verified the Mountpoint for Amazon S3 public key.
 
-## Building Mountpoint for Amazon S3 from source
+## Install in a Kubernetes cluster with the Mountpoint for Amazon S3 CSI driver
 
-You can build Mountpoint for Amazon S3 from source. However, binaries built in this way are not officially supported by AWS.
-
-1. Install the necessary dependencies.
-    * For RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL, SUSE), enter the following command:
-      ```
-      sudo yum install fuse fuse-devel cmake3 clang git pkgconfig
-      ```
-    * For DEB-based distributions (Debian, Ubuntu), enter the following command:
-      ```
-      sudo apt-get install fuse libfuse-dev cmake clang git pkg-config
-      ```
-2. Install the Rust compiler using [rustup](https://rustup.rs/) by entering the following commands:
-   ```
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   source "$HOME/.cargo/env"
-   ```
-3. Clone the Mountpoint for Amazon S3 source code from GitHub by entering the following command:
-   ```
-   git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git
-   ```
-4. Build Mountpoint for Amazon S3 by entering the following commands:
-   ```
-   cd mountpoint-s3
-   cargo build --release
-   ```
-5. The final binary will be at `target/release/mount-s3`. Optionally, you can install this binary by copying it to the `/usr/bin` directory with the following command:
-   ```
-   sudo cp target/release/mount-s3 /usr/bin/
-   ```
+To use Mountpoint for Amazon S3 with applications running in a Kubernetes cluster,
+we recommend installing and using the [Mountpoint for Amazon S3 CSI driver](https://docs.aws.amazon.com/eks/latest/userguide/s3-csi.html).
+You can install the CSI driver on a self-managed Kubernetes cluster by following its [installation instructions](https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/install.md#installation),
+or if you use Amazon EKS,
+it is also available as an [EKS managed add-on](https://docs.aws.amazon.com/eks/latest/userguide/s3-csi.html).
 
 ## Running Mountpoint for Amazon S3 in a Docker container
 
@@ -187,18 +164,39 @@ requires giving the container broad root-level privileges to your host system.
 
 See [Running Mountpoint for Amazon S3 in a Docker container](../docker/README.md) for instructions on using Mountpoint with Docker.
 
-## Community-supported installation options
-
-These installation options are not provided by AWS.
-
-### Arch Linux
-
-If you're using Arch Linux, you can use the unofficial [AUR](https://aur.archlinux.org/packages/mountpoint-s3-git) package. Using [Yay](https://github.com/Jguer/yay):
-
-    yay -S mountpoint-s3-git
-
 ## Installing previous Mountpoint for Amazon S3 releases
 
 We recommend always installing the latest Mountpoint for Amazon S3 release,
 but if you need to install a previous version,
 you can find links to them on the [GitHub Releases](https://github.com/awslabs/mountpoint-s3/releases) page.
+
+## Building Mountpoint for Amazon S3 from source
+
+You can build Mountpoint for Amazon S3 from source. However, binaries built in this way are not officially supported by AWS.
+
+1. Install the necessary dependencies.
+    * For RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL), run the following command:
+      ```
+      sudo yum install -y fuse fuse-devel cmake3 clang git pkgconfig
+      ```
+    * For DEB-based distributions (Debian, Ubuntu), run the following command:
+      ```
+      sudo apt-get install -y fuse libfuse-dev cmake clang git pkg-config
+      ```
+2. Install the Rust compiler using [rustup](https://rustup.rs/):
+   ```
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"
+   ```
+3. Clone the Mountpoint for Amazon S3 source code from GitHub:
+   ```
+   git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git
+   ```
+4. Build Mountpoint for Amazon S3:
+   ```
+   cd mountpoint-s3
+   cargo build --release
+   ```
+5. The final binary will be at `target/release/mount-s3`. Optionally, you can install this binary by copying it to the `/usr/bin` directory:
+   ```
+   sudo cp target/release/mount-s3 /usr/bin/
+   ```
