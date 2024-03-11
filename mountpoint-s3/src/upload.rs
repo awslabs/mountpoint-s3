@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use mountpoint_s3_client::checksums::crc32c_from_base64;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
-use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams, PutObjectResult, UploadReview};
+use mountpoint_s3_client::types::{PutObjectParams, PutObjectResult, UploadReview};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 
 use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::checksums::combine_checksums;
-use crate::fs::ServerSideEncryption;
+use crate::fs::{ServerSideEncryption, SseCorruptedError};
 
 type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
 
@@ -27,6 +27,14 @@ struct UploaderInner<Client> {
     client: Arc<Client>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
+}
+
+#[derive(Debug, Error)]
+pub enum UploadPutError<S, C> {
+    #[error("put request creation failed")]
+    ClientError(#[from] ObjectClientError<S, C>),
+    #[error("SSE settings corrupted")]
+    SseCorruptedError(#[from] SseCorruptedError),
 }
 
 impl<Client: ObjectClient> Uploader<Client> {
@@ -49,7 +57,7 @@ impl<Client: ObjectClient> Uploader<Client> {
         &self,
         bucket: &str,
         key: &str,
-    ) -> ObjectClientResult<UploadRequest<Client>, PutObjectError, Client::ClientError> {
+    ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
         UploadRequest::new(Arc::clone(&self.inner), bucket, key).await
     }
 }
@@ -84,23 +92,17 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         inner: Arc<UploaderInner<Client>>,
         bucket: &str,
         key: &str,
-    ) -> ObjectClientResult<Self, PutObjectError, Client::ClientError> {
+    ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
         let mut params = PutObjectParams::new().trailing_checksums(true);
 
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
         }
-
-        let (sse_type, key_id) = match inner.server_side_encryption.clone().into_inner() {
-            Ok(sse_tuple) => sse_tuple,
-            Err(err) => {
-                error!(?key, error=?err, "SSE settings were corrupted before the upload");
-                // Reaching this point is unlikely and means that a bit flip has happened in RAM. This is a relatively low-risk error as data can not be uploaded
-                // with wrong SSE settings yet. At the same time, after encountering this, MP would only be able to serve reads, all of the writes would fail. In
-                // future we may consider returning an error here instead of exiting.
-                std::process::exit(1);
-            }
-        };
+        // If we have detected corruption of SSE settings, we return an error, which will currently be reported as
+        // `libc::EIO` on `open()`. MP won't be able to open files for write from this point, but this is a relatively
+        // low-risk error as data can not be uploaded with wrong SSE settings yet. Thus there is no strong reason for
+        // MP to crash and it may continue serving read's.
+        let (sse_type, key_id) = inner.server_side_encryption.clone().into_inner()?;
         params = params.server_side_encryption(sse_type);
         params = params.ssekms_key_id(key_id);
 
