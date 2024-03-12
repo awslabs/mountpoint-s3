@@ -1107,3 +1107,79 @@ fn concurrent_open_for_write_test(max_files: usize) {
         assert!(test_client.contains_key(&file_name).unwrap(), "object must exist in S3");
     }
 }
+
+fn write_checksums_test<F>(creator_fn: F, use_upload_checksums: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const OBJECT_SIZE: usize = 20 * 1024 * 1024;
+    const PART_SIZE: usize = 8 * 1024 * 1024;
+    const KEY: &str = "dir/new.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            use_upload_checksums,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (mount_point, _session, mut test_client) = creator_fn("write_checksums_test", config);
+
+    // Make sure there's an existing directory
+    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(path, false, true).unwrap();
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    let mut current_size = 0;
+    for part in body.chunks(1024 * 1024) {
+        f.write_all(part).unwrap();
+        current_size += part.len() as u64;
+        assert_eq!(f.metadata().unwrap().len(), current_size);
+    }
+
+    f.sync_all().unwrap();
+    drop(f);
+
+    // Now it's fsync'ed and closed, it should be present in S3
+    let parts = test_client.get_object_parts(KEY).unwrap();
+    if use_upload_checksums {
+        let parts = parts.expect("parts should be non-empty");
+        assert_eq!(parts.len(), (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE);
+        for part in parts {
+            let checksum = part.checksum.expect("checksum should be present");
+            let _crc32c = checksum.checksum_crc32c.expect("crc32c is used for trailing checksums");
+        }
+    } else {
+        // For S3 Express, crc32 is used by default, otherwise no checksums are used by default. So
+        // allow either case -- the important thing is that crc32c (which we use for trailing
+        // checksums) isn't present because we disabled it.
+        if let Some(parts) = parts {
+            assert_eq!(parts.len(), (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE);
+            for part in parts {
+                let checksum = part.checksum.expect("checksum should be present");
+                assert!(
+                    checksum.checksum_crc32c.is_none(),
+                    "crc32c is not default for trailing checksums"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_case(true; "enabled")]
+#[test_case(false; "disabled")]
+fn write_checksums_test_s3(use_upload_checksums: bool) {
+    write_checksums_test(fuse::s3_session::new, use_upload_checksums);
+}
+
+#[test_case(true; "enabled")]
+#[test_case(false; "disabled")]
+fn write_checksums_test_mock(use_upload_checksums: bool) {
+    write_checksums_test(fuse::mock_session::new, use_upload_checksums);
+}

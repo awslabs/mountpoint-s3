@@ -358,6 +358,8 @@ pub struct S3FilesystemConfig {
     pub s3_personality: S3Personality,
     /// Server side encryption configuration to be used when creating new S3 object
     pub server_side_encryption: ServerSideEncryption,
+    /// Use additional checksums for uploads
+    pub use_upload_checksums: bool,
 }
 
 impl Default for S3FilesystemConfig {
@@ -377,6 +379,7 @@ impl Default for S3FilesystemConfig {
             storage_class: None,
             s3_personality: S3Personality::Standard,
             server_side_encryption: Default::default(),
+            use_upload_checksums: true,
         }
     }
 }
@@ -548,6 +551,7 @@ where
             client.clone(),
             config.storage_class.to_owned(),
             config.server_side_encryption.clone(),
+            config.use_upload_checksums,
         );
 
         Self {

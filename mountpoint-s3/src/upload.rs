@@ -27,6 +27,7 @@ struct UploaderInner<Client> {
     client: Arc<Client>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
+    use_additional_checksums: bool,
 }
 
 #[derive(Debug, Error)]
@@ -43,11 +44,13 @@ impl<Client: ObjectClient> Uploader<Client> {
         client: Arc<Client>,
         storage_class: Option<String>,
         server_side_encryption: ServerSideEncryption,
+        use_additional_checksums: bool,
     ) -> Self {
         let inner = UploaderInner {
             client,
             storage_class,
             server_side_encryption,
+            use_additional_checksums,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -93,6 +96,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
     sse: ServerSideEncryption,
+    use_additional_checksums: bool,
 }
 
 impl<Client: ObjectClient> UploadRequest<Client> {
@@ -101,7 +105,11 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         bucket: &str,
         key: &str,
     ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
-        let mut params = PutObjectParams::new().trailing_checksums(true);
+        let mut params = PutObjectParams::new();
+
+        if inner.use_additional_checksums {
+            params = params.trailing_checksums(true);
+        }
 
         if let Some(storage_class) = &inner.storage_class {
             params = params.storage_class(storage_class.clone());
@@ -125,6 +133,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             request,
             maximum_upload_size,
             sse: inner.server_side_encryption.clone(),
+            use_additional_checksums: inner.use_additional_checksums,
         })
     }
 
@@ -159,9 +168,10 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
+        let use_checksums = self.use_additional_checksums;
         let result = self
             .request
-            .review_and_complete(move |review| verify_checksums(review, size, checksum))
+            .review_and_complete(move |review| !use_checksums || verify_checksums(review, size, checksum))
             .await?;
         if let Err(err) = self
             .sse
@@ -253,7 +263,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default());
+        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default(), true);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -281,6 +291,7 @@ mod tests {
             client.clone(),
             Some(storage_class.to_owned()),
             ServerSideEncryption::default(),
+            true,
         );
 
         let mut request = uploader.put(bucket, key).await.unwrap();
@@ -330,7 +341,7 @@ mod tests {
             put_failures,
         ));
 
-        let uploader = Uploader::new(failure_client.clone(), None, ServerSideEncryption::default());
+        let uploader = Uploader::new(failure_client.clone(), None, ServerSideEncryption::default(), true);
 
         // First request fails on first write.
         {
@@ -371,7 +382,7 @@ mod tests {
             part_size: PART_SIZE,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default());
+        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default(), true);
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
@@ -404,6 +415,7 @@ mod tests {
             client,
             None,
             ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key_alias".to_string())),
+            true,
         );
         std::sync::Arc::<UploaderInner<MockClient>>::get_mut(&mut uploader.inner)
             .unwrap()
@@ -434,6 +446,7 @@ mod tests {
             client,
             None,
             ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key".to_string())),
+            true,
         );
         uploader.put(bucket, key).await.expect("put with sse should succeed");
     }

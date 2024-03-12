@@ -24,9 +24,10 @@ use tracing::trace;
 use crate::checksums::crc32c_to_base64;
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
-    GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, RestoreStatus, UploadReview, UploadReviewPart,
+    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult,
+    ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult,
+    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, RestoreStatus,
+    UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -364,6 +365,7 @@ pub struct MockObject {
     restore_status: Option<RestoreStatus>,
     last_modified: OffsetDateTime,
     etag: ETag,
+    parts: Option<MockObjectParts>,
 }
 
 impl MockObject {
@@ -381,6 +383,7 @@ impl MockObject {
             restore_status: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
+            parts: None,
         }
     }
 
@@ -392,6 +395,7 @@ impl MockObject {
             restore_status: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
+            parts: None,
         }
     }
 
@@ -413,6 +417,7 @@ impl MockObject {
             restore_status: None,
             last_modified: OffsetDateTime::now_utc(),
             etag,
+            parts: None,
         }
     }
 
@@ -687,7 +692,44 @@ impl ObjectClient for MockClient {
                             checksum_sha256: Some("TODO".to_owned()),
                         })
                     }
-                    ObjectAttribute::ObjectParts => todo!("Support multipart mock object"),
+                    ObjectAttribute::ObjectParts => {
+                        let parts = match &object.parts {
+                            Some(MockObjectParts::Count(num_parts)) => Some(GetObjectAttributesParts {
+                                is_truncated: None,
+                                max_parts: None,
+                                next_part_number_marker: None,
+                                part_number_marker: None,
+                                parts: None,
+                                total_parts_count: Some(*num_parts),
+                            }),
+                            Some(MockObjectParts::Parts(parts)) => Some(GetObjectAttributesParts {
+                                is_truncated: Some(false),
+                                max_parts: Some(10000),
+                                next_part_number_marker: None,
+                                part_number_marker: Some(0),
+                                parts: Some(
+                                    parts
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, part)| ObjectPart {
+                                            checksum: Some(Checksum {
+                                                checksum_crc32: None,
+                                                checksum_crc32c: part.checksum.clone(),
+                                                checksum_sha1: None,
+                                                checksum_sha256: None,
+                                            }),
+                                            // Part numbers start at 1
+                                            part_number: i + 1,
+                                            size: part.size,
+                                        })
+                                        .collect(),
+                                ),
+                                total_parts_count: Some(parts.len()),
+                            }),
+                            None => None,
+                        };
+                        result.object_parts = parts;
+                    }
                     ObjectAttribute::StorageClass => result.storage_class = object.storage_class.clone(),
                     ObjectAttribute::ObjectSize => result.object_size = Some(object.size as u64),
                 }
@@ -727,6 +769,42 @@ impl MockPutObjectRequest {
             in_progress_uploads: in_progress_uploads.clone(),
         }
     }
+
+    fn parts(&self) -> Vec<MockObjectPartAttributes> {
+        self.buffer
+            .chunks(self.part_size)
+            .map(|part| {
+                let size = part.len();
+                let checksum = if self.params.trailing_checksums {
+                    let checksum = crc32c::checksum(part);
+                    Some(crc32c_to_base64(&checksum))
+                } else {
+                    None
+                };
+                MockObjectPartAttributes { size, checksum }
+            })
+            .collect()
+    }
+
+    fn complete_inner(
+        mut self,
+        parts: Vec<MockObjectPartAttributes>,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
+        let buffer = std::mem::take(&mut self.buffer);
+        let mut object: MockObject = buffer.into();
+        object.set_storage_class(self.params.storage_class.clone());
+        // For S3 Standard, part attributes are only available when additional checksums are used
+        if self.params.trailing_checksums {
+            object.parts = Some(MockObjectParts::Parts(parts));
+        } else {
+            object.parts = Some(MockObjectParts::Count(parts.len()));
+        }
+        add_object(&self.objects, &self.key, object);
+        Ok(PutObjectResult {
+            sse_type: None,
+            sse_kms_key_id: None,
+        })
+    }
 }
 
 impl Drop for MockPutObjectRequest {
@@ -745,14 +823,8 @@ impl PutObjectRequest for MockPutObjectRequest {
     }
 
     async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let buffer = std::mem::take(&mut self.buffer);
-        let mut object: MockObject = buffer.into();
-        object.set_storage_class(self.params.storage_class.clone());
-        add_object(&self.objects, &self.key, object);
-        Ok(PutObjectResult {
-            sse_type: None,
-            sse_kms_key_id: None,
-        })
+        let parts = self.parts();
+        self.complete_inner(parts)
     }
 
     async fn review_and_complete(
@@ -764,29 +836,35 @@ impl PutObjectRequest for MockPutObjectRequest {
         } else {
             None
         };
-        let parts: Vec<UploadReviewPart> = self
-            .buffer
-            .chunks(self.part_size)
-            .map(|part| {
-                let size = part.len() as u64;
-                let checksum = if self.params.trailing_checksums {
-                    let checksum = crc32c::checksum(part);
-                    Some(crc32c_to_base64(&checksum))
-                } else {
-                    None
-                };
-                UploadReviewPart { size, checksum }
+        let parts = self.parts();
+        let review_parts = parts
+            .iter()
+            .map(|part| UploadReviewPart {
+                size: part.size as u64,
+                checksum: part.checksum.clone(),
             })
             .collect();
         let review = UploadReview {
             checksum_algorithm,
-            parts,
+            parts: review_parts,
         };
         if !review_callback(review) {
             return mock_client_error("upload review failed, aborting");
         }
-        self.complete().await
+        self.complete_inner(parts)
     }
+}
+
+#[derive(Debug, Clone)]
+struct MockObjectPartAttributes {
+    size: usize,
+    checksum: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum MockObjectParts {
+    Count(usize),
+    Parts(Vec<MockObjectPartAttributes>),
 }
 
 #[cfg(test)]
@@ -1345,5 +1423,67 @@ mod tests {
         assert_eq!(2, head_counter_1.count());
         assert_eq!(3, delete_counter_1.count());
         assert_eq!(1, head_counter_2.count());
+    }
+
+    #[test_case(true; "enabled")]
+    #[test_case(false; "disabled")]
+    #[tokio::test]
+    async fn test_checksum_attributes(enable_checksums: bool) {
+        const OBJECT_SIZE: usize = 500 * 1024;
+        const PART_SIZE: usize = 16 * 1024;
+
+        let body = vec![0xAAu8; OBJECT_SIZE];
+
+        let bucket = "test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            part_size: PART_SIZE,
+            unordered_list_seed: None,
+        });
+
+        let key = "key1";
+        let put_params = PutObjectParams {
+            trailing_checksums: enable_checksums,
+            ..Default::default()
+        };
+        let mut put_request = client.put_object(bucket, key, &put_params).await.unwrap();
+        put_request.write(&body).await.unwrap();
+        put_request.complete().await.unwrap();
+
+        // GetObjectAttributes returns checksums
+        let attrs = client
+            .get_object_attributes(bucket, key, None, None, &[ObjectAttribute::ObjectParts])
+            .await
+            .unwrap();
+
+        let parts = attrs.object_parts.expect("parts should be returned");
+
+        let expected_parts = (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE;
+        assert_eq!(parts.total_parts_count, Some(expected_parts));
+
+        if enable_checksums {
+            let part_attributes = parts
+                .parts
+                .expect("part attributes should be returned if checksums enabled");
+            assert_eq!(part_attributes.len(), expected_parts);
+            for (i, part) in part_attributes.iter().enumerate() {
+                let start = i * PART_SIZE;
+                let end = OBJECT_SIZE.min((i + 1) * PART_SIZE);
+                let expected_checksum = crc32c_to_base64(&crc32c::checksum(&body[start..end]));
+                let actual_checksum = part
+                    .checksum
+                    .as_ref()
+                    .expect("checksum should be present")
+                    .checksum_crc32c
+                    .as_ref()
+                    .expect("crc32c should be present");
+                assert_eq!(&expected_checksum, actual_checksum);
+            }
+        } else {
+            assert!(
+                parts.parts.is_none(),
+                "parts should not be returned if checksums disabled"
+            );
+        }
     }
 }

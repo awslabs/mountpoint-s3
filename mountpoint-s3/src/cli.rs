@@ -286,6 +286,13 @@ pub struct CliArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new(),
     )]
     pub sse_kms_key_id: Option<String>,
+
+    #[clap(
+        long,
+        help = "Disable S3 additional checksums for object uploads",
+        help_heading = BUCKET_OPTIONS_HEADER,
+    )]
+    pub disable_upload_checksums: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -633,9 +640,8 @@ where
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality = s3_personality;
-    {
-        filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
-    }
+    filesystem_config.use_upload_checksums = !args.disable_upload_checksums;
+    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
 
     let prefetcher_config = Default::default();
 

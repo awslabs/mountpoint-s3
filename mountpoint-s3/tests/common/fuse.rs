@@ -10,7 +10,7 @@ use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
-use mountpoint_s3_client::types::PutObjectParams;
+use mountpoint_s3_client::types::{ObjectPart, PutObjectParams};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
@@ -37,6 +37,8 @@ pub trait TestClient: Send {
     fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
     fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
+
+    fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>>;
 
     fn restore_object(&mut self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
@@ -107,17 +109,21 @@ where
 }
 
 pub mod mock_session {
+    use crate::common::s3::tokio_block_on;
+
     use super::*;
 
     use futures::executor::ThreadPool;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use mountpoint_s3_client::types::ObjectAttribute;
+
+    const BUCKET_NAME: &str = "test_bucket";
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
         let mount_dir = tempfile::tempdir().unwrap();
 
-        let bucket = "test_bucket";
         let prefix = if test_name.is_empty() {
             test_name.to_string()
         } else {
@@ -125,7 +131,7 @@ pub mod mock_session {
         };
 
         let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
+            bucket: BUCKET_NAME.to_string(),
             part_size: test_config.part_size,
             ..Default::default()
         };
@@ -135,7 +141,7 @@ pub mod mock_session {
         let session = create_fuse_session(
             client.clone(),
             prefetcher,
-            bucket,
+            BUCKET_NAME,
             &prefix,
             mount_dir.path(),
             test_config.filesystem_config,
@@ -155,7 +161,6 @@ pub mod mock_session {
         |test_name, test_config| {
             let mount_dir = tempfile::tempdir().unwrap();
 
-            let bucket = "test_bucket";
             let prefix = if test_name.is_empty() {
                 test_name.to_string()
             } else {
@@ -163,7 +168,7 @@ pub mod mock_session {
             };
 
             let client_config = MockClientConfig {
-                bucket: bucket.to_string(),
+                bucket: BUCKET_NAME.to_string(),
                 part_size: test_config.part_size,
                 ..Default::default()
             };
@@ -173,7 +178,7 @@ pub mod mock_session {
             let session = create_fuse_session(
                 client.clone(),
                 prefetcher,
-                bucket,
+                BUCKET_NAME,
                 &prefix,
                 mount_dir.path(),
                 test_config.filesystem_config,
@@ -238,6 +243,18 @@ pub mod mock_session {
             Ok(self.client.get_object_storage_class(&full_key)?)
         }
 
+        fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let attrs = tokio_block_on(self.client.get_object_attributes(
+                BUCKET_NAME,
+                &full_key,
+                None,
+                None,
+                &[ObjectAttribute::ObjectParts],
+            ))?;
+            Ok(attrs.object_parts.and_then(|parts| parts.parts))
+        }
+
         fn restore_object(&mut self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.restore_object(&full_key)?)
@@ -260,6 +277,7 @@ pub mod s3_session {
     use aws_sdk_s3::Client;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
     use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+    use mountpoint_s3_client::types::Checksum;
     use mountpoint_s3_client::S3CrtClient;
 
     use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client, tokio_block_on};
@@ -423,6 +441,38 @@ pub mod s3_session {
                     .send(),
             )?;
             Ok(attrs.storage_class().map(|s| s.as_str().to_string()))
+        }
+
+        fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let attrs = tokio_block_on(
+                self.sdk_client
+                    .get_object_attributes()
+                    .bucket(&self.bucket)
+                    .key(full_key)
+                    .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
+                    .send(),
+            )?;
+            let Some(parts) = attrs.object_parts else {
+                return Ok(None);
+            };
+            let Some(parts) = parts.parts else {
+                return Ok(None);
+            };
+            let parts = parts
+                .iter()
+                .map(|part| ObjectPart {
+                    checksum: Some(Checksum {
+                        checksum_crc32: part.checksum_crc32.to_owned(),
+                        checksum_crc32c: part.checksum_crc32_c.to_owned(),
+                        checksum_sha1: part.checksum_sha1.to_owned(),
+                        checksum_sha256: part.checksum_sha256.to_owned(),
+                    }),
+                    part_number: part.part_number.unwrap() as usize,
+                    size: part.size.unwrap() as usize,
+                })
+                .collect();
+            Ok(Some(parts))
         }
 
         // Schudule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.
