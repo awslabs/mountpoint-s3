@@ -7,6 +7,9 @@ on:
     inputs:
       environment:
         type: string
+      publish:
+        type: boolean
+        default: false
       ref:
         required: true
         type: string
@@ -63,7 +66,7 @@ jobs:
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
   
@@ -109,6 +112,6 @@ jobs:
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
