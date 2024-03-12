@@ -15,9 +15,7 @@ but probably not the right fit for applications that:
 * make edits to existing files (don't work on your Git repository or run `vim` in Mountpoint 😄)
 
 Mountpoint for Amazon S3 does not implement all the features of a POSIX file system, and there are some differences that may affect compatibility with your application. See [Mountpoint file system behavior](doc/SEMANTICS.md) for a detailed description of Mountpoint for Amazon S3's behavior and POSIX support and how they could affect your application.
-
-> [!NOTE]
-> For troubleshooting file operations which may not be supported by Mountpoint, see the [troubleshooting documentation](doc/TROUBLESHOOTING.md).
+To troubleshoot file operations that may not be supported by Mountpoint, see the [troubleshooting documentation](doc/TROUBLESHOOTING.md).
 
 ## Current status
 
@@ -26,7 +24,7 @@ Mountpoint for Amazon S3 is generally available! We're tracking future feature d
 ### Notices
 
 > [!IMPORTANT]
-> Mountpoint for Amazon S3 v1.4.0 released on January 26, 2024, contains an issue that causes intermittent read failures. Amazon S3 fixed the issue and released Mountpoint for Amazon S3 v1.4.1 on February 16, 2024.
+> Mountpoint for Amazon S3 v1.4.0, released on January 26, 2024, contains an [issue](https://github.com/awslabs/mountpoint-s3/pull/751) that causes intermittent read failures. We recommend that customers using v1.4.0 upgrade to v1.4.1 or later.
 
 ## Getting started
 
@@ -41,12 +39,13 @@ On Ubuntu, use these commands instead (for Graviton instances, replace `x86_64` 
     sudo apt-get install -y ./mount-s3.deb
 
 > [!NOTE]
-> See [Installing Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md) for detailed instructions and other installation options (including Docker or building from source).
+> See [Installing Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md) for detailed instructions and other installation options, including the [Mountpoint for Amazon S3 CSI driver](https://docs.aws.amazon.com/eks/latest/userguide/s3-csi.html) for Kubernetes applications, or building from source.
 
 Once you've got Mountpoint for Amazon S3 installed, you can mount your Amazon S3 bucket.
-You'll need valid AWS credentials to access your bucket;
-for example, Mountpoint will automatically use credentials from [an IAM role associated with your EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html),
-or you can use the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables.
+You'll need valid AWS credentials to access your bucket.
+Mountpoint will automatically use credentials from [an IAM role associated with your EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html),
+or the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables,
+or from [several other sources](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials).
 
 To mount your bucket, run this command,
 replacing `DOC-EXAMPLE-BUCKET` with the name of your bucket
@@ -64,8 +63,8 @@ When you're finished accessing your bucket, you can unmount it (you might need `
 
     umount /path/to/mount
 
-> [!IMPORTANT]
-> See [Configuring Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md) for more details on how to configure and use Mountpoint, including options for providing AWS credentials.
+> [!NOTE]
+> See [Configuring Mountpoint for Amazon S3](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md) for more details on how to configure and use Mountpoint.
 
 ### Compatibility with other storage services
 
