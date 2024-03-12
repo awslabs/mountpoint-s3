@@ -2,6 +2,8 @@
 
 pub mod common;
 
+use std::time::Duration;
+
 use common::*;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
@@ -481,4 +483,52 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
     let key = format!("{prefix}hello");
     let put_object_result = test_put_object_large(&client, &bucket, &key, request_params.clone()).await;
     check_sse(&bucket, &key, sse_type, &kms_key_id, put_object_result).await;
+}
+
+#[test_case(10.0, 25)]
+#[tokio::test]
+async fn test_concurrent_put_objects(throughput_target_gbps: f64, max_concurrent_puts: usize) {
+    const TIMEOUT: Duration = Duration::from_secs(10);
+
+    let bucket = get_test_bucket();
+    let prefix = get_unique_test_prefix("test_concurrent_put_objects");
+    let client_config = S3ClientConfig::new()
+        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .throughput_target_gbps(throughput_target_gbps);
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let not_existing_key = format!("{}not-there", prefix);
+    let request_params = PutObjectParams::new();
+
+    // Initiate requests.
+    let mut req_vec = Vec::new();
+    for num_writes in 0..max_concurrent_puts {
+        let key = format!("{}obj-{}", prefix, num_writes);
+        let request = client
+            .put_object(&bucket, &key, &request_params)
+            .await
+            .expect("put_object should succeed");
+        req_vec.push(request);
+    }
+
+    for request in &mut req_vec {
+        // Write a few bytes for each put_object.
+        tokio::time::timeout(TIMEOUT, async {
+            request.write(b"test").await.expect("write should succeed");
+        })
+        .await
+        .expect("timed out while trying to write");
+
+        // Also try to issue an unrelated request (head_object).
+        tokio::time::timeout(TIMEOUT, async {
+            client
+                .head_object(&bucket, &not_existing_key)
+                .await
+                .expect_err("head object should fail")
+        })
+        .await
+        .expect("timed out during head_object");
+    }
+
+    // Cancel all put_object requests.
+    drop(req_vec);
 }
