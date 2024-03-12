@@ -705,7 +705,7 @@ impl ObjectClient for MockClient {
                             Some(MockObjectParts::Parts(parts)) => Some(GetObjectAttributesParts {
                                 is_truncated: Some(false),
                                 max_parts: Some(10000),
-                                next_part_number_marker: None,
+                                next_part_number_marker: Some(parts.len()),
                                 part_number_marker: Some(0),
                                 parts: Some(
                                     parts
@@ -861,6 +861,9 @@ struct MockObjectPartAttributes {
     checksum: Option<String>,
 }
 
+/// Some S3 implementations only report per-part data from GetObjectAttributes if parts were
+/// uploaded with additional checksums. This enum is how we remember whether additional checksums
+/// were used; if not, the only thing we report is the number of parts.
 #[derive(Debug, Clone)]
 enum MockObjectParts {
     Count(usize),

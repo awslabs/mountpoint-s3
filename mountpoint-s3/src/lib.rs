@@ -11,6 +11,7 @@ pub mod metrics;
 mod object;
 pub mod prefetch;
 pub mod prefix;
+pub mod s3;
 mod sync;
 mod upload;
 

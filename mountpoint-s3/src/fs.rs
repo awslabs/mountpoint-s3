@@ -21,6 +21,7 @@ use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superb
 use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
 use crate::prefix::Prefix;
+use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{UploadRequest, Uploader};
@@ -377,30 +378,9 @@ impl Default for S3FilesystemConfig {
             allow_delete: false,
             allow_overwrite: false,
             storage_class: None,
-            s3_personality: S3Personality::Standard,
+            s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
-        }
-    }
-}
-
-/// The type of S3 we're talking to. S3 Standard and S3 Express One Zone have slightly different
-/// semantics around ListObjects (ordered versus unordered) that this enum captures.
-///
-/// This enum intentionally doesn't implement PartialEq/Eq. You shouldn't test it directly. Instead,
-/// use its methods like `is_list_ordered` to check the actual behavior you're looking for.
-#[derive(Debug, Clone, Copy, Default)]
-pub enum S3Personality {
-    #[default]
-    Standard,
-    ExpressOneZone,
-}
-
-impl S3Personality {
-    pub fn is_list_ordered(self) -> bool {
-        match self {
-            Self::Standard => true,
-            Self::ExpressOneZone => false,
         }
     }
 }

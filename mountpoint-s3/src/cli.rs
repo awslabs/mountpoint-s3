@@ -28,12 +28,13 @@ use regex::Regex;
 use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
 use crate::fs::ServerSideEncryption;
-use crate::fs::{CacheConfig, S3FilesystemConfig, S3Personality};
+use crate::fs::{CacheConfig, S3FilesystemConfig};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, LoggingConfig};
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
+use crate::s3::S3Personality;
 use crate::{autoconfigure, metrics};
 
 const CLIENT_OPTIONS_HEADER: &str = "Client options";
@@ -87,7 +88,7 @@ pub struct CliArgs {
     pub requester_pays: bool,
 
     #[clap(long, help = "Type of S3 bucket to use [default: inferred from bucket name]", help_heading = BUCKET_OPTIONS_HEADER)]
-    pub bucket_type: Option<S3PersonalityArg>,
+    pub bucket_type: Option<BucketType>,
 
     #[clap(
         long,
@@ -296,17 +297,29 @@ pub struct CliArgs {
 }
 
 #[derive(Debug, Clone)]
-pub struct S3PersonalityArg(pub S3Personality);
+pub enum BucketType {
+    GeneralPurpose,
+    Directory,
+}
 
-impl ValueEnum for S3PersonalityArg {
+impl BucketType {
+    pub fn to_personality(&self) -> S3Personality {
+        match self {
+            Self::GeneralPurpose => S3Personality::Standard,
+            Self::Directory => S3Personality::ExpressOneZone,
+        }
+    }
+}
+
+impl ValueEnum for BucketType {
     fn value_variants<'a>() -> &'a [Self] {
-        &[Self(S3Personality::Standard), Self(S3Personality::ExpressOneZone)]
+        &[Self::GeneralPurpose, Self::Directory]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        match self.0 {
-            S3Personality::Standard => Some(clap::builder::PossibleValue::new("general-purpose")),
-            S3Personality::ExpressOneZone => Some(clap::builder::PossibleValue::new("directory")),
+        match self {
+            Self::GeneralPurpose => Some(clap::builder::PossibleValue::new("general-purpose")),
+            Self::Directory => Some(clap::builder::PossibleValue::new("directory")),
         }
     }
 }
@@ -599,7 +612,7 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     )
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
-    let s3_personality = get_s3_personality(args.bucket_type.clone(), &args.bucket_name, client.endpoint_config());
+    let s3_personality = infer_s3_personality(args.bucket_type.clone(), &args.bucket_name, client.endpoint_config());
 
     Ok((client, runtime, s3_personality))
 }
@@ -639,8 +652,12 @@ where
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
-    filesystem_config.s3_personality = s3_personality;
     filesystem_config.use_upload_checksums = !args.disable_upload_checksums;
+    if !s3_personality.supports_additional_checksums() {
+        tracing::info!("disabling upload checksums because target S3 personality does not support them");
+        filesystem_config.use_upload_checksums = false;
+    }
+    filesystem_config.s3_personality = s3_personality;
     filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
 
     let prefetcher_config = Default::default();
@@ -872,13 +889,13 @@ fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (Str
     (DEFAULT_REGION.to_owned(), false)
 }
 
-fn get_s3_personality(
-    args_personality: Option<S3PersonalityArg>,
+fn infer_s3_personality(
+    bucket_type: Option<BucketType>,
     bucket: &str,
     endpoint_config: EndpointConfig,
 ) -> S3Personality {
-    if let Some(S3PersonalityArg(personality)) = args_personality {
-        return personality;
+    if let Some(bucket_type) = bucket_type {
+        return bucket_type.to_personality();
     }
 
     let Ok(resolved) = endpoint_config.resolve_for_bucket(bucket) else {
@@ -889,6 +906,8 @@ fn get_s3_personality(
     };
     if auth_scheme.scheme_name() == SigningAlgorithm::SigV4Express {
         S3Personality::ExpressOneZone
+    } else if auth_scheme.signing_name() == "s3-outposts" {
+        S3Personality::Outposts
     } else {
         S3Personality::Standard
     }

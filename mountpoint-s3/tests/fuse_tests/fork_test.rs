@@ -8,10 +8,10 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::primitives::ByteStream;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_sts::config::Region;
-use std::fs;
-use std::io::{BufRead, BufReader};
+use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -19,11 +19,12 @@ use std::{path::PathBuf, process::Command};
 use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
-use crate::common::s3::{create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region};
+use crate::common::s3::{
+    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
+    tokio_block_on,
+};
 #[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id, get_test_sdk_client};
-#[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::{get_subsession_iam_role, tokio_block_on};
+use crate::common::s3::{get_scoped_down_credentials, get_subsession_iam_role, get_test_kms_key_id};
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -305,6 +306,67 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
         result.expect("remove file should succeed when --allow_delete is set");
     } else {
         result.expect_err("remove file should fail when --allow_delete is not set");
+    }
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test_case(true; "checksums disabled")]
+#[test_case(false; "default checksums")]
+fn mount_disable_checksums(disable_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("mount_enable_checksums");
+    let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"));
+    if disable_checksums {
+        cmd.arg("--disable-upload-checksums");
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    // try to upload an object
+    {
+        let mut f = File::create(mount_point.path().join("file.txt")).unwrap();
+        f.write_all(b"hello world").unwrap();
+        f.sync_all().unwrap();
+    }
+
+    // check it's there and has checksums if we expected it to
+    let sdk_client = tokio_block_on(get_test_sdk_client(&region));
+    let attrs = tokio_block_on(
+        sdk_client
+            .get_object_attributes()
+            .bucket(&bucket)
+            .key(format!("{prefix}file.txt"))
+            .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
+            .send(),
+    )
+    .unwrap();
+    let parts = attrs.object_parts().unwrap();
+    // Parts may not be present when checksums are disabled, but if they are (on Express), they
+    // shouldn't be crc32c which is our default
+    if !disable_checksums {
+        assert!(
+            !parts.parts().is_empty(),
+            "checksums must be present when checksums enabled"
+        );
+    }
+    for part in parts.parts() {
+        let checksum_present = part.checksum_crc32_c().is_some();
+        assert_eq!(checksum_present, !disable_checksums, "checksum presence mismatch");
     }
 
     unmount(mount_point.path());
