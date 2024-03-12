@@ -28,7 +28,7 @@ test-asan-working:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	RUSTFLAGS="-Zsanitizer=address" \
 	RUSTC_BOOTSTRAP=1 \
-	cargo test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages -- --ignored test_asan_working 2>&1 \
+	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` --features $(RUST_FEATURES) $$packages -- --ignored test_asan_working 2>&1 \
 	| tee /dev/stderr \
 	| grep "heap-use-after-free" \
 	  && echo "ASan is working" || (echo "ASan did not find the use-after-free; something's wrong"; exit 1)
@@ -39,7 +39,7 @@ test-asan:
 	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
 	RUSTFLAGS="-Zsanitizer=address" \
 	RUSTC_BOOTSTRAP=1 \
-	cargo test -Z build-std --target x86_64-unknown-linux-gnu --features $(RUST_FEATURES) $$packages -- \
+	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` --features $(RUST_FEATURES) $$packages -- \
 	--skip reftest_ \
 	--skip proptest_ \
 	--skip fork_test \
