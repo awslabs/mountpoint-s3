@@ -47,10 +47,7 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -95,10 +92,7 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -144,10 +138,7 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: cargo build --release
     - name: Run Benchmark

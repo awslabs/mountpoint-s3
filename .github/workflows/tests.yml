@@ -33,10 +33,7 @@ jobs:
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -68,10 +65,7 @@ jobs:
       run: |
         brew install --cask macfuse
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -101,10 +95,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -132,10 +123,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -159,10 +147,7 @@ jobs:
       with:
         submodules: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -188,10 +173,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Set up stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
           components: rustfmt
       - name: Check format
         run: make fmt-check
@@ -210,10 +193,8 @@ jobs:
         with:
           fuseVersion: 2
       - name: Set up stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
           components: clippy
       - name: Cargo cache
         uses: actions/cache@v3
@@ -238,10 +219,9 @@ jobs:
         with:
           submodules: true
       - name: Set up stable Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
+          components: rust-docs
       - name: Cargo cache
         uses: actions/cache@v3
         with:
@@ -263,9 +243,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Set up stable Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
       - name: Run cargo deny
         uses: EmbarkStudios/cargo-deny-action@v1
