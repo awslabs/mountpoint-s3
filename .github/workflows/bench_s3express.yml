@@ -51,32 +51,10 @@ jobs:
       with:
         toolchain: stable
         override: true
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_bench.sh
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR benchmarks'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -122,32 +100,10 @@ jobs:
       with:
         toolchain: stable
         override: true
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_latency_bench.sh
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR benchmarks'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
