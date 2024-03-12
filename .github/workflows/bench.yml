@@ -143,7 +143,7 @@ jobs:
       run: cargo build --release
     - name: Run Benchmark
       env:
-        S3_MOUNT_LOCAL_STORAGE: ${{ vars.MOUNT_LOCAL_STORAGE || 'yes' }}
+        S3_MOUNT_LOCAL_STORAGE: yes
       run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
