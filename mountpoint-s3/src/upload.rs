@@ -384,4 +384,49 @@ mod tests {
         assert!(!client.contains_key(key));
         assert!(!client.is_upload_in_progress(key));
     }
+
+    #[test_case(Some("aws:kmr"), Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), Some("some_key_ali`s"))]
+    #[test_case(None, Some("some_key_alias"))]
+    #[test_case(Some("aws:kms"), None)]
+    #[tokio::test]
+    async fn sse_corruption_error_test(sse_type_corrupted: Option<&str>, key_id_corrupted: Option<&str>) {
+        let client = Arc::new(MockClient::new(Default::default()));
+        let mut uploader = Uploader::new(
+            client,
+            None,
+            ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key_alias".to_string())),
+        );
+        std::sync::Arc::<UploaderInner<MockClient>>::get_mut(&mut uploader.inner)
+            .unwrap()
+            .server_side_encryption
+            .corrupt_data(sse_type_corrupted.map(String::from), key_id_corrupted.map(String::from));
+        let err = uploader
+            .put("bucket", "hello")
+            .await
+            .expect_err("sse checksum must be checked");
+        assert!(matches!(
+            err,
+            UploadPutError::SseCorruptedError(SseCorruptedError::ChecksumMismatch(_, _))
+        ));
+    }
+
+    #[tokio::test]
+    async fn put_with_sse_ok() {
+        let bucket = "bucket";
+        let name = "hello";
+        let key = name;
+
+        let client = Arc::new(MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            part_size: 32,
+            ..Default::default()
+        }));
+        let uploader = Uploader::new(
+            client,
+            None,
+            ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key".to_string())),
+        );
+        uploader.put(bucket, key).await.expect("put with sse should succeed");
+    }
 }

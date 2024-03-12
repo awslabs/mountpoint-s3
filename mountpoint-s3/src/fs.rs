@@ -481,6 +481,12 @@ impl ServerSideEncryption {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub fn corrupt_data(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
+        self.sse_type = sse_type;
+        self.sse_kms_key_id = sse_kms_key_id;
+    }
 }
 
 #[derive(Debug, Error)]
