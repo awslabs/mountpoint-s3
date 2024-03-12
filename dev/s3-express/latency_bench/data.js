@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1710280684097,
+  "lastUpdate": 1710283307999,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "sauraank@amazon.co.uk",
-            "name": "Ankit Saurabh",
-            "username": "sauraank"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "d54a8412066700f2e688fa1eac1c939c8233cb72",
-          "message": "Bump CRT dependecies (#796)\n\n* Bump CRT dependecies\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\n\n* Additional bump for aws-c-common fix\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>\n\n---------\n\nSigned-off-by: Ankit Saurabh <sauraank@amazon.co.uk>\nSigned-off-by: James Bornholt <bornholt@amazon.com>\nCo-authored-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2024-03-07T00:41:56Z",
-          "tree_id": "92dab3c0176f0a9a1af9ce7a717463d44ac5a0f0",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d54a8412066700f2e688fa1eac1c939c8233cb72"
-        },
-        "date": 1709773622500,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.132,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.511,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.243,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.004,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 23.1470612,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 21.6796286,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.3353006,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "distinct": true,
+          "id": "be52b609c1a314f6cb9c1ddd99f76f61ca086594",
+          "message": "Run ASan on ARM runners\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-03-12T22:25:09Z",
+          "tree_id": "a8d1a82f6598133ee1b6d721a861966c74591916",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/be52b609c1a314f6cb9c1ddd99f76f61ca086594"
+        },
+        "date": 1710283307477,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.143,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.515,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.284,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.606,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.6129115,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.3682015,
             "unit": "milliseconds"
           }
         ]
