@@ -60,6 +60,14 @@ impl<Client: ObjectClient> Uploader<Client> {
     ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
         UploadRequest::new(Arc::clone(&self.inner), bucket, key).await
     }
+
+    #[cfg(test)]
+    pub fn corrupt_sse(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
+        std::sync::Arc::get_mut(&mut self.inner)
+            .unwrap()
+            .server_side_encryption
+            .corrupt_data(sse_type, sse_kms_key_id)
+    }
 }
 
 #[derive(Debug, Error, Clone)]
@@ -390,7 +398,7 @@ mod tests {
     #[test_case(None, Some("some_key_alias"))]
     #[test_case(Some("aws:kms"), None)]
     #[tokio::test]
-    async fn sse_corruption_error_test(sse_type_corrupted: Option<&str>, key_id_corrupted: Option<&str>) {
+    async fn put_with_corrupted_sse_test(sse_type_corrupted: Option<&str>, key_id_corrupted: Option<&str>) {
         let client = Arc::new(MockClient::new(Default::default()));
         let mut uploader = Uploader::new(
             client,
@@ -412,7 +420,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn put_with_sse_ok() {
+    async fn put_with_good_sse_test() {
         let bucket = "bucket";
         let name = "hello";
         let key = name;

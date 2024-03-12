@@ -1252,6 +1252,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prefetch::default_prefetch;
+    use fuser::FileType;
+    use futures::executor::ThreadPool;
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
     use test_case::test_case;
 
     #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kmr"), Some("some_key_alias"))]
@@ -1312,5 +1316,56 @@ mod tests {
         let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
         sse.verify_response(sse_type_response, key_id_response)
             .expect("verify_response() should return Ok(()) when values match the checksum")
+    }
+
+    #[tokio::test]
+    async fn test_open_with_corrupted_sse() {
+        let bucket = "bucket";
+        let client = Arc::new(MockClient::new(MockClientConfig {
+            bucket: bucket.to_owned(),
+            ..Default::default()
+        }));
+        // Create "dir1" in the client to avoid creating it locally
+        client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let prefetcher = default_prefetch(runtime, Default::default());
+        let server_side_encryption =
+            ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
+        let fs_config = S3FilesystemConfig {
+            server_side_encryption,
+            ..Default::default()
+        };
+        let mut fs = S3Filesystem::new(client, prefetcher, bucket, &Default::default(), fs_config);
+
+        // Lookup inode of the dir1 directory
+        let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+        assert_eq!(entry.attr.kind, FileType::Directory);
+        let dir_ino = entry.attr.ino;
+
+        // Open a file for write in "dir1" before corruption
+        let dentry = fs
+            .mknod(dir_ino, "file2.bin".as_ref(), libc::S_IFREG | libc::S_IRWXU, 0, 0)
+            .await
+            .unwrap();
+        assert_eq!(dentry.attr.size, 0);
+        fs.open(dentry.attr.ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+            .await
+            .expect("open before the corruption should succeed");
+
+        // Open a file for write in "dir1" after corruption
+        fs.uploader
+            .corrupt_sse(Some("aws:kmr".to_owned()), Some("some_key_alias".to_owned()));
+        let dentry = fs
+            .mknod(dir_ino, "file3.bin".as_ref(), libc::S_IFREG | libc::S_IRWXU, 0, 0)
+            .await
+            .unwrap();
+        assert_eq!(dentry.attr.size, 0);
+        let err = fs
+            .open(dentry.attr.ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+            .await
+            .expect_err("open after the corruption should fail");
+        assert_eq!(err.errno, libc::EIO);
+        assert_eq!(format!("{}", err), "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)");
     }
 }
