@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1710294957120,
+  "lastUpdate": 1710295075311,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0fbc8e9d73079fe762d60806f223d9ab0a0eaa72",
-          "message": "Add fio job to benchmark read-skip-read pattern (#799)\n\n* Add fio job to benchmark read-skip-read pattern\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n* Rename the benchmark\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n---------\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\nCo-authored-by: Vladislav Volodkin <vlaad@amazon.co.uk>",
-          "timestamp": "2024-03-07T00:43:29Z",
-          "tree_id": "0c5d6e9e6258e17df23168ee6be7468cd9f4cac0",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/0fbc8e9d73079fe762d60806f223d9ab0a0eaa72"
-        },
-        "date": 1709804923217,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.142,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.529,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.225,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.286,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 23.2673403,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.0671791,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 23.3222443,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5cba78ff99dd094d6158730fd048e8c3228da858",
+          "message": "Small docs updates (#810)\n\nFour small changes:\n1. The notice about 1.4.0 was stale now that we've released newer\n   version(s).\n2. The build-from-source instructions were hard to copy/paste because\n   they required interactive input.\n3. The CSI driver wasn't mentioned in the docs.\n4. The AUR repo is unmaintained (not updated since last July), so we\n   shouldn't point customers to it.\n\nI also did a little bit of minor clarifying/editing.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-03-12T22:54:59Z",
+          "tree_id": "2542d05585a732ecaf67dcf6afabe7260f1a640d",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5cba78ff99dd094d6158730fd048e8c3228da858"
+        },
+        "date": 1710295074798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.136,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.5,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.25,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.928,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.9804561,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.966501,
             "unit": "milliseconds"
           }
         ]
