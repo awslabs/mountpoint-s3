@@ -20,14 +20,11 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: true
       - name: Set up stable Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
       - name: Package ${{ matrix.crate }} crate
         # `--no-verify` avoids building using crates.io dependencies, which for local packages may not be updated yet
         run: cargo package -p ${{ matrix.crate }} --no-verify

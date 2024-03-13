@@ -7,6 +7,9 @@ on:
     inputs:
       environment:
         type: string
+      publish:
+        type: boolean
+        default: false
       ref:
         required: true
         type: string
@@ -29,13 +32,13 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v3
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -47,36 +50,11 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_bench.sh
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR benchmarks'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -88,7 +66,7 @@ jobs:
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
   
@@ -100,13 +78,13 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v3
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -118,36 +96,11 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_latency_bench.sh
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR benchmarks'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -159,6 +112,6 @@ jobs:
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.environment && 'false' || 'true' }}
+        auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20

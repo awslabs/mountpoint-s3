@@ -61,32 +61,18 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v3
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-integration-fuse${{ matrix.fuseVersion }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      uses: dtolnay/rust-toolchain@stable
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -95,17 +81,6 @@ jobs:
       run: cargo test --features $RUST_FEATURES --no-run
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR integration tests'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
 
   s3express-test:
     name: S3 Express One Zone tests (${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
@@ -131,32 +106,18 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v3
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-integration-fuse${{ matrix.fuseVersion }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      uses: dtolnay/rust-toolchain@stable
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -165,54 +126,30 @@ jobs:
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests' --no-run
     - name: Run tests
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests'
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR integration tests'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
 
   asan:
     name: Address sanitizer
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, arm64]
 
     environment: ${{ inputs.environment }}
 
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v3
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         ref: ${{ inputs.ref }}
         submodules: true
     - name: Set up stable Rust
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        override: true
         components: rust-src
-    - name: Restore Cargo cache
-      id: restore-cargo-cache
-      uses: actions/cache/restore@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ github.job }}-integration-asan-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -222,14 +159,3 @@ jobs:
       run: make test-asan-working
     - name: Run tests
       run: make test-asan
-    - name: Save Cargo cache
-      uses: actions/cache/save@v3
-      if: inputs.environment != 'PR integration tests'
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ steps.restore-cargo-cache.outputs.cache-primary-key }}
