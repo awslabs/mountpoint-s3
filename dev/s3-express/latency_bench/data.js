@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1710346980193,
+  "lastUpdate": 1710526055036,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d61d688f93ffb3f35fa1019a0b36f6c2e8228107",
-          "message": "Record seek_distance metrics whether or not the seek triggers a reset (#800)\n\nBy always recording the length of a seek attempt, we should get a better picture of the read pattern. The `out_of_order` metric can already be used to determine whether or not the seek could be performed without resetting the prefetcher.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-03-07T11:16:43Z",
-          "tree_id": "ed96e6c7ad34c0ec4ac7da40278fda7b058f06f7",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d61d688f93ffb3f35fa1019a0b36f6c2e8228107"
-        },
-        "date": 1709814681898,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.14,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.516,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.248,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.534,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 23.2947208,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.662889399999997,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 23.140458600000002,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a219733940d7f9dd9cfa4aeabe4ddb94606f290",
+          "message": "Fix a compiler warning (#817)\n\nWe forgot to re-export ChecksumAlgorithm in the public API.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-03-15T17:46:14Z",
+          "tree_id": "fadf4e68b28f854fbe0bcdf079d9e8a3040860a3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5a219733940d7f9dd9cfa4aeabe4ddb94606f290"
+        },
+        "date": 1710526054528,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.136,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.514,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.242,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 9.056,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.5596072,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.7035129,
             "unit": "milliseconds"
           }
         ]
