@@ -71,9 +71,9 @@ pub mod config {
 /// Types used by all object clients
 pub mod types {
     pub use super::object_client::{
-        Checksum, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesParts, GetObjectAttributesResult,
-        HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult, ObjectInfo, ObjectPart,
-        PutObjectParams, PutObjectResult, RestoreStatus, UploadReview, UploadReviewPart,
+        Checksum, ChecksumAlgorithm, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesParts,
+        GetObjectAttributesResult, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult,
+        ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, RestoreStatus, UploadReview, UploadReviewPart,
     };
 }
 
