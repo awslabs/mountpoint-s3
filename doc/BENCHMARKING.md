@@ -41,6 +41,7 @@ You can use the following steps.
 
         export S3_BUCKET_NAME=bucket_name
         export S3_BUCKET_TEST_PREFIX=prefix_path/
+        export S3_ENDPOINT_URL=endpoint_url # optional
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
         # to filter by job name; e.g. to only run small jobs
