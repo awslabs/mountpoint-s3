@@ -16,6 +16,12 @@ if [[ -z "${S3_BUCKET_TEST_PREFIX}" ]]; then
   exit 1
 fi
 
+
+if [[ -z "${S3_ENDPOINT_URL}" ]]; then
+  echo "Set S3_ENDPOINT_URL to run this benchmark"
+  exit 1
+fi
+
 if [[ -z "${S3_BUCKET_BENCH_FILE}" ]]; then
   echo "Set S3_BUCKET_BENCH_FILE to run this benchmark"
   exit 1
@@ -162,6 +168,7 @@ cache_benchmark () {
       --cache=${cache_dir} \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
+      --endpoint_url=${S3_ENDPOINT_URL} \
       --part-size=16777216
     mount_status=$?
     set -e
