@@ -207,6 +207,7 @@ where
                     match get_object_result.next().await {
                         Some(Ok((offset, body))) => {
                             trace!(offset, length = body.len(), "received GetObject part");
+                            metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
                             // pre-split the body into multiple parts as suggested by preferred part size
                             // in order to avoid validating checksum on large parts at read.
                             let mut body: Bytes = body.into();

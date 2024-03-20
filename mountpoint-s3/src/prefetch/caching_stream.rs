@@ -195,6 +195,7 @@ where
             match get_object_result.next().await {
                 Some(Ok((offset, body))) => {
                     trace!(offset, length = body.len(), "received GetObject part");
+                    metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
 
                     let expected_offset = block_offset + buffer.len() as u64;
                     if offset != expected_offset {
