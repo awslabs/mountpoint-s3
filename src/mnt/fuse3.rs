@@ -45,10 +45,7 @@ impl Mount {
             }
             // We dup the fd here as the existing fd is owned by the fuse_session, and we
             // don't want it being closed out from under us:
-            let fd = unsafe { libc::dup(fd) };
-            if fd < 0 {
-                return Err(io::Error::last_os_error());
-            }
+            let fd = nix::unistd::dup(fd)?;
             let file = unsafe { File::from_raw_fd(fd) };
             Ok((Arc::new(file), mount))
         })

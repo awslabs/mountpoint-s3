@@ -7,6 +7,7 @@
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{info, warn};
+use nix::unistd::geteuid;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -102,7 +103,7 @@ impl<FS: Filesystem> Session<FS> {
             mount: Arc::new(Mutex::new(Some(mount))),
             mountpoint: mountpoint.to_owned(),
             allowed,
-            session_owner: unsafe { libc::geteuid() },
+            session_owner: geteuid().as_raw(),
             proto_major: 0,
             proto_minor: 0,
             initialized: false,

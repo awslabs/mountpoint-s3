@@ -343,8 +343,8 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
         "fd={},rootmode={:o},user_id={},group_id={}",
         file.as_raw_fd(),
         mountpoint_mode,
-        unsafe { libc::getuid() },
-        unsafe { libc::getgid() }
+        nix::unistd::getuid(),
+        nix::unistd::getgid()
     );
 
     for option in options
