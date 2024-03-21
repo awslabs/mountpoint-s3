@@ -1075,3 +1075,35 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
     );
     assert!(test_client.contains_key(file_name).unwrap(), "object must exist in S3");
 }
+
+#[cfg(feature = "s3_tests")]
+#[test_case(26)]
+fn concurrent_open_for_write_test(max_files: usize) {
+    let (mount_point, _session, test_client) =
+        fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
+
+    let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
+
+    // Open many files for write.
+    let mut open_files = Vec::new();
+    for file_name in &file_names {
+        let path = mount_point.path().join(file_name);
+        let f = open_for_write(&path, false, true).expect("open should succeed");
+        open_files.push(f);
+    }
+
+    // Write a few bytes to each file.
+    let data = vec![0xaa; 32];
+    for f in &mut open_files {
+        f.write_all(&data).expect("write should succeed");
+    }
+
+    // Ensure the uploads succeed before closing each file.
+    for f in open_files {
+        f.sync_all().expect("upload should succeed");
+    }
+
+    for file_name in file_names {
+        assert!(test_client.contains_key(&file_name).unwrap(), "object must exist in S3");
+    }
+}
