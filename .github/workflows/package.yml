@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: true
       - name: Install operating system dependencies
@@ -31,7 +31,7 @@ jobs:
         with:
           fuseVersion: 2
       - name: Build Docker image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           tags: mountpoint-builder
           context: ./package
@@ -42,7 +42,7 @@ jobs:
       - name: Check release binary
         run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
       - name: Upload unofficial packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.runner.name }}
           path:  ./out/*

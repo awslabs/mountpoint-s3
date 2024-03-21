@@ -319,7 +319,7 @@ pub type UploadReview = mountpoint_s3_crt::s3::client::UploadReview;
 /// Info about a single part, for the caller to review before the upload completes.
 pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 
-/// Checksum algorithm.
+/// A checksum algorithm used by the object client for integrity checks on uploads and downloads.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
 
 /// A streaming put request which allows callers to asynchronously write the body of the request.
