@@ -141,6 +141,7 @@ where
         .read(false)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(&path)
         .expect("open for writing should succeed");
 

@@ -154,7 +154,13 @@ where
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
     // For default config, existing files can be opened O_RDWR but only reading should work on them
-    let mut file = File::options().read(true).write(true).create(true).open(&path).unwrap();
+    let mut file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .unwrap();
     assert!(file.read(&mut [0u8; 1]).is_ok());
     let err = file
         .write(b"hello world")
