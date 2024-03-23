@@ -203,7 +203,7 @@ the following behavior:
 
 ### Directory operations
 
-Basic read-only directory operations (`opendir`, `readdir`, `closedir`) are supported. However, seeking (`lseek`) on directory handles is not supported.
+Basic read-only directory operations (`opendir`, `readdir`, `closedir`, `rewinddir`) are supported. However, seeking (`lseek`) on directory handles is not supported.
 
 Sorting order of `readdir` results:
 * For general purpose buckets, `readdir` returns results in lexicographical order.
