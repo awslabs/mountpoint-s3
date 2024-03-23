@@ -992,12 +992,20 @@ where
                 .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
         };
 
+        // special case where we need to rewind and restart the streaming
+        if offset == 0 && dir_handle.offset() != 0 {
+            // only do this if this is not the first call with offset 0
+            dir_handle.offset.store(0, Ordering::SeqCst);
+            dir_handle.handle.rewind().await;
+        }
+
         if offset != dir_handle.offset() {
             // POSIX allows seeking an open directory. That's a pain for us since we are streaming
             // the directory entries and don't want to keep them all in memory. But one common case
             // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
             // request offset 0 twice in a row. So we remember the last response and, if repeated,
             // we return it again.
+
             let last_response = dir_handle.last_response.lock().await;
             if let Some((last_offset, entries)) = last_response.as_ref() {
                 if offset == *last_offset {
@@ -1016,6 +1024,7 @@ where
                     return Ok(reply);
                 }
             }
+
             return Err(err!(
                 libc::EINVAL,
                 "out-of-order readdir, expected={}, actual={}",

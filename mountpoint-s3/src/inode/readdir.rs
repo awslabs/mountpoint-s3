@@ -186,6 +186,11 @@ impl ReaddirHandle {
         self.inner.update_from_remote(self.dir_ino, entry.name(), remote_lookup)
     }
 
+    pub async fn rewind(&self) {
+        self.readded.lock().unwrap().take();
+        self.iter.lock().await.rewind();
+    }
+
     #[cfg(test)]
     pub(super) async fn collect<OC: ObjectClient>(&self, client: &OC) -> Result<Vec<LookedUp>, InodeError> {
         let mut result = vec![];
@@ -290,6 +295,13 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
+    fn rewind(&mut self) {
+        match self {
+            Self::Ordered(iter) => iter.rewind(),
+            Self::Unordered(iter) => iter.rewind()
+        }
+    }
+
     async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
         match self {
             Self::Ordered(iter) => iter.next(client).await,
@@ -391,6 +403,11 @@ impl RemoteIter {
 
         Ok(self.entries.pop_front())
     }
+
+    fn rewind(&mut self) {
+        self.state = RemoteIterState::InProgress(None);
+        self.entries.clear();
+    }
 }
 
 /// Iterator implementation for S3 implementations that provide lexicographically ordered LIST.
@@ -423,6 +440,14 @@ mod ordered {
                 next_local: None,
                 last_entry: None,
             }
+        }
+
+        pub fn rewind(&mut self) {
+            self.next_remote = None;
+            self.next_local = None;
+            self.last_entry = None;
+            self.remote.rewind();
+            self.local.rewind();
         }
 
         /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
@@ -491,6 +516,10 @@ mod ordered {
         fn next(&mut self) -> Option<ReaddirEntry> {
             self.entries.pop_front()
         }
+
+        fn rewind(&mut self) {
+            self.entries.clear();
+        }
     }
 }
 
@@ -548,6 +577,12 @@ mod unordered {
             }
 
             Ok(self.local_iter.pop_front())
+        }
+
+        pub fn rewind(&mut self) {
+            self.remote.rewind();
+            self.local.clear();
+            self.local_iter.clear();
         }
     }
 }
