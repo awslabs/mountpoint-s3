@@ -26,8 +26,8 @@ use crate::object_client::{
     Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
     GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult,
     ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult,
-    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, RestoreStatus,
-    UploadReview, UploadReviewPart,
+    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -775,7 +775,7 @@ impl MockPutObjectRequest {
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len();
-                let checksum = if self.params.trailing_checksums {
+                let checksum = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
                     let checksum = crc32c::checksum(part);
                     Some(crc32c_to_base64(&checksum))
                 } else {
@@ -794,7 +794,7 @@ impl MockPutObjectRequest {
         let mut object: MockObject = buffer.into();
         object.set_storage_class(self.params.storage_class.clone());
         // For S3 Standard, part attributes are only available when additional checksums are used
-        if self.params.trailing_checksums {
+        if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
             object.parts = Some(MockObjectParts::Parts(parts));
         } else {
             object.parts = Some(MockObjectParts::Count(parts.len()));
@@ -831,7 +831,7 @@ impl PutObjectRequest for MockPutObjectRequest {
         self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let checksum_algorithm = if self.params.trailing_checksums {
+        let checksum_algorithm = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
             Some(ChecksumAlgorithm::Crc32c)
         } else {
             None
@@ -1428,10 +1428,11 @@ mod tests {
         assert_eq!(1, head_counter_2.count());
     }
 
-    #[test_case(true; "enabled")]
-    #[test_case(false; "disabled")]
+    #[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
+    #[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+    #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
-    async fn test_checksum_attributes(enable_checksums: bool) {
+    async fn test_checksum_attributes(trailing_checksums: PutObjectTrailingChecksums) {
         const OBJECT_SIZE: usize = 500 * 1024;
         const PART_SIZE: usize = 16 * 1024;
 
@@ -1446,12 +1447,25 @@ mod tests {
 
         let key = "key1";
         let put_params = PutObjectParams {
-            trailing_checksums: enable_checksums,
+            trailing_checksums,
             ..Default::default()
         };
         let mut put_request = client.put_object(bucket, key, &put_params).await.unwrap();
         put_request.write(&body).await.unwrap();
-        put_request.complete().await.unwrap();
+
+        put_request
+            .review_and_complete(move |review| {
+                let parts = review.parts;
+                if trailing_checksums == PutObjectTrailingChecksums::Disabled {
+                    assert!(review.checksum_algorithm.is_none());
+                    assert!(parts.iter().all(|p| p.checksum.is_none()));
+                } else {
+                    assert_eq!(review.checksum_algorithm, Some(ChecksumAlgorithm::Crc32c));
+                }
+                true
+            })
+            .await
+            .unwrap();
 
         // GetObjectAttributes returns checksums
         let attrs = client
@@ -1464,7 +1478,7 @@ mod tests {
         let expected_parts = (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE;
         assert_eq!(parts.total_parts_count, Some(expected_parts));
 
-        if enable_checksums {
+        if trailing_checksums == PutObjectTrailingChecksums::Enabled {
             let part_attributes = parts
                 .parts
                 .expect("part attributes should be returned if checksums enabled");

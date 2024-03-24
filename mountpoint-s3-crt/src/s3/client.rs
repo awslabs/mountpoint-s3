@@ -1276,6 +1276,17 @@ impl ChecksumConfig {
         }
     }
 
+    /// Create a [ChecksumConfig] enabling Crc32 trailing checksums only for upload review.
+    pub fn upload_review_crc32c() -> Self {
+        Self {
+            inner: aws_s3_checksum_config {
+                location: aws_s3_checksum_location::AWS_SCL_NONE,
+                checksum_algorithm: aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
+                ..Default::default()
+            },
+        }
+    }
+
     /// Get out the inner pointer to the checksum config
     pub(crate) fn to_inner_ptr(&self) -> *const aws_s3_checksum_config {
         &self.inner

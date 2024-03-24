@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use mountpoint_s3_client::checksums::crc32c_from_base64;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
-use mountpoint_s3_client::types::{PutObjectParams, PutObjectResult, UploadReview};
+use mountpoint_s3_client::types::{PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 
 use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
@@ -96,7 +96,6 @@ pub struct UploadRequest<Client: ObjectClient> {
     request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
     sse: ServerSideEncryption,
-    use_additional_checksums: bool,
 }
 
 impl<Client: ObjectClient> UploadRequest<Client> {
@@ -108,7 +107,9 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         let mut params = PutObjectParams::new();
 
         if inner.use_additional_checksums {
-            params = params.trailing_checksums(true);
+            params = params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
+        } else {
+            params = params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
         }
 
         if let Some(storage_class) = &inner.storage_class {
@@ -133,7 +134,6 @@ impl<Client: ObjectClient> UploadRequest<Client> {
             request,
             maximum_upload_size,
             sse: inner.server_side_encryption.clone(),
-            use_additional_checksums: inner.use_additional_checksums,
         })
     }
 
@@ -168,10 +168,9 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
-        let use_checksums = self.use_additional_checksums;
         let result = self
             .request
-            .review_and_complete(move |review| !use_checksums || verify_checksums(review, size, checksum))
+            .review_and_complete(move |review| verify_checksums(review, size, checksum))
             .await?;
         if let Err(err) = self
             .sse
@@ -203,17 +202,17 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
 fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: Crc32c) -> bool {
     let mut uploaded_size = 0u64;
     let mut uploaded_checksum = Crc32c::new(0);
-    for part in review.parts {
+    for (i, part) in review.parts.iter().enumerate() {
         uploaded_size += part.size;
 
         let Some(checksum) = &part.checksum else {
-            error!("missing part checksum");
+            error!(part_number = i, "missing part checksum");
             return false;
         };
         let checksum = match crc32c_from_base64(checksum) {
             Ok(checksum) => checksum,
             Err(error) => {
-                error!(?error, "error decoding part checksum");
+                error!(part_number = i, ?error, "error decoding part checksum");
                 return false;
             }
         };

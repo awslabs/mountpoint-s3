@@ -9,7 +9,9 @@ use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams, PutObjectResult};
+use mountpoint_s3_client::types::{
+    ChecksumAlgorithm, ObjectClientResult, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums,
+};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::checksums::crc32c;
 use mountpoint_s3_crt_sys::aws_s3_errors;
@@ -274,8 +276,11 @@ async fn test_put_object_initiate_failure() {
     assert_eq!(uploads_in_progress, 0);
 }
 
+#[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
+#[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+#[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
 #[tokio::test]
-async fn test_put_checksums() {
+async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     const PART_SIZE: usize = 5 * 1024 * 1024;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
     let client_config = S3ClientConfig::new()
@@ -288,14 +293,26 @@ async fn test_put_checksums() {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(true);
+    let params = PutObjectParams::new().trailing_checksums(trailing_checksums);
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await
         .expect("put_object should succeed");
 
     request.write(&contents).await.unwrap();
-    request.complete().await.unwrap();
+    request
+        .review_and_complete(move |review| {
+            let parts = review.parts;
+            if trailing_checksums == PutObjectTrailingChecksums::Disabled {
+                assert!(review.checksum_algorithm.is_none());
+                assert!(parts.iter().all(|p| p.checksum.is_none()));
+            } else {
+                assert_eq!(review.checksum_algorithm, Some(ChecksumAlgorithm::Crc32c));
+            }
+            true
+        })
+        .await
+        .unwrap();
 
     let sdk_client = get_test_sdk_client().await;
     let attributes = sdk_client
@@ -307,13 +324,27 @@ async fn test_put_checksums() {
         .await
         .unwrap();
     let parts = attributes.object_parts().unwrap().parts();
-    let checksums: Vec<_> = parts.iter().map(|p| p.checksum_crc32_c().unwrap()).collect();
-    let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
 
-    assert_eq!(checksums.len(), expected_checksums.len());
-    for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
-        let encoded = crc32c_to_base64(&expected_checksum);
-        assert_eq!(checksum, encoded);
+    if trailing_checksums == PutObjectTrailingChecksums::Enabled {
+        let checksums: Vec<_> = parts.iter().map(|p| p.checksum_crc32_c().unwrap()).collect();
+        let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
+
+        assert_eq!(checksums.len(), expected_checksums.len());
+        for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
+            let encoded = crc32c_to_base64(&expected_checksum);
+            assert_eq!(checksum, encoded);
+        }
+    } else {
+        // For S3 Express, crc32 is used by default. For S3 Standard, no checksums are used by
+        // default and the list of parts is empty in GetObjectAttributes. So allow either case --
+        // the important thing is that crc32c checksums aren't present because we disabled those by
+        // disabling our upload checksums.
+        for part in parts {
+            assert!(
+                part.checksum_crc32_c().is_none(),
+                "crc32c should not be present when upload checksums are disabled"
+            );
+        }
     }
 }
 
@@ -333,7 +364,7 @@ async fn test_put_review(pass_review: bool) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(true);
+    let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Enabled);
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await

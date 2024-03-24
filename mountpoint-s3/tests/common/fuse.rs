@@ -277,7 +277,7 @@ pub mod s3_session {
     use aws_sdk_s3::Client;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
     use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-    use mountpoint_s3_client::types::Checksum;
+    use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
     use mountpoint_s3_client::S3CrtClient;
 
     use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client, tokio_block_on};
@@ -377,7 +377,7 @@ pub mod s3_session {
             if let Some(storage_class) = params.storage_class {
                 request = request.set_storage_class(Some(storage_class.as_str().into()));
             }
-            if params.trailing_checksums {
+            if params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
                 request = request.set_checksum_algorithm(Some(ChecksumAlgorithm::Crc32C));
             }
             Ok(tokio_block_on(request.send()).map(|_| ())?)
