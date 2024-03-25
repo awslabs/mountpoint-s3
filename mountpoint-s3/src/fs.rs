@@ -50,6 +50,10 @@ impl DirHandle {
     fn next_offset(&self) {
         self.offset.fetch_add(1, Ordering::SeqCst);
     }
+
+    fn rewind_offset(&self) {
+        self.offset.store(0, Ordering::SeqCst);
+    }
 }
 
 #[derive(Debug)]
@@ -995,7 +999,7 @@ where
         // special case where we need to rewind and restart the streaming
         if offset == 0 && dir_handle.offset() != 0 {
             // only do this if this is not the first call with offset 0
-            dir_handle.offset.store(0, Ordering::SeqCst);
+            dir_handle.rewind_offset();
             let new_handle = self.superblock.readdir(&self.client, parent, 1000).await?;
             *dir_handle.handle.lock().await = new_handle;
         }
