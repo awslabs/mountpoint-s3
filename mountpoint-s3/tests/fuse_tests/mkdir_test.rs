@@ -27,12 +27,7 @@ where
     let filename = "nested_file";
     {
         let filepath = dirpath.join(filename);
-        let f = File::options()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(filepath)
-            .unwrap();
+        let f = File::options().write(true).create_new(true).open(filepath).unwrap();
         f.sync_all().unwrap();
     }
 
