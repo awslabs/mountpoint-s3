@@ -23,7 +23,7 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
-    init_signing_config, BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
+    init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
     MetaRequestType, RequestType,
 };
 
@@ -664,14 +664,14 @@ impl S3CrtClientInner {
 
         // Buffer pool metrics
         let buffer_pool_stats = s3_client.poll_buffer_pool_usage_stats();
-        metrics::gauge!("s3.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
-        metrics::gauge!("s3.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
-        metrics::gauge!("s3.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
-        metrics::gauge!("s3.buffer_pool.primary_allocated").set(buffer_pool_stats.primary_allocated as f64);
-        metrics::gauge!("s3.buffer_pool.primary_reserved").set(buffer_pool_stats.primary_reserved as f64);
-        metrics::gauge!("s3.buffer_pool.primary_num_blocks").set(buffer_pool_stats.primary_num_blocks as f64);
-        metrics::gauge!("s3.buffer_pool.secondary_reserved").set(buffer_pool_stats.secondary_reserved as f64);
-        metrics::gauge!("s3.buffer_pool.secondary_used").set(buffer_pool_stats.secondary_used as f64);
+        metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
+        metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
+        metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
+        metrics::gauge!("s3.client.buffer_pool.primary_allocated").set(buffer_pool_stats.primary_allocated as f64);
+        metrics::gauge!("s3.client.buffer_pool.primary_reserved").set(buffer_pool_stats.primary_reserved as f64);
+        metrics::gauge!("s3.client.buffer_pool.primary_num_blocks").set(buffer_pool_stats.primary_num_blocks as f64);
+        metrics::gauge!("s3.client.buffer_pool.secondary_reserved").set(buffer_pool_stats.secondary_reserved as f64);
+        metrics::gauge!("s3.client.buffer_pool.secondary_used").set(buffer_pool_stats.secondary_used as f64);
     }
 
     fn next_request_counter(&self) -> u64 {

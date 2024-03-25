@@ -124,13 +124,9 @@ impl<E: std::error::Error> Drop for PartQueue<E> {
         // close the channel and drain remaining parts
         self.receiver.close();
         let mut queue_size = 0;
-        loop {
-            if let Ok(part) = self.receiver.try_recv() {
-                if let Ok(part) = part {
-                    queue_size += part.len();
-                }
-            } else {
-                break;
+        while let Ok(part) = self.receiver.try_recv() {
+            if let Ok(part) = part {
+                queue_size += part.len();
             }
         }
         let remaining = current_size + queue_size;

@@ -604,7 +604,7 @@ impl ClientMetrics {
     }
 }
 
-/// Stats
+/// S3 buffer pool usage stats
 #[derive(Debug)]
 pub struct BufferPoolUsageStats {
     /// Effective Max memory limit. Memory limit value provided during construction minus
@@ -614,7 +614,8 @@ pub struct BufferPoolUsageStats {
     /// Max size of buffer to be allocated from primary.
     pub primary_cutoff: u64,
 
-    /// Used memory in primary storage.
+    /// Primary mem used, including memory used by blocks
+    /// that are waiting on all allocs to release before being put back in circulation.
     pub primary_used: u64,
 
     /// Overall memory allocated for blocks.
@@ -630,7 +631,7 @@ pub struct BufferPoolUsageStats {
     pub secondary_reserved: u64,
 
     /// Secondary mem reserved. Accurate, maps directly to base allocator.
-    pub secondary_used: u64,    
+    pub secondary_used: u64,
 }
 
 impl Client {
@@ -744,7 +745,7 @@ impl Client {
         let secondary_reserved = inner_stats.secondary_reserved as u64;
         let secondary_used = inner_stats.secondary_used as u64;
 
-        BufferPoolUsageStats { 
+        BufferPoolUsageStats {
             mem_limit,
             primary_cutoff,
             primary_used,
