@@ -56,9 +56,10 @@ pub fn install() -> MetricsSinkHandle {
         handle: Some(publisher_thread),
     };
 
+    // HACK(ctso): Wire up prometheus exporter, which will break logging to metrics
     PrometheusBuilder::new()
         .install()
-        .expect("failed to install Prometheus exporter");
+        .expect("failed to install Prometheus metrics exporter");
 
     handle
 }
