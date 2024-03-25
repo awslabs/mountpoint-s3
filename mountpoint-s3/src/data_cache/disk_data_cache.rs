@@ -518,9 +518,7 @@ where
     /// Remove the least recently used key and update the total size.
     /// Return `None` if empty.
     fn evict_lru(&mut self) -> Option<K> {
-        let Some((key, size)) = self.entries.pop_front() else {
-            return None;
-        };
+        let (key, size) = self.entries.pop_front()?;
         self.size = self.size.saturating_sub(size);
         Some(key)
     }

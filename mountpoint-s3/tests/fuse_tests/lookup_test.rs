@@ -177,7 +177,7 @@ where
 
     // Not really a "lookup" test, but since we're playing with Unicode, may as well do it here
     let new_path = mount_point.path().join("🐈/👻");
-    let mut f = OpenOptions::new().write(true).create(true).open(&new_path).unwrap();
+    let mut f = OpenOptions::new().write(true).create_new(true).open(&new_path).unwrap();
     f.write_all("hello world 4".as_bytes()).unwrap();
     f.sync_all().unwrap();
     drop(f);

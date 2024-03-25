@@ -140,7 +140,7 @@ where
     let mut f = File::options()
         .read(false)
         .write(true)
-        .create(true)
+        .create_new(true)
         .open(&path)
         .expect("open for writing should succeed");
 
