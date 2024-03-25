@@ -37,7 +37,7 @@ pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 struct DirHandle {
     #[allow(unused)]
     ino: InodeNo,
-    handle: ReaddirHandle,
+    handle: AsyncMutex<ReaddirHandle>,
     offset: AtomicI64,
     last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
 }
@@ -943,7 +943,7 @@ where
         let fh = self.next_handle();
         let handle = DirHandle {
             ino: parent,
-            handle: inode_handle,
+            handle: AsyncMutex::new(inode_handle),
             offset: AtomicI64::new(0),
             last_response: AsyncMutex::new(None),
         };
@@ -996,7 +996,8 @@ where
         if offset == 0 && dir_handle.offset() != 0 {
             // only do this if this is not the first call with offset 0
             dir_handle.offset.store(0, Ordering::SeqCst);
-            dir_handle.handle.rewind().await;
+            let new_handle = self.superblock.readdir(&self.client, parent, 1000).await?;
+            *dir_handle.handle.lock().await = new_handle;
         }
 
         if offset != dir_handle.offset() {
@@ -1018,7 +1019,7 @@ where
                         // must remember it again, except that readdirplus specifies that . and ..
                         // are never incremented.
                         if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            dir_handle.handle.remember(&entry.lookup);
+                            dir_handle.handle.lock().await.remember(&entry.lookup);
                         }
                     }
                     return Ok(reply);
@@ -1079,11 +1080,11 @@ where
         if dir_handle.offset() < 2 {
             let lookup = self
                 .superblock
-                .getattr(&self.client, dir_handle.handle.parent(), false)
+                .getattr(&self.client, dir_handle.handle.lock().await.parent(), false)
                 .await?;
             let attr = self.make_attr(&lookup);
             let entry = DirectoryEntry {
-                ino: dir_handle.handle.parent(),
+                ino: dir_handle.handle.lock().await.parent(),
                 offset: dir_handle.offset() + 1,
                 name: "..".into(),
                 attr,
@@ -1098,7 +1099,7 @@ where
         }
 
         loop {
-            let next = match dir_handle.handle.next(&self.client).await? {
+            let next = match dir_handle.handle.lock().await.next(&self.client).await? {
                 None => return Ok(reply.finish(offset, &dir_handle).await),
                 Some(next) => next,
             };
@@ -1115,11 +1116,11 @@ where
             };
 
             if reply.add(entry) {
-                dir_handle.handle.readd(next);
+                dir_handle.handle.lock().await.readd(next);
                 return Ok(reply.finish(offset, &dir_handle).await);
             }
             if is_readdirplus {
-                dir_handle.handle.remember(&next);
+                dir_handle.handle.lock().await.remember(&next);
             }
             dir_handle.next_offset();
         }
