@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use metrics::{Key, Metadata, Recorder};
+use metrics_exporter_prometheus::PrometheusBuilder;
 
 use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::Arc;
@@ -55,8 +56,9 @@ pub fn install() -> MetricsSinkHandle {
         handle: Some(publisher_thread),
     };
 
-    let recorder = MetricsRecorder { sink };
-    metrics::set_global_recorder(recorder).unwrap();
+    PrometheusBuilder::new()
+        .install()
+        .expect("failed to install Prometheus exporter");
 
     handle
 }
