@@ -1,6 +1,5 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
-use assert_cmd::assert;
 use fuser::FileType;
 use libc::S_IFREG;
 use mountpoint_s3::fs::{CacheConfig, S3Personality, ToErrno, FUSE_ROOT_INODE};
@@ -1404,10 +1403,10 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
 
     // Let's add a new local file
     let file_name = "newfile.bin";
-    new_local_file(&fs, &file_name).await;
+    new_local_file(&fs, file_name).await;
 
     // Let's add a new remote file
-    client.add_object(&format!("foo10"), b"foo".into());
+    client.add_object("foo10", b"foo".into());
 
     // Requesting same offset (non zero) works fine by returning last response
     let _ = ls(&fs, dir_handle, 0, 5).await;
@@ -1441,7 +1440,7 @@ async fn test_readdir_rewind_with_local_files_only() {
 
     // Let's add a new local file
     let file_name = "newfile.bin";
-    new_local_file(&fs, &file_name).await;
+    new_local_file(&fs, file_name).await;
 
     // Requesting same offset (non zero) works fine by returning last response
     let _ = ls(&fs, dir_handle, 0, 5).await;

@@ -1004,7 +1004,7 @@ where
         if offset == 0 && dir_handle.offset() != 0 {
             // only do this if this is not the first call with offset 0
             dir_handle.rewind_offset();
-            let new_handle = self.default_handle( parent).await?;
+            let new_handle = self.default_handle(parent).await?;
             *dir_handle.handle.lock().await = new_handle;
         }
 
