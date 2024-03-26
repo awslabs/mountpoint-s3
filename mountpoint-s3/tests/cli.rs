@@ -268,3 +268,18 @@ fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(feature = "sse_kms")]
+#[test]
+fn sse_key_not_allowed_with_aes256() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg("test-bucket")
+        .arg(dir.path())
+        .arg("--sse=AES256")
+        .arg("--sse-kms-key-id=some_key");
+    let error_message = "--sse_kms_key_id can not be used with AES256 sse_type";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}

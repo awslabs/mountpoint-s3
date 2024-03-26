@@ -276,7 +276,7 @@ pub struct CliArgs {
         long,
         help = "Server-side encryption algorithm to use when uploading new objects",
         help_heading = BUCKET_OPTIONS_HEADER,
-        value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse"]))]
+        value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse", "AES256"]))]
     pub sse: Option<String>,
 
     #[cfg(feature = "sse_kms")]
@@ -389,6 +389,10 @@ where
     Runtime: Spawn + Send + Sync + 'static,
 {
     let args = CliArgs::parse();
+    #[cfg(feature = "sse_kms")]
+    {
+        validate_sse_args(&args.sse, &args.sse_kms_key_id)?;
+    }
     let successful_mount_msg = format!(
         "{} is mounted at {}",
         args.bucket_description(),
@@ -916,6 +920,15 @@ fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(feature = "sse_kms")]
+fn validate_sse_args(sse_type: &Option<String>, sse_kms_key_id: &Option<String>) -> anyhow::Result<()> {
+    if sse_kms_key_id.is_some() && *sse_type == Some("AES256".to_owned()) {
+        Err(anyhow!("--sse_kms_key_id can not be used with AES256 sse_type"))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
