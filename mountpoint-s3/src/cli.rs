@@ -389,10 +389,6 @@ where
     Runtime: Spawn + Send + Sync + 'static,
 {
     let args = CliArgs::parse();
-    #[cfg(feature = "sse_kms")]
-    {
-        validate_sse_args(&args.sse, &args.sse_kms_key_id)?;
-    }
     let successful_mount_msg = format!(
         "{} is mounted at {}",
         args.bucket_description(),
@@ -610,6 +606,10 @@ where
     tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
+    #[cfg(feature = "sse_kms")]
+    {
+        validate_sse_args(&args.sse, &args.sse_kms_key_id)?;
+    }
 
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
