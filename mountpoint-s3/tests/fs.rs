@@ -1,5 +1,6 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
+use assert_cmd::assert;
 use fuser::FileType;
 use libc::S_IFREG;
 use mountpoint_s3::fs::{CacheConfig, S3Personality, ToErrno, FUSE_ROOT_INODE};
@@ -1402,24 +1403,8 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
 
     // Let's add a new local file
-    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
-    let dentry = fs
-        .mknod(FUSE_ROOT_INODE, "newfile.bin".as_ref(), mode, 0, 0)
-        .await
-        .unwrap();
-    assert_eq!(dentry.attr.size, 0);
-    let file_ino = dentry.attr.ino;
-
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
-
-    let slice = &[0xaa; 27];
-    let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
-    assert_eq!(written as usize, slice.len());
-    fs.fsync(file_ino, fh, true).await.unwrap();
+    let file_name = "newfile.bin";
+    new_local_file(&fs, &file_name).await;
 
     // Let's add a new remote file
     client.add_object(&format!("foo10"), b"foo".into());
@@ -1434,6 +1419,11 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     let new_entries = ls(&fs, dir_handle, 0, 20).await;
     assert_eq!(new_entries.len(), 14); // 10 original remote files + 1 new local file + 1 new remote file + 2 dirs (. and ..) = 13 entries
 
+    // assert entries contain new local file
+    assert!(new_entries
+        .iter()
+        .any(|(_, name)| name.as_os_str().to_str().unwrap() == file_name));
+
     // Request more entries but there is no more
     let new_entries = ls(&fs, dir_handle, 14, 20).await;
     assert_eq!(new_entries.len(), 0);
@@ -1441,6 +1431,56 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     // Request everything from zero one more time
     let new_entries = ls(&fs, dir_handle, 0, 20).await;
     assert_eq!(new_entries.len(), 14); // 10 original remote files + 1 new local file + 1 new remote file + 2 dirs (. and ..) = 13 entries
+}
+
+#[tokio::test]
+async fn test_readdir_rewind_with_local_files_only() {
+    let (_, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+
+    // Let's add a new local file
+    let file_name = "newfile.bin";
+    new_local_file(&fs, &file_name).await;
+
+    // Requesting same offset (non zero) works fine by returning last response
+    let _ = ls(&fs, dir_handle, 0, 5).await;
+    let new_entries = ls(&fs, dir_handle, 3, 5).await;
+    let new_entries_repeat = ls(&fs, dir_handle, 3, 5).await;
+    assert_eq!(new_entries, new_entries_repeat);
+
+    // Request all entries
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+
+    // assert entries contain new local file
+    assert!(new_entries.iter().any(|(_, name)| name == file_name));
+
+    // Request more entries but there is no more
+    let new_entries = ls(&fs, dir_handle, 3, 20).await;
+    assert_eq!(new_entries.len(), 0);
+
+    // Request everything from zero one more time
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+}
+
+async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) {
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs.mknod(FUSE_ROOT_INODE, filename.as_ref(), mode, 0, 0).await.unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .await
+        .unwrap()
+        .fh;
+
+    let slice = &[0xaa; 27];
+    let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
+    assert_eq!(written as usize, slice.len());
+    fs.fsync(file_ino, fh, true).await.unwrap();
 }
 
 async fn ls(
