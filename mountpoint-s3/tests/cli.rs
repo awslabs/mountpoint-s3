@@ -278,7 +278,7 @@ fn sse_key_not_allowed_with_aes256() -> Result<(), Box<dyn std::error::Error>> {
         .arg(dir.path())
         .arg("--sse=AES256")
         .arg("--sse-kms-key-id=some_key");
-    let error_message = "--sse_kms_key_id can not be used with AES256 sse_type";
+    let error_message = "--sse-kms-key-id can not be used with --sse AES256";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
