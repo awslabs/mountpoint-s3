@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1711369611574,
+  "lastUpdate": 1711559321884,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "hernaa@amazon.com",
-            "name": "Andres Santana",
-            "username": "arsh"
-          },
-          "committer": {
-            "email": "hernaa@amazon.com",
-            "name": "Andres Santana",
-            "username": "arsh"
-          },
-          "distinct": true,
-          "id": "a82d1d261d9dfabb82bc150c5905ee5a406c1180",
-          "message": "Adding benchmarks that use caching.\n\nSigned-off-by: Andres Santana <hernaa@amazon.com>",
-          "timestamp": "2024-03-07T13:57:16Z",
-          "tree_id": "7ee9966a0adc2791a7c23a096946f04b8dd1985f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a82d1d261d9dfabb82bc150c5905ee5a406c1180"
-        },
-        "date": 1709824472150,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.14,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.517,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.243,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.952,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 23.1338455,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.3208865,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 21.691160399999998,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3ccca6e3eefa257aed1c41100a4c1f04eb06a9d",
+          "message": "Add s3.client.total_bytes metric (#823)\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\nCo-authored-by: Vladislav Volodkin <vlaad@amazon.co.uk>",
+          "timestamp": "2024-03-27T16:47:50Z",
+          "tree_id": "646d75c10349a0ebea56db43b1128be306026252",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e3ccca6e3eefa257aed1c41100a4c1f04eb06a9d"
+        },
+        "date": 1711559321349,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.135,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.493,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.271,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.487,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 22.4851758,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 21.9691472,
             "unit": "milliseconds"
           }
         ]
