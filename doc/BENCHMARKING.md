@@ -41,6 +41,7 @@ You can use the following steps.
 
         export S3_BUCKET_NAME=bucket_name
         export S3_BUCKET_TEST_PREFIX=prefix_path/
+        export S3_ENDPOINT_URL=<endpoint-url> 
         export S3_BUCKET_BENCH_FILE=bench_file_name
         export S3_BUCKET_SMALL_BENCH_FILE=small_bench_file_name
         # to filter by job name; e.g. to only run small jobs
@@ -48,7 +49,7 @@ You can use the following steps.
         # when running locally, we skip setting up local EC2 storage by default; to override that you can pass the following (value of the variable does not matter)
         export S3_MOUNT_LOCAL_STORAGE=yes
 
-3. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh), [throughput with caching](../mountpoint-s3/scripts/fs_cache_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
+4. Run the benchmark script for [throughput](../mountpoint-s3/scripts/fs_bench.sh), [throughput with caching](../mountpoint-s3/scripts/fs_cache_bench.sh) or [latency](../mountpoint-s3/scripts/fs_latency_bench.sh).
 
         # to run throughput benchmarks
         ./mountpoint-s3/scripts/fs_bench.sh
@@ -57,4 +58,4 @@ You can use the following steps.
         # to run latency benchmarks
         ./mountpoint-s3/scripts/fs_latency_bench.sh
 
-4. You should see the benchmark logs in `bench.out` file in the project root directory. The combined results will be saved into a JSON file at `results/output.json`.
+5. You should see the benchmark logs in `bench.out` file in the project root directory. The combined results will be saved into a JSON file at `results/output.json`.
