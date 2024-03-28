@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use metrics::{Key, Metadata, Recorder};
+use sysinfo::{get_current_pid, MemoryRefreshKind, ProcessRefreshKind, System};
 
 use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::Arc;
@@ -31,6 +32,7 @@ pub const TARGET_NAME: &str = "mountpoint_s3::metrics";
 /// Panics if a sink has already been installed.
 pub fn install() -> MetricsSinkHandle {
     let sink = Arc::new(MetricsSink::new());
+    let mut sys = System::new();
 
     let (tx, rx) = channel();
 
@@ -40,12 +42,16 @@ pub fn install() -> MetricsSinkHandle {
             loop {
                 match rx.recv_timeout(AGGREGATION_PERIOD) {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
-                    Err(RecvTimeoutError::Timeout) => inner.publish(),
+                    Err(RecvTimeoutError::Timeout) => {
+                        poll_process_metrics(&mut sys);
+                        inner.publish()
+                    }
                 }
             }
             // Drain metrics one more time before shutting down. This has a chance of missing
             // any new metrics data after the sink shuts down, but we assume a clean shutdown
             // stops generating new metrics before shutting down the sink.
+            poll_process_metrics(&mut sys);
             inner.publish();
         })
     };
@@ -59,6 +65,22 @@ pub fn install() -> MetricsSinkHandle {
     metrics::set_global_recorder(recorder).unwrap();
 
     handle
+}
+
+/// Report process level metrics
+fn poll_process_metrics(sys: &mut System) {
+    if let Ok(pid) = get_current_pid() {
+        let last_mem = sys.process(pid).map_or(0, |process| process.memory());
+        sys.refresh_memory_specifics(MemoryRefreshKind::new().with_ram());
+        sys.refresh_process_specifics(pid, ProcessRefreshKind::new().with_memory());
+        if let Some(process) = sys.process(pid) {
+            // update the metrics only when there is some change, otherwise it will be too spammy.
+            if last_mem != process.memory() {
+                metrics::gauge!("process.memory_usage").set(process.memory() as f64);
+                metrics::gauge!("system.available_memory").set(sys.available_memory() as f64);
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

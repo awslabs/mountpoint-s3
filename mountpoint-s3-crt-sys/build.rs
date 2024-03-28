@@ -58,6 +58,7 @@ const CRT_HEADERS: &[&str] = &[
 const PRIVATE_CRT_HEADERS: &[&str] = &[
     // To access S3 client stats
     "aws-c-s3/include/aws/s3/private/s3_client_impl.h",
+    "aws-c-s3/include/aws/s3/private/s3_buffer_pool.h",
 ];
 
 /// Get the OS name we are compiling to

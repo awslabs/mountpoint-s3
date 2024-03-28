@@ -85,13 +85,12 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         };
         debug_assert!(!part.is_empty(), "parts must not be empty");
 
-        if length >= part.len() {
-            Ok(part)
-        } else {
+        if length < part.len() {
             let tail = part.split_off(length);
             *current_part = Some(tail);
-            Ok(part)
         }
+        metrics::gauge!("prefetch.bytes_in_queue").decrement(part.len() as f64);
+        Ok(part)
     }
 
     pub fn bytes_received(&self) -> usize {
@@ -102,14 +101,36 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
     pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
-        if let Ok(ref part) = part {
-            self.bytes_sent.fetch_add(part.len(), Ordering::SeqCst);
-        }
+        let part_len = part.as_ref().map_or(0, |part| part.len());
+
         // Unbounded channel will never actually block
         let send_result = self.sender.send_blocking(part);
         if send_result.is_err() {
             trace!("closed channel");
+        } else {
+            self.bytes_sent.fetch_add(part_len, Ordering::SeqCst);
+            metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
         }
+    }
+}
+
+impl<E: std::error::Error> Drop for PartQueue<E> {
+    fn drop(&mut self) {
+        let current_part = self.current_part.lock_blocking();
+        let current_size = match current_part.as_ref() {
+            Some(part) => part.len(),
+            None => 0,
+        };
+        // close the channel and drain remaining parts
+        self.receiver.close();
+        let mut queue_size = 0;
+        while let Ok(part) = self.receiver.try_recv() {
+            if let Ok(part) = part {
+                queue_size += part.len();
+            }
+        }
+        let remaining = current_size + queue_size;
+        metrics::gauge!("prefetch.bytes_in_queue").decrement(remaining as f64);
     }
 }
 

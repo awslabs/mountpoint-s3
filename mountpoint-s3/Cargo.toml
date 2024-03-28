@@ -41,6 +41,7 @@ time = { version = "0.3.17", features = ["macros", "formatting"] }
 tracing = { version = "0.1.35", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
+sysinfo = "0.30.7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.16.0", default-features = false }
