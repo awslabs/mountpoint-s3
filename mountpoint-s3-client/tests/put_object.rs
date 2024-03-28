@@ -2,16 +2,19 @@
 
 pub mod common;
 
+use std::task::Context;
 use std::time::Duration;
 
 use common::*;
-use futures::{pin_mut, StreamExt};
+use futures::task::noop_waker;
+use futures::{pin_mut, FutureExt, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{ObjectClientResult, PutObjectParams, PutObjectResult};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_crt_sys::aws_s3_errors;
 use rand::Rng;
 use test_case::test_case;
 
@@ -167,9 +170,8 @@ async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: 
 object_client_test!(test_put_object_dropped);
 
 // Test for abort PUT object.
-
 #[test_case(30; "small")]
-// #[test_case(30_000_000; "large")]  // The Abort and in-flight parts can race and cause some parts to be left behind, recreating the MPU
+#[test_case(30_000_000; "large")]
 #[tokio::test]
 async fn test_put_object_abort(size: usize) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
@@ -188,6 +190,10 @@ async fn test_put_object_abort(size: usize) {
     request.write(&contents).await.unwrap();
 
     let sdk_client = get_test_sdk_client().await;
+
+    // Allow for the CreateMultipartUpload to complete.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
     let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
         .await
         .unwrap();
@@ -205,6 +211,37 @@ async fn test_put_object_abort(size: usize) {
 }
 
 #[tokio::test]
+async fn test_put_object_write_cancelled() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_write_cancelled");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let mut request = client
+        .put_object(&bucket, &key, &Default::default())
+        .await
+        .expect("put_object should succeed");
+
+    {
+        // Write at least `part_size` to ensure the copy is deferred.
+        let buffer = vec![0u8; client.part_size().unwrap()];
+        let mut write = request.write(&buffer);
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let poll_result = write.poll_unpin(&mut cx);
+        assert!(matches!(poll_result, std::task::Poll::Pending));
+        drop(write);
+    }
+
+    let err = request
+        .write(&[1, 2, 3, 4])
+        .await
+        .expect_err("further writes should fail");
+    assert!(
+        matches!(err, ObjectClientError::ClientError(S3RequestError::CrtError(e)) if e.raw_error() == aws_s3_errors::AWS_ERROR_S3_REQUEST_HAS_COMPLETED as i32)
+    );
+}
+
+#[tokio::test]
 async fn test_put_object_initiate_failure() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_initiate_failure");
     let client = get_test_client();
@@ -218,7 +255,9 @@ async fn test_put_object_initiate_failure() {
         .expect("put_object should succeed");
 
     // The MPU initiation should fail, so we should get an error when we try to write.
-    let _err = request.write(&[1, 2, 3, 4]).await.expect_err("write should fail");
+    // Use `part_size`` to make sure `write` does not just buffer the data.
+    let data = vec![0u8; client.part_size().unwrap()];
+    let _err = request.write(&data).await.expect_err("write should fail");
 
     // Try again just to make sure the failure is fused correctly and doesn't block forever if
     // someone (incorrectly) tries to write again after a failure.
@@ -485,10 +524,10 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
     check_sse(&bucket, &key, sse_type, &kms_key_id, put_object_result).await;
 }
 
-#[test_case(10.0, 25)]
+#[test_case(10.0, 200)]
 #[tokio::test]
 async fn test_concurrent_put_objects(throughput_target_gbps: f64, max_concurrent_puts: usize) {
-    const TIMEOUT: Duration = Duration::from_secs(10);
+    const TIMEOUT: Duration = Duration::from_secs(60);
 
     let bucket = get_test_bucket();
     let prefix = get_unique_test_prefix("test_concurrent_put_objects");

@@ -11,7 +11,6 @@ use thiserror::Error;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
-use crate::io::async_stream::AsyncInputStream;
 use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
 
 /// An HTTP header.
@@ -254,9 +253,6 @@ impl<'a> Iterator for HeadersIterator<'a> {
 pub struct Message {
     /// The pointer to the inner `aws_http_message`.
     pub(crate) inner: NonNull<aws_http_message>,
-
-    /// Input stream for the body of the http message, if present.
-    body_input_stream: Option<AsyncInputStream>,
 }
 
 impl Message {
@@ -268,10 +264,7 @@ impl Message {
         // SAFETY: `allocator.inner` is a valid `aws_allocator`.
         let inner = unsafe { aws_http_message_new_request(allocator.inner.as_ptr()).ok_or_last_error()? };
 
-        Ok(Self {
-            inner,
-            body_input_stream: None,
-        })
+        Ok(Self { inner })
     }
 
     /// Add a header to this message. If the header already exists in the message, this will add a
@@ -311,17 +304,6 @@ impl Message {
         unsafe {
             aws_http_message_set_request_method(self.inner.as_ptr(), method.as_aws_byte_cursor()).ok_or_last_error()
         }
-    }
-
-    /// The body input stream for this message,if present.
-    pub fn body_stream(&self) -> &Option<AsyncInputStream> {
-        &self.body_input_stream
-    }
-
-    /// Sets the body input stream for this message, and returns any previously set input stream.
-    /// If input_stream is None, unsets the body.
-    pub fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
-        std::mem::replace(&mut self.body_input_stream, input_stream)
     }
 
     /// get the headers from the message and increases the reference count for the Headers in CRT.

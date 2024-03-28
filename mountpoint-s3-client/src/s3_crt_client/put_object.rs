@@ -4,9 +4,7 @@ use std::time::Instant;
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
-use futures::{select_biased, FutureExt as _};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
-use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
 use tracing::error;
 
@@ -38,9 +36,6 @@ impl S3CrtClient {
             message.set_checksum_config(Some(checksum_config));
         }
 
-        let (body_async_stream, writer) = async_stream::new_stream(&self.inner.allocator);
-        message.set_body_stream(Some(body_async_stream));
-
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
 
@@ -68,6 +63,7 @@ impl S3CrtClient {
             *response_headers_writer.lock().unwrap() = Some(headers.clone());
         };
         let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
+        options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
         let body = self
             .inner
@@ -75,7 +71,6 @@ impl S3CrtClient {
 
         Ok(S3PutObjectRequest {
             body,
-            writer,
             review_callback,
             start_time: Instant::now(),
             total_bytes: 0,
@@ -124,7 +119,6 @@ impl ReviewCallbackBox {
 #[derive(Debug)]
 pub struct S3PutObjectRequest {
     body: S3HttpRequest<Vec<u8>, PutObjectError>,
-    writer: AsyncStreamWriter,
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
@@ -141,19 +135,14 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
-        // Check if the request has already finished (which can only happen because of an error in
-        // the request), and fail the write if so. Ordering doesn't matter here as it should be
-        // impossible for the request to succeed while we still hold `&mut self`, as no one can call
-        // `complete()`.
-        select_biased! {
-            result = self.writer.write(slice).fuse() => {
-                self.total_bytes += slice.len() as u64;
-                result.map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
-            }
-
-            // Request can't have succeeded if we still own `&mut self`
-            result = (&mut self.body).fuse() => Err(result.expect_err("request can't succeed while still writing")),
-        }
+        // Write will fail if the request has already finished (because of an error).
+        self.body
+            .meta_request
+            .write(slice, false)
+            .await
+            .map_err(S3RequestError::CrtError)?;
+        self.total_bytes += slice.len() as u64;
+        Ok(())
     }
 
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
@@ -166,24 +155,15 @@ impl PutObjectRequest for S3PutObjectRequest {
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.review_callback.set(review_callback);
 
-        let mut request = self.body.fuse();
+        // Write will fail if the request has already finished (because of an error).
+        self.body
+            .meta_request
+            .write(&[], true)
+            .await
+            .map_err(S3RequestError::CrtError)?;
 
-        // Check if the request has already finished (because of an error), and fail the write if
-        // so. Ordering here is significant: if both futures are ready (which could happen if we
-        // were not polled for a long time, and so the request succeeded _because_ of the
-        // `self.writer.complete()` call), we want to proceed with the complete path.
-        select_biased! {
-            result = self.writer.complete().fuse() => {
-                let _ = result.map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
-
-                // Now wait for the request to finish.
-                let _ = request.await?;
-            }
-
-            // Request can't have succeeded if we still own it and the `complete()` future is still
-            // incomplete, which we know it is because this is a biased select.
-            result = request => return Err(result.expect_err("request can't succeed while still completing")),
-        };
+        // Now wait for the request to finish.
+        let _ = self.body.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");

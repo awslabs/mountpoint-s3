@@ -18,7 +18,6 @@ use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
-use mountpoint_s3_crt::io::async_stream::AsyncInputStream;
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
@@ -774,12 +773,6 @@ impl S3Message {
     /// handle that.
     fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), mountpoint_s3_crt::common::error::Error> {
         self.set_request_path_and_query::<&str>(path, &[])
-    }
-
-    /// Sets the body input stream for this message, and returns any previously set input stream.
-    /// If input_stream is None, unsets the body.
-    fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
-        self.inner.set_body_stream(input_stream)
     }
 
     /// Sets the checksum configuration for this message.
