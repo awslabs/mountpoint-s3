@@ -80,6 +80,8 @@ pub struct ExponentialBackoffRetryOptions<'a> {
     pub max_retries: usize,
     /// Scaling factor to add for the backoff. Default is 25ms.
     pub backoff_scale_factor: Duration,
+    /// Max retry backoff in seconds. Default is 20 seconds
+    pub max_backoff_secs: u32,
     /// Jitter mode to use. Default is [ExponentialBackoffJitterMode::Full].
     pub jitter_mode: ExponentialBackoffJitterMode,
 }
@@ -92,6 +94,7 @@ impl<'a> ExponentialBackoffRetryOptions<'a> {
             // Defer to the CRT's defaults for everything else
             max_retries: 0,
             backoff_scale_factor: Duration::from_millis(0),
+            max_backoff_secs: 20,
             jitter_mode: ExponentialBackoffJitterMode::Full,
         }
     }
@@ -101,6 +104,7 @@ impl<'a> ExponentialBackoffRetryOptions<'a> {
             el_group: self.event_loop_group.inner.as_ptr(),
             max_retries: self.max_retries,
             backoff_scale_factor_ms: self.backoff_scale_factor.as_millis().min(u32::MAX as u128) as u32,
+            max_backoff_secs: self.max_backoff_secs,
             jitter_mode: self.jitter_mode.into(),
             ..Default::default()
         }
