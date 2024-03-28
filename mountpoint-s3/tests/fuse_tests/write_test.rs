@@ -995,42 +995,59 @@ fn write_handle_no_update_existing_empty_file_mock(allow_overwrite: bool) {
     );
 }
 
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+const SSE_KMS_POLICY: &str = r#"{"Statement": [
+    {"Effect": "Allow", "Action": ["s3:*"], "Resource": "*"},
+    {"Effect": "Allow", "Action": ["kms:*"], "Resource": "*"},
+    {
+        "Effect": "Deny",
+        "Action": ["s3:PutObject"],
+        "Resource": "*",
+        "Condition": {
+            "StringNotEquals": {
+                "s3:x-amz-server-side-encryption": "aws:kms"
+            }
+        }
+    },
+    {
+        "Effect": "Deny",
+        "Action": ["s3:PutObject"],
+        "Resource": "*",
+        "Condition": {
+            "StringNotEquals": {
+                "s3:x-amz-server-side-encryption-aws-kms-key-id": "__SSE_KEY_ARN__"
+            }
+        }
+    }
+]}"#;
+
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+const SSE_S3_POLICY: &str = r#"{"Statement": [
+    {"Effect": "Allow", "Action": ["s3:*"], "Resource": "*"},
+    {
+        "Effect": "Deny",
+        "Action": ["s3:PutObject"],
+        "Resource": "*",
+        "Condition": {
+            "StringNotEquals": {
+                "s3:x-amz-server-side-encryption": "AES256"
+            }
+        }
+    }
+]}"#;
+
 // This test checks that a write can be performed when IAM session policy enforces the usage of the specific SSE type and a KMS key ID
 // This test also contains error cases, that check that IAM session policy actually rejects writes with wrong SSE
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-#[test_case(ServerSideEncryption::new(None, None), true)]
-#[test_case(ServerSideEncryption::new(Some("aws:kms".to_owned()), None), true)]
-#[test_case(ServerSideEncryption::new(Some("aws:kms".to_owned()), Some(get_test_kms_key_id())), false)]
-fn write_with_sse_settings_test(sse: ServerSideEncryption, should_fail: bool) {
-    let sse_key = get_test_kms_key_id();
-
-    // configure credentials
-    let policy = r#"{"Statement": [
-        {"Effect": "Allow", "Action": ["s3:*"], "Resource": "*"},
-        {"Effect": "Allow", "Action": ["kms:*"], "Resource": "*"},
-        {
-            "Effect": "Deny",
-            "Action": ["s3:PutObject"],
-            "Resource": "*",
-            "Condition": {
-                "StringNotEquals": {
-                    "s3:x-amz-server-side-encryption": "aws:kms"
-                }
-            }
-        },
-        {
-            "Effect": "Deny",
-            "Action": ["s3:PutObject"],
-            "Resource": "*",
-            "Condition": {
-                "StringNotEquals": {
-                    "s3:x-amz-server-side-encryption-aws-kms-key-id": "__SSE_KEY_ARN__"
-                }
-            }
-        }
-    ]}"#;
-    let policy = policy.replace("__SSE_KEY_ARN__", &sse_key);
-
+#[test_case(SSE_KMS_POLICY, ServerSideEncryption::new(None, None), true)]
+#[test_case(SSE_KMS_POLICY, ServerSideEncryption::new(Some("aws:kms".to_owned()), None), true)]
+#[test_case(SSE_KMS_POLICY, ServerSideEncryption::new(Some("aws:kms".to_owned()), Some(get_test_kms_key_id())), false)]
+#[test_case(SSE_S3_POLICY, ServerSideEncryption::new(Some("aws:kms".to_owned()), None), true)]
+#[test_case(SSE_S3_POLICY, ServerSideEncryption::new(Some("AES256".to_owned()), None), false)]
+fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_fail: bool) {
+    let policy = policy
+        .to_string()
+        .replace("__SSE_KEY_ARN__", get_test_kms_key_id().as_str());
     let mut test_config =
         TestSessionConfig::default().with_credentials(tokio_block_on(get_scoped_down_credentials(&policy)));
     test_config.filesystem_config.server_side_encryption = sse;

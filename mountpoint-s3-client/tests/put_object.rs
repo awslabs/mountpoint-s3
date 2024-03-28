@@ -404,6 +404,7 @@ async fn check_sse(
         .expect("head object should succeed");
     let (expected_sse, expected_sdk_sse) = match expected_sse {
         None => (Some("AES256"), aws_sdk_s3::types::ServerSideEncryption::Aes256),
+        Some("AES256") => (Some("AES256"), aws_sdk_s3::types::ServerSideEncryption::Aes256),
         Some("aws:kms") => (Some("aws:kms"), aws_sdk_s3::types::ServerSideEncryption::AwsKms),
         Some("aws:kms:dsse") => (
             Some("aws:kms:dsse"),
@@ -450,6 +451,7 @@ async fn check_sse(
 #[test_case(Some("aws:kms:dsse"), Some(get_test_kms_key_id()))]
 #[test_case(Some("aws:kms:dsse"), None)]
 #[test_case(None, None)]
+#[test_case(Some("AES256"), None)]
 #[tokio::test]
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>) {

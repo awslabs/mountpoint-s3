@@ -276,7 +276,7 @@ pub struct CliArgs {
         long,
         help = "Server-side encryption algorithm to use when uploading new objects",
         help_heading = BUCKET_OPTIONS_HEADER,
-        value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse"]))]
+        value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse", "AES256"]))]
     pub sse: Option<String>,
 
     #[cfg(feature = "sse_kms")]
@@ -606,6 +606,10 @@ where
     tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
+    #[cfg(feature = "sse_kms")]
+    {
+        validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
+    }
 
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
@@ -916,6 +920,18 @@ fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Disallow specifying `--sse-kms-key-id` when `--sse=AES256` as this is not allowed by the S3 API.
+/// We are not able to perform this check via clap API (the closest it has is `conflicts_with` method),
+/// thus having a custom validation.
+#[cfg(feature = "sse_kms")]
+fn validate_sse_args(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> anyhow::Result<()> {
+    if sse_kms_key_id.is_some() && sse_type == Some("AES256") {
+        Err(anyhow!("--sse-kms-key-id can not be used with --sse AES256"))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
