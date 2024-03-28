@@ -4,6 +4,7 @@
 //! perform.
 
 use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
+
 use super::{fuse_abi as abi, Errno, Response};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
@@ -328,8 +329,22 @@ mod op {
     #[derive(Debug)]
     pub struct GetAttr<'a> {
         header: &'a fuse_in_header,
+
+        #[cfg(feature = "abi-7-9")]
+        arg: &'a fuse_getattr_in,
     }
     impl_request!(GetAttr<'_>);
+
+    #[cfg(feature = "abi-7-9")]
+    impl<'a> GetAttr<'a> {
+        pub fn file_handle(&self) -> Option<FileHandle> {
+            if self.arg.getattr_flags & crate::FUSE_GETATTR_FH != 0 {
+                Some(FileHandle(self.arg.fh))
+            } else {
+                None
+            }
+        }
+    }
 
     /// Set file attributes.
     #[derive(Debug)]
@@ -1634,7 +1649,12 @@ mod op {
                 header,
                 arg: data.fetch()?,
             }),
-            fuse_opcode::FUSE_GETATTR => Operation::GetAttr(GetAttr { header }),
+            fuse_opcode::FUSE_GETATTR => Operation::GetAttr(GetAttr {
+                header,
+
+                #[cfg(feature = "abi-7-9")]
+                arg: data.fetch()?,
+            }),
             fuse_opcode::FUSE_SETATTR => Operation::SetAttr(SetAttr {
                 header,
                 arg: data.fetch()?,

@@ -101,7 +101,7 @@ impl fuser::Filesystem for FSelFS {
         reply.entry(&Duration::ZERO, &self.get_data().filestat(idx), 0);
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, reply: fuser::ReplyAttr) {
+    fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: fuser::ReplyAttr) {
         if ino == FUSE_ROOT_ID {
             let a = FileAttr {
                 ino: FUSE_ROOT_ID,

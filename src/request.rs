@@ -205,9 +205,19 @@ impl<'a> Request<'a> {
                 se.filesystem
                     .forget(self, self.request.nodeid().into(), x.nlookup()); // no reply
             }
-            ll::Operation::GetAttr(_) => {
+            ll::Operation::GetAttr(_attr) => {
+                #[cfg(feature = "abi-7-9")]
+                se.filesystem.getattr(
+                    self,
+                    self.request.nodeid().into(),
+                    _attr.file_handle().map(|fh| fh.into()),
+                    self.reply(),
+                );
+
+                // Pre-abi-7-9 does not support providing a file handle.
+                #[cfg(not(feature = "abi-7-9"))]
                 se.filesystem
-                    .getattr(self, self.request.nodeid().into(), self.reply());
+                    .getattr(self, self.request.nodeid().into(), None, self.reply());
             }
             ll::Operation::SetAttr(x) => {
                 se.filesystem.setattr(
