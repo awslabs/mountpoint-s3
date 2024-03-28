@@ -939,14 +939,15 @@ where
         Ok(len)
     }
 
-    async fn default_handle(&self, parent: InodeNo) -> Result<ReaddirHandle, InodeError> {
+    /// Creates a new ReaddirHandle for the provided parent and default page size
+    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle, InodeError> {
         self.superblock.readdir(&self.client, parent, 1000).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
         trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
 
-        let inode_handle = self.default_handle(parent).await?;
+        let inode_handle = self.readdir_handle(parent).await?;
 
         let fh = self.next_handle();
         let handle = DirHandle {
@@ -1000,13 +1001,14 @@ where
                 .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
         };
 
-        // special case where we need to rewind and restart the streaming
+        // special case where we need to rewind and restart the streaming but only when it is not the first time we see offset 0
         if offset == 0 && dir_handle.offset() != 0 {
-            // only do this if this is not the first call with offset 0
-            dir_handle.rewind_offset();
-            let new_handle = self.default_handle(parent).await?;
+            let new_handle = self.readdir_handle(parent).await?;
             *dir_handle.handle.lock().await = new_handle;
+            dir_handle.rewind_offset();
         }
+
+        let readdir_handle = dir_handle.handle.lock().await;
 
         if offset != dir_handle.offset() {
             // POSIX allows seeking an open directory. That's a pain for us since we are streaming
@@ -1027,7 +1029,7 @@ where
                         // must remember it again, except that readdirplus specifies that . and ..
                         // are never incremented.
                         if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            dir_handle.handle.lock().await.remember(&entry.lookup);
+                            readdir_handle.remember(&entry.lookup);
                         }
                     }
                     return Ok(reply);
@@ -1088,11 +1090,11 @@ where
         if dir_handle.offset() < 2 {
             let lookup = self
                 .superblock
-                .getattr(&self.client, dir_handle.handle.lock().await.parent(), false)
+                .getattr(&self.client, readdir_handle.parent(), false)
                 .await?;
             let attr = self.make_attr(&lookup);
             let entry = DirectoryEntry {
-                ino: dir_handle.handle.lock().await.parent(),
+                ino: readdir_handle.parent(),
                 offset: dir_handle.offset() + 1,
                 name: "..".into(),
                 attr,
@@ -1107,7 +1109,7 @@ where
         }
 
         loop {
-            let next = match dir_handle.handle.lock().await.next(&self.client).await? {
+            let next = match readdir_handle.next(&self.client).await? {
                 None => return Ok(reply.finish(offset, &dir_handle).await),
                 Some(next) => next,
             };
@@ -1124,11 +1126,11 @@ where
             };
 
             if reply.add(entry) {
-                dir_handle.handle.lock().await.readd(next);
+                readdir_handle.readd(next);
                 return Ok(reply.finish(offset, &dir_handle).await);
             }
             if is_readdirplus {
-                dir_handle.handle.lock().await.remember(&next);
+                readdir_handle.remember(&next);
             }
             dir_handle.next_offset();
         }
