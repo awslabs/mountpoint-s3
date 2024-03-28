@@ -2,7 +2,7 @@
 
 use fuser::FileType;
 use libc::S_IFREG;
-use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{CacheConfig, S3Personality, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
-use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply};
+use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1276,7 +1276,7 @@ async fn test_flexible_retrieval_objects() {
 }
 
 #[tokio::test]
-async fn test_readdir_rewind() {
+async fn test_readdir_rewind_ordered() {
     let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
 
     for i in 0..10 {
@@ -1304,45 +1304,34 @@ async fn test_readdir_rewind() {
         .expect_err("out of order");
 
     // Requesting the same buffer size should work fine
-    let mut new_reply = DirectoryReply::new(5);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
-        .await
-        .unwrap();
-    let new_entries = new_reply
-        .entries
-        .iter()
-        .map(|e| (e.ino, e.name.clone()))
-        .collect::<Vec<_>>();
+    let new_entries = ls(&fs, dir_handle, 0, 5).await;
     assert_eq!(entries, new_entries);
 
     // Requesting a smaller buffer works fine and returns a prefix
-    let mut new_reply = DirectoryReply::new(3);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
-        .await
-        .unwrap();
-    let new_entries = new_reply
-        .entries
-        .iter()
-        .map(|e| (e.ino, e.name.clone()))
-        .collect::<Vec<_>>();
+    let new_entries = ls(&fs, dir_handle, 0, 3).await;
     assert_eq!(&entries[..3], new_entries);
 
-    // Requesting a larger buffer works fine, but only partially fills (which is allowed)
-    let mut new_reply = DirectoryReply::new(10);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut new_reply)
-        .await
-        .unwrap();
-    let new_entries = new_reply
-        .entries
-        .iter()
-        .map(|e| (e.ino, e.name.clone()))
-        .collect::<Vec<_>>();
-    assert_eq!(entries, new_entries);
+    // Requesting same offset (non zero) works fine by returning last response
+    let _ = ls(&fs, dir_handle, 0, 5).await;
+    let new_entries = ls(&fs, dir_handle, 5, 5).await;
+    let new_entries_repeat = ls(&fs, dir_handle, 5, 5).await;
+    assert_eq!(new_entries, new_entries_repeat);
+
+    // Request all entries
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 12); // 10 files + 2 dirs (. and ..) = 12 entries
+
+    // Request more entries but there is no more
+    let new_entries = ls(&fs, dir_handle, 12, 20).await;
+    assert_eq!(new_entries.len(), 0);
+
+    // Request everything from zero one more time
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 12); // 10 files + 2 dirs (. and ..) = 12 entries
 
     // And we can resume the stream from the end of the first request
+    // but let's rewind first
+    let _ = ls(&fs, dir_handle, 0, 5).await;
     let mut next_page = DirectoryReply::new(0);
     let _ = fs
         .readdirplus(
@@ -1353,6 +1342,7 @@ async fn test_readdir_rewind() {
         )
         .await
         .unwrap();
+
     assert_eq!(next_page.entries.len(), 7); // 10 directory entries + . + .. = 12, minus the 5 we already saw
     assert_eq!(next_page.entries.front().unwrap().name, "foo3");
 
@@ -1364,4 +1354,148 @@ async fn test_readdir_rewind() {
             fs.forget(entry.ino, 2).await;
         }
     }
+}
+
+#[tokio::test]
+async fn test_readdir_rewind_unordered() {
+    let config = S3FilesystemConfig {
+        s3_personality: S3Personality::ExpressOneZone,
+        ..Default::default()
+    };
+    let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), config);
+
+    for i in 0..10 {
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+
+    // Requesting same offset (non zero) works fine by returning last response
+    let _ = ls(&fs, dir_handle, 0, 5).await;
+    let new_entries = ls(&fs, dir_handle, 5, 5).await;
+    let new_entries_repeat = ls(&fs, dir_handle, 5, 5).await;
+    assert_eq!(new_entries, new_entries_repeat);
+
+    // Request all entries
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 12); // 10 files + 2 dirs (. and ..) = 12 entries
+
+    // Request more entries but there is no more
+    let new_entries = ls(&fs, dir_handle, 12, 20).await;
+    assert_eq!(new_entries.len(), 0);
+
+    // Request everything from zero one more time
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 12); // 10 files + 2 dirs (. and ..) = 12 entries
+}
+
+#[test_case(Default::default())]
+#[test_case(S3FilesystemConfig {s3_personality: S3Personality::ExpressOneZone, ..Default::default()})]
+#[tokio::test]
+async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
+    let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), s3_fs_config);
+
+    for i in 0..10 {
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+
+    // Let's add a new local file
+    let file_name = "newfile.bin";
+    new_local_file(&fs, file_name).await;
+
+    // Let's add a new remote file
+    client.add_object("foo10", b"foo".into());
+
+    // Requesting same offset (non zero) works fine by returning last response
+    let _ = ls(&fs, dir_handle, 0, 5).await;
+    let new_entries = ls(&fs, dir_handle, 5, 5).await;
+    let new_entries_repeat = ls(&fs, dir_handle, 5, 5).await;
+    assert_eq!(new_entries, new_entries_repeat);
+
+    // Request all entries
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 14); // 10 original remote files + 1 new local file + 1 new remote file + 2 dirs (. and ..) = 13 entries
+
+    // assert entries contain new local file
+    assert!(new_entries
+        .iter()
+        .any(|(_, name)| name.as_os_str().to_str().unwrap() == file_name));
+
+    // Request more entries but there is no more
+    let new_entries = ls(&fs, dir_handle, 14, 20).await;
+    assert_eq!(new_entries.len(), 0);
+
+    // Request everything from zero one more time
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 14); // 10 original remote files + 1 new local file + 1 new remote file + 2 dirs (. and ..) = 13 entries
+}
+
+#[tokio::test]
+async fn test_readdir_rewind_with_local_files_only() {
+    let (_, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+
+    // Let's add a new local file
+    let file_name = "newfile.bin";
+    new_local_file(&fs, file_name).await;
+
+    // Requesting same offset (non zero) works fine by returning last response
+    let _ = ls(&fs, dir_handle, 0, 5).await;
+    let new_entries = ls(&fs, dir_handle, 3, 5).await;
+    let new_entries_repeat = ls(&fs, dir_handle, 3, 5).await;
+    assert_eq!(new_entries, new_entries_repeat);
+
+    // Request all entries
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+
+    // assert entries contain new local file
+    assert!(new_entries.iter().any(|(_, name)| name == file_name));
+
+    // Request more entries but there is no more
+    let new_entries = ls(&fs, dir_handle, 3, 20).await;
+    assert_eq!(new_entries.len(), 0);
+
+    // Request everything from zero one more time
+    let new_entries = ls(&fs, dir_handle, 0, 20).await;
+    assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+}
+
+async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) {
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs.mknod(FUSE_ROOT_INODE, filename.as_ref(), mode, 0, 0).await.unwrap();
+    assert_eq!(dentry.attr.size, 0);
+    let file_ino = dentry.attr.ino;
+
+    let fh = fs
+        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .await
+        .unwrap()
+        .fh;
+
+    let slice = &[0xaa; 27];
+    let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
+    assert_eq!(written as usize, slice.len());
+    fs.fsync(file_ino, fh, true).await.unwrap();
+}
+
+async fn ls(
+    fs: &TestS3Filesystem<Arc<MockClient>>,
+    dir_handle: u64,
+    offset: i64,
+    max_entries: usize,
+) -> Vec<(u64, OsString)> {
+    let mut reply = DirectoryReply::new(max_entries);
+    let _ = fs
+        .readdirplus(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+        .await
+        .unwrap();
+    reply
+        .entries
+        .iter()
+        .map(|e| (e.ino, e.name.clone()))
+        .collect::<Vec<_>>()
 }

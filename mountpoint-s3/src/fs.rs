@@ -37,7 +37,7 @@ pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 struct DirHandle {
     #[allow(unused)]
     ino: InodeNo,
-    handle: ReaddirHandle,
+    handle: AsyncMutex<ReaddirHandle>,
     offset: AtomicI64,
     last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
 }
@@ -49,6 +49,10 @@ impl DirHandle {
 
     fn next_offset(&self) {
         self.offset.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn rewind_offset(&self) {
+        self.offset.store(0, Ordering::SeqCst);
     }
 }
 
@@ -935,15 +939,20 @@ where
         Ok(len)
     }
 
+    /// Creates a new ReaddirHandle for the provided parent and default page size
+    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle, InodeError> {
+        self.superblock.readdir(&self.client, parent, 1000).await
+    }
+
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
         trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
 
-        let inode_handle = self.superblock.readdir(&self.client, parent, 1000).await?;
+        let inode_handle = self.readdir_handle(parent).await?;
 
         let fh = self.next_handle();
         let handle = DirHandle {
             ino: parent,
-            handle: inode_handle,
+            handle: AsyncMutex::new(inode_handle),
             offset: AtomicI64::new(0),
             last_response: AsyncMutex::new(None),
         };
@@ -992,12 +1001,22 @@ where
                 .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
         };
 
+        // special case where we need to rewind and restart the streaming but only when it is not the first time we see offset 0
+        if offset == 0 && dir_handle.offset() != 0 {
+            let new_handle = self.readdir_handle(parent).await?;
+            *dir_handle.handle.lock().await = new_handle;
+            dir_handle.rewind_offset();
+        }
+
+        let readdir_handle = dir_handle.handle.lock().await;
+
         if offset != dir_handle.offset() {
             // POSIX allows seeking an open directory. That's a pain for us since we are streaming
             // the directory entries and don't want to keep them all in memory. But one common case
             // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
             // request offset 0 twice in a row. So we remember the last response and, if repeated,
             // we return it again.
+
             let last_response = dir_handle.last_response.lock().await;
             if let Some((last_offset, entries)) = last_response.as_ref() {
                 if offset == *last_offset {
@@ -1010,12 +1029,13 @@ where
                         // must remember it again, except that readdirplus specifies that . and ..
                         // are never incremented.
                         if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            dir_handle.handle.remember(&entry.lookup);
+                            readdir_handle.remember(&entry.lookup);
                         }
                     }
                     return Ok(reply);
                 }
             }
+
             return Err(err!(
                 libc::EINVAL,
                 "out-of-order readdir, expected={}, actual={}",
@@ -1070,11 +1090,11 @@ where
         if dir_handle.offset() < 2 {
             let lookup = self
                 .superblock
-                .getattr(&self.client, dir_handle.handle.parent(), false)
+                .getattr(&self.client, readdir_handle.parent(), false)
                 .await?;
             let attr = self.make_attr(&lookup);
             let entry = DirectoryEntry {
-                ino: dir_handle.handle.parent(),
+                ino: readdir_handle.parent(),
                 offset: dir_handle.offset() + 1,
                 name: "..".into(),
                 attr,
@@ -1089,7 +1109,7 @@ where
         }
 
         loop {
-            let next = match dir_handle.handle.next(&self.client).await? {
+            let next = match readdir_handle.next(&self.client).await? {
                 None => return Ok(reply.finish(offset, &dir_handle).await),
                 Some(next) => next,
             };
@@ -1106,11 +1126,11 @@ where
             };
 
             if reply.add(entry) {
-                dir_handle.handle.readd(next);
+                readdir_handle.readd(next);
                 return Ok(reply.finish(offset, &dir_handle).await);
             }
             if is_readdirplus {
-                dir_handle.handle.remember(&next);
+                readdir_handle.remember(&next);
             }
             dir_handle.next_offset();
         }
