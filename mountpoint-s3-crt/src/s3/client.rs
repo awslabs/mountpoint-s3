@@ -604,6 +604,36 @@ impl ClientMetrics {
     }
 }
 
+/// S3 buffer pool usage stats
+#[derive(Debug)]
+pub struct BufferPoolUsageStats {
+    /// Effective Max memory limit. Memory limit value provided during construction minus
+    /// buffer reserved for overhead of the pool
+    pub mem_limit: u64,
+
+    /// Max size of buffer to be allocated from primary.
+    pub primary_cutoff: u64,
+
+    /// Primary mem used, including memory used by blocks
+    /// that are waiting on all allocs to release before being put back in circulation.
+    pub primary_used: u64,
+
+    /// Overall memory allocated for blocks.
+    pub primary_allocated: u64,
+
+    /// Reserved memory for primary storage.
+    pub primary_reserved: u64,
+
+    /// Number of blocks allocated in primary.
+    pub primary_num_blocks: u64,
+
+    /// Secondary mem used. Accurate, maps directly to base allocator.
+    pub secondary_reserved: u64,
+
+    /// Secondary mem reserved. Accurate, maps directly to base allocator.
+    pub secondary_used: u64,
+}
+
 impl Client {
     /// Create a new S3 [Client].
     pub fn new(allocator: &Allocator, config: ClientConfig) -> Result<Self, Error> {
@@ -694,6 +724,36 @@ impl Client {
                 num_requests_stream_queued_waiting,
                 num_requests_streaming_response,
             }
+        }
+    }
+
+    /// Poll [BufferPoolUsageStats] from underlying CRT client.
+    pub fn poll_buffer_pool_usage_stats(&self) -> BufferPoolUsageStats {
+        // SAFETY: The `aws_s3_client` in `self.inner` is guaranteed to be initialized and
+        // dereferencable as long as Client lives.
+        let inner_stats = unsafe {
+            let client = self.inner.as_ref();
+            aws_s3_buffer_pool_get_usage(client.buffer_pool)
+        };
+
+        let mem_limit = inner_stats.mem_limit as u64;
+        let primary_cutoff = inner_stats.primary_cutoff as u64;
+        let primary_used = inner_stats.primary_used as u64;
+        let primary_allocated = inner_stats.primary_allocated as u64;
+        let primary_reserved = inner_stats.primary_reserved as u64;
+        let primary_num_blocks = inner_stats.primary_num_blocks as u64;
+        let secondary_reserved = inner_stats.secondary_reserved as u64;
+        let secondary_used = inner_stats.secondary_used as u64;
+
+        BufferPoolUsageStats {
+            mem_limit,
+            primary_cutoff,
+            primary_used,
+            primary_allocated,
+            primary_reserved,
+            primary_num_blocks,
+            secondary_reserved,
+            secondary_used,
         }
     }
 
