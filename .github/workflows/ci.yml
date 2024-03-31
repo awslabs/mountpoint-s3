@@ -8,7 +8,7 @@ on:
 
 jobs:
   compile:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         libfuse: [libfuse-dev, libfuse3-dev]
@@ -34,7 +34,7 @@ jobs:
           cargo test --all --features=${{ matrix.features }}
           cargo doc --all --no-deps --features=${{ matrix.features }}
   ci:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         test_group: [pre, mount_tests, pjdfs_tests, xfstests]
