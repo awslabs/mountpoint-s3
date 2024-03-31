@@ -34,11 +34,11 @@ fn main() -> std::io::Result<()> {
 
     let mut pollfds = files
         .iter()
-        .map(|f| poll::PollFd::new(f, poll::PollFlags::POLLIN))
+        .map(|f| poll::PollFd::new(f.as_fd(), poll::PollFlags::POLLIN))
         .collect::<Vec<_>>();
 
     for _ in 0..16 {
-        poll::poll(pollfds.as_mut_slice(), -1)?;
+        poll::poll(pollfds.as_mut_slice(), poll::PollTimeout::NONE)?;
 
         for (i, pfd) in pollfds.iter().enumerate() {
             let revents = pfd.revents().expect("got unknown poll flag");
