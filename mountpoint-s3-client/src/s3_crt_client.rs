@@ -261,7 +261,7 @@ impl S3CrtClientInner {
             let max_attempts = std::env::var("AWS_MAX_ATTEMPTS")
                 .ok()
                 .and_then(|s| s.parse::<usize>().ok())
-                .or(config.max_attempts.map(|m| m.get()))
+                .or_else(|| config.max_attempts.map(|m| m.get()))
                 .unwrap_or(3);
             // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
             // decrement by one
