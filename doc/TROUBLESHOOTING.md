@@ -200,4 +200,6 @@ Amazon S3 automatically scales to high request rates.
 Your application can achieve at least 3,500 PUT/COPY/POST/DELETE or 5,500 GET/HEAD requests per second per partitioned Amazon S3 prefix.
 You can reduce the impact of throttling errors by distributing objects across multiple prefixes in your bucket.
 
-For more details on optimizing Amazon S3 performance and avoid throttling errors, see the [S3 best practices documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html).
+By default, Mountpoint retries throttled requests up to a total to 10 attempts. You can increase this default by setting the `AWS_MAX_ATTEMPTS` environment variable.
+
+For more details on optimizing Amazon S3 performance and avoiding throttling errors, see the [S3 best practices documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html).

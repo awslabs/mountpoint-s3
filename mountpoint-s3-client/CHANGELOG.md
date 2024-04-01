@@ -1,3 +1,13 @@
+## Unreleased
+
+### Breaking changes
+
+* No breaking changes.
+
+### Other changes
+
+* The maximum number of attempts for S3 requests can now be configured with the `S3ClientConfig::max_attempts` method or the `AWS_MAX_ATTEMPTS` environment variable. ([#830](https://github.com/awslabs/mountpoint-s3/pull/830))
+
 ## v0.8.0 (March 8, 2024)
 
 ### Breaking changes
