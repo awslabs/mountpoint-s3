@@ -1,5 +1,6 @@
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
@@ -88,6 +89,7 @@ pub struct S3ClientConfig {
     user_agent: Option<UserAgent>,
     request_payer: Option<String>,
     bucket_owner: Option<String>,
+    max_attempts: Option<NonZeroUsize>,
 }
 
 impl Default for S3ClientConfig {
@@ -100,6 +102,7 @@ impl Default for S3ClientConfig {
             user_agent: None,
             request_payer: None,
             bucket_owner: None,
+            max_attempts: None,
         }
     }
 }
@@ -155,6 +158,14 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn bucket_owner(mut self, bucket_owner: &str) -> Self {
         self.bucket_owner = Some(bucket_owner.to_owned());
+        self
+    }
+
+    /// Set a maximum number of attempts for S3 requests. Will be overridden by the
+    /// `AWS_MAX_ATTEMPTS` environment variable if set.
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn max_attempts(mut self, max_attempts: NonZeroUsize) -> Self {
+        self.max_attempts = Some(max_attempts);
         self
     }
 }
@@ -245,12 +256,20 @@ impl S3CrtClientInner {
 
         let mut client_config = ClientConfig::new();
 
-        let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
-        // Match the SDK "legacy" retry strategies
-        retry_strategy_options.backoff_retry_options.max_retries = 3;
-        retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
-        retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
-        let retry_strategy = RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap();
+        let retry_strategy = {
+            let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
+            let max_attempts = std::env::var("AWS_MAX_ATTEMPTS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .or_else(|| config.max_attempts.map(|m| m.get()))
+                .unwrap_or(3);
+            // Max *attempts* includes the initial attempt, the CRT's max *retries* does not, so
+            // decrement by one
+            retry_strategy_options.backoff_retry_options.max_retries = max_attempts.saturating_sub(1);
+            retry_strategy_options.backoff_retry_options.backoff_scale_factor = Duration::from_millis(500);
+            retry_strategy_options.backoff_retry_options.jitter_mode = ExponentialBackoffJitterMode::Full;
+            RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap()
+        };
 
         trace!("constructing client with auth config {:?}", config.auth_config);
         let credentials_provider = match config.auth_config {

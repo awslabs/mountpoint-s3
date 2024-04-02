@@ -168,6 +168,8 @@ If the bucket you are mounting is a [Requester Pays bucket](https://docs.aws.ama
 
 If you want to verify that the S3 bucket you are mounting is [owned by the expected AWS account](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-owner-condition.html), use the `--expected-bucket-owner` command-line argument. For example, if you expect the bucket to be owned by the AWS account `111122223333`, specify the argument `--expected-bucket-owner 111122223333`. If the argument doesn't match the bucket owner's account ID, mounting will fail with an Access Denied error.
 
+There are certain situations where Mountpoint receives a response from Amazon S3 indicating that a retry is necessary. For example, if an application generates high request rates (typically sustained rates of over 5,000 requests per second to a small number of objects), Mountpoint might receive HTTP 503 slowdown responses from S3. Mountpoint automatically retries these requests up to a total of 10 attempts, using jittered exponential backoff between attempts. If these attempts are exhausted, Mountpoint will return an error to your application (usually `EIO`). If you need to modify the maximum number of attempts, set the `AWS_MAX_ATTEMPTS` environment variable.
+
 ## File system configuration
 
 Mountpoint automatically configures reasonable defaults for file system settings such as permissions and for performance. You can adjust these settings if you need finer control over how the Mountpoint file system behaves.

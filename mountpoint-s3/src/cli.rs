@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
 use std::os::fd::AsRawFd;
 use std::os::unix::prelude::FromRawFd;
 use std::path::{Path, PathBuf};
@@ -575,10 +576,13 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
     }
-
     if let Some(owner) = &args.expected_bucket_owner {
         client_config = client_config.bucket_owner(owner);
     }
+    // Transient errors are really bad for file systems (applications don't usually expect them), so
+    // let's be more stubborn than the SDK default. With the CRT defaults of 500ms backoff, full
+    // jitter, and 20s max backoff time, 10 attempts will take an average of 55 seconds.
+    client_config = client_config.max_attempts(NonZeroUsize::new(10).unwrap());
 
     let client = create_client_for_bucket(
         &args.bucket_name,
