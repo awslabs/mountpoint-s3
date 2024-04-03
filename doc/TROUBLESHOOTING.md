@@ -179,6 +179,21 @@ In this case, it is expected that Mountpoint will no longer show the directory o
 
 For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories).
 
+## Slower throughput than expected
+
+If you're seeing slower throughput than expected (i.e. significantly slower than the network bandwidth for an EC2 instance type), there may be a few areas to investigate.
+
+If you're only reading from one file at a given time, the network interface may not be fully saturated.
+Mountpoint supports Linux file system operations using FUSE - requests to files pass through a number of subsystems to be fulfilled including the Linux VFS as well as the Mountpoint process.
+Due to the sequential nature of how these file system calls are fulfilled, reading from a file will eventually be bounded by the CPU rather than the available network throughput.
+To avoid this, we recommend reading from multiple files concurrently such that the network throughput can be utilized as expected.
+
+Request retries may also introduce delays in processing requests.
+We recommend reviewing Mountpoint logs to confirm if requests may be failing and incurring retries.
+For example, throttled requests being retried may introduce latency to file system requests.
+Learn more about how to use Mountpoint logging in our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md).
+To further debug throttling errors, see the [throttling errors section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/TROUBLESHOOTING.md#throttling-errors) of this page.
+
 ## Throttling Errors
 
 When looking at the logs, throttling errors will appear as failed requests with `http_status=503` or `http_status=429`. For example:
