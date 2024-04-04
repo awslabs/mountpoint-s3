@@ -24,7 +24,7 @@ use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResol
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
     init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestType,
+    MetaRequestType, RequestMetrics, RequestType,
 };
 
 use async_trait::async_trait;
@@ -437,7 +437,7 @@ impl S3CrtClientInner {
             + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, meta_request_type);
-        self.make_meta_request_from_options(options, request_span, on_headers, on_body, on_finish)
+        self.make_meta_request_from_options(options, request_span, |_| {}, on_headers, on_body, on_finish)
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
@@ -446,6 +446,7 @@ impl S3CrtClientInner {
         &self,
         mut options: MetaRequestOptions,
         request_span: Span,
+        on_telemetry: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
         on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
@@ -471,6 +472,8 @@ impl S3CrtClientInner {
         options
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
+
+                on_telemetry(metrics);
 
                 let http_status = metrics.status_code();
                 let request_canceled = metrics.is_canceled();
@@ -629,7 +632,7 @@ impl S3CrtClientInner {
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, request_type);
-        self.make_simple_http_request_from_options(options, request_span, on_error, |_, _| ())
+        self.make_simple_http_request_from_options(options, request_span, |_| {}, on_error, |_, _| ())
     }
 
     /// Make an HTTP request using this S3 client that returns the body on success or invokes the
@@ -638,6 +641,7 @@ impl S3CrtClientInner {
         &self,
         options: MetaRequestOptions,
         request_span: Span,
+        on_telemetry: impl Fn(&RequestMetrics) + Send + 'static,
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_headers: impl FnMut(&Headers, i32) + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
@@ -648,6 +652,7 @@ impl S3CrtClientInner {
         self.make_meta_request_from_options(
             options,
             request_span,
+            on_telemetry,
             on_headers,
             move |offset, data| {
                 let mut body = body_clone.lock().unwrap();

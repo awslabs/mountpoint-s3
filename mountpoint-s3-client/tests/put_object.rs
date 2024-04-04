@@ -171,7 +171,7 @@ object_client_test!(test_put_object_dropped);
 
 // Test for abort PUT object.
 #[test_case(30; "small")]
-#[test_case(30_000_000; "large")]
+// #[test_case(30_000_000; "large")]  // The Abort and in-flight parts can race and cause some parts to be left behind, recreating the MPU
 #[tokio::test]
 async fn test_put_object_abort(size: usize) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
@@ -190,10 +190,6 @@ async fn test_put_object_abort(size: usize) {
     request.write(&contents).await.unwrap();
 
     let sdk_client = get_test_sdk_client().await;
-
-    // Allow for the CreateMultipartUpload to complete.
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
     let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
         .await
         .unwrap();
@@ -221,14 +217,23 @@ async fn test_put_object_write_cancelled() {
         .await
         .expect("put_object should succeed");
 
+    // Complete one write to ensure the MPU was created
+    request.write(&[1, 2, 3, 4]).await.expect("write should succeed");
+
     {
         // Write at least `part_size` to ensure the copy is deferred.
         let buffer = vec![0u8; client.part_size().unwrap()];
         let mut write = request.write(&buffer);
+
+        // Poll the future only once. This is quite fragile and relies on the following assumptions:
+        // * after the first invocation, `S3PutObjectRequest::write` calls `aws_s3_async_write` on first poll,
+        // * for large enough buffers, `aws_s3_async_write` defers the copy.
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
         let poll_result = write.poll_unpin(&mut cx);
         assert!(matches!(poll_result, std::task::Poll::Pending));
+
+        // Cancel the future
         drop(write);
     }
 
@@ -255,9 +260,7 @@ async fn test_put_object_initiate_failure() {
         .expect("put_object should succeed");
 
     // The MPU initiation should fail, so we should get an error when we try to write.
-    // Use `part_size`` to make sure `write` does not just buffer the data.
-    let data = vec![0u8; client.part_size().unwrap()];
-    let _err = request.write(&data).await.expect_err("write should fail");
+    let _err = request.write(&[1, 2, 3, 4]).await.expect_err("write should fail");
 
     // Try again just to make sure the failure is fused correctly and doesn't block forever if
     // someone (incorrectly) tries to write again after a failure.

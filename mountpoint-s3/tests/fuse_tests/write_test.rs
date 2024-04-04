@@ -193,15 +193,9 @@ fn sequential_write_streaming_test<F>(creator_fn: F, object_size: usize, write_c
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    const PART_SIZE: usize = 5 * 1024 * 1024;
     const KEY: &str = "dir/new.txt";
 
-    let config = TestSessionConfig {
-        part_size: PART_SIZE,
-        ..Default::default()
-    };
-
-    let (mount_point, _session, mut test_client) = creator_fn("sequential_write_streaming_test", config);
+    let (mount_point, _session, mut test_client) = creator_fn("sequential_write_streaming_test", Default::default());
 
     // Make sure there's an existing directory
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -229,8 +223,8 @@ where
     let err = f.read(&mut [0u8; 1]).expect_err("can't read file while writing");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
-    if object_size >= PART_SIZE {
-        // The upload starts once `PART_SIZE` data has been written at the latest
+    if object_size > 0 {
+        // The upload starts after the first write at the latest
         let status = test_client
             .is_upload_in_progress(KEY)
             .expect("the upload should be in-progress");
@@ -269,15 +263,10 @@ fn fsync_test<F>(creator_fn: F, write_only: bool)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    const PART_SIZE: usize = 5 * 1024 * 1024;
+    const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
-    let config = TestSessionConfig {
-        part_size: PART_SIZE,
-        ..Default::default()
-    };
-
-    let (mount_point, _session, test_client) = creator_fn("fsync_test", config);
+    let (mount_point, _session, test_client) = creator_fn("fsync_test", Default::default());
 
     let path = mount_point.path().join(KEY);
 
@@ -287,9 +276,8 @@ where
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), 0);
 
-    // Write at least `PART_SIZE` to ensure the write is not deferred.
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + PART_SIZE as u64);
-    let mut body = vec![0u8; PART_SIZE];
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
     f.write_all(&body).unwrap();
@@ -510,8 +498,8 @@ fn flush_test<F>(creator_fn: F, append: bool)
 where
     F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
 {
-    const OBJECT_SIZE: usize = 8 * 1024 * 1024;
-    const WRITE_SIZE: usize = 1024 * 1024;
+    const OBJECT_SIZE: usize = 50 * 1024;
+    const WRITE_SIZE: usize = 1024;
     const KEY: &str = "new.txt";
 
     let (mount_point, _session, test_client) = creator_fn("flush_test", Default::default());

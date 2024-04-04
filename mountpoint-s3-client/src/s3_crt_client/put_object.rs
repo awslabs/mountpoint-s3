@@ -4,8 +4,9 @@ use std::time::Instant;
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
+use futures::channel::oneshot;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, RequestType, UploadReview};
 use tracing::error;
 
 use super::{S3CrtClientInner, S3HttpRequest};
@@ -65,9 +66,37 @@ impl S3CrtClient {
         let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
         options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
-        let body = self
-            .inner
-            .make_simple_http_request_from_options(options, span, |_| None, on_headers)?;
+
+        // Before the first write, we need to await for the multi-part upload to be created, so we can report errors.
+        // To do so, we need to detect one of two events (whichever comes first):
+        // * a CreateMultipartUpload request completes successfully (potentially after a number of retries),
+        // * the meta-request fails.
+        let (mpu_created_sender, mpu_created) = oneshot::channel();
+        let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
+        let on_error_sender = on_mpu_created_sender.clone();
+
+        let body = self.inner.make_simple_http_request_from_options(
+            options,
+            span,
+            move |metrics| {
+                if metrics.request_type() == RequestType::CreateMultipartUpload
+                    && metrics.status_code().is_some_and(|status| (200..299).contains(&status))
+                {
+                    // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
+                    if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
+                        _ = sender.send(Ok(()));
+                    }
+                }
+            },
+            move |result| {
+                // Signal that the meta-request failed (unless a CreateMultipartUpload had already completed successfully).
+                if let Some(sender) = on_error_sender.lock().unwrap().take() {
+                    _ = sender.send(Err(S3RequestError::CrtError(result.crt_error)));
+                }
+                None
+            },
+            on_headers,
+        )?;
 
         Ok(S3PutObjectRequest {
             body,
@@ -75,6 +104,7 @@ impl S3CrtClient {
             start_time: Instant::now(),
             total_bytes: 0,
             response_headers,
+            pending_create_mpu: Some(mpu_created),
         })
     }
 }
@@ -124,6 +154,9 @@ pub struct S3PutObjectRequest {
     total_bytes: u64,
     /// Headers of the CompleteMultipartUpload response, available after the request was finished
     response_headers: Arc<Mutex<Option<Headers>>>,
+    /// Signal indicating that CreateMultipartUpload completed successfully, or that the MPU failed.
+    /// Will be set to [None] once awaited on the first write.
+    pending_create_mpu: Option<oneshot::Receiver<Result<(), S3RequestError>>>,
 }
 
 fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
@@ -135,6 +168,12 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        // On first write, check the pending CreateMultipartUpload.
+        if let Some(create_mpu) = self.pending_create_mpu.take() {
+            // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
+            create_mpu.await.unwrap()?;
+        }
+
         // Write will fail if the request has already finished (because of an error).
         self.body
             .meta_request
