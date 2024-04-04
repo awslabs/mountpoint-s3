@@ -45,7 +45,7 @@ impl Mount {
             }
             // We dup the fd here as the existing fd is owned by the fuse_session, and we
             // don't want it being closed out from under us:
-            let fd = nix::unistd::dup(fd)?;
+            let fd = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_DUPFD_CLOEXEC(0))?;
             let file = unsafe { File::from_raw_fd(fd) };
             Ok((Arc::new(file), mount))
         })
