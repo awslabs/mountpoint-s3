@@ -8,11 +8,10 @@ use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
+use crate::io::futures::FutureVoid;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
-use futures::channel::oneshot;
-use futures::future::FusedFuture;
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
@@ -575,7 +574,7 @@ unsafe impl Sync for MetaRequest {}
 #[derive(Debug)]
 pub struct MetaRequestWrite<'a> {
     /// Signals when the write operation completes
-    receiver: oneshot::Receiver<Result<(), Error>>,
+    future: FutureVoid,
     /// The meta-request to cancel if this future is dropped
     request: MetaRequest,
     _slice: PhantomData<&'a u8>,
@@ -583,7 +582,7 @@ pub struct MetaRequestWrite<'a> {
 
 impl Drop for MetaRequestWrite<'_> {
     fn drop(&mut self) {
-        if !self.receiver.is_terminated() {
+        if !self.future.is_done() {
             // This future is being dropped before completion. Cancel the meta-request to ensure
             // the client will not try to use the provided buffer.
             self.request.cancel();
@@ -601,19 +600,16 @@ impl<'a> MetaRequestWrite<'a> {
         let data = unsafe { slice.as_aws_byte_cursor() };
 
         // SAFETY: `aws_s3_meta_request_write` never returns NULL.
-        let future = unsafe { NonNull::new_unchecked(aws_s3_meta_request_write(request.inner.as_ptr(), data, eof)) };
-
-        let (sender, receiver) = oneshot::channel();
-        let user_data = Box::leak(Box::new(FutureVoidCallbackData { future, sender })) as *mut FutureVoidCallbackData
-            as *mut ::libc::c_void;
-
-        // SAFETY: `future.as_ptr()` is a valid `aws_future_void` and this is the only callback we are registering.
-        unsafe {
-            aws_future_void_register_callback(future.as_ptr(), Some(future_void_callback), user_data);
-        }
+        let future = unsafe {
+            FutureVoid::from_crt(NonNull::new_unchecked(aws_s3_meta_request_write(
+                request.inner.as_ptr(),
+                data,
+                eof,
+            )))
+        };
 
         Self {
-            receiver,
+            future,
             request,
             _slice: Default::default(),
         }
@@ -624,46 +620,7 @@ impl Future for MetaRequestWrite<'_> {
     type Output = Result<(), Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        Pin::new(&mut self.receiver)
-            .poll(cx)
-            .map(|r| r.expect("receiver is never canceled"))
-    }
-}
-
-/// Safety: Don't call this function directly, only called by the CRT as a callback.
-unsafe extern "C" fn future_void_callback(user_data: *mut ::libc::c_void) {
-    let callback_data = Box::from_raw(user_data as *mut FutureVoidCallbackData);
-    callback_data.complete();
-}
-
-/// Data for the callback registered on a [aws_future_void].
-#[derive(Debug)]
-struct FutureVoidCallbackData {
-    future: NonNull<aws_future_void>,
-    /// Sender side of the channel to signal completion of the future
-    sender: oneshot::Sender<Result<(), Error>>,
-}
-
-impl FutureVoidCallbackData {
-    fn complete(self) {
-        let result = {
-            // SAFETY: `self.future` has completed.
-            let future_result = unsafe { aws_future_void_get_error(self.future.as_ptr()) };
-            let error_result: Error = future_result.into();
-            if error_result.is_err() {
-                Err(error_result)
-            } else {
-                Ok(())
-            }
-        };
-
-        // Ignore failures to send if the write was dropped.
-        let _ = self.sender.send(result);
-
-        // SAFETY: `self.future` contains a valid `aws_future_void`.
-        unsafe {
-            aws_future_void_release(self.future.as_ptr());
-        }
+        Pin::new(&mut self.future).poll(cx)
     }
 }
 
