@@ -446,7 +446,7 @@ impl S3CrtClientInner {
         &self,
         mut options: MetaRequestOptions,
         request_span: Span,
-        on_telemetry: impl Fn(&RequestMetrics) + Send + 'static,
+        on_request_finished: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
         on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
@@ -473,7 +473,7 @@ impl S3CrtClientInner {
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
 
-                on_telemetry(metrics);
+                on_request_finished(metrics);
 
                 let http_status = metrics.status_code();
                 let request_canceled = metrics.is_canceled();
@@ -641,7 +641,7 @@ impl S3CrtClientInner {
         &self,
         options: MetaRequestOptions,
         request_span: Span,
-        on_telemetry: impl Fn(&RequestMetrics) + Send + 'static,
+        on_request_finished: impl Fn(&RequestMetrics) + Send + 'static,
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_headers: impl FnMut(&Headers, i32) + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
@@ -652,7 +652,7 @@ impl S3CrtClientInner {
         self.make_meta_request_from_options(
             options,
             request_span,
-            on_telemetry,
+            on_request_finished,
             on_headers,
             move |offset, data| {
                 let mut body = body_clone.lock().unwrap();
