@@ -16,7 +16,7 @@ use futures::Future;
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
-use std::marker::{PhantomData, PhantomPinned};
+use std::marker::PhantomPinned;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
@@ -216,7 +216,7 @@ impl Debug for MetaRequestOptionsInner {
 }
 
 /// Options for a meta request to S3.
-// Implementation details: this wraps the innner struct in a pinned box to enforce we don't move out of it.
+// Implementation details: this wraps the inner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
 pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
 
@@ -367,7 +367,8 @@ impl MetaRequestOptions {
         self
     }
 
-    /// Set send_using_async_writes TODO: explain
+    /// Set this to send request body data using the async [MetaRequest::write] function.
+    /// This only works with [MetaRequestType::PutObject].
     pub fn send_using_async_writes(&mut self, send_using_async_writes: bool) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
@@ -540,7 +541,7 @@ impl MetaRequest {
 
     /// Write a chunk of data and indicate whether it is the last. If invoked before the previous
     /// write completed, or after setting `eof` to `true`, will return an AWS_ERROR_INVALID_STATE error.
-    pub fn write<'a>(&self, slice: &'a [u8], eof: bool) -> MetaRequestWrite<'a> {
+    pub fn write<'a>(&'a mut self, slice: &'a [u8], eof: bool) -> MetaRequestWrite<'a> {
         MetaRequestWrite::new(self, slice, eof)
     }
 }
@@ -576,24 +577,21 @@ pub struct MetaRequestWrite<'a> {
     /// Signals when the write operation completes
     future: FutureVoid,
     /// The meta-request to cancel if this future is dropped
-    request: MetaRequest,
-    _slice: PhantomData<&'a u8>,
+    request: &'a mut MetaRequest,
 }
 
 impl Drop for MetaRequestWrite<'_> {
     fn drop(&mut self) {
         if !self.future.is_done() {
-            // This future is being dropped before completion. Cancel the meta-request to ensure
-            // the client will not try to use the provided buffer.
+            // This future is being dropped before completion. Cancelling the meta-request
+            // guarantees that the client will not access the provided buffer.
             self.request.cancel();
         }
     }
 }
 
 impl<'a> MetaRequestWrite<'a> {
-    fn new(meta_request: &MetaRequest, slice: &'a [u8], eof: bool) -> Self {
-        let request = meta_request.clone();
-
+    fn new(request: &'a mut MetaRequest, slice: &'a [u8], eof: bool) -> Self {
         // SAFETY: `MetaRequestWrite` will ensure that `slice` is alive until the future completes or
         // that the meta-request is canceled if the future is dropped, preventing further use of the
         // `aws_byte_cursor`.
@@ -608,11 +606,7 @@ impl<'a> MetaRequestWrite<'a> {
             )))
         };
 
-        Self {
-            future,
-            request,
-            _slice: Default::default(),
-        }
+        Self { future, request }
     }
 }
 
