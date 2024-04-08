@@ -74,6 +74,8 @@ To download and install Mountpoint for Amazon S3 on DEB-based distributions, fol
 
 ### Other Linux distributions
 
+Gentoo Linux: available Guru overlay [sys-fs/mountpoint-s3-bin](https://gpo.zugaina.org/Overlays/guru/sys-fs/mountpoint-s3-bin)
+
 To download and install Mountpoint for Amazon S3 on other Linux distributions, follow these steps:
 
 1. Install the necessary dependencies. Consult your operating system documentation to install the FUSE and libfuse (v2) packages.
