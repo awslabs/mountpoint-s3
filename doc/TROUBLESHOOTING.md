@@ -179,6 +179,26 @@ In this case, it is expected that Mountpoint will no longer show the directory o
 
 For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories).
 
+## Slower throughput than expected
+
+If you're seeing slower throughput than expected (i.e. significantly slower than the network bandwidth for an EC2 instance type), there may be a few areas to investigate.
+
+If you're only reading from one file at a given time, the network interface may not be fully saturated.
+Mountpoint supports Linux file system operations using FUSE.
+Operations on files pass through several subsystems including the Linux VFS layer as well as the Mountpoint process.
+These steps are serial, and so reading from a single file sequentially will be bounded by CPU performance rather than the available network throughput.
+When possible, we recommend reading from files in parallel from multiple file handles (multiple calls to `open`) to maximize throughput.
+
+> [!NOTE]
+> Some common utilities like `cp` will operate on files one-by-one, even when used with flags like `--recursive`.
+> In these instances, we recommend using tools to parallelize the operations such as [GNU Parallel](https://www.gnu.org/software/parallel/).
+
+Request retries may also introduce delays in processing requests.
+We recommend reviewing Mountpoint logs to confirm if requests may be failing and incurring retries.
+For example, throttled requests being retried may introduce latency to file system requests.
+Learn more about how to use Mountpoint logging in our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md).
+To further debug throttling errors, see the [throttling errors section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/TROUBLESHOOTING.md#throttling-errors) of this page.
+
 ## Throttling Errors
 
 When looking at the logs, throttling errors will appear as failed requests with `http_status=503` or `http_status=429`. For example:
