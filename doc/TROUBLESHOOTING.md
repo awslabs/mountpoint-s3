@@ -184,9 +184,10 @@ For more details on how Mountpoint maps S3 object keys to files and directories,
 If you're seeing slower throughput than expected (i.e. significantly slower than the network bandwidth for an EC2 instance type), there may be a few areas to investigate.
 
 If you're only reading from one file at a given time, the network interface may not be fully saturated.
-Mountpoint supports Linux file system operations using FUSE - requests to files pass through a number of subsystems to be fulfilled including the Linux VFS as well as the Mountpoint process.
-Due to the sequential nature of how these file system calls are fulfilled, reading from a file will eventually be bounded by the CPU rather than the available network throughput.
-To avoid this, we recommend reading from multiple files concurrently such that the network throughput can be utilized as expected.
+Mountpoint supports Linux file system operations using FUSE.
+Operations on files pass through several subsystems including the Linux VFS layer as well as the Mountpoint process.
+These steps are serial, and so reading from a single file sequentially will be bounded by CPU performance rather than the available network throughput.
+When possible, we recommend reading from files in parallel from multiple file handles (multiple calls to `open`) to maximize throughput.
 
 Request retries may also introduce delays in processing requests.
 We recommend reviewing Mountpoint logs to confirm if requests may be failing and incurring retries.
