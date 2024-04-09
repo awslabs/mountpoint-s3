@@ -79,9 +79,7 @@ impl S3CrtClient {
             options,
             span,
             move |metrics| {
-                if metrics.request_type() == RequestType::CreateMultipartUpload
-                    && metrics.status_code().is_some_and(|status| (200..299).contains(&status))
-                {
+                if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
                     // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
                     if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
                         _ = sender.send(Ok(()));
