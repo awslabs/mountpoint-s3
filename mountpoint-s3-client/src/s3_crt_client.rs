@@ -446,10 +446,10 @@ impl S3CrtClientInner {
         &self,
         mut options: MetaRequestOptions,
         request_span: Span,
-        on_request_finished: impl Fn(&RequestMetrics) + Send + 'static,
+        on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
+        on_meta_request_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
             + Send
             + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
@@ -473,7 +473,7 @@ impl S3CrtClientInner {
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
 
-                on_request_finished(metrics);
+                on_request_finish(metrics);
 
                 let http_status = metrics.status_code();
                 let request_canceled = metrics.is_canceled();
@@ -558,7 +558,7 @@ impl S3CrtClientInner {
                 // The `on_finish` callback has a choice of whether to give us an error or not. If
                 // not, fall back to generic error parsing (e.g. for permissions errors), or just no
                 // error if that fails too.
-                let result = on_finish(&request_result);
+                let result = on_meta_request_finish(&request_result);
                 let result = result.map_err(|e| e.or_else(|| try_parse_generic_error(&request_result).map(ObjectClientError::ClientError)));
                 let result = match result {
                     Ok(t) => {
@@ -641,7 +641,7 @@ impl S3CrtClientInner {
         &self,
         options: MetaRequestOptions,
         request_span: Span,
-        on_request_finished: impl Fn(&RequestMetrics) + Send + 'static,
+        on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_headers: impl FnMut(&Headers, i32) + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
@@ -652,7 +652,7 @@ impl S3CrtClientInner {
         self.make_meta_request_from_options(
             options,
             request_span,
-            on_request_finished,
+            on_request_finish,
             on_headers,
             move |offset, data| {
                 let mut body = body_clone.lock().unwrap();
