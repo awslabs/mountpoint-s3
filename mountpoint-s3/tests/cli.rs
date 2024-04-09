@@ -249,7 +249,6 @@ fn invalid_ttl() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "sse_kms")]
 #[test]
 fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
@@ -269,7 +268,6 @@ fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "sse_kms")]
 #[test]
 fn sse_key_not_allowed_with_aes256() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;

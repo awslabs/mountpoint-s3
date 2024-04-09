@@ -27,7 +27,6 @@ use regex::Regex;
 
 use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
-#[cfg(feature = "sse_kms")]
 use crate::fs::ServerSideEncryption;
 use crate::fs::{CacheConfig, S3FilesystemConfig, S3Personality};
 use crate::fuse::session::FuseSession;
@@ -272,7 +271,6 @@ pub struct CliArgs {
     )]
     pub user_agent_prefix: Option<String>,
 
-    #[cfg(feature = "sse_kms")]
     #[clap(
         long,
         help = "Server-side encryption algorithm to use when uploading new objects",
@@ -280,7 +278,6 @@ pub struct CliArgs {
         value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse", "AES256"]))]
     pub sse: Option<String>,
 
-    #[cfg(feature = "sse_kms")]
     #[clap(
         long,
         help = "AWS Key Management Service (KMS) key ID to use with KMS server-side encryption when uploading new objects",
@@ -610,7 +607,6 @@ where
     tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
-    #[cfg(feature = "sse_kms")]
     {
         validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
     }
@@ -637,7 +633,6 @@ where
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality = s3_personality;
-    #[cfg(feature = "sse_kms")]
     {
         filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
     }
@@ -929,7 +924,6 @@ fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
 /// Disallow specifying `--sse-kms-key-id` when `--sse=AES256` as this is not allowed by the S3 API.
 /// We are not able to perform this check via clap API (the closest it has is `conflicts_with` method),
 /// thus having a custom validation.
-#[cfg(feature = "sse_kms")]
 fn validate_sse_args(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> anyhow::Result<()> {
     if sse_kms_key_id.is_some() && sse_type == Some("AES256") {
         Err(anyhow!("--sse-kms-key-id can not be used with --sse AES256"))
