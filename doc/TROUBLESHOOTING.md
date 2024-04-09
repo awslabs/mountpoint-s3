@@ -189,6 +189,10 @@ Operations on files pass through several subsystems including the Linux VFS laye
 These steps are serial, and so reading from a single file sequentially will be bounded by CPU performance rather than the available network throughput.
 When possible, we recommend reading from files in parallel from multiple file handles (multiple calls to `open`) to maximize throughput.
 
+> [!NOTE]
+> Some common utilities like `cp` will operate on files one-by-one, even when used with flags like `--recursive`.
+> In these instances, we recommend using tools to parallelize the operations such as [GNU Parallel](https://www.gnu.org/software/parallel/).
+
 Request retries may also introduce delays in processing requests.
 We recommend reviewing Mountpoint logs to confirm if requests may be failing and incurring retries.
 For example, throttled requests being retried may introduce latency to file system requests.
