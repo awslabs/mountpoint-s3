@@ -89,7 +89,7 @@ impl S3CrtClient {
             move |result| {
                 // Signal that the meta-request failed (unless a CreateMultipartUpload had already completed successfully).
                 if let Some(sender) = on_error_sender.lock().unwrap().take() {
-                    _ = sender.send(Err(S3RequestError::CrtError(result.crt_error)));
+                    _ = sender.send(Err(result.crt_error.into()));
                 }
                 None
             },
@@ -153,7 +153,7 @@ pub struct S3PutObjectRequest {
     /// Headers of the CompleteMultipartUpload response, available after the request was finished
     response_headers: Arc<Mutex<Option<Headers>>>,
     /// Signal indicating that CreateMultipartUpload completed successfully, or that the MPU failed.
-    /// Will be set to [None] once awaited on the first write.
+    /// Set to [None] once awaited on the first write, meaning the MPU was already created or failed.
     pending_create_mpu: Option<oneshot::Receiver<Result<(), S3RequestError>>>,
 }
 

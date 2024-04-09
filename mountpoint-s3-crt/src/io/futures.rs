@@ -301,7 +301,7 @@ impl Future for FutureVoid {
                     waker.clone_from(cx.waker());
                 }
                 None => {
-                    // Store the waker and drop the lock (in case the callback runs synchronously).
+                    // Store the waker. Drop the lock in case the callback runs synchronously during registration.
                     *waker = Some(cx.waker().clone());
                     drop(waker);
 
@@ -323,10 +323,13 @@ impl Future for FutureVoid {
 unsafe extern "C" fn future_void_callback(user_data: *mut ::libc::c_void) {
     // Take ownership of the `Arc` in `user_data`.
     let waker = Arc::from_raw(user_data as *mut Mutex<Option<Waker>>);
-    if let Some(waker) = waker.lock().unwrap().take() {
-        // Notify the waker that the future has completed.
-        waker.wake();
+    let Some(waker) = waker.lock().unwrap().take() else {
+        // Waker removed on `poll` finding that the future had already completed.
+        // Nothing to do here.
+        return;
     };
+    // Notify the waker that the future has completed.
+    waker.wake();
 }
 
 #[cfg(test)]
@@ -459,12 +462,14 @@ mod test {
         // SAFETY: `aws_future` is a valid `aws_future_void`.
         let future_void = unsafe { FutureVoid::from_crt(aws_future) };
 
+        // Verify that the wrapper has completed and contains the set value.
         assert!(future_void.is_done());
         let Some(result) = future_void.try_get_result() else {
             panic!("result should be available when the future is done");
         };
         assert_eq!(result.map_err(|e| e.raw_error()), value);
 
+        // Verify that the wrapper returns the set value when awaited.
         let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
         let future_handle = el_group.spawn_future(future_void);
         let result = future_handle.wait().unwrap();

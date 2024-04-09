@@ -225,7 +225,8 @@ async fn test_put_object_write_cancelled() {
         let buffer = vec![0u8; client.part_size().unwrap()];
         let mut write = request.write(&buffer);
 
-        // Poll the future only once. This is quite fragile and relies on the following assumptions:
+        // Poll the future only once to get into a state where the write has started but not completed yet.
+        // Fragile because it depends on implementation details. In particular, it relies on the following assumptions:
         // * after the first invocation, `S3PutObjectRequest::write` calls `aws_s3_async_write` on first poll,
         // * for large enough buffers, `aws_s3_async_write` defers the copy.
         let waker = noop_waker();
