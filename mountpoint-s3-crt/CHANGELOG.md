@@ -1,3 +1,8 @@
+## v0.6.3 (April 10, 2024)
+
+* Update to latest CRT dependencies
+* Adopt new async write API for PutObject requests ([#832](https://github.com/awslabs/mountpoint-s3/pull/832))
+
 ## v0.6.2 (March 7, 2024)
 
 * Update to latest CRT dependencies
