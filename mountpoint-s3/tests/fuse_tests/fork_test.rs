@@ -4,13 +4,13 @@
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_config::BehaviorVersion;
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_sts::config::Region;
 use std::fs;
 use std::io::{BufRead, BufReader};
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Child, ExitStatus, Stdio};
@@ -20,7 +20,7 @@ use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region};
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id, get_test_sdk_client};
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::{get_subsession_iam_role, tokio_block_on};
@@ -392,7 +392,7 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 fn mount_with_sse(
     bucket: &str,
     mount_point: &Path,
@@ -422,15 +422,14 @@ fn mount_with_sse(
     wait_for_mount("mountpoint-s3", mount_point.to_str().unwrap());
     child
 }
-
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 fn write_to_file(mount_point: &Path, file_name: &str) -> Result<(), std::io::Error> {
     let mut f = fs::File::create(mount_point.join(file_name)).expect("should be able to open file for writing");
     let data = vec![0xaa; 32];
     f.write_all(&data)
 }
 
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn write_with_inexistent_key_sse() {
     let (bucket, prefix) = get_test_bucket_and_prefix("write_with_inexistent_key_sse");
@@ -444,7 +443,7 @@ fn write_with_inexistent_key_sse() {
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
 
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn write_with_no_permissions_for_a_key_sse() {
     let policy_with_no_kms_perms = r#"{"Statement": [
@@ -463,7 +462,7 @@ fn write_with_no_permissions_for_a_key_sse() {
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
 
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 #[test]
 fn read_with_no_permissions_for_a_key_sse() {
     let policy_with_no_kms_perms = r#"{"Statement": [
@@ -624,7 +623,7 @@ fn unmount(mount_point: &Path) {
     panic!("failed to unmount");
 }
 
-#[cfg(all(feature = "sse_kms", not(feature = "s3express_tests")))]
+#[cfg(not(feature = "s3express_tests"))]
 fn unmount_and_check_log(mut process: Child, mount_path: &Path, expected_log_line: &regex::Regex) {
     unmount(mount_path);
     let mut stdout = process

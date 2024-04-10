@@ -158,7 +158,9 @@ If necessary, you can use the `--endpoint-url` command-line argument to fully ov
 
 ### Data encryption
 
-Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C). Mountpoint does not allow further configuring encryption, and you cannot encrypt new objects written with Mountpoint using a different encryption setting than the bucket's default.
+Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).
+
+New objects can be uploaded using different server-side encryption (SSE) settings than the bucket's default. The CLI argument `--sse <aws:kms|aws:kms:dsse|AES256>` can be used to specify a different SSE encryption type. When either `aws:kms` or `aws:kms:dsse` is used as a type, `--sse-kms-key-id <KEY_ARN>` may be used to optionally specify a KMS key ID. When a KMS key ID is not specified, S3 will use an [AWS managed KMS key](https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-mgmt), which is created automatically. Please note that these command-line arguments only configure server-side encryption for *new* objects created with Mountpoint, all *existing* objects will remain unchanged.
 
 Mountpoint does not support client-side encryption using the Amazon S3 Encryption Client.
 
@@ -184,7 +186,7 @@ If you want to allow file deletion, use the `--allow-delete` flag at mount time.
 
 If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use the `--read-only` command-line flag.
 
-For more details on the behavior of file operations with Mountpoint, see the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information. 
+For more details on the behavior of file operations with Mountpoint, see the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information.
 
 ### S3 storage classes
 
@@ -278,7 +280,7 @@ You can instead manually configure the maximum size of the cache with the `--max
 
 We recommend using local storage, such as Amazon EC2 instance storage or an Amazon EBS volume, as the target of the Mountpoint cache.
 When caching to EBS, you can use your instance's root EBS volume, or create and attach a new volume just for caching.
-There are several factors that can affect the performance of EBS volumes. See the [EBS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) for more details about EBS volume types and their performance characteristics. 
+There are several factors that can affect the performance of EBS volumes. See the [EBS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) for more details about EBS volume types and their performance characteristics.
 If you create a new EBS volume or use EC2 instance storage, you will first need to [create a file system](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/add-instance-store-volumes.html#making-instance-stores-available-on-your-instances) on that storage and mount it at a path such as `/mnt/mp-cache`.
 The user running Mountpoint needs write access to the mounted file system,
 and we recommend setting the permissions on the file system to not allow reads by any other users (e.g., `chmod 0700 /mnt/mp-cache`).
