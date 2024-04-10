@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1712759443065,
+  "lastUpdate": 1712779946058,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "distinct": true,
-          "id": "de1af8a7375f16002399d3b944f31837b8aea3a2",
-          "message": "Workflow updates for AL2023\n\n1. Remove Cargo caching -- we have too many build variants in CI at this\n   point, and the cache is limited to 10GB per repo, so in practice it\n   never/rarely hits before evicting random variants.\n2. Update actions to versions that we previously deferred because they\n   required the node20 runtime, which didn't work on AL2.\n3. Switch how we install Rust, since actions-rs/toolchain is deprecated.\n4. Move ASan workflows to run on ARM runners, which are much faster.\n5. Fix a syntax thing in the cache build workflow.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2024-03-12T21:44:05Z",
-          "tree_id": "96019e2500a2f27ed74325002b43e98deb40e9ae",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/de1af8a7375f16002399d3b944f31837b8aea3a2"
-        },
-        "date": 1710280701331,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.089,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.199,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.253,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.037,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 63.7673345,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 60.9520617,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 26.599031399999998,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4cd3cd57557ed6c825a6108735a312a85dcf2221",
+          "message": "Remove fuse_tests from asan (#844)\n\nThey frequently trigger a deadlock inside ASan's allocator. We're really\r\nusing ASan to test the CRT bindings anyway, so the S3 tests are really\r\nwhat matter most.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-04-10T15:01:38-05:00",
+          "tree_id": "50df3f85bdda712eb393abe4ed237640cccc3fc6",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/4cd3cd57557ed6c825a6108735a312a85dcf2221"
+        },
+        "date": 1712779945506,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.067,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.146,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.007,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.822,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 53.5738949,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 36.1200663,
             "unit": "milliseconds"
           }
         ]
