@@ -4,10 +4,9 @@ use std::time::Instant;
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
 use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
-use futures::{select_biased, FutureExt as _};
+use futures::channel::oneshot;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
-use mountpoint_s3_crt::io::async_stream::{self, AsyncStreamWriter};
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, RequestType, UploadReview};
 use tracing::error;
 
 use super::{S3CrtClientInner, S3HttpRequest};
@@ -38,9 +37,6 @@ impl S3CrtClient {
             message.set_checksum_config(Some(checksum_config));
         }
 
-        let (body_async_stream, writer) = async_stream::new_stream(&self.inner.allocator);
-        message.set_body_stream(Some(body_async_stream));
-
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
 
@@ -68,18 +64,45 @@ impl S3CrtClient {
             *response_headers_writer.lock().unwrap() = Some(headers.clone());
         };
         let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
+        options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
-        let body = self
-            .inner
-            .make_simple_http_request_from_options(options, span, |_| None, on_headers)?;
+
+        // Before the first write, we need to await for the multi-part upload to be created, so we can report errors.
+        // To do so, we need to detect one of two events (whichever comes first):
+        // * a CreateMultipartUpload request completes successfully (potentially after a number of retries),
+        // * the meta-request fails.
+        let (mpu_created_sender, mpu_created) = oneshot::channel();
+        let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
+        let on_error_sender = on_mpu_created_sender.clone();
+
+        let body = self.inner.make_simple_http_request_from_options(
+            options,
+            span,
+            move |metrics| {
+                if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
+                    // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
+                    if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
+                        _ = sender.send(Ok(()));
+                    }
+                }
+            },
+            move |result| {
+                // Signal that the meta-request failed (unless a CreateMultipartUpload had already completed successfully).
+                if let Some(sender) = on_error_sender.lock().unwrap().take() {
+                    _ = sender.send(Err(result.crt_error.into()));
+                }
+                None
+            },
+            on_headers,
+        )?;
 
         Ok(S3PutObjectRequest {
             body,
-            writer,
             review_callback,
             start_time: Instant::now(),
             total_bytes: 0,
             response_headers,
+            pending_create_mpu: Some(mpu_created),
         })
     }
 }
@@ -124,12 +147,14 @@ impl ReviewCallbackBox {
 #[derive(Debug)]
 pub struct S3PutObjectRequest {
     body: S3HttpRequest<Vec<u8>, PutObjectError>,
-    writer: AsyncStreamWriter,
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
     /// Headers of the CompleteMultipartUpload response, available after the request was finished
     response_headers: Arc<Mutex<Option<Headers>>>,
+    /// Signal indicating that CreateMultipartUpload completed successfully, or that the MPU failed.
+    /// Set to [None] once awaited on the first write, meaning the MPU was already created or failed.
+    pending_create_mpu: Option<oneshot::Receiver<Result<(), S3RequestError>>>,
 }
 
 fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
@@ -141,19 +166,20 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
-        // Check if the request has already finished (which can only happen because of an error in
-        // the request), and fail the write if so. Ordering doesn't matter here as it should be
-        // impossible for the request to succeed while we still hold `&mut self`, as no one can call
-        // `complete()`.
-        select_biased! {
-            result = self.writer.write(slice).fuse() => {
-                self.total_bytes += slice.len() as u64;
-                result.map_err(|e| S3RequestError::InternalError(Box::new(e)).into())
-            }
-
-            // Request can't have succeeded if we still own `&mut self`
-            result = (&mut self.body).fuse() => Err(result.expect_err("request can't succeed while still writing")),
+        // On first write, check the pending CreateMultipartUpload.
+        if let Some(create_mpu) = self.pending_create_mpu.take() {
+            // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
+            create_mpu.await.unwrap()?;
         }
+
+        // Write will fail if the request has already finished (because of an error).
+        self.body
+            .meta_request
+            .write(slice, false)
+            .await
+            .map_err(S3RequestError::CrtError)?;
+        self.total_bytes += slice.len() as u64;
+        Ok(())
     }
 
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
@@ -166,24 +192,15 @@ impl PutObjectRequest for S3PutObjectRequest {
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.review_callback.set(review_callback);
 
-        let mut request = self.body.fuse();
+        // Write will fail if the request has already finished (because of an error).
+        self.body
+            .meta_request
+            .write(&[], true)
+            .await
+            .map_err(S3RequestError::CrtError)?;
 
-        // Check if the request has already finished (because of an error), and fail the write if
-        // so. Ordering here is significant: if both futures are ready (which could happen if we
-        // were not polled for a long time, and so the request succeeded _because_ of the
-        // `self.writer.complete()` call), we want to proceed with the complete path.
-        select_biased! {
-            result = self.writer.complete().fuse() => {
-                let _ = result.map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
-
-                // Now wait for the request to finish.
-                let _ = request.await?;
-            }
-
-            // Request can't have succeeded if we still own it and the `complete()` future is still
-            // incomplete, which we know it is because this is a biased select.
-            result = request => return Err(result.expect_err("request can't succeed while still completing")),
-        };
+        // Now wait for the request to finish.
+        let _ = self.body.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");

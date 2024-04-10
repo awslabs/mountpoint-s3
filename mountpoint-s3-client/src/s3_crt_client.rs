@@ -18,14 +18,13 @@ use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
-use mountpoint_s3_crt::io::async_stream::AsyncInputStream;
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
     init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestType,
+    MetaRequestType, RequestMetrics, RequestType,
 };
 
 use async_trait::async_trait;
@@ -438,7 +437,7 @@ impl S3CrtClientInner {
             + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, meta_request_type);
-        self.make_meta_request_from_options(options, request_span, on_headers, on_body, on_finish)
+        self.make_meta_request_from_options(options, request_span, |_| {}, on_headers, on_body, on_finish)
     }
 
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
@@ -447,9 +446,10 @@ impl S3CrtClientInner {
         &self,
         mut options: MetaRequestOptions,
         request_span: Span,
+        on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
+        on_meta_request_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
             + Send
             + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
@@ -472,6 +472,8 @@ impl S3CrtClientInner {
         options
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
+
+                on_request_finish(metrics);
 
                 let http_status = metrics.status_code();
                 let request_canceled = metrics.is_canceled();
@@ -556,7 +558,7 @@ impl S3CrtClientInner {
                 // The `on_finish` callback has a choice of whether to give us an error or not. If
                 // not, fall back to generic error parsing (e.g. for permissions errors), or just no
                 // error if that fails too.
-                let result = on_finish(&request_result);
+                let result = on_meta_request_finish(&request_result);
                 let result = result.map_err(|e| e.or_else(|| try_parse_generic_error(&request_result).map(ObjectClientError::ClientError)));
                 let result = match result {
                     Ok(t) => {
@@ -630,7 +632,7 @@ impl S3CrtClientInner {
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
         let options = Self::new_meta_request_options(message, request_type);
-        self.make_simple_http_request_from_options(options, request_span, on_error, |_, _| ())
+        self.make_simple_http_request_from_options(options, request_span, |_| {}, on_error, |_, _| ())
     }
 
     /// Make an HTTP request using this S3 client that returns the body on success or invokes the
@@ -639,6 +641,7 @@ impl S3CrtClientInner {
         &self,
         options: MetaRequestOptions,
         request_span: Span,
+        on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_headers: impl FnMut(&Headers, i32) + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
@@ -649,6 +652,7 @@ impl S3CrtClientInner {
         self.make_meta_request_from_options(
             options,
             request_span,
+            on_request_finish,
             on_headers,
             move |offset, data| {
                 let mut body = body_clone.lock().unwrap();
@@ -774,12 +778,6 @@ impl S3Message {
     /// handle that.
     fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), mountpoint_s3_crt::common::error::Error> {
         self.set_request_path_and_query::<&str>(path, &[])
-    }
-
-    /// Sets the body input stream for this message, and returns any previously set input stream.
-    /// If input_stream is None, unsets the body.
-    fn set_body_stream(&mut self, input_stream: Option<AsyncInputStream>) -> Option<AsyncInputStream> {
-        self.inner.set_body_stream(input_stream)
     }
 
     /// Sets the checksum configuration for this message.

@@ -8,9 +8,11 @@ use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
+use crate::io::futures::FutureVoid;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
+use futures::Future;
 use mountpoint_s3_crt_sys::*;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -214,7 +216,7 @@ impl Debug for MetaRequestOptionsInner {
 }
 
 /// Options for a meta request to S3.
-// Implementation details: this wraps the innner struct in a pinned box to enforce we don't move out of it.
+// Implementation details: this wraps the inner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
 pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
 
@@ -268,11 +270,6 @@ impl MetaRequestOptions {
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
         options.inner.message = options.message.as_mut().unwrap().inner.as_ptr();
-
-        if let Some(send_async_stream) = options.message.as_mut().unwrap().body_stream() {
-            options.inner.send_async_stream = send_async_stream.as_inner_ptr();
-        }
-
         self
     }
 
@@ -367,6 +364,15 @@ impl MetaRequestOptions {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.inner.part_size = part_size;
+        self
+    }
+
+    /// Set this to send request body data using the async [MetaRequest::write] function.
+    /// This only works with [MetaRequestType::PutObject].
+    pub fn send_using_async_writes(&mut self, send_using_async_writes: bool) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.inner.send_using_async_writes = send_using_async_writes;
         self
     }
 }
@@ -514,7 +520,6 @@ unsafe extern "C" fn meta_request_upload_review_callback(
 }
 
 /// An in-progress request to S3.
-/// TODO: implement cancel, etc.
 #[derive(Debug)]
 pub struct MetaRequest {
     #[allow(unused)]
@@ -533,6 +538,12 @@ impl MetaRequest {
             aws_s3_meta_request_cancel(self.inner.as_ptr());
         }
     }
+
+    /// Write a chunk of data and indicate whether it is the last. If invoked before the previous
+    /// write completed, or after setting `eof` to `true`, will return an AWS_ERROR_INVALID_STATE error.
+    pub fn write<'a>(&'a mut self, slice: &'a [u8], eof: bool) -> MetaRequestWrite<'a> {
+        MetaRequestWrite::new(self, slice, eof)
+    }
 }
 
 impl Drop for MetaRequest {
@@ -545,10 +556,67 @@ impl Drop for MetaRequest {
     }
 }
 
+impl Clone for MetaRequest {
+    fn clone(&self) -> Self {
+        // SAFETY: self.inner is a valid aws_s3_meta_request and aws_s3_meta_request_acquire
+        // increments the reference count for it (and always returns a copy of the input, which is non-null).
+        let inner = unsafe { NonNull::new_unchecked(aws_s3_meta_request_acquire(self.inner.as_ptr())) };
+        Self { inner }
+    }
+}
+
 // SAFETY: `aws_s3_meta_request` is thread-safe
 unsafe impl Send for MetaRequest {}
 // SAFETY: `aws_s3_meta_request` is thread safe
 unsafe impl Sync for MetaRequest {}
+
+/// Future returned by `MetaRequest::write()`. It will complete when the write completes,
+/// or cancel the meta-request if dropped.
+#[derive(Debug)]
+pub struct MetaRequestWrite<'a> {
+    /// Signals when the write operation completes
+    future: FutureVoid,
+    /// The meta-request to cancel if this future is dropped
+    request: &'a mut MetaRequest,
+}
+
+impl Drop for MetaRequestWrite<'_> {
+    fn drop(&mut self) {
+        if !self.future.is_done() {
+            // This future is being dropped before completion. Cancelling the meta-request
+            // guarantees that the client will not access the provided buffer.
+            self.request.cancel();
+        }
+    }
+}
+
+impl<'a> MetaRequestWrite<'a> {
+    fn new(request: &'a mut MetaRequest, slice: &'a [u8], eof: bool) -> Self {
+        // SAFETY: `MetaRequestWrite` will ensure that `slice` is alive until the future completes or
+        // that the meta-request is canceled if the future is dropped, preventing further use of the
+        // `aws_byte_cursor`.
+        let data = unsafe { slice.as_aws_byte_cursor() };
+
+        // SAFETY: `aws_s3_meta_request_write` never returns NULL.
+        let future = unsafe {
+            FutureVoid::from_crt(NonNull::new_unchecked(aws_s3_meta_request_write(
+                request.inner.as_ptr(),
+                data,
+                eof,
+            )))
+        };
+
+        Self { future, request }
+    }
+}
+
+impl Future for MetaRequestWrite<'_> {
+    type Output = Result<(), Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        Pin::new(&mut self.future).poll(cx)
+    }
+}
 
 /// Client metrics which represent current workload of a client.
 /// Overall, num_requests_tracked_requests shows total number of requests being processed by the client at a time.

@@ -3,13 +3,19 @@
 
 use std::fmt::Debug;
 use std::future::Future;
+use std::pin::Pin;
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::task::ArcWake;
 use futures::{FutureExt, TryFutureExt};
+use mountpoint_s3_crt_sys::{
+    aws_future_void, aws_future_void_get_error, aws_future_void_is_done, aws_future_void_register_callback,
+    aws_future_void_release,
+};
 use thiserror::Error;
 
 use crate::common::allocator::Allocator;
@@ -220,10 +226,117 @@ pub enum JoinError {
     InternalError(#[from] crate::common::error::Error),
 }
 
+/// Wraps a [aws_future_void].
+#[derive(Debug)]
+pub struct FutureVoid {
+    inner: NonNull<aws_future_void>,
+    waker: Arc<Mutex<Option<Waker>>>,
+}
+
+// SAFETY: `aws_future_void` is thread-safe
+unsafe impl Send for FutureVoid {}
+
+impl Drop for FutureVoid {
+    fn drop(&mut self) {
+        // SAFETY: `self.inner` contains a valid `aws_future_void`.
+        unsafe {
+            aws_future_void_release(self.inner.as_ptr());
+        }
+    }
+}
+
+impl FutureVoid {
+    /// Return whether the future is done
+    pub fn is_done(&self) -> bool {
+        // SAFETY: `self.inner` contains a valid `aws_future_void`.
+        unsafe { aws_future_void_is_done(self.inner.as_ptr()) }
+    }
+
+    /// Create a [FutureVoid] from a [aws_future_void].
+    ///
+    /// ## Safety
+    ///
+    /// `inner` must be a valid [aws_future_void] with no registered callbacks.
+    pub unsafe fn from_crt(inner: NonNull<aws_future_void>) -> Self {
+        Self {
+            inner,
+            waker: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Get the result of this future if completed.
+    fn try_get_result(&self) -> Option<Result<(), crate::common::error::Error>> {
+        if !self.is_done() {
+            return None;
+        }
+
+        let result = {
+            // SAFETY: `self.inner` has completed.
+            let future_result = unsafe { aws_future_void_get_error(self.inner.as_ptr()) };
+            let error_result: crate::common::error::Error = future_result.into();
+            if error_result.is_err() {
+                Err(error_result)
+            } else {
+                Ok(())
+            }
+        };
+        Some(result)
+    }
+}
+
+impl Future for FutureVoid {
+    type Output = Result<(), crate::common::error::Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut waker = self.waker.lock().unwrap();
+        if let Some(result) = self.try_get_result() {
+            // The future has completed. Remove the waker, if any, and return the result.
+            _ = waker.take();
+            Poll::Ready(result)
+        } else {
+            // The future has not completed yet. Do we need to register the callback?
+            match *waker {
+                Some(ref mut waker) => {
+                    // The callback has already been registered, just replace the waker.
+                    waker.clone_from(cx.waker());
+                }
+                None => {
+                    // Store the waker. Drop the lock in case the callback runs synchronously during registration.
+                    *waker = Some(cx.waker().clone());
+                    drop(waker);
+
+                    // `user_data` will be cleaned up in `future_void_callback`.
+                    let user_data = Arc::into_raw(self.waker.clone()) as *mut ::libc::c_void;
+
+                    // SAFETY: `self.inner.as_ptr()` is a valid `aws_future_void` and this is the only callback we are registering.
+                    unsafe {
+                        aws_future_void_register_callback(self.inner.as_ptr(), Some(future_void_callback), user_data);
+                    }
+                }
+            }
+            Poll::Pending
+        }
+    }
+}
+
+/// Safety: Don't call this function directly, only called by the CRT as a callback.
+unsafe extern "C" fn future_void_callback(user_data: *mut ::libc::c_void) {
+    // Take ownership of the `Arc` in `user_data`.
+    let waker = Arc::from_raw(user_data as *mut Mutex<Option<Waker>>);
+    let Some(waker) = waker.lock().unwrap().take() else {
+        // Waker removed on `poll` finding that the future had already completed.
+        // Nothing to do here.
+        return;
+    };
+    // Notify the waker that the future has completed.
+    waker.wake();
+}
+
 #[cfg(test)]
 mod test {
     use futures::executor::block_on;
     use futures::future::join_all;
+    use mountpoint_s3_crt_sys::{aws_future_void_new, aws_future_void_set_error, aws_future_void_set_result};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::time::Duration;
 
@@ -231,6 +344,7 @@ mod test {
     use crate::common::allocator::Allocator;
     use crate::io::event_loop::{EventLoopGroup, EventLoopTimer};
     use std::sync::atomic::Ordering;
+    use test_case::test_case;
 
     /// Test that running a small future on an event loop works correctly.
     #[test]
@@ -336,5 +450,78 @@ mod test {
             !flag.load(Ordering::SeqCst),
             "flag should still be false after cancellation"
         );
+    }
+
+    #[test_case(Ok(()))]
+    #[test_case(Err(42))]
+    fn test_future_void_already_done(value: Result<(), i32>) {
+        let allocator = Allocator::default();
+        let aws_future = new_aws_future_void(&allocator);
+        set_aws_future_void_value(aws_future, value);
+
+        // SAFETY: `aws_future` is a valid `aws_future_void`.
+        let future_void = unsafe { FutureVoid::from_crt(aws_future) };
+
+        // Verify that the wrapper has completed and contains the set value.
+        assert!(future_void.is_done());
+        let Some(result) = future_void.try_get_result() else {
+            panic!("result should be available when the future is done");
+        };
+        assert_eq!(result.map_err(|e| e.raw_error()), value);
+
+        // Verify that the wrapper returns the set value when awaited.
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
+        let future_handle = el_group.spawn_future(future_void);
+        let result = future_handle.wait().unwrap();
+        assert_eq!(result.map_err(|e| e.raw_error()), value);
+    }
+
+    #[test_case(Ok(()))]
+    #[test_case(Err(42))]
+    fn test_future_void_wake_up(value: Result<(), i32>) {
+        let allocator = Allocator::default();
+
+        let aws_future = new_aws_future_void(&allocator);
+        // SAFETY: `aws_future` is a valid `aws_future_void`.
+        let future_void = unsafe { FutureVoid::from_crt(aws_future) };
+
+        // Set up a flag that will set to true after awaiting future_void.
+        let flag = Arc::new(AtomicBool::new(false));
+
+        let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
+        let future_handle = {
+            let flag = flag.clone();
+            el_group.spawn_future(async move {
+                let result = future_void.await;
+                flag.store(true, Ordering::SeqCst);
+                result
+            })
+        };
+        assert!(
+            !flag.load(Ordering::SeqCst),
+            "the spawned future should not have completed and set the flag"
+        );
+        set_aws_future_void_value(aws_future, value);
+        let result = future_handle.wait().unwrap();
+        assert!(
+            flag.load(Ordering::SeqCst),
+            "the spawned future should have set the flag"
+        );
+        assert_eq!(result.map_err(|e| e.raw_error()), value);
+    }
+
+    fn new_aws_future_void(allocator: &Allocator) -> NonNull<aws_future_void> {
+        // SAFETY: `allocator` is a valid `aws_allocator` and `aws_future_void_new` returns a
+        // pointer to a valid `aws_future_void`.
+        unsafe { NonNull::new_unchecked(aws_future_void_new(allocator.inner.as_ptr())) }
+    }
+
+    fn set_aws_future_void_value(aws_future: NonNull<aws_future_void>, value: Result<(), i32>) {
+        match value {
+            // SAFETY: `aws_future` is a valid `aws_future_void`.
+            Ok(()) => unsafe { aws_future_void_set_result(aws_future.as_ptr()) },
+            // SAFETY: `aws_future` is a valid `aws_future_void`.
+            Err(code) => unsafe { aws_future_void_set_error(aws_future.as_ptr(), code) },
+        }
     }
 }
