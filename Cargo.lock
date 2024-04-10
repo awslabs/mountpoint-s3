@@ -2032,7 +2032,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2057,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "bindgen",
  "cc",

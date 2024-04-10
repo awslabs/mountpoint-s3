@@ -1,14 +1,14 @@
 [package]
 name = "mountpoint-s3-crt"
 # See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.6.3"
+version = "0.7.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.6.3" }
+mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.7.0" }
 
 async-channel = "2.1.1"
 futures = "0.3.24"
