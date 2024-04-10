@@ -1,4 +1,4 @@
-## Unreleased
+## v0.8.1 (April 10, 2024)
 
 ### Breaking changes
 
@@ -7,6 +7,10 @@
 ### Other changes
 
 * The maximum number of attempts for S3 requests can now be configured with the `S3ClientConfig::max_attempts` method or the `AWS_MAX_ATTEMPTS` environment variable. ([#830](https://github.com/awslabs/mountpoint-s3/pull/830))
+* Return server-side encryption headers in `PutObjectResult`. ([#745](https://github.com/awslabs/mountpoint-s3/pull/745))
+* Add support for AES256 server-side encryption (SSE-S3). ([#827](https://github.com/awslabs/mountpoint-s3/pull/827))
+* Expose memory consumption metrics for the CRT buffer pool (`s3.client.buffer_pool.*`). ([#820](https://github.com/awslabs/mountpoint-s3/pull/820))
+* Adopt new async write API for PutObject requests ([#832](https://github.com/awslabs/mountpoint-s3/pull/832))
 
 ## v0.8.0 (March 8, 2024)
 
