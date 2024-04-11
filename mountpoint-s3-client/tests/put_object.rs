@@ -2,12 +2,10 @@
 
 pub mod common;
 
-use std::task::Context;
 use std::time::Duration;
 
 use common::*;
-use futures::task::noop_waker;
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
@@ -221,21 +219,14 @@ async fn test_put_object_write_cancelled() {
     request.write(&[1, 2, 3, 4]).await.expect("write should succeed");
 
     {
-        // Write at least `part_size` to ensure the copy is deferred.
-        let buffer = vec![0u8; client.part_size().unwrap()];
-        let mut write = request.write(&buffer);
+        // Write a multiple of `part_size` to ensure the copy is deferred.
+        let size = client.part_size().unwrap() * 10;
+        let buffer = vec![0u8; size];
+        let write = request.write(&buffer);
 
-        // Poll the future only once to get into a state where the write has started but not completed yet.
-        // Fragile because it depends on implementation details. In particular, it relies on the following assumptions:
-        // * after the first invocation, `S3PutObjectRequest::write` calls `aws_s3_async_write` on first poll,
-        // * for large enough buffers, `aws_s3_async_write` defers the copy.
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-        let poll_result = write.poll_unpin(&mut cx);
-        assert!(matches!(poll_result, std::task::Poll::Pending));
-
-        // Cancel the future
-        drop(write);
+        tokio::time::timeout(Duration::from_millis(1), write)
+            .await
+            .expect_err("write should time out and be cancelled");
     }
 
     let err = request
