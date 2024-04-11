@@ -160,6 +160,8 @@ If necessary, you can use the `--endpoint-url` command-line argument to fully ov
 
 Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).
 
+By default, Amazon S3 encrypts all objects with Amazon S3 managed keys (SSE-S3) and you can elect to use SSE-KMS with a customer managed key to meet compliance requirements. You can specify the AWS KMS key with Mountpoint when mounting a bucket or prefix.
+
 New objects can be uploaded using different server-side encryption (SSE) settings than the bucket's default. The CLI argument `--sse <aws:kms|aws:kms:dsse|AES256>` can be used to specify a different SSE encryption type. When either `aws:kms` or `aws:kms:dsse` is used as a type, `--sse-kms-key-id <KEY_ARN>` may be used to optionally specify a KMS key ID. When a KMS key ID is not specified, S3 will use an [AWS managed KMS key](https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-mgmt), which is created automatically. Please note that these command-line arguments only configure server-side encryption for *new* objects created with Mountpoint, all *existing* objects will remain unchanged.
 
 Mountpoint does not support client-side encryption using the Amazon S3 Encryption Client.
