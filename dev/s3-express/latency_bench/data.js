@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1712802501728,
+  "lastUpdate": 1712834887784,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "distinct": true,
-          "id": "b74b6b4444acda566a5421cad1a8dddecb58e5f8",
-          "message": "Run ASan on ARM runners\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2024-03-12T22:46:21Z",
-          "tree_id": "0a6deb768b46608b3d7b20792e8d880fbd07c5d4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b74b6b4444acda566a5421cad1a8dddecb58e5f8"
-        },
-        "date": 1710294956609,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.139,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.499,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.267,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.351,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 21.982847399999997,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 23.3222443,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 15.6052582,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "29cf8daf8f87aa216e5064c4b1a5fdd46009c164",
+          "message": "Improve cancellation test for PutObject write (#845)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-04-11T11:07:27Z",
+          "tree_id": "54dff8c2afb3a209cd9879da719589500a6cbd19",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/29cf8daf8f87aa216e5064c4b1a5fdd46009c164"
+        },
+        "date": 1712834887256,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.124,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.495,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.16,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.159,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 14.696910599999999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 15.5976526,
             "unit": "milliseconds"
           }
         ]
