@@ -1,7 +1,5 @@
 ## Unreleased
 
-## v1.6.0 (April 11, 2024)
-
 ### New features
 * Mountpoint for Amazon S3 now supports specifying an AWS Key Management Service (AWS KMS) key for server-side encryption with KMS (SSE-KMS) when mounting an S3 bucket or prefix. ([#839](https://github.com/awslabs/mountpoint-s3/pull/839))
 
