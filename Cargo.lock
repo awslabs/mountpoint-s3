@@ -1922,7 +1922,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "anyhow",
  "assert_cmd",

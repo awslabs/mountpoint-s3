@@ -1,11 +1,18 @@
 ## Unreleased
 
+## v1.6.0 (April 11, 2024)
+
 ### New features
 * Mountpoint for Amazon S3 now supports specifying an AWS Key Management Service (AWS KMS) key for server-side encryption with KMS (SSE-KMS) when mounting an S3 bucket or prefix. ([#839](https://github.com/awslabs/mountpoint-s3/pull/839))
+
+### Breaking changes
+* No breaking changes.
 
 ### Other changes
 
 * Mountpoint now retries S3 requests up to a total of 10 attempts (up from 4), which should make file operations more robust to transient failures or throttling. The maximum number of attempts can be overridden by setting the `AWS_MAX_ATTEMPTS` environment variable. ([#830](https://github.com/awslabs/mountpoint-s3/pull/830))
+* Fix an issue where Mountpoint could become unresponsive after opening too many files in write mode. ([#832](https://github.com/awslabs/mountpoint-s3/pull/832))
+* Add support for `rewinddir` by restarting `readdir` if offset is zero. ([#825](https://github.com/awslabs/mountpoint-s3/pull/825))
 
 ## v1.5.0 (March 7, 2024)
 
