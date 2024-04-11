@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1712834970248,
+  "lastUpdate": 1712845343429,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5cba78ff99dd094d6158730fd048e8c3228da858",
-          "message": "Small docs updates (#810)\n\nFour small changes:\n1. The notice about 1.4.0 was stale now that we've released newer\n   version(s).\n2. The build-from-source instructions were hard to copy/paste because\n   they required interactive input.\n3. The CSI driver wasn't mentioned in the docs.\n4. The AUR repo is unmaintained (not updated since last July), so we\n   shouldn't point customers to it.\n\nI also did a little bit of minor clarifying/editing.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2024-03-12T22:54:59Z",
-          "tree_id": "2542d05585a732ecaf67dcf6afabe7260f1a640d",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5cba78ff99dd094d6158730fd048e8c3228da858"
-        },
-        "date": 1710295083947,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.256,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.195,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.252,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 11.13,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 69.2292351,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 59.7802887,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 37.4737818,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0c61a4911f0f5431c88f160a6d165d37c02f945",
+          "message": "Update documentation on sse-kms (#847)\n\n* Update documentation on sse-kms\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n* Update the changelog\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n* Update the links\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n* comments\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n* v1.6.0 (April 11, 2024)\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n* Unreleased for now\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\n\n---------\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\nCo-authored-by: Vladislav Volodkin <vlaad@amazon.co.uk>",
+          "timestamp": "2024-04-11T13:57:35Z",
+          "tree_id": "399c7a5cf09b9010b3d93dc0a124e999d272be2c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f0c61a4911f0f5431c88f160a6d165d37c02f945"
+        },
+        "date": 1712845342910,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.065,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.157,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.939,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 9.904,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 42.2491766,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 34.096155,
             "unit": "milliseconds"
           }
         ]
