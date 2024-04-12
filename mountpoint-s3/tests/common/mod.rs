@@ -18,6 +18,7 @@ use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::collections::VecDeque;
+use std::future::Future;
 use std::sync::Arc;
 
 pub type TestS3Filesystem<Client> = S3Filesystem<Client, DefaultPrefetcher<ThreadPool>>;
@@ -89,6 +90,15 @@ impl DirectoryReply {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
+}
+
+pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .unwrap();
+    runtime.block_on(future)
 }
 
 /// Enable tracing and CRT logging when running unit tests.

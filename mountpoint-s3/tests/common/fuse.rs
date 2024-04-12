@@ -16,6 +16,8 @@ use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProvi
 use mountpoint_s3_crt::common::allocator::Allocator;
 use tempfile::TempDir;
 
+use crate::common::tokio_block_on;
+
 pub trait TestClient: Send {
     fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         self.put_object_params(key, value, PutObjectParams::default())
@@ -109,8 +111,6 @@ where
 }
 
 pub mod mock_session {
-    use crate::common::s3::tokio_block_on;
-
     use super::*;
 
     use futures::executor::ThreadPool;
@@ -280,7 +280,7 @@ pub mod s3_session {
     use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
     use mountpoint_s3_client::S3CrtClient;
 
-    use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client, tokio_block_on};
+    use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {

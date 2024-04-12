@@ -21,10 +21,10 @@ use test_case::test_case;
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
     create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
-    tokio_block_on,
 };
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::{get_scoped_down_credentials, get_subsession_iam_role, get_test_kms_key_id};
+use crate::common::tokio_block_on;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 

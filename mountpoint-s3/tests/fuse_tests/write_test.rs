@@ -17,7 +17,7 @@ use mountpoint_s3::ServerSideEncryption;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id, tokio_block_on};
+use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -1045,6 +1045,8 @@ const SSE_S3_POLICY: &str = r#"{"Statement": [
 #[test_case(SSE_S3_POLICY, ServerSideEncryption::new(Some("aws:kms".to_owned()), None), true)]
 #[test_case(SSE_S3_POLICY, ServerSideEncryption::new(Some("AES256".to_owned()), None), false)]
 fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_fail: bool) {
+    use crate::common::tokio_block_on;
+
     let policy = policy
         .to_string()
         .replace("__SSE_KEY_ARN__", get_test_kms_key_id().as_str());
