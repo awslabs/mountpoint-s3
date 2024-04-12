@@ -25,6 +25,12 @@ if [[ -z "${S3_BUCKET_SMALL_BENCH_FILE}" ]]; then
   exit 1
 fi
 
+optional_args=""
+
+if [[ -n "${S3_ENDPOINT_URL}" ]]; then
+  optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -57,7 +63,8 @@ do
         --debug \
         --allow-delete \
         --log-directory=$log_dir \
-        --prefix=${S3_BUCKET_TEST_PREFIX}
+        --prefix=${S3_BUCKET_TEST_PREFIX} \
+        ${optional_args}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
         echo "Failed to mount file system"
@@ -132,7 +139,8 @@ for job_file in "${jobs_dir}"/*.fio; do
     --debug \
     --allow-delete \
     --log-directory=$log_dir \
-    --prefix=${S3_BUCKET_TEST_PREFIX}
+    --prefix=${S3_BUCKET_TEST_PREFIX} \
+    ${optional_args}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then
     echo "Failed to mount file system"

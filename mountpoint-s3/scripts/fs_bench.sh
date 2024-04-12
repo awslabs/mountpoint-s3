@@ -30,6 +30,12 @@ if [[ -n "${S3_JOB_NAME_FILTER}" ]]; then
   echo "Will only run fio jobs which match $S3_JOB_NAME_FILTER"
 fi
 
+optional_args=""
+
+if [[ -n "${S3_ENDPOINT_URL}" ]]; then
+  optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -137,7 +143,8 @@ read_benchmark () {
       --allow-delete \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
-      --part-size=16777216
+      --part-size=16777216 \
+      ${optional_args}
     mount_status=$?
     set -e
     if [ $mount_status -ne 0 ]; then
@@ -198,7 +205,8 @@ write_benchmark () {
       --debug \
       --allow-delete \
       --log-directory=${log_dir} \
-      --prefix=${S3_BUCKET_TEST_PREFIX}
+      --prefix=${S3_BUCKET_TEST_PREFIX} \
+      ${optional_args}
     mount_status=$?
     set -e
     if [ $mount_status -ne 0 ]; then
