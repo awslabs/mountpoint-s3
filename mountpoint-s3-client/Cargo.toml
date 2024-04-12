@@ -11,6 +11,7 @@ description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.7.0" }
 mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.7.0" }
 
+async-channel = "2.1.1"
 async-trait = "0.1.57"
 auto_impl = "1.1.2"
 base64ct = { version = "1.6.0", features = ["std"] }

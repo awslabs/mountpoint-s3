@@ -1986,6 +1986,7 @@ name = "mountpoint-s3-client"
 version = "0.8.1"
 dependencies = [
  "anyhow",
+ "async-channel",
  "async-io",
  "async-lock",
  "async-trait",
