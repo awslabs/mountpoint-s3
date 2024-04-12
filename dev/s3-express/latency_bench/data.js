@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1712852097588,
+  "lastUpdate": 1712912421812,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "bornholt@amazon.com",
-            "name": "James Bornholt",
-            "username": "jamesbornholt"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5a219733940d7f9dd9cfa4aeabe4ddb94606f290",
-          "message": "Fix a compiler warning (#817)\n\nWe forgot to re-export ChecksumAlgorithm in the public API.\n\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
-          "timestamp": "2024-03-15T17:46:14Z",
-          "tree_id": "fadf4e68b28f854fbe0bcdf079d9e8a3040860a3",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5a219733940d7f9dd9cfa4aeabe4ddb94606f290"
-        },
-        "date": 1710526054528,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.136,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.514,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.242,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.056,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 22.5596072,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 22.7035129,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 15.662446300000001,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "nairashwin952013@gmail.com",
+            "name": "Ashwin Nair",
+            "username": "indianwhocodes"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2393b96acf0773a9b11b4b1c34e80538d83ff9e8",
+          "message": "S3_ENDPOINT_URL configurable for mountpoint benchmarks (#821)\n\nSigned-off-by: indianwhocodes <nairashwin952013@gmail.com>",
+          "timestamp": "2024-04-12T08:40:59Z",
+          "tree_id": "a111f1d51e2e3048b2ebba68a77426894c6f9536",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/2393b96acf0773a9b11b4b1c34e80538d83ff9e8"
+        },
+        "date": 1712912421272,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.129,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.521,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.18,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.205,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 15.2303991,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 14.4536899,
             "unit": "milliseconds"
           }
         ]
