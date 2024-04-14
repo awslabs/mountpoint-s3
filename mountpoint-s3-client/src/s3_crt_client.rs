@@ -78,6 +78,7 @@ macro_rules! event {
         }
     }
 }
+
 /// Configurations for the CRT-based S3 client
 #[derive(Debug, Clone)]
 pub struct S3ClientConfig {
