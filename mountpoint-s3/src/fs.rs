@@ -24,6 +24,7 @@ use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
+use crate::time_to_live::TimeToLive;
 use crate::upload::{UploadRequest, Uploader};
 
 pub use crate::inode::InodeNo;
@@ -331,6 +332,26 @@ impl Default for CacheConfig {
             file_ttl,
             dir_ttl,
             negative_cache_size,
+        }
+    }
+}
+
+impl From<TimeToLive> for CacheConfig {
+    fn from(value: TimeToLive) -> Self {
+        match value {
+            TimeToLive::Minimal => Default::default(),
+            TimeToLive::Indefinite => Self {
+                serve_lookup_from_cache: true,
+                file_ttl: TimeToLive::INDEFINITE_DURATION,
+                dir_ttl: TimeToLive::INDEFINITE_DURATION,
+                ..Default::default()
+            },
+            TimeToLive::Custom(ttl) => Self {
+                serve_lookup_from_cache: true,
+                file_ttl: ttl,
+                dir_ttl: ttl,
+                ..Default::default()
+            },
         }
     }
 }

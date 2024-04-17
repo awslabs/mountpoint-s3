@@ -1,6 +1,7 @@
 use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*; // Used for writing assertions
 use std::{fs, os::unix::prelude::PermissionsExt, process::Command}; // Run programs
+use test_case::test_case;
 
 /// Regular expression for something that looks mostly like a SemVer version.
 /// See https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string.
@@ -214,36 +215,31 @@ fn allow_other_conflict() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn max_ttl_exceeded() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let cache_dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     const INVALID_TTL: u64 = 150 * 365 * 24 * 60 * 60;
     cmd.arg("test-bucket")
         .arg(dir.path())
-        .arg("--cache")
-        .arg(cache_dir.path())
         .arg("--metadata-ttl")
         .arg(format!("{}", INVALID_TTL));
-    let error_message = "'--metadata-ttl <SECONDS>': TTL must not be greater than 3153600000s (~100 years)";
+    let error_message =
+        "'--metadata-ttl <SECONDS|indefinite|minimal>': TTL must not be greater than 3153600000s (~100 years)";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
 }
 
-#[test]
-fn invalid_ttl() -> Result<(), Box<dyn std::error::Error>> {
+#[test_case("20000000000000000000")]
+#[test_case("infinite")]
+fn invalid_ttl(invalid_ttl: &str) -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let cache_dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
-    const INVALID_TTL_STRING: &str = "20000000000000000000";
     cmd.arg("test-bucket")
         .arg(dir.path())
-        .arg("--cache")
-        .arg(cache_dir.path())
         .arg("--metadata-ttl")
-        .arg(INVALID_TTL_STRING);
-    let error_message = "'--metadata-ttl <SECONDS>': number too large to fit in target type";
+        .arg(invalid_ttl);
+    let error_message = "'--metadata-ttl <SECONDS|indefinite|minimal>': TTL must be a valid number of seconds";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
