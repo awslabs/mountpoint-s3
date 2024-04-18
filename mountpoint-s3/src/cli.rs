@@ -27,15 +27,13 @@ use regex::Regex;
 
 use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
-use crate::fs::ServerSideEncryption;
-use crate::fs::{CacheConfig, S3FilesystemConfig};
+use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, LoggingConfig};
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
-use crate::time_to_live::TimeToLive;
 use crate::{autoconfigure, metrics};
 
 const CLIENT_OPTIONS_HEADER: &str = "Client options";
@@ -239,7 +237,7 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Enable caching of object content to the given directory and set metadata TTL to 60s",
+        help = "Enable caching of object content to the given directory and set metadata TTL to 60 seconds",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
     )]
@@ -247,7 +245,7 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Time-to-live (TTL) for cached metadata in seconds [default: minimal, or 60s if --cache is set]",
+        help = "Time-to-live (TTL) for cached metadata in seconds [default: minimal, or 60 seconds if --cache is set]",
         value_name = "SECONDS|indefinite|minimal",
         help_heading = CACHING_OPTIONS_HEADER,
     )]
@@ -691,16 +689,16 @@ where
     let mut metadata_cache_ttl = args.metadata_ttl.unwrap_or_else(|| {
         if args.cache.is_some() {
             // When the data cache is enabled, use 1min as metadata-ttl.
-            TimeToLive::Custom(Duration::from_secs(60))
+            TimeToLive::Duration(Duration::from_secs(60))
         } else {
             TimeToLive::Minimal
         }
     });
-    if matches!(metadata_cache_ttl, TimeToLive::Custom(Duration::ZERO)) {
-        tracing::warn!("'--metadata-ttl 0' is not supported, using 'minimal' instead");
+    if matches!(metadata_cache_ttl, TimeToLive::Duration(Duration::ZERO)) {
+        tracing::warn!("The '--metadata-ttl 0' setting is no longer supported, is now interpreted as 'minimal', and will be removed in a future release. Use '--metadata-ttl minimal' instead");
         metadata_cache_ttl = TimeToLive::Minimal;
     }
-    filesystem_config.cache_config = metadata_cache_ttl.into();
+    filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
 
     if let Some(path) = args.cache {
         let cache_config = match args.max_cache_size {

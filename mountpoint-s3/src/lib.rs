@@ -13,7 +13,6 @@ pub mod prefetch;
 pub mod prefix;
 pub mod s3;
 mod sync;
-pub mod time_to_live;
 mod upload;
 
 pub use fs::{S3Filesystem, S3FilesystemConfig, ServerSideEncryption};

@@ -239,7 +239,7 @@ fn invalid_ttl(invalid_ttl: &str) -> Result<(), Box<dyn std::error::Error>> {
         .arg(dir.path())
         .arg("--metadata-ttl")
         .arg(invalid_ttl);
-    let error_message = "'--metadata-ttl <SECONDS|indefinite|minimal>': TTL must be a valid number of seconds";
+    let error_message = "'--metadata-ttl <SECONDS|indefinite|minimal>': TTL must be a valid number of seconds, or";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())

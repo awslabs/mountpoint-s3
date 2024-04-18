@@ -7,7 +7,7 @@ use thiserror::Error;
 pub enum TimeToLive {
     Minimal,
     Indefinite,
-    Custom(Duration),
+    Duration(Duration),
 }
 
 #[derive(Error, Debug)]
@@ -25,6 +25,9 @@ pub enum TimeToLiveError {
 impl TimeToLive {
     const MINIMAL: &'static str = "minimal";
     const INDEFINITE: &'static str = "indefinite";
+
+    // Set an upper bound that is practically "forever", but does not cause overflow
+    // when added to `Instant::now()` (as `u64::MAX` would).
     const MAXIMUM_TTL_YEARS: u64 = 100;
     const MAXIMUM_TTL_SECONDS: u64 = Self::MAXIMUM_TTL_YEARS * 365 * 24 * 60 * 60;
 
@@ -41,7 +44,7 @@ impl TimeToLive {
                 }
 
                 let duration = Duration::from_secs(seconds);
-                Ok(Self::Custom(duration))
+                Ok(Self::Duration(duration))
             }
         }
     }
@@ -52,7 +55,7 @@ impl Display for TimeToLive {
         match self {
             Self::Minimal => f.write_str(Self::MINIMAL),
             Self::Indefinite => f.write_str(Self::INDEFINITE),
-            Self::Custom(duration) => write!(f, "{}s", duration.as_secs()),
+            Self::Duration(duration) => write!(f, "{}s", duration.as_secs()),
         }
     }
 }
