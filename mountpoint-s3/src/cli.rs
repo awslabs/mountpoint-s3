@@ -695,7 +695,12 @@ where
         }
     });
     if matches!(metadata_cache_ttl, TimeToLive::Duration(Duration::ZERO)) {
-        tracing::warn!("The '--metadata-ttl 0' setting is no longer supported, is now interpreted as 'minimal', and will be removed in a future release. Use '--metadata-ttl minimal' instead");
+        const ZERO_TTL_WARNING: &str = "The '--metadata-ttl 0' setting is no longer supported, is now interpreted as 'minimal', and will be removed in a future release. Use '--metadata-ttl minimal' instead";
+        tracing::warn!("{}", ZERO_TTL_WARNING);
+        if !args.foreground {
+            // Ensure warning is visible even when not redirecting logs to stdout.
+            eprintln!("{}", ZERO_TTL_WARNING);
+        }
         metadata_cache_ttl = TimeToLive::Minimal;
     }
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
