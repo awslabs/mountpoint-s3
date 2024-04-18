@@ -634,6 +634,8 @@ where
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
     let bucket_description = args.bucket_description();
+    tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
+
     let fuse_config = args.fuse_session_config();
 
     let mut filesystem_config = S3FilesystemConfig::default();

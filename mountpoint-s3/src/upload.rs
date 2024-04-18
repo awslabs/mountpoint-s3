@@ -206,13 +206,13 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
         uploaded_size += part.size;
 
         let Some(checksum) = &part.checksum else {
-            error!(part_number = i, "missing part checksum");
+            error!(part_number = i + 1, "missing part checksum");
             return false;
         };
         let checksum = match crc32c_from_base64(checksum) {
             Ok(checksum) => checksum,
             Err(error) => {
-                error!(part_number = i, ?error, "error decoding part checksum");
+                error!(part_number = i + 1, ?error, "error decoding part checksum");
                 return false;
             }
         };
