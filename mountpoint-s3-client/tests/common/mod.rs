@@ -124,46 +124,7 @@ pub async fn get_test_sdk_client() -> s3::Client {
         .region(Region::new(get_test_region()))
         .load()
         .await;
-    let mut s3_config = s3::config::Builder::from(&sdk_config);
-
-    // TODO: remove when the Rust SDK supports S3 Express One Zone. For now, we force the SDK to
-    // always use SigV4, because it doesn't yet know about the `sigv4-s3express` auth scheme.
-    if cfg!(feature = "s3express_tests") {
-        #[derive(Debug)]
-        struct ForceSigV4EndpointResolver;
-
-        impl s3::config::endpoint::ResolveEndpoint for ForceSigV4EndpointResolver {
-            fn resolve_endpoint<'a>(
-                &'a self,
-                params: &'a s3::config::endpoint::Params,
-            ) -> s3::config::endpoint::EndpointFuture<'a> {
-                let fut = async {
-                    let resolver = s3::config::endpoint::DefaultResolver::new();
-                    let endpoint = resolver.resolve_endpoint(params).await?;
-                    // Build new properties that force SigV4
-                    let mut auth_schemes = endpoint
-                        .properties()
-                        .get("authSchemes")
-                        .expect("no auth scheme")
-                        .clone();
-                    let auth_scheme = auth_schemes.as_array_mut().unwrap().get_mut(0).unwrap();
-                    let auth_scheme_map = auth_scheme.as_object_mut().unwrap();
-                    assert_eq!(
-                        auth_scheme_map.get("name").unwrap().as_string().unwrap(),
-                        "sigv4-s3express"
-                    );
-                    auth_scheme_map.insert("name".to_string(), "sigv4".to_string().into());
-                    // Replace the properties and return the endpoint
-                    Ok(endpoint.into_builder().property("authSchemes", auth_schemes).build())
-                };
-                s3::config::endpoint::EndpointFuture::new(fut)
-            }
-        }
-
-        s3_config = s3_config.endpoint_resolver(ForceSigV4EndpointResolver);
-    }
-
-    s3::Client::from_conf(s3_config.build())
+    s3::Client::new(&sdk_config)
 }
 
 /// Create some objects in a prefix for testing.
