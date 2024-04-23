@@ -84,6 +84,11 @@ impl Drop for RuleEngine {
     }
 }
 
+// SAFETY: `aws_endpoints_rule_engine` is reference counted and its methods are thread-safe
+unsafe impl Send for RuleEngine {}
+// SAFETY: `aws_endpoints_rule_engine` is reference counted and its methods are thread-safe
+unsafe impl Sync for RuleEngine {}
+
 /// Stores context about the endpoint configuration for use by the endpoint resolver
 #[derive(Debug)]
 pub struct RequestContext {

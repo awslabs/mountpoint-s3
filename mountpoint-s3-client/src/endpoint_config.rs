@@ -1,11 +1,17 @@
 use std::os::unix::prelude::OsStrExt;
 
+use lazy_static::lazy_static;
 use mountpoint_s3_crt::{
     auth::signing_config::SigningAlgorithm,
     common::{allocator::Allocator, uri::Uri},
     s3::endpoint_resolver::{RequestContext, ResolvedEndpoint, ResolverError, RuleEngine},
 };
 use thiserror::Error;
+
+lazy_static! {
+    // A static s3 endpoint rule engine that can be shared across s3 client
+    static ref S3_ENDPOINT_RULE_ENGINE: RuleEngine = RuleEngine::new(&Default::default()).unwrap();
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AddressingStyle {
@@ -146,7 +152,6 @@ impl EndpointConfig {
     pub fn resolve_for_bucket(&self, bucket: &str) -> Result<ResolvedEndpointInfo, EndpointError> {
         let allocator = Allocator::default();
         let mut endpoint_request_context: RequestContext = RequestContext::new(&allocator).unwrap();
-        let endpoint_rule_engine = RuleEngine::new(&allocator).unwrap();
 
         endpoint_request_context
             .add_string(&allocator, "Region", &self.region)
@@ -180,7 +185,7 @@ impl EndpointConfig {
                 .unwrap()
         };
 
-        let resolved_endpoint = endpoint_rule_engine
+        let resolved_endpoint = S3_ENDPOINT_RULE_ENGINE
             .resolve(endpoint_request_context)
             .map_err(EndpointError::UnresolvedEndpoint)?;
 
