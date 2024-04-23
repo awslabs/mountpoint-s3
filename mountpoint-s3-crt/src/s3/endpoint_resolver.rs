@@ -74,6 +74,16 @@ impl RuleEngine {
     }
 }
 
+impl Clone for RuleEngine {
+    fn clone(&self) -> Self {
+        // SAFETY: self.inner is a valid aws_endpoints_rule_engine and aws_endpoints_rule_engine_acquire
+        // increments the reference count for it (and always returns a copy of the input, which is non-null).
+        let inner = unsafe { NonNull::new_unchecked(aws_endpoints_rule_engine_acquire(self.inner.as_ptr())) };
+
+        Self { inner }
+    }
+}
+
 impl Drop for RuleEngine {
     fn drop(&mut self) {
         // SAFETY: `self.inner` is a valid `aws_endpoints_rule_engine`, and on Drop it's safe to decrement
@@ -83,6 +93,11 @@ impl Drop for RuleEngine {
         }
     }
 }
+
+// SAFETY: `aws_endpoints_rule_engine` is reference counted and its methods are thread-safe
+unsafe impl Send for RuleEngine {}
+// SAFETY: `aws_endpoints_rule_engine` is reference counted and its methods are thread-safe
+unsafe impl Sync for RuleEngine {}
 
 /// Stores context about the endpoint configuration for use by the endpoint resolver
 #[derive(Debug)]

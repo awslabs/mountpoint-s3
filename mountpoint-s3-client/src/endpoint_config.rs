@@ -55,6 +55,7 @@ pub struct EndpointConfig {
     use_dual_stack: bool,
     endpoint: Option<Uri>,
     addressing_style: AddressingStyle,
+    endpoint_rule_engine: RuleEngine,
 }
 
 impl EndpointConfig {
@@ -67,6 +68,7 @@ impl EndpointConfig {
             use_dual_stack: false,
             endpoint: None,
             addressing_style: AddressingStyle::Automatic,
+            endpoint_rule_engine: RuleEngine::new(&Default::default()).unwrap(),
         }
     }
 
@@ -146,7 +148,6 @@ impl EndpointConfig {
     pub fn resolve_for_bucket(&self, bucket: &str) -> Result<ResolvedEndpointInfo, EndpointError> {
         let allocator = Allocator::default();
         let mut endpoint_request_context: RequestContext = RequestContext::new(&allocator).unwrap();
-        let endpoint_rule_engine = RuleEngine::new(&allocator).unwrap();
 
         endpoint_request_context
             .add_string(&allocator, "Region", &self.region)
@@ -180,7 +181,8 @@ impl EndpointConfig {
                 .unwrap()
         };
 
-        let resolved_endpoint = endpoint_rule_engine
+        let resolved_endpoint = self
+            .endpoint_rule_engine
             .resolve(endpoint_request_context)
             .map_err(EndpointError::UnresolvedEndpoint)?;
 
