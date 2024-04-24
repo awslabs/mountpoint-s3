@@ -272,7 +272,7 @@ pub enum GetObjectAttributesError {
 #[non_exhaustive]
 pub struct PutObjectParams {
     /// Enable Crc32c trailing checksums.
-    pub trailing_checksums: bool,
+    pub trailing_checksums: PutObjectTrailingChecksums,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
     /// The server-side encryption algorithm to be used for this object in Amazon S3 (for example, AES256, aws:kms, aws:kms:dsse)
@@ -289,7 +289,7 @@ impl PutObjectParams {
     }
 
     /// Set Crc32c trailing checksums.
-    pub fn trailing_checksums(mut self, value: bool) -> Self {
+    pub fn trailing_checksums(mut self, value: PutObjectTrailingChecksums) -> Self {
         self.trailing_checksums = value;
         self
     }
@@ -311,6 +311,18 @@ impl PutObjectParams {
         self.ssekms_key_id = value;
         self
     }
+}
+
+/// How CRC32c checksums are used for parts of a multi-part PutObject request
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PutObjectTrailingChecksums {
+    /// Checksums are computed, passed to upload review, and also sent to S3
+    Enabled,
+    /// Checksums are computed, passed to upload review, but not sent to S3
+    ReviewOnly,
+    /// Checksums are not computed on the client side
+    #[default]
+    Disabled,
 }
 
 /// Info for the caller to review before an upload completes.

@@ -1,5 +1,11 @@
 ## Unreleased
 
+### Breaking changes
+* No breaking changes.
+
+### Other changes
+* The checksum algorithm to use for uploads to S3 can now be chosen with the `--upload-checksums <ALGORITHM>` command-line argument. The only supported values in this release are `crc32c` (the default, and the existing behavior) and `off`, which disables including checksums in uploads. The `off` value allows uploads to S3 implementations that do not support [additional checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/). This option defaults to `off` when the bucket name is an S3 on Outposts bucket access point (either an ARN or a bucket alias). ([#849](https://github.com/awslabs/mountpoint-s3/pull/849)).
+
 ## v1.6.0 (April 11, 2024)
 
 ### New features
@@ -9,7 +15,6 @@
 * No breaking changes.
 
 ### Other changes
-
 * Mountpoint now retries S3 requests up to a total of 10 attempts (up from 4), which should make file operations more robust to transient failures or throttling. The maximum number of attempts can be overridden by setting the `AWS_MAX_ATTEMPTS` environment variable. ([#830](https://github.com/awslabs/mountpoint-s3/pull/830))
 * Fix an issue where Mountpoint could become unresponsive after opening too many files in write mode. ([#832](https://github.com/awslabs/mountpoint-s3/pull/832))
 * Add support for `rewinddir` by restarting `readdir` if offset is zero. ([#825](https://github.com/awslabs/mountpoint-s3/pull/825))

@@ -39,9 +39,10 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
-use crate::fs::{CacheConfig, S3Personality};
+use crate::fs::CacheConfig;
 use crate::logging;
 use crate::prefix::Prefix;
+use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
 use crate::sync::RwLockWriteGuard;

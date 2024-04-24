@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
-use crate::s3_crt_client::{emit_throughput_metric, S3CrtClient, S3RequestError};
+use crate::s3_crt_client::{emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3RequestError};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
@@ -32,10 +32,12 @@ impl S3CrtClient {
             .set_request_path(&key)
             .map_err(S3RequestError::construction_failure)?;
 
-        if params.trailing_checksums {
-            let checksum_config = ChecksumConfig::trailing_crc32c();
-            message.set_checksum_config(Some(checksum_config));
-        }
+        let checksum_config = match params.trailing_checksums {
+            PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
+            PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
+            PutObjectTrailingChecksums::Disabled => None,
+        };
+        message.set_checksum_config(checksum_config);
 
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();

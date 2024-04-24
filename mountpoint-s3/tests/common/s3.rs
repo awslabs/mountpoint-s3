@@ -1,9 +1,10 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_sts::config::Credentials;
-use futures::Future;
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
+
+use crate::common::tokio_block_on;
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let bucket = if cfg!(feature = "s3express_tests") {
@@ -61,15 +62,6 @@ pub fn create_objects(bucket: &str, prefix: &str, region: &str, key: &str, value
             .send(),
     )
     .unwrap();
-}
-
-pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .unwrap();
-    runtime.block_on(future)
 }
 
 /// Detect if running on GitHub Actions (GHA) and if so,

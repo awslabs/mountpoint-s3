@@ -11,8 +11,8 @@
 //! This binary is intended only for use in testing and development of Mountpoint.
 
 use futures::executor::ThreadPool;
-use mountpoint_s3::cli::{CliArgs, S3PersonalityArg};
-use mountpoint_s3::fs::S3Personality;
+use mountpoint_s3::cli::CliArgs;
+use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
 use mountpoint_s3_client::types::ETag;
@@ -44,8 +44,8 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(ThroughputMockClient, T
 
     let runtime = ThreadPool::builder().name_prefix("runtime").create()?;
 
-    let s3_personality = if let Some(S3PersonalityArg(personality)) = args.bucket_type {
-        personality
+    let s3_personality = if let Some(bucket_type) = &args.bucket_type {
+        bucket_type.to_personality()
     } else {
         S3Personality::Standard
     };

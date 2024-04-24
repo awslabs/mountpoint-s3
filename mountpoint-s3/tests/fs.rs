@@ -2,8 +2,9 @@
 
 use fuser::FileType;
 use libc::S_IFREG;
-use mountpoint_s3::fs::{CacheConfig, S3Personality, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
+use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
