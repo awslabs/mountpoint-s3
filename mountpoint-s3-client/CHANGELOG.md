@@ -1,3 +1,13 @@
+## Unreleased changes
+
+### Breaking changes
+
+* The `trailing_checksums` field of `PutObjectParams` is now an enum, with a new `ReviewOnly` option that allows disabling sending additional checksum headers to S3 while still computing them for use by `UploadReview` callbacks. ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
+
+### Other changes
+
+* No other changes.
+
 ## v0.8.1 (April 10, 2024)
 
 ### Breaking changes
