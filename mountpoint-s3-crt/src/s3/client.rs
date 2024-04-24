@@ -1276,7 +1276,7 @@ impl ChecksumConfig {
         }
     }
 
-    /// Create a [ChecksumConfig] enabling Crc32 trailing checksums only for upload review.
+    /// Create a [ChecksumConfig] enabling Crc32c trailing checksums only for upload review.
     pub fn upload_review_crc32c() -> Self {
         Self {
             inner: aws_s3_checksum_config {

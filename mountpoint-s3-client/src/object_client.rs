@@ -320,7 +320,7 @@ pub enum PutObjectTrailingChecksums {
     Enabled,
     /// Checksums are computed, passed to upload review, but not sent to S3
     ReviewOnly,
-    /// Checksums are not computed
+    /// Checksums are not computed on the client side
     #[default]
     Disabled,
 }

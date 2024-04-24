@@ -327,7 +327,7 @@ fn mount_disable_checksums(disable_checksums: bool) -> Result<(), Box<dyn std::e
         .arg("--auto-unmount")
         .arg(format!("--region={region}"));
     if disable_checksums {
-        cmd.arg("--disable-upload-checksums");
+        cmd.arg("--upload-checksums=off");
     }
     let child = cmd.spawn().expect("unable to spawn child");
 

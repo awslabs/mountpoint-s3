@@ -290,10 +290,11 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Disable S3 additional checksums for object uploads",
+        help = "Checksum algorithm to use for S3 uploads [default: crc32c]",
         help_heading = BUCKET_OPTIONS_HEADER,
+        value_name = "ALGORITHM",
     )]
-    pub disable_upload_checksums: bool,
+    pub upload_checksums: Option<UploadChecksums>,
 }
 
 #[derive(Debug, Clone)]
@@ -320,6 +321,25 @@ impl ValueEnum for BucketType {
         match self {
             Self::GeneralPurpose => Some(clap::builder::PossibleValue::new("general-purpose")),
             Self::Directory => Some(clap::builder::PossibleValue::new("directory")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UploadChecksums {
+    Crc32c,
+    Off,
+}
+
+impl ValueEnum for UploadChecksums {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Crc32c, Self::Off]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Crc32c => Some(clap::builder::PossibleValue::new("crc32c")),
+            Self::Off => Some(clap::builder::PossibleValue::new("off")),
         }
     }
 }
@@ -654,13 +674,18 @@ where
     filesystem_config.storage_class = args.storage_class;
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
-    filesystem_config.use_upload_checksums = !args.disable_upload_checksums;
-    if !s3_personality.supports_additional_checksums() {
+    filesystem_config.s3_personality = s3_personality;
+    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
+
+    // Written in this awkward way to force us to update it if we add new checksum types
+    filesystem_config.use_upload_checksums = match args.upload_checksums {
+        Some(UploadChecksums::Crc32c) | None => true,
+        Some(UploadChecksums::Off) => false,
+    };
+    if !s3_personality.supports_additional_checksums() && args.upload_checksums.is_none() {
         tracing::info!("disabling upload checksums because target S3 personality does not support them");
         filesystem_config.use_upload_checksums = false;
     }
-    filesystem_config.s3_personality = s3_personality;
-    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
 
     let prefetcher_config = Default::default();
 
