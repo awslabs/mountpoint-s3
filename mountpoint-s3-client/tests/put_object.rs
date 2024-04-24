@@ -335,10 +335,9 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
             assert_eq!(checksum, encoded);
         }
     } else {
-        // For S3 Express, crc32 is used by default. For S3 Standard, no checksums are used by
-        // default and the list of parts is empty in GetObjectAttributes. So allow either case --
-        // the important thing is that crc32c checksums aren't present because we disabled those by
-        // disabling our upload checksums.
+        // For S3 Standard, the list of parts is only present if checksums were used, but for S3
+        // Express One Zone the list of parts is always present. The important thing is just that
+        // the *checksums* aren't present, because we disabled those.
         for part in parts {
             assert!(
                 part.checksum_crc32_c().is_none(),
