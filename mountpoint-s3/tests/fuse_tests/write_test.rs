@@ -1157,10 +1157,9 @@ where
             let _crc32c = checksum.checksum_crc32c.expect("crc32c is used for trailing checksums");
         }
     } else {
-        // For S3 Express, crc32 is used by default. For S3 Standard, no checksums are used by
-        // default and the list of parts is empty in GetObjectAttributes. So allow either case --
-        // the important thing is that crc32c checksums aren't present because we disabled those by
-        // disabling our upload checksums.
+        // For S3 Standard, the list of parts is only present if checksums were used, but for S3
+        // Express One Zone the list of parts is always present. The important thing is just that
+        // the *checksums* aren't present, because we disabled those.
         if let Some(parts) = parts {
             assert_eq!(parts.len(), (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE);
             for part in parts {
