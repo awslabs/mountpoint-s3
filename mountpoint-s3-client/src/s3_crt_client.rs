@@ -1,3 +1,4 @@
+use std::cmp;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::num::NonZeroUsize;
@@ -311,10 +312,13 @@ impl S3CrtClientInner {
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
 
-        if !(5 * 1024 * 1024..=5 * 1024 * 1024 * 1024).contains(&config.part_size) {
-            return Err(NewClientError::InvalidConfiguration(
-                "part size must be at between 5MiB and 5GiB".into(),
-            ));
+        // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
+        let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
+        if !(5 * 1024 * 1024..=max_part_size).contains(&config.part_size) {
+            return Err(NewClientError::InvalidConfiguration(format!(
+                "part size must be at between 5MiB and {}GiB",
+                max_part_size / 1024 / 1024 / 1024
+            )));
         }
         client_config.part_size(config.part_size);
 
@@ -1089,14 +1093,36 @@ mod tests {
     use test_case::test_case;
 
     /// Test explicit validation in [Client::new]
-    #[test_case(4 * 1024 * 1024; "less than 5MiB")]
-    #[test_case(6 * 1024 * 1024 * 1024; "greater than 5GiB")]
     fn client_new_fails_with_invalid_part_size(part_size: usize) {
         let config = S3ClientConfig {
             part_size,
             ..Default::default()
         };
-        S3CrtClient::new(config).expect_err("creating a new client should fail");
+        let e = S3CrtClient::new(config).expect_err("creating a new client should fail");
+        let message = if cfg!(target_pointer_width = "64") {
+            "invalid configuration: part size must be at between 5MiB and 5GiB".to_string()
+        } else {
+            format!(
+                "invalid configuration: part size must be at between 5MiB and {}GiB",
+                usize::MAX / 1024 / 1024 / 1024
+            )
+        };
+        assert_eq!(e.to_string(), message);
+    }
+
+    /// On 32-bit platform we limit part size with usize:MAX,
+    /// it is impossible to provide a greater value
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn client_new_fails_with_greater_part_size() {
+        let part_size = 6 * 1024 * 1024 * 1024; // greater than 5GiB
+        client_new_fails_with_invalid_part_size(part_size);
+    }
+
+    #[test]
+    fn client_new_fails_with_smaller_part_size() {
+        let part_size = 4 * 1024 * 1024; // less than 5MiB
+        client_new_fails_with_invalid_part_size(part_size);
     }
 
     /// Test if the prefix is added correctly to the User-Agent header
