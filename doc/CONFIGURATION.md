@@ -261,18 +261,21 @@ WantedBy=remote-fs.target
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
 Mountpoint can serve all file system requests from the cache, excluding listing of directory contents.
 
-To enable caching, use the `--cache <CACHE_DIR>` command-line flag, specifying the directory in which to store cached object content.
-This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 second,
-which can be extended with the `--metadata-ttl <SECONDS>` command-line argument.
-Mountpoint will create a new subdirectory within the path that you specify,
-and will remove any existing files or directories within that subdirectory at mount time and at exit.
-By default, Mountpoint will limit the maximum size of the cache such that the free space on the file system does not fall below 5%,
-and will automatically evict the least recently used content from the cache when caching new content.
-You can instead manually configure the maximum size of the cache with the `--max-cache-size <MiB>` command-line argument.
+The main command-line flag to enable caching is `--cache <CACHE_DIR>`, which specifies the directory in which to store cached object content. Mountpoint will create a new subdirectory within the path that you specify, and will remove any existing files or directories within that subdirectory at mount time and at exit. This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 minute (60 seconds), which can be configured with the `--metadata-ttl` argument.
+
+### Metadata Cache
+
+The command-line flag `--metadata-ttl <SECONDS|indefinite|minimal>` controls the time-to-live (TTL) for cached metadata entries. It can be set to a positive numerical value in seconds, or to one of the pre-configured values of `minimal` (default configuration when not using `--cache`) or `indefinite` (metadata entries never expire).
 
 > [!WARNING]
-> Caching relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
+> Caching of metadata entries relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
+
+When configured with metadata caching, on its own or in conjunction with `--cache`, Mountpoint will typically perform fewer requests to S3, but will not guarantee that the information it reports is up to date with the content of the bucket. You can use the `--metadata-ttl` flag to choose the appropriate trade off between consistency (`--metadata-ttl minimal`) and performance/cost optimization (`--metadata-ttl indefinite`), depending on the requirements of your workload. In scenarios where the content of the S3 bucket is modified by another client and you require Mountpoint to always return up-to-date information, setting `--metadata-ttl minimal` is most appropriate. A setting of `--metadata-ttl 300` would instead allow Mountpoint to perform fewer requests to S3 by delaying updates for up to 5 min. If your workload does not require consistency, for example because the content of the S3 bucket does not change, we recommend using `--metadata-ttl indefinite`.
+
+### Disk Cache Size
+
+By default, Mountpoint will limit the maximum size of the cache such that the free space on the file system does not fall below 5%, and will automatically evict the least recently used content from the cache when caching new content. You can instead manually configure the maximum size of the cache with the `--max-cache-size <MiB>` command-line argument.
 
 > [!WARNING]
 > If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.

@@ -1,10 +1,10 @@
 ## Unreleased
 
 ### Breaking changes
-* No breaking changes.
+* When using the `--cache` flag, the default metadata time-to-live (TTL) is now set to 60 seconds instead of 1 second. The `--metadata-ttl` flag can still be set to further configure it, but can now also be used without the `--cache` flag in order to only enable caching of metadata. In addition to values in seconds, `--metadata-ttl` can now also be set to `minimal` (strict consistency) or `indefinite` (no updates). The `--metadata-ttl 0` setting is no longer supported, is now interpreted as `minimal`, and will be removed in a future release. ([#855](https://github.com/awslabs/mountpoint-s3/pull/855))
 
 ### Other changes
-* The checksum algorithm to use for uploads to S3 can now be chosen with the `--upload-checksums <ALGORITHM>` command-line argument. The only supported values in this release are `crc32c` (the default, and the existing behavior) and `off`, which disables including checksums in uploads. The `off` value allows uploads to S3 implementations that do not support [additional checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/). This option defaults to `off` when the bucket name is an S3 on Outposts bucket access point (either an ARN or a bucket alias). ([#849](https://github.com/awslabs/mountpoint-s3/pull/849)).
+* The checksum algorithm to use for uploads to S3 can now be chosen with the `--upload-checksums <ALGORITHM>` command-line argument. The only supported values in this release are `crc32c` (the default, and the existing behavior) and `off`, which disables including checksums in uploads. The `off` value allows uploads to S3 implementations that do not support [additional checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/). This option defaults to `off` when the bucket name is an S3 on Outposts bucket access point (either an ARN or a bucket alias). ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
 
 ## v1.6.0 (April 11, 2024)
 
