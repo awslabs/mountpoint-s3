@@ -699,7 +699,12 @@ where
         tracing::warn!("{}", ZERO_TTL_WARNING);
         if !args.foreground {
             // Ensure warning is visible even when not redirecting logs to stdout.
-            eprintln!("{}", ZERO_TTL_WARNING);
+            use owo_colors::{OwoColorize, Stream::Stderr, Style};
+            eprintln!(
+                "{}: {}",
+                "warning".if_supports_color(Stderr, |text| text.style(Style::new().yellow().bold())),
+                ZERO_TTL_WARNING
+            );
         }
         metadata_cache_ttl = TimeToLive::Minimal;
     }
