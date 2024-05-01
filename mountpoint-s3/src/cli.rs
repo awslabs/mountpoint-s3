@@ -27,8 +27,7 @@ use regex::Regex;
 
 use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
-use crate::fs::ServerSideEncryption;
-use crate::fs::{CacheConfig, S3FilesystemConfig};
+use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, LoggingConfig};
@@ -238,7 +237,7 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Enable caching of object metadata and content to the given directory",
+        help = "Enable caching of object content to the given directory and set metadata TTL to 60 seconds",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
     )]
@@ -246,13 +245,11 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Time-to-live (TTL) for cached metadata in seconds [default: 1s]",
-        value_name = "SECONDS",
-        value_parser = parse_ttl_seconds,
+        help = "Time-to-live (TTL) for cached metadata in seconds [default: minimal, or 60 seconds if --cache is set]",
+        value_name = "SECONDS|indefinite|minimal",
         help_heading = CACHING_OPTIONS_HEADER,
-        requires = "cache",
     )]
-    pub metadata_ttl: Option<Duration>,
+    pub metadata_ttl: Option<TimeToLive>,
 
     #[clap(
         long,
@@ -600,9 +597,9 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
 
     if args.cache.is_some() {
         user_agent.value("mp-cache");
-        if let Some(ttl) = args.metadata_ttl {
-            user_agent.key_value("mp-cache-ttl", &ttl.as_secs().to_string());
-        }
+    }
+    if let Some(ttl) = args.metadata_ttl {
+        user_agent.key_value("mp-cache-ttl", &ttl.to_string());
     }
 
     let mut client_config = S3ClientConfig::new()
@@ -689,15 +686,31 @@ where
 
     let prefetcher_config = Default::default();
 
-    if let Some(path) = args.cache {
-        let metadata_cache_ttl = args.metadata_ttl.unwrap_or(Duration::from_secs(1));
-        filesystem_config.cache_config = CacheConfig {
-            serve_lookup_from_cache: true,
-            dir_ttl: metadata_cache_ttl,
-            file_ttl: metadata_cache_ttl,
-            ..Default::default()
-        };
+    let mut metadata_cache_ttl = args.metadata_ttl.unwrap_or_else(|| {
+        if args.cache.is_some() {
+            // When the data cache is enabled, use 1min as metadata-ttl.
+            TimeToLive::Duration(Duration::from_secs(60))
+        } else {
+            TimeToLive::Minimal
+        }
+    });
+    if matches!(metadata_cache_ttl, TimeToLive::Duration(Duration::ZERO)) {
+        const ZERO_TTL_WARNING: &str = "The '--metadata-ttl 0' setting is no longer supported, is now interpreted as 'minimal', and will be removed in a future release. Use '--metadata-ttl minimal' instead";
+        tracing::warn!("{}", ZERO_TTL_WARNING);
+        if !args.foreground {
+            // Ensure warning is visible even when not redirecting logs to stdout.
+            use owo_colors::{OwoColorize, Stream::Stderr, Style};
+            eprintln!(
+                "{}: {}",
+                "warning".if_supports_color(Stderr, |text| text.style(Style::new().yellow().bold())),
+                ZERO_TTL_WARNING
+            );
+        }
+        metadata_cache_ttl = TimeToLive::Minimal;
+    }
+    filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
 
+    if let Some(path) = args.cache {
         let cache_config = match args.max_cache_size {
             // Fallback to no data cache.
             Some(0) => None,
@@ -860,23 +873,6 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     }
 
     Ok(bucket_name.to_owned())
-}
-
-fn parse_ttl_seconds(seconds_str: &str) -> anyhow::Result<Duration> {
-    const MAXIMUM_TTL_YEARS: u64 = 100;
-    const MAXIMUM_TTL_SECONDS: u64 = MAXIMUM_TTL_YEARS * 365 * 24 * 60 * 60;
-
-    let seconds = seconds_str.parse()?;
-    if seconds > MAXIMUM_TTL_SECONDS {
-        return Err(anyhow!(
-            "TTL must not be greater than {}s (~{} years)",
-            MAXIMUM_TTL_SECONDS,
-            MAXIMUM_TTL_YEARS
-        ));
-    }
-
-    let duration = Duration::from_secs(seconds);
-    Ok(duration)
 }
 
 fn env_region() -> Option<String> {

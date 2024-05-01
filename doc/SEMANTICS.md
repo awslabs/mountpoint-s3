@@ -81,7 +81,7 @@ Mountpoint also offers optional metadata and object content caching.
 See the [caching section of the configuration documentation](./CONFIGURATION.md#caching) for more information.
 When opting into caching, the strong read-after-write consistency model is relaxed,
 and you may see stale metadata or object data for up to the cache's metadata time-to-live (TTL),
-which defaults to 1 second but can be configured higher.
+which defaults to 1 minute but can be configured using the `--metadata-ttl` flag.
 
 For example, with caching enabled, you can successfully open and read a file that has been deleted from S3 if it is already cached.
 Reads to that file will either return the cached data or an error for data that is not cached,

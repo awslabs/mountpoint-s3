@@ -32,6 +32,9 @@ pub use crate::inode::InodeNo;
 mod error;
 pub use error::{Error, ToErrno};
 
+mod time_to_live;
+pub use time_to_live::TimeToLive;
+
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
 #[derive(Debug)]
@@ -331,6 +334,27 @@ impl Default for CacheConfig {
             file_ttl,
             dir_ttl,
             negative_cache_size,
+        }
+    }
+}
+
+impl CacheConfig {
+    /// Construct cache configuration settings from metadata TTL.
+    pub fn new(metadata_ttl: TimeToLive) -> Self {
+        match metadata_ttl {
+            TimeToLive::Minimal => Default::default(),
+            TimeToLive::Indefinite => Self {
+                serve_lookup_from_cache: true,
+                file_ttl: TimeToLive::INDEFINITE_DURATION,
+                dir_ttl: TimeToLive::INDEFINITE_DURATION,
+                ..Default::default()
+            },
+            TimeToLive::Duration(ttl) => Self {
+                serve_lookup_from_cache: true,
+                file_ttl: ttl,
+                dir_ttl: ttl,
+                ..Default::default()
+            },
         }
     }
 }
