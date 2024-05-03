@@ -79,7 +79,7 @@ impl EndpointConfig {
     /// Set region for a given endpoint config
     #[must_use = "EndpointConfig follows a builder pattern"]
     pub fn region(mut self, region: &str) -> Self {
-        self.region = region.to_owned();
+        region.clone_into(&mut self.region);
         self
     }
 
