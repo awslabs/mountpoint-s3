@@ -79,6 +79,10 @@ macro_rules! event {
     }
 }
 
+macro_rules! event_log_entry {
+    ($level:expr, $event_type:expr, $($args:tt)*) => { event!($level, event_type = $event_type, $($args)*) }
+}
+
 /// Configurations for the CRT-based S3 client
 #[derive(Debug, Clone)]
 pub struct S3ClientConfig {
@@ -606,6 +610,16 @@ impl S3CrtClientInner {
                         // Fill in a generic error if we weren't able to parse one
                         Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
                     }
+                };
+                match result {
+                    Err(ref err @ ObjectClientError::ClientError(S3RequestError::Forbidden(_))) => {
+                        event_log_entry!(tracing::Level::ERROR, "errors.client.forbidden", message = ?err);
+                    }
+                    Err(ref err) => {
+                        // unfortunately, logs errors, which may not result in a failed operation, e.g. `ClientError(IncorrectRegion(\"eu-west-1\"))` is logged, while it'll be retried
+                        event_log_entry!(tracing::Level::ERROR, "errors.client.internal", message = ?err);
+                    }
+                    _ => (),
                 };
 
                 let _ = tx.send(result);

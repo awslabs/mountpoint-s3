@@ -1,5 +1,5 @@
 use std::backtrace::Backtrace;
-use std::fs::{DirBuilder, OpenOptions};
+use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicInfo};
@@ -76,6 +76,23 @@ fn install_panic_hook() {
     }))
 }
 
+fn create_log_file(dir_path: &PathBuf, file_name_format: &[FormatItem<'static>]) -> anyhow::Result<File> {
+    let filename = OffsetDateTime::now_utc()
+        .format(file_name_format)
+        .context("couldn't format log file name")?;
+
+    // log directories and files created by Mountpoint should not be accessible by other users
+    let mut dir_builder = DirBuilder::new();
+    dir_builder.recursive(true).mode(0o750);
+    let mut file_options = OpenOptions::new();
+    file_options.mode(0o640).append(true).create(true);
+
+    dir_builder.create(dir_path).context("failed to create log folder")?;
+    file_options
+        .open(dir_path.join(filename))
+        .context("failed to create log file")
+}
+
 fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     /// Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
     /// if that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
@@ -95,25 +112,28 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     let file_layer = if let Some(path) = &config.log_directory {
         const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
             macros::format_description!("mountpoint-s3-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
-        let filename = OffsetDateTime::now_utc()
-            .format(LOG_FILE_NAME_FORMAT)
-            .context("couldn't format log file name")?;
 
-        // log directories and files created by Mountpoint should not be accessible by other users
-        let mut dir_builder = DirBuilder::new();
-        dir_builder.recursive(true).mode(0o750);
-        let mut file_options = OpenOptions::new();
-        file_options.mode(0o640).append(true).create(true);
-
-        dir_builder.create(path).context("failed to create log folder")?;
-        let file = file_options
-            .open(path.join(filename))
-            .context("failed to create log file")?;
-
+        let file = create_log_file(path, LOG_FILE_NAME_FORMAT)?;
         let file_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
             .with_writer(file)
             .with_filter(env_filter);
+        Some(file_layer)
+    } else {
+        None
+    };
+
+    let event_log_layer = if let Some(path) = &config.log_directory {
+        const EVENT_LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
+            macros::format_description!("mountpoint-s3-event-log-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
+
+        let file = create_log_file(path, EVENT_LOG_FILE_NAME_FORMAT)?;
+        let event_log_filter = EnvFilter::new("[{event_type}]"); // keeps only the logs containing the `event_type` field (the value of the field doesn't matter)
+        let file_layer = tracing_subscriber::fmt::layer()
+            .json()
+            .with_ansi(false)
+            .with_writer(file)
+            .with_filter(event_log_filter);
         Some(file_layer)
     } else {
         None
@@ -142,6 +162,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         .with(syslog_layer)
         .with(console_layer)
         .with(file_layer)
+        .with(event_log_layer)
         .with(metrics_tracing_span_layer());
 
     registry.init();
