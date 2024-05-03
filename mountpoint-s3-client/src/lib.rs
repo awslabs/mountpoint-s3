@@ -56,7 +56,6 @@ mod object_client;
 mod s3_crt_client;
 #[doc(hidden)]
 pub mod user_agent;
-mod util;
 
 pub use object_client::{ObjectClient, PutObjectRequest};
 

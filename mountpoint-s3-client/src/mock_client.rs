@@ -730,7 +730,7 @@ impl ObjectClient for MockClient {
                         };
                         result.object_parts = parts;
                     }
-                    ObjectAttribute::StorageClass => result.storage_class = object.storage_class.clone(),
+                    ObjectAttribute::StorageClass => object.storage_class.clone_into(&mut result.storage_class),
                     ObjectAttribute::ObjectSize => result.object_size = Some(object.size as u64),
                 }
             }
