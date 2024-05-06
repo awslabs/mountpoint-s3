@@ -174,13 +174,17 @@ impl PutObjectRequest for S3PutObjectRequest {
             create_mpu.await.unwrap()?;
         }
 
-        // Write will fail if the request has already finished (because of an error).
-        self.body
-            .meta_request
-            .write(slice, false)
-            .await
-            .map_err(S3RequestError::CrtError)?;
-        self.total_bytes += slice.len() as u64;
+        let meta_request = &mut self.body.meta_request;
+        let mut slice = slice;
+        while !slice.is_empty() {
+            // Write will fail if the request has already finished (because of an error).
+            let remaining = meta_request
+                .write(slice, false)
+                .await
+                .map_err(S3RequestError::CrtError)?;
+            self.total_bytes += slice.len() as u64;
+            slice = remaining;
+        }
         Ok(())
     }
 
@@ -195,7 +199,8 @@ impl PutObjectRequest for S3PutObjectRequest {
         self.review_callback.set(review_callback);
 
         // Write will fail if the request has already finished (because of an error).
-        self.body
+        _ = self
+            .body
             .meta_request
             .write(&[], true)
             .await

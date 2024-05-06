@@ -14,7 +14,7 @@ use mountpoint_s3_client::types::{
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::checksums::crc32c;
-use mountpoint_s3_crt_sys::aws_s3_errors;
+use mountpoint_s3_crt_sys::aws_common_error;
 use rand::Rng;
 use test_case::test_case;
 
@@ -236,7 +236,7 @@ async fn test_put_object_write_cancelled() {
         .await
         .expect_err("further writes should fail");
     assert!(
-        matches!(err, ObjectClientError::ClientError(S3RequestError::CrtError(e)) if e.raw_error() == aws_s3_errors::AWS_ERROR_S3_REQUEST_HAS_COMPLETED as i32)
+        matches!(err, ObjectClientError::ClientError(S3RequestError::CrtError(e)) if e.raw_error() == aws_common_error::AWS_ERROR_INVALID_STATE as i32)
     );
 }
 

@@ -8,7 +8,6 @@ use crate::common::thread::ThreadId;
 use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::io::futures::FutureVoid;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
@@ -20,6 +19,8 @@ use std::marker::PhantomPinned;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
+use std::sync::{Arc, Mutex};
+use std::task::Waker;
 use std::time::Duration;
 
 /// A client for high-throughput access to Amazon S3
@@ -539,9 +540,9 @@ impl MetaRequest {
         }
     }
 
-    /// Write a chunk of data and indicate whether it is the last. If invoked before the previous
-    /// write completed, or after setting `eof` to `true`, will return an AWS_ERROR_INVALID_STATE error.
-    pub fn write<'a>(&'a mut self, slice: &'a [u8], eof: bool) -> MetaRequestWrite<'a> {
+    /// Write a chunk of data and indicate whether it is the last. It will return an
+    /// AWS_ERROR_INVALID_STATE error if invoked after setting `eof` to `true`.
+    pub fn write<'r, 's: 'r>(&'r mut self, slice: &'s [u8], eof: bool) -> MetaRequestWrite<'r, 's> {
         MetaRequestWrite::new(self, slice, eof)
     }
 }
@@ -573,49 +574,86 @@ unsafe impl Sync for MetaRequest {}
 /// Future returned by `MetaRequest::write()`. It will complete when the write completes,
 /// or cancel the meta-request if dropped.
 #[derive(Debug)]
-pub struct MetaRequestWrite<'a> {
-    /// Signals when the write operation completes
-    future: FutureVoid,
+pub struct MetaRequestWrite<'r, 's> {
     /// The meta-request to cancel if this future is dropped
-    request: &'a mut MetaRequest,
+    request: &'r mut MetaRequest,
+    /// The slice to write
+    slice: &'s [u8],
+    /// Is end-of-file?
+    eof: bool,
+    /// Waker registered with `poll_write`
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
-impl Drop for MetaRequestWrite<'_> {
-    fn drop(&mut self) {
-        if !self.future.is_done() {
-            // This future is being dropped before completion. Cancelling the meta-request
-            // guarantees that the client will not access the provided buffer.
-            self.request.cancel();
+impl<'r, 's> MetaRequestWrite<'r, 's> {
+    fn new(request: &'r mut MetaRequest, slice: &'s [u8], eof: bool) -> Self {
+        Self {
+            request,
+            slice,
+            eof,
+            waker: Default::default(),
         }
     }
 }
 
-impl<'a> MetaRequestWrite<'a> {
-    fn new(request: &'a mut MetaRequest, slice: &'a [u8], eof: bool) -> Self {
-        // SAFETY: `MetaRequestWrite` will ensure that `slice` is alive until the future completes or
-        // that the meta-request is canceled if the future is dropped, preventing further use of the
-        // `aws_byte_cursor`.
-        let data = unsafe { slice.as_aws_byte_cursor() };
+impl<'r, 's> Future for MetaRequestWrite<'r, 's> {
+    type Output = Result<&'s [u8], Error>;
 
-        // SAFETY: `aws_s3_meta_request_write` never returns NULL.
-        let future = unsafe {
-            FutureVoid::from_crt(NonNull::new_unchecked(aws_s3_meta_request_write(
-                request.inner.as_ptr(),
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut waker = self.waker.lock().unwrap();
+        if let Some(ref mut waker) = *waker {
+            // The write is still pending, just replace the waker.
+            waker.clone_from(cx.waker());
+            return std::task::Poll::Pending;
+        }
+
+        // Store the waker.
+        *waker = Some(cx.waker().clone());
+
+        // `user_data` will be dropped in `poll_write_waker_callback` (or below).
+        let user_data = Arc::into_raw(self.waker.clone()) as *mut ::libc::c_void;
+
+        // SAFETY: `aws_s3_meta_request_poll_write` does not store `data`.
+        let data = unsafe { self.slice.as_aws_byte_cursor() };
+
+        // SAFETY: `self.request` wraps a valid `aws_s3_meta_request` pointer.
+        let result = unsafe {
+            aws_s3_meta_request_poll_write(
+                self.request.inner.as_ptr(),
                 data,
-                eof,
-            )))
+                self.eof,
+                Some(poll_write_waker_callback),
+                user_data,
+            )
+        };
+        if result.is_pending {
+            return std::task::Poll::Pending;
+        }
+
+        // SAFETY: `aws_s3_meta_request_poll_write` completed. It will not invoke `poll_write_waker_callback`,
+        //         so we need to drop `user_data` here.
+        _ = unsafe { Arc::from_raw(user_data as *mut Mutex<Option<Waker>>) };
+
+        let error_result: crate::common::error::Error = result.error_code.into();
+        let result = if error_result.is_err() {
+            Err(error_result)
+        } else {
+            Ok(&self.slice[result.bytes_processed..])
         };
 
-        Self { future, request }
+        std::task::Poll::Ready(result)
     }
 }
 
-impl Future for MetaRequestWrite<'_> {
-    type Output = Result<(), Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        Pin::new(&mut self.future).poll(cx)
-    }
+/// Safety: Don't call this function directly, only called by the CRT as a callback.
+unsafe extern "C" fn poll_write_waker_callback(user_data: *mut ::libc::c_void) {
+    // Take ownership of the `Arc` in `user_data`.
+    let waker = Arc::from_raw(user_data as *mut Mutex<Option<Waker>>);
+    let Some(waker) = waker.lock().unwrap().take() else {
+        return;
+    };
+    // Notify the waker.
+    waker.wake();
 }
 
 /// Client metrics which represent current workload of a client.
