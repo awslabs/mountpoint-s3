@@ -15,7 +15,7 @@ use crate::prefix::Prefix;
 use fuser::ReplyXTimes;
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
-    ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
 pub mod session;
@@ -385,6 +385,23 @@ where
         match block_on(self.fs.setattr(ino, atime, mtime, size, flags).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => fuse_error!("setattr", reply, e),
+        }
+    }
+
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
+    fn statfs(&self, _req: &Request<'_>, ino: u64, reply: ReplyStatfs) {
+        match block_on(self.fs.statfs(ino).in_current_span()) {
+            Ok(statfs) => reply.statfs(
+                statfs.total_blocks,
+                statfs.free_blocks,
+                statfs.available_blocks,
+                statfs.total_inodes,
+                statfs.free_inodes,
+                statfs.block_size,
+                statfs.maximum_name_length,
+                statfs.fragment_size,
+            ),
+            Err(e) => fuse_error!("statfs", reply, e),
         }
     }
 
