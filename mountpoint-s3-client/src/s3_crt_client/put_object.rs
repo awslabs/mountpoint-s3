@@ -104,7 +104,7 @@ impl S3CrtClient {
             start_time: Instant::now(),
             total_bytes: 0,
             response_headers,
-            pending_create_mpu: Some(mpu_created),
+            state: S3PutObjectRequestState::CreatingMPU(mpu_created),
         })
     }
 }
@@ -154,9 +154,19 @@ pub struct S3PutObjectRequest {
     total_bytes: u64,
     /// Headers of the CompleteMultipartUpload response, available after the request was finished
     response_headers: Arc<Mutex<Option<Headers>>>,
-    /// Signal indicating that CreateMultipartUpload completed successfully, or that the MPU failed.
-    /// Set to [None] once awaited on the first write, meaning the MPU was already created or failed.
-    pending_create_mpu: Option<oneshot::Receiver<Result<(), S3RequestError>>>,
+    state: S3PutObjectRequestState,
+}
+
+/// Internal state for a [S3PutObjectRequest].
+#[derive(Debug)]
+enum S3PutObjectRequestState {
+    /// Initial state indicating that CreateMultipartUpload may still be in progress. To be awaited on first write.
+    /// The signal indicates that CreateMultipartUpload completed successfully, or that the MPU failed.
+    CreatingMPU(oneshot::Receiver<Result<(), S3RequestError>>),
+    /// A write operation is in progress or was interrupted before completion.
+    PendingWrite,
+    /// Idle state.
+    Idle,
 }
 
 fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
@@ -168,10 +178,14 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
-        // On first write, check the pending CreateMultipartUpload.
-        if let Some(create_mpu) = self.pending_create_mpu.take() {
-            // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
-            create_mpu.await.unwrap()?;
+        match std::mem::replace(&mut self.state, S3PutObjectRequestState::PendingWrite) {
+            S3PutObjectRequestState::CreatingMPU(create_mpu) => {
+                // On first write, check the pending CreateMultipartUpload.
+                // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
+                create_mpu.await.unwrap()?;
+            }
+            S3PutObjectRequestState::PendingWrite => return Err(S3RequestError::RequestCanceled.into()),
+            S3PutObjectRequestState::Idle => {}
         }
 
         let meta_request = &mut self.body.meta_request;
@@ -185,6 +199,7 @@ impl PutObjectRequest for S3PutObjectRequest {
             self.total_bytes += slice.len() as u64;
             slice = remaining;
         }
+        self.state = S3PutObjectRequestState::Idle;
         Ok(())
     }
 
@@ -196,6 +211,10 @@ impl PutObjectRequest for S3PutObjectRequest {
         mut self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        if matches!(self.state, S3PutObjectRequestState::PendingWrite) {
+            return Err(S3RequestError::RequestCanceled.into());
+        }
+
         self.review_callback.set(review_callback);
 
         // Write will fail if the request has already finished (because of an error).

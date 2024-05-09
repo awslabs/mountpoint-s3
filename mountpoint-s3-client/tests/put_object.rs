@@ -14,7 +14,6 @@ use mountpoint_s3_client::types::{
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::checksums::crc32c;
-use mountpoint_s3_crt_sys::aws_common_error;
 use rand::Rng;
 use test_case::test_case;
 
@@ -221,7 +220,7 @@ async fn test_put_object_write_cancelled() {
     request.write(&[1, 2, 3, 4]).await.expect("write should succeed");
 
     {
-        // Write a multiple of `part_size` to ensure the copy is deferred.
+        // Write a multiple of `part_size` to ensure it will not complete immediately.
         let size = client.part_size().unwrap() * 10;
         let buffer = vec![0u8; size];
         let write = request.write(&buffer);
@@ -235,9 +234,10 @@ async fn test_put_object_write_cancelled() {
         .write(&[1, 2, 3, 4])
         .await
         .expect_err("further writes should fail");
-    assert!(
-        matches!(err, ObjectClientError::ClientError(S3RequestError::CrtError(e)) if e.raw_error() == aws_common_error::AWS_ERROR_INVALID_STATE as i32)
-    );
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::RequestCanceled)
+    ));
 }
 
 #[tokio::test]
