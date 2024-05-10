@@ -8,16 +8,18 @@ repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust FFI bindings to the AWS Common Runtime for Mountpoint for Amazon S3."
 exclude = [
     # Exclude large files/directories not required to build the CRT (e.g. tests, docs)
-    "crt/*/tests",
+    "crt/*/tests/**",
     "!crt/aws-lc/tests/compiler_features_tests",
     "!crt/s2n-tls/tests/features",
-    "crt/*/docs",
+    "crt/**/docs",
     "crt/aws-c-cal/ecdsa-fuzz-corpus/*",
     "crt/aws-c-common/verification/*",
     "crt/aws-lc/crypto/*/*_tests.txt",
     "crt/aws-lc/crypto/cipher_extra/test/*",
+    "crt/aws-lc/crypto/evp_extra/*_test.cc",
+    "crt/aws-lc/crypto/evp_extra/*_tests.txt",
     "crt/aws-lc/crypto/fipsmodule/bn/test/*",
-    "crt/aws-lc/crypto/fipsmodule/ecdsa/*_tests.txt",
+    "crt/aws-lc/crypto/fipsmodule/*/*_tests.txt",
     "crt/aws-lc/crypto/fipsmodule/policydocs/*",
     "crt/aws-lc/crypto/fipsmodule/sha/testvectors/*",
     "crt/aws-lc/crypto/hpke/test-vectors.json",
@@ -35,6 +37,7 @@ exclude = [
     "crt/s2n-tls/scram/SCRAM_paper.pdf",
     "**/.github/**",
     "**/*.jar",
+    "**/*.md",
 ]
 
 [build-dependencies]
