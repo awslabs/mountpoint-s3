@@ -11,9 +11,9 @@
 
 ### Other changes
 * The checksum algorithm to use for uploads to S3 can now be chosen with the `--upload-checksums <ALGORITHM>` command-line argument. The only supported values in this release are `crc32c` (the default, and the existing behavior) and `off`, which disables including checksums in uploads. The `off` value allows uploads to S3 implementations that do not support [additional checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/). This option defaults to `off` when the bucket name is an S3 on Outposts bucket access point (either an ARN or a bucket alias). ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
-* Fixed an issue where Mountpoint cound't write to third-party object storages that require `Content-Length` header to be set for multi-part upload. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
-* Fixed an issue where Mountpoint cound't assume IAM role with `EcsContainer` as a credential source. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
-* Fixed an issue where Mountpoint cound't assume IAM role configured in AWS profile if it's outside of aws partition. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
+* Fixed an issue where Mountpoint did not send the `Content-Length` header when creating multi-part uploads. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
+* Fixed an issue where Mountpoint could not assume an IAM role specified in a CLI profile with `EcsContainer` as a credential source. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
+* Fixed an issue where Mountpoint could not assume an IAM role configured in a CLI profile in regions outside of the `aws` partition. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
 
 ## v1.6.0 (April 11, 2024)
 
