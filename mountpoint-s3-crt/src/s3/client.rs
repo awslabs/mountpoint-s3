@@ -602,7 +602,7 @@ impl<'r, 's> Future for MetaRequestWrite<'r, 's> {
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut waker = self.waker.lock().unwrap();
         if let Some(ref mut waker) = *waker {
-            // The write is still pending, just replace the waker.
+            // The write is still pending. Make sure we store the waker from the current context.
             waker.clone_from(cx.waker());
             return std::task::Poll::Pending;
         }

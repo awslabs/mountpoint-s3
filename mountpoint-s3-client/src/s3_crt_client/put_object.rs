@@ -165,7 +165,7 @@ enum S3PutObjectRequestState {
     CreatingMPU(oneshot::Receiver<Result<(), S3RequestError>>),
     /// A write operation is in progress or was interrupted before completion.
     PendingWrite,
-    /// Idle state.
+    /// Idle state between write calls.
     Idle,
 }
 
@@ -178,13 +178,18 @@ impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 
     async fn write(&mut self, slice: &[u8]) -> ObjectClientResult<(), PutObjectError, Self::ClientError> {
+        // Writing to the meta request may require multiple calls. Set the internal
+        // state to `PendingWrite` until we are done.
         match std::mem::replace(&mut self.state, S3PutObjectRequestState::PendingWrite) {
             S3PutObjectRequestState::CreatingMPU(create_mpu) => {
                 // On first write, check the pending CreateMultipartUpload.
                 // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
                 create_mpu.await.unwrap()?;
             }
-            S3PutObjectRequestState::PendingWrite => return Err(S3RequestError::RequestCanceled.into()),
+            S3PutObjectRequestState::PendingWrite => {
+                // Fail if a previous write was not completed.
+                return Err(S3RequestError::RequestCanceled.into());
+            }
             S3PutObjectRequestState::Idle => {}
         }
 
@@ -199,6 +204,7 @@ impl PutObjectRequest for S3PutObjectRequest {
             self.total_bytes += slice.len() as u64;
             slice = remaining;
         }
+        // Write completed with no errors, we can reset to `Idle`.
         self.state = S3PutObjectRequestState::Idle;
         Ok(())
     }
