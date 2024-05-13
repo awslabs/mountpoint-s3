@@ -571,11 +571,10 @@ unsafe impl Send for MetaRequest {}
 // SAFETY: `aws_s3_meta_request` is thread safe
 unsafe impl Sync for MetaRequest {}
 
-/// Future returned by `MetaRequest::write()`. It will complete when the write completes,
-/// or cancel the meta-request if dropped.
+/// Future returned by `MetaRequest::write()`. Wraps `aws_s3_meta_request_poll_write`.
 #[derive(Debug)]
 pub struct MetaRequestWrite<'r, 's> {
-    /// The meta-request to cancel if this future is dropped
+    /// The meta-request to write to.
     request: &'r mut MetaRequest,
     /// The slice to write
     slice: &'s [u8],
