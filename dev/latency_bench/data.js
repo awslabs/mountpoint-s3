@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1715348206399,
+  "lastUpdate": 1715620763374,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cf5fc24cf824bdd9f70058cc0f9c534aca2dd992",
-          "message": "Remove the sse_kms feature flag from the CI (#840)\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\nCo-authored-by: Vladislav Volodkin <vlaad@amazon.co.uk>",
-          "timestamp": "2024-04-10T08:37:10Z",
-          "tree_id": "2e2e75b91b9ddca9ce35f0c79da52631226e62c8",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/cf5fc24cf824bdd9f70058cc0f9c534aca2dd992"
-        },
-        "date": 1712739695353,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.061,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.156,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.947,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.825,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 40.2608456,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 57.218146700000005,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 40.2940719,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50720ab30b852929d2ab73810ac7806623d9c21c",
+          "message": "Update CRT submodules to latest releases (#877)\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-05-13T16:58:41Z",
+          "tree_id": "afde2e462a548e5e0cc2996bcc54290f3473cc05",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/50720ab30b852929d2ab73810ac7806623d9c21c"
+        },
+        "date": 1715620762803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.051,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.137,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.965,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.904,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 51.5570751,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 43.8295867,
             "unit": "milliseconds"
           }
         ]
