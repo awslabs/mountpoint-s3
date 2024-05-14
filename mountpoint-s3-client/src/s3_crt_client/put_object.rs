@@ -160,8 +160,9 @@ pub struct S3PutObjectRequest {
 /// Internal state for a [S3PutObjectRequest].
 #[derive(Debug)]
 enum S3PutObjectRequestState {
-    /// Initial state indicating that CreateMultipartUpload may still be in progress. To be awaited on first write.
-    /// The signal indicates that CreateMultipartUpload completed successfully, or that the MPU failed.
+    /// Initial state indicating that CreateMultipartUpload may still be in progress. To be awaited on first
+    /// write so errors can be reported early. The signal indicates that CreateMultipartUpload completed
+    /// successfully, or that the MPU failed.
     CreatingMPU(oneshot::Receiver<Result<(), S3RequestError>>),
     /// A write operation is in progress or was interrupted before completion.
     PendingWrite,
@@ -182,7 +183,7 @@ impl PutObjectRequest for S3PutObjectRequest {
         // state to `PendingWrite` until we are done.
         match std::mem::replace(&mut self.state, S3PutObjectRequestState::PendingWrite) {
             S3PutObjectRequestState::CreatingMPU(create_mpu) => {
-                // On first write, check the pending CreateMultipartUpload.
+                // On first write, check the pending CreateMultipartUpload so we can report errors.
                 // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
                 create_mpu.await.unwrap()?;
             }
@@ -201,7 +202,7 @@ impl PutObjectRequest for S3PutObjectRequest {
                 .write(slice, false)
                 .await
                 .map_err(S3RequestError::CrtError)?;
-            self.total_bytes += slice.len() as u64;
+            self.total_bytes += (slice.len() - remaining.len()) as u64;
             slice = remaining;
         }
         // Write completed with no errors, we can reset to `Idle`.
@@ -217,7 +218,9 @@ impl PutObjectRequest for S3PutObjectRequest {
         mut self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        // No need to check for `CreatingMPU`: errors will be reported on completing the upload.
         if matches!(self.state, S3PutObjectRequestState::PendingWrite) {
+            // Fail if a previous write was not completed.
             return Err(S3RequestError::RequestCanceled.into());
         }
 

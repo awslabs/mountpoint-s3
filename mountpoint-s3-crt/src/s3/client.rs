@@ -540,8 +540,13 @@ impl MetaRequest {
         }
     }
 
-    /// Write a chunk of data and indicate whether it is the last. It will return an
-    /// AWS_ERROR_INVALID_STATE error if invoked after setting `eof` to `true`.
+    /// Write a chunk of data and indicate whether it is the last. Returns a [MetaRequestWrite]
+    /// future that starts writing when polled. May perform incomplete writes: in that case,
+    /// the future returns the suffix of the input slice that has not been written. The caller
+    /// is expected to invoke `write` again with the remaining data, until the empty slice is
+    /// returned.
+    /// Once an invocation with `eof == true` returns with the empty slice, subsequent invocations
+    /// will fail with an AWS_ERROR_INVALID_STATE error.
     pub fn write<'r, 's: 'r>(&'r mut self, slice: &'s [u8], eof: bool) -> MetaRequestWrite<'r, 's> {
         MetaRequestWrite::new(self, slice, eof)
     }
@@ -580,7 +585,8 @@ pub struct MetaRequestWrite<'r, 's> {
     slice: &'s [u8],
     /// Is end-of-file?
     eof: bool,
-    /// Waker registered with `poll_write`
+    /// Holds the waker from the current context. Passed to `poll_write_waker_callback`
+    /// in order to trigger another poll.
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
@@ -601,7 +607,9 @@ impl<'r, 's> Future for MetaRequestWrite<'r, 's> {
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut waker = self.waker.lock().unwrap();
         if let Some(ref mut waker) = *waker {
-            // The write is still pending. Make sure we store the waker from the current context.
+            // The previous `aws_s3_meta_request_poll_write` call returned `Pending` but has not
+            // invoked the callback yet. Do not call it again, but make sure to store the waker
+            // from the current context.
             waker.clone_from(cx.waker());
             return std::task::Poll::Pending;
         }
@@ -648,11 +656,13 @@ impl<'r, 's> Future for MetaRequestWrite<'r, 's> {
 unsafe extern "C" fn poll_write_waker_callback(user_data: *mut ::libc::c_void) {
     // Take ownership of the `Arc` in `user_data`.
     let waker = Arc::from_raw(user_data as *mut Mutex<Option<Waker>>);
-    let Some(waker) = waker.lock().unwrap().take() else {
-        return;
-    };
     // Notify the waker.
-    waker.wake();
+    waker
+        .lock()
+        .unwrap()
+        .take()
+        .expect("user_data always contains a waker")
+        .wake();
 }
 
 /// Client metrics which represent current workload of a client.
