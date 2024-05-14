@@ -547,7 +547,7 @@ impl MetaRequest {
     /// returned.
     /// Once an invocation with `eof == true` returns with the empty slice, subsequent invocations
     /// will fail with an AWS_ERROR_INVALID_STATE error.
-    pub fn write<'r, 's: 'r>(&'r mut self, slice: &'s [u8], eof: bool) -> MetaRequestWrite<'r, 's> {
+    pub fn write<'r, 's>(&'r mut self, slice: &'s [u8], eof: bool) -> MetaRequestWrite<'r, 's> {
         MetaRequestWrite::new(self, slice, eof)
     }
 }
