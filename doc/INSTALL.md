@@ -194,7 +194,7 @@ You can build Mountpoint for Amazon S3 from source. However, binaries built in t
 4. Build Mountpoint for Amazon S3:
    ```
    cd mountpoint-s3
-   cargo build --release
+   cargo +nightly build --release
    ```
 5. The final binary will be at `target/release/mount-s3`. Optionally, you can install this binary by copying it to the `/usr/bin` directory:
    ```
