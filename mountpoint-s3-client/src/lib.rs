@@ -57,6 +57,8 @@ mod s3_crt_client;
 #[doc(hidden)]
 pub mod user_agent;
 
+mod error_metadata;
+
 pub use object_client::{ObjectClient, PutObjectRequest};
 
 pub use s3_crt_client::{get_object::S3GetObjectRequest, put_object::S3PutObjectRequest, S3CrtClient, S3RequestError};
@@ -89,6 +91,8 @@ pub mod error {
     };
     #[doc(hidden)]
     pub use super::s3_crt_client::HeadBucketError;
+
+    pub use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
 }
 
 #[cfg(test)]

@@ -22,6 +22,7 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::checksums::crc32c_to_base64;
+use crate::error::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
     GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult,
@@ -511,6 +512,12 @@ pub struct MockClientError(pub Cow<'static, str>);
 impl std::fmt::Display for MockClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl ProvideErrorMetadata for MockClientError {
+    fn meta(&self) -> &ErrorMetadata {
+        &EMPTY_ERROR_METADATA
     }
 }
 
