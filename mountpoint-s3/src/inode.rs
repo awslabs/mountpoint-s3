@@ -47,6 +47,7 @@ use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
 use crate::sync::RwLockWriteGuard;
 use crate::sync::{Arc, RwLock};
+use mountpoint_s3_client::error::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
 
 mod expiry;
 use expiry::Expiry;
@@ -577,7 +578,11 @@ impl Superblock {
                             error=?e,
                             "DeleteObject failed for unlink",
                         );
-                        Err(InodeError::ClientError(anyhow!(e).context("DeleteObject failed")))?;
+                        let metadata = e.meta().clone();
+                        Err(InodeError::ClientError {
+                            source: anyhow!(e).context("DeleteObject failed"),
+                            metadata,
+                        })?;
                     }
                 };
             }
@@ -784,12 +789,18 @@ impl SuperblockInner {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::ClientError(anyhow!(e).context("HeadObject failed"))),
+                        Err(e) => {
+                            let metadata = e.meta().clone();
+                            return Err(InodeError::ClientError{source: anyhow!(e).context("HeadObject failed"), metadata})
+                        },
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::ClientError(anyhow!(e).context("ListObjectsV2 failed")))?;
+                    let result = result.map_err(|e| {
+                        let metadata = e.meta().clone();
+                        InodeError::ClientError{source: anyhow!(e).context("ListObjectsV2 failed"), metadata}
+                    })?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1594,7 +1605,10 @@ impl InodeMap {
 #[derive(Debug, Error)]
 pub enum InodeError {
     #[error("error from ObjectClient")]
-    ClientError(#[source] anyhow::Error),
+    ClientError {
+        source: anyhow::Error,
+        metadata: ErrorMetadata,
+    },
     #[error("file {0:?} does not exist in parent inode {1}")]
     FileDoesNotExist(String, InodeErrorInfo),
     #[error("inode {0} does not exist")]
@@ -1633,6 +1647,15 @@ pub enum InodeError {
         old_inode: InodeErrorInfo,
         new_inode: InodeErrorInfo,
     },
+}
+
+impl ProvideErrorMetadata for InodeError {
+    fn meta(&self) -> &ErrorMetadata {
+        match self {
+            Self::ClientError { source: _, metadata } => metadata,
+            _ => &EMPTY_ERROR_METADATA,
+        }
+    }
 }
 
 #[cfg(test)]

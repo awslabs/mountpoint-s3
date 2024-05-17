@@ -38,6 +38,7 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
+use mountpoint_s3_client::error::ProvideErrorMetadata;
 use mountpoint_s3_client::types::ObjectInfo;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{error, trace, warn};
@@ -353,7 +354,13 @@ impl RemoteIter {
                     self.full_path.as_str(),
                 )
                 .await
-                .map_err(|e| InodeError::ClientError(anyhow::Error::new(e)))?;
+                .map_err(|e| {
+                    let metadata = e.meta().clone();
+                    InodeError::ClientError {
+                        source: anyhow::Error::new(e),
+                        metadata,
+                    }
+                })?;
 
             self.state = match result.next_continuation_token {
                 Some(token) => RemoteIterState::InProgress(Some(token)),

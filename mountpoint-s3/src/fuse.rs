@@ -17,6 +17,7 @@ use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
     ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
+use mountpoint_s3_client::error::ProvideErrorMetadata;
 
 pub mod session;
 
@@ -39,7 +40,7 @@ macro_rules! event {
 macro_rules! fuse_error {
     ($name:literal, $reply:expr, $err:expr) => {{
         let err = $err;
-        event!(err.level, "{} failed: {:#}", $name, err);
+        event!(err.level, "{} failed: {:#}, metadata: {:?}", $name, err, err.meta());
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
         $reply.error(err.to_errno());
     }};
