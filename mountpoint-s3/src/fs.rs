@@ -114,7 +114,6 @@ where
                 &fs.client,
                 ino,
                 lookup.inode.parent(),
-                pid,
                 fs.config.allow_overwrite,
                 is_truncate,
             )
@@ -125,7 +124,11 @@ where
             Err(e) => {
                 return Err(err!(libc::EIO, source:e, "put failed to start"));
             }
-            Ok(request) => FileHandleState::Write(UploadState::InProgress { request, handle }),
+            Ok(request) => FileHandleState::Write(UploadState::InProgress {
+                request,
+                handle,
+                open_pid: pid,
+            }),
         };
         metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
         Ok(handle)
@@ -162,6 +165,8 @@ enum UploadState<Client: ObjectClient> {
     InProgress {
         request: UploadRequest<Client>,
         handle: WriteHandle,
+        /// Process that created the upload
+        open_pid: u32,
     },
     Completed,
     // Remember the failure reason to respond to retries
@@ -196,7 +201,7 @@ impl<Client: ObjectClient> UploadState<Client> {
 
     async fn complete(&mut self, key: &str, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
         let (request_size, open_pid) = match self {
-            Self::InProgress { request, handle } => (request.size(), handle.pid()),
+            Self::InProgress { request, open_pid, .. } => (request.size(), *open_pid),
             Self::Completed => return Ok(()),
             Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
         };
@@ -218,7 +223,7 @@ impl<Client: ObjectClient> UploadState<Client> {
         }
 
         let (upload, handle) = match std::mem::replace(self, Self::Completed) {
-            Self::InProgress { request, handle } => (request, handle),
+            Self::InProgress { request, handle, .. } => (request, handle),
             Self::Failed(_) | Self::Completed => unreachable!("checked above"),
         };
 
@@ -231,7 +236,7 @@ impl<Client: ObjectClient> UploadState<Client> {
 
     async fn complete_if_in_progress(self, key: &str) -> Result<(), Error> {
         match self {
-            Self::InProgress { request, handle } => Self::complete_upload(request, key, handle).await,
+            Self::InProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
             Self::Failed(_) | Self::Completed => Ok(()),
         }
     }

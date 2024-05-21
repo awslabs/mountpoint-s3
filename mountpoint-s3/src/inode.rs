@@ -297,13 +297,12 @@ impl Superblock {
         _client: &OC,
         ino: InodeNo,
         parent_ino: InodeNo,
-        pid: u32,
         allow_overwrite: bool,
         is_truncate: bool,
     ) -> WriteHandle {
         trace!(?ino, parent=?parent_ino, "write");
 
-        WriteHandle::new(self.inner.clone(), ino, parent_ino, pid, allow_overwrite, is_truncate)
+        WriteHandle::new(self.inner.clone(), ino, parent_ino, allow_overwrite, is_truncate)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -1092,7 +1091,6 @@ pub struct WriteHandle {
     inner: Arc<SuperblockInner>,
     ino: InodeNo,
     parent_ino: InodeNo,
-    pid: u32,
     allow_overwrite: bool,
     is_truncate: bool,
 }
@@ -1103,7 +1101,6 @@ impl WriteHandle {
         inner: Arc<SuperblockInner>,
         ino: InodeNo,
         parent_ino: InodeNo,
-        pid: u32,
         allow_overwrite: bool,
         is_truncate: bool,
     ) -> Self {
@@ -1111,7 +1108,6 @@ impl WriteHandle {
             inner,
             ino,
             parent_ino,
-            pid,
             allow_overwrite,
             is_truncate,
         }
@@ -1151,11 +1147,6 @@ impl WriteHandle {
                 Ok(self)
             }
         }
-    }
-
-    /// The pid of the process which opened this handle.
-    pub fn pid(&self) -> u32 {
-        self.pid
     }
 
     /// Update status of the inode and of containing "local" directories.
@@ -2141,7 +2132,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, false, false)
                 .await;
             expected_list.push(filename);
         }
@@ -2197,7 +2188,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, false, false)
                 .await;
             expected_list.push(filename);
         }
@@ -2354,7 +2345,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
+                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, false, false)
                 .await;
         }
 
@@ -2654,7 +2645,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), leaf_dir_ino, 0, false, false)
+            .write(&client, new_inode.inode.ino(), leaf_dir_ino, false, false)
             .await;
         let writehandle = writehandle.start_writing().expect("should be able to start writing");
 
@@ -2827,7 +2818,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
+            .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, false, false)
             .await;
         let writehandle = writehandle.start_writing().expect("should be able to start writing");
 
