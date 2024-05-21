@@ -204,12 +204,36 @@ async fn test_profile_provider_assume_role() {
         .unwrap();
 
     let profile_name = "mountpoint-profile";
+    let source_profile = "default";
     let mut config_file = NamedTempFile::new().unwrap();
     writeln!(config_file, "[profile {}]", profile_name).unwrap();
 
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+
+    // Credentials are provided as environment variables when running on GitHub Actions,
+    // so we will have to build a credentials file from those variables if they exist, otherwise
+    // we are going to use default profile from the test instance.
+    let _credentials_file = get_credentials_from_env().map(|credentials| {
+        let mut credentials_file = NamedTempFile::new().unwrap();
+        writeln!(credentials_file, "[{}]", source_profile).unwrap();
+        writeln!(credentials_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
+        writeln!(
+            credentials_file,
+            "aws_secret_access_key={}",
+            credentials.secret_access_key()
+        )
+        .unwrap();
+        if let Some(session_token) = credentials.session_token() {
+            writeln!(credentials_file, "aws_session_token={session_token}").unwrap();
+        }
+        std::env::remove_var("AWS_ACCESS_KEY_ID");
+        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+        std::env::remove_var("AWS_SESSION_TOKEN");
+        std::env::set_var("AWS_SHARED_CREDENTIALS_FILE", credentials_file.path().as_os_str());
+        credentials_file
+    });
 
     // First, verify that we can use this profile for the client but the request should fail because
     // we did not configure which arn to assume yet.
@@ -227,7 +251,7 @@ async fn test_profile_provider_assume_role() {
 
     // Build a S3CrtClient that uses the right config, now the request should succeed.
     writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
-    writeln!(config_file, "source_profile = default").unwrap();
+    writeln!(config_file, "source_profile = {}", source_profile).unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
         .endpoint_config(EndpointConfig::new(&get_test_region()));

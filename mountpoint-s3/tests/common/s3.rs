@@ -61,7 +61,7 @@ pub fn get_random_non_test_region() -> String {
     let mut rng = rand::thread_rng();
     regions
         .into_iter()
-        .filter(|region| region.to_string() != test_region)
+        .filter(|region| *region != test_region)
         .choose(&mut rng)
         .unwrap()
         .to_string()
@@ -69,6 +69,20 @@ pub fn get_random_non_test_region() -> String {
 
 pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
+}
+
+pub fn get_credentials_from_env() -> Option<Credentials> {
+    let access_key_id = std::env::var("AWS_ACCESS_KEY_ID").ok()?;
+    let secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY").ok()?;
+    let session_token = std::env::var("AWS_SESSION_TOKEN").ok();
+
+    Some(Credentials::new(
+        access_key_id,
+        secret_access_key,
+        session_token,
+        None,
+        "env",
+    ))
 }
 
 pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
