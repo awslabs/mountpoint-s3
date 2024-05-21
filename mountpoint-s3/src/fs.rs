@@ -173,14 +173,17 @@ enum UploadState<Client: ObjectClient> {
 
 impl<Client: ObjectClient> UploadState<Client> {
     async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, Error> {
-        let upload = match self {
-            Self::InProgress { request, .. } => request,
+        let (upload, handle) = match self {
+            Self::InProgress { request, handle, .. } => (request, handle),
             Self::Completed => return Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
             Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
         };
 
         match upload.write(offset, data).await {
-            Ok(len) => Ok(len as u32),
+            Ok(len) => {
+                handle.inc_file_size(len);
+                Ok(len as u32)
+            }
             Err(e) => {
                 // Abort the request.
                 match std::mem::replace(self, Self::Failed(e.to_errno())) {
@@ -946,7 +949,6 @@ where
 
             request.write(offset, data, &handle.full_key).await?
         };
-        handle.inode.inc_file_size(len as usize);
         Ok(len)
     }
 

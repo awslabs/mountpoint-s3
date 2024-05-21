@@ -1145,6 +1145,11 @@ impl WriteHandle {
         Self { inner, inode }
     }
 
+    pub fn inc_file_size(&self, len: usize) {
+        let mut state = self.inode.inner.sync.write().unwrap();
+        state.stat.size += len;
+    }
+
     /// Update status of the inode and of containing "local" directories.
     pub fn finish(self) -> Result<(), InodeError> {
         // Collect ancestor inodes that may need updating,
@@ -1276,7 +1281,7 @@ impl Inode {
     /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
     ///
     /// Locks [InodeState] for writing.
-    pub fn inc_lookup_count(&self) -> u64 {
+    fn inc_lookup_count(&self) -> u64 {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         *lookup_count += 1;
@@ -1291,7 +1296,7 @@ impl Inode {
     /// Decrement lookup count by `n` for [Inode], returning the new value.
     ///
     /// Locks [InodeState] for writing.
-    pub fn dec_lookup_count(&self, n: u64) -> u64 {
+    fn dec_lookup_count(&self, n: u64) -> u64 {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         debug_assert!(n <= *lookup_count, "lookup count cannot go negative");
@@ -1307,11 +1312,6 @@ impl Inode {
     pub fn is_remote(&self) -> Result<bool, InodeError> {
         let state = self.get_inode_state()?;
         Ok(state.write_status == WriteStatus::Remote)
-    }
-
-    pub fn inc_file_size(&self, len: usize) {
-        let mut state = self.inner.sync.write().unwrap();
-        state.stat.size += len;
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
@@ -1383,7 +1383,7 @@ impl Inode {
 
 /// A wrapper that prints useful customer-facing error messages for inodes by including the object
 /// key rather than just the inode number.
-pub struct InodeErrorInfo(pub Inode);
+pub struct InodeErrorInfo(Inode);
 
 impl Display for InodeErrorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
