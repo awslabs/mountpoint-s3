@@ -1,7 +1,7 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_sts::config::Credentials;
-use rand::{seq::IteratorRandom, RngCore};
+use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
 
 use crate::common::tokio_block_on;
@@ -34,37 +34,12 @@ pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
 }
 
-// Get a random region other than what configured in S3_REGION
-pub fn get_random_non_test_region() -> String {
-    // All AWS regions that are enabled by default, we can get this list from APIs but that's probably overkill.
-    let regions = vec![
-        "ap-northeast-1",
-        "ap-northeast-2",
-        "ap-northeast-3",
-        "ap-south-1",
-        "ap-southeast-1",
-        "ap-southeast-2",
-        "ca-central-1",
-        "eu-central-1",
-        "eu-north-1",
-        "eu-west-1",
-        "eu-west-2",
-        "eu-west-3",
-        "sa-east-1",
-        "us-east-1",
-        "us-east-2",
-        "us-west-1",
-        "us-west-2",
-    ];
-
-    let test_region = get_test_region();
-    let mut rng = rand::thread_rng();
-    regions
-        .into_iter()
-        .filter(|region| *region != test_region)
-        .choose(&mut rng)
-        .unwrap()
-        .to_string()
+// Get a region other than what configured in S3_REGION
+pub fn get_non_test_region() -> String {
+    match get_test_region().as_str() {
+        "us-east-1" => String::from("us-west-2"),
+        _ => String::from("us-east-1"),
+    }
 }
 
 pub fn get_subsession_iam_role() -> String {

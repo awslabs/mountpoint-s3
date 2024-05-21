@@ -21,8 +21,8 @@ use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
-    create_objects, get_credentials_from_env, get_random_non_test_region, get_subsession_iam_role,
-    get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
+    create_objects, get_credentials_from_env, get_non_test_region, get_subsession_iam_role, get_test_bucket_and_prefix,
+    get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
 };
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id};
@@ -538,7 +538,7 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     let (bucket, prefix) = get_test_bucket_and_prefix("mount_with_assumed_role_in_other_region");
     let subsession_role = get_subsession_iam_role();
     let region = get_test_region();
-    let other_region = get_random_non_test_region();
+    let other_region = get_non_test_region();
     let mount_point = assert_fs::TempDir::new()?;
     let profile_name = "fork_test";
     let source_profile = "default";
@@ -611,6 +611,7 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
         .env_remove("AWS_ACCESS_KEY_ID")
         .env_remove("AWS_SECRET_ACCESS_KEY")
         .env_remove("AWS_SESSION_TOKEN")
+        .env("AWS_EC2_METADATA_DISABLED", "true")
         .env_remove("AWS_REGION")
         .env_remove("AWS_DEFAULT_REGION")
         .spawn()

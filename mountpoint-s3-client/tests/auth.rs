@@ -100,7 +100,7 @@ async fn test_static_provider() {
 /// test. So the [test_profile_provider] test below is forked into its own process, where it can set
 /// the environment variables it needs to point to an isolated CLI configuration file without
 /// affecting the rest of the real test runner.
-async fn test_profile_provider_static() {
+async fn test_profile_provider_static_async() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider_static");
 
@@ -187,7 +187,7 @@ async fn test_profile_provider_static() {
     let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
 }
 
-async fn test_profile_provider_assume_role() {
+async fn test_profile_provider_assume_role_async() {
     let sdk_client = get_test_sdk_client().await;
     let subsession_role = get_subsession_iam_role();
     let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider_assume_role");
@@ -266,17 +266,17 @@ async fn test_profile_provider_assume_role() {
 
 rusty_fork_test! {
     #[test]
-    fn test_profile_provider() {
+    fn test_profile_provider_static() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(test_profile_provider_static());
+        runtime.block_on(test_profile_provider_static_async());
     }
 
     #[test]
-    fn test_profile_provider_sts() {
+    fn test_profile_provider_assume_role() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(test_profile_provider_assume_role());
+        runtime.block_on(test_profile_provider_assume_role_async());
     }
 }
 
