@@ -16,14 +16,16 @@ use std::path::Path;
 use std::process::{Child, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use std::{path::PathBuf, process::Command};
+use tempfile::NamedTempFile;
 use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
-    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
+    create_objects, get_random_non_test_region, get_subsession_iam_role, get_test_bucket_and_prefix,
+    get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
 };
 #[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::{get_scoped_down_credentials, get_subsession_iam_role, get_test_kms_key_id};
+use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id};
 use crate::common::tokio_block_on;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -484,6 +486,160 @@ fn mount_with_sse(
     wait_for_mount("mountpoint-s3", mount_point.to_str().unwrap());
     child
 }
+
+#[test]
+fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("mount_with_assumed_role");
+    let subsession_role = get_subsession_iam_role();
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let profile_name = "fork_test";
+
+    let mut config_file = NamedTempFile::new()?;
+    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
+    writeln!(config_file, "source_profile = default").unwrap();
+    writeln!(config_file, "region = {}", region).unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .env("AWS_CONFIG_FILE", config_file.path())
+        .env("AWS_PROFILE", profile_name)
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("mount_with_assumed_role_in_other_region");
+    let subsession_role = get_subsession_iam_role();
+    let region = get_test_region();
+    let other_region = get_random_non_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let profile_name = "fork_test";
+
+    let mut config_file = NamedTempFile::new()?;
+    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
+    writeln!(config_file, "source_profile = default").unwrap();
+    writeln!(config_file, "region = {}", other_region).unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .env("AWS_CONFIG_FILE", config_file.path())
+        .env("AWS_PROFILE", profile_name)
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+// Test profile auth without setting a region so it will fallback to global STS endpoint
+#[test]
+fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("mount_with_assumed_role_no_region");
+    let subsession_role = get_subsession_iam_role();
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let profile_name = "fork_test";
+
+    let mut config_file = NamedTempFile::new()?;
+    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
+    writeln!(config_file, "source_profile = default").unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .env("AWS_CONFIG_FILE", config_file.path())
+        .env("AWS_PROFILE", profile_name)
+        .env_remove("AWS_REGION")
+        .env_remove("AWS_DEFAULT_REGION")
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    config_file.close()?;
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_when_assume_role_with_invalid_arn");
+    let invalid_role = "arn:aws:iam::123456789123:role/invalid-role";
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+    let profile_name = "fork_test";
+
+    let mut config_file = NamedTempFile::new()?;
+    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "role_arn = {}", invalid_role).unwrap();
+    writeln!(config_file, "source_profile = default").unwrap();
+    writeln!(config_file, "region = {}", region).unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
+        .env("AWS_CONFIG_FILE", config_file.path())
+        .env("AWS_PROFILE", profile_name)
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(!exit_status.success());
+    assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    Ok(())
+}
+
 #[cfg(not(feature = "s3express_tests"))]
 fn write_to_file(mount_point: &Path, file_name: &str) -> Result<(), std::io::Error> {
     let mut f = fs::File::create(mount_point.join(file_name)).expect("should be able to open file for writing");
