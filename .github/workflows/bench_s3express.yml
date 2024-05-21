@@ -34,8 +34,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
-        aws-region: ${{ vars.S3_REGION }}
+        role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
+        aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
       uses: actions/checkout@v4
@@ -80,8 +80,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
-        aws-region: ${{ vars.S3_REGION }}
+        role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
+        aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
       uses: actions/checkout@v4
