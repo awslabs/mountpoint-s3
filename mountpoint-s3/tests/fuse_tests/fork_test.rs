@@ -2,11 +2,12 @@
 #![cfg(feature = "s3_tests")]
 
 use assert_cmd::prelude::*;
+use aws_config::default_provider::credentials::DefaultCredentialsChain;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_config::BehaviorVersion;
+use aws_credential_types::provider::ProvideCredentials;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
-#[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_sts::config::Region;
 use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
@@ -21,7 +22,7 @@ use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
-    create_objects, get_credentials_from_env, get_non_test_region, get_subsession_iam_role, get_test_bucket_and_prefix,
+    create_objects, get_non_test_region, get_subsession_iam_role, get_test_bucket_and_prefix,
     get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
 };
 #[cfg(not(feature = "s3express_tests"))]
@@ -496,17 +497,9 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
     let profile_name = "fork_test";
     let source_profile = "default";
 
-    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, &region)?;
-
-    // Credentials are provided as environment variables when running on GitHub Actions,
-    // so we will have to build a credentials file from those variables if they exist, otherwise
-    // we are going to use default profile from the test instance.
-    let credentials_file = create_shared_credentials_file_if_possible(source_profile)?;
+    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&region))?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    if let Some(file) = &credentials_file {
-        cmd.env("AWS_SHARED_CREDENTIALS_FILE", file.path());
-    }
     let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
@@ -543,17 +536,9 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     let profile_name = "fork_test";
     let source_profile = "default";
 
-    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, &other_region)?;
-
-    // Credentials are provided as environment variables when running on GitHub Actions,
-    // so we will have to build a credentials file from those variables if they exist, otherwise
-    // we are going to use default profile from the test instance.
-    let credentials_file = create_shared_credentials_file_if_possible(source_profile)?;
+    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&other_region))?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    if let Some(file) = &credentials_file {
-        cmd.env("AWS_SHARED_CREDENTIALS_FILE", file.path());
-    }
     let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
@@ -564,6 +549,9 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
         .env_remove("AWS_ACCESS_KEY_ID")
         .env_remove("AWS_SECRET_ACCESS_KEY")
         .env_remove("AWS_SESSION_TOKEN")
+        .env("AWS_EC2_METADATA_DISABLED", "true")
+        .env_remove("AWS_REGION")
+        .env_remove("AWS_DEFAULT_REGION")
         .spawn()
         .expect("unable to spawn child");
 
@@ -590,17 +578,9 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
     let profile_name = "fork_test";
     let source_profile = "default";
 
-    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, &region)?;
-
-    // Credentials are provided as environment variables when running on GitHub Actions,
-    // so we will have to build a credentials file from those variables if they exist, otherwise
-    // we are going to use default profile from the test instance.
-    let credentials_file = create_shared_credentials_file_if_possible(source_profile)?;
+    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, None)?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    if let Some(file) = &credentials_file {
-        cmd.env("AWS_SHARED_CREDENTIALS_FILE", file.path());
-    }
     let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
@@ -636,21 +616,13 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
     let invalid_role = "arn:aws:iam::123456789123:role/invalid-role";
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
-    let profile_name = "fork_test";
+    let profile_with_bad_arn = "bad_profile";
     let source_profile = "default";
 
-    let config_file = create_cli_config_file(profile_name, source_profile, invalid_role, &region)?;
-
-    // Credentials are provided as environment variables when running on GitHub Actions,
-    // so we will have to build a credentials file from those variables if they exist, otherwise
-    // we are going to use default profile from the test instance.
-    let credentials_file = create_shared_credentials_file_if_possible(source_profile)?;
+    let config_file = create_cli_config_file(profile_with_bad_arn, source_profile, invalid_role, Some(&region))?;
 
     // First, make sure we can mount with the default profile
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    if let Some(file) = &credentials_file {
-        cmd.env("AWS_SHARED_CREDENTIALS_FILE", file.path());
-    }
     let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
@@ -676,16 +648,13 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
 
     // Then we will test with the profile with invalid arn
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    if let Some(file) = &credentials_file {
-        cmd.env("AWS_SHARED_CREDENTIALS_FILE", file.path());
-    }
     let child = cmd
         .arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .env("AWS_CONFIG_FILE", config_file.path())
-        .env("AWS_PROFILE", profile_name)
+        .env("AWS_PROFILE", profile_with_bad_arn)
         .env_remove("AWS_ACCESS_KEY_ID")
         .env_remove("AWS_SECRET_ACCESS_KEY")
         .env_remove("AWS_SESSION_TOKEN")
@@ -923,41 +892,42 @@ fn unmount_and_check_log(mut process: Child, mount_path: &Path, expected_log_lin
     panic!("can not find a matching line in log: [{log}]");
 }
 
-/// Create a CLI config file containing a profile that source its credentials from another given profile.
+/// Create a CLI config file containing a profile that source its credentials from another given source profile.
 fn create_cli_config_file(
     profile_name: &str,
     source_profile: &str,
     role_arn: &str,
-    region: &str,
+    region: Option<&str>,
 ) -> io::Result<NamedTempFile> {
     let mut config_file = NamedTempFile::new()?;
 
+    // Populate source profile from the default credentials chain
+    let credentials = tokio_block_on(async {
+        // Get some static credentials by just using the SDK's default provider, which we know works
+        let sdk_provider = DefaultCredentialsChain::builder()
+            .region(Region::new(get_test_region()))
+            .build()
+            .await;
+        sdk_provider
+            .provide_credentials()
+            .await
+            .expect("static credentials should be available")
+    });
+    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "region = {}", get_test_region()).unwrap();
+    writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
+    writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
+    if let Some(session_token) = credentials.session_token() {
+        writeln!(config_file, "aws_session_token={session_token}").unwrap();
+    }
+
+    // Then populate the profile for testing
     writeln!(config_file, "[profile {}]", profile_name).unwrap();
     writeln!(config_file, "source_profile = {}", source_profile).unwrap();
     writeln!(config_file, "role_arn = {}", role_arn).unwrap();
-    writeln!(config_file, "region = {}", region).unwrap();
-    Ok(config_file)
-}
-
-/// Create a shared credentials file from static credentials in environment variables.
-/// Return a `NamedTempFile` if `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set, otherwise None.
-fn create_shared_credentials_file_if_possible(profile_name: &str) -> io::Result<Option<NamedTempFile>> {
-    match get_credentials_from_env() {
-        Some(credentials) => {
-            let mut credentials_file = NamedTempFile::new()?;
-            writeln!(credentials_file, "[{}]", profile_name).unwrap();
-            writeln!(credentials_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
-            writeln!(
-                credentials_file,
-                "aws_secret_access_key={}",
-                credentials.secret_access_key()
-            )
-            .unwrap();
-            if let Some(session_token) = credentials.session_token() {
-                writeln!(credentials_file, "aws_session_token={session_token}").unwrap();
-            }
-            Ok(Some(credentials_file))
-        }
-        None => Ok(None),
+    if let Some(region) = region {
+        writeln!(config_file, "region = {}", region).unwrap();
     }
+
+    Ok(config_file)
 }

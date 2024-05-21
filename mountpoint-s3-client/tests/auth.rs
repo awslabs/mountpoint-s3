@@ -206,34 +206,33 @@ async fn test_profile_provider_assume_role_async() {
     let profile_name = "mountpoint-profile";
     let source_profile = "default";
     let mut config_file = NamedTempFile::new().unwrap();
+
+    // Populate source profile from the default credentials chain
+    let sdk_provider = DefaultCredentialsChain::builder()
+        .region(Region::new(get_test_region()))
+        .build()
+        .await;
+    let credentials = sdk_provider
+        .provide_credentials()
+        .await
+        .expect("static credentials should be available");
+
+    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "region = {}", get_test_region()).unwrap();
+    writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
+    writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
+    if let Some(session_token) = credentials.session_token() {
+        writeln!(config_file, "aws_session_token={session_token}").unwrap();
+    }
+
     writeln!(config_file, "[profile {}]", profile_name).unwrap();
 
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
-
-    // Credentials are provided as environment variables when running on GitHub Actions,
-    // so we will have to build a credentials file from those variables if they exist, otherwise
-    // we are going to use default profile from the test instance.
-    let _credentials_file = get_credentials_from_env().map(|credentials| {
-        let mut credentials_file = NamedTempFile::new().unwrap();
-        writeln!(credentials_file, "[{}]", source_profile).unwrap();
-        writeln!(credentials_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
-        writeln!(
-            credentials_file,
-            "aws_secret_access_key={}",
-            credentials.secret_access_key()
-        )
-        .unwrap();
-        if let Some(session_token) = credentials.session_token() {
-            writeln!(credentials_file, "aws_session_token={session_token}").unwrap();
-        }
-        std::env::remove_var("AWS_ACCESS_KEY_ID");
-        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
-        std::env::remove_var("AWS_SESSION_TOKEN");
-        std::env::set_var("AWS_SHARED_CREDENTIALS_FILE", credentials_file.path().as_os_str());
-        credentials_file
-    });
+    std::env::remove_var("AWS_ACCESS_KEY_ID");
+    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+    std::env::remove_var("AWS_SESSION_TOKEN");
 
     // First, verify that we can use this profile for the client but the request should fail because
     // we did not configure which arn to assume yet.

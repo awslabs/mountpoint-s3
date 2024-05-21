@@ -46,20 +46,6 @@ pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
-pub fn get_credentials_from_env() -> Option<Credentials> {
-    let access_key_id = std::env::var("AWS_ACCESS_KEY_ID").ok()?;
-    let secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY").ok()?;
-    let session_token = std::env::var("AWS_SESSION_TOKEN").ok();
-
-    Some(Credentials::new(
-        access_key_id,
-        secret_access_key,
-        session_token,
-        None,
-        "env",
-    ))
-}
-
 pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
     let sdk_config = aws_config::defaults(BehaviorVersion::latest())
         .region(Region::new(region.to_owned()))
