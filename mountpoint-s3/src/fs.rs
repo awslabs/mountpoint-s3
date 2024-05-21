@@ -17,7 +17,9 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
-use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
+use crate::inode::{
+    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
+};
 use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
 use crate::prefix::Prefix;
@@ -77,7 +79,10 @@ where
     Prefetcher: Prefetch,
 {
     /// The file handle has been assigned as a read handle
-    Read(Prefetcher::PrefetchResult<Client>),
+    Read {
+        handle: ReadHandle,
+        request: Prefetcher::PrefetchResult<Client>,
+    },
     /// The file handle has been assigned as a write handle
     Write(UploadState<Client>),
 }
@@ -89,7 +94,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileHandleState::Read(_) => f.debug_struct("Read").finish(),
+            FileHandleState::Read { handle, .. } => f.debug_struct("Read").field("handle", handle).finish(),
             FileHandleState::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
         }
     }
@@ -110,15 +115,8 @@ where
         let is_truncate = flags & libc::O_TRUNC != 0;
         let handle = fs
             .superblock
-            .write(
-                &fs.client,
-                ino,
-                lookup.inode.parent(),
-                fs.config.allow_overwrite,
-                is_truncate,
-            )
-            .await
-            .start_writing()?;
+            .write(&fs.client, ino, fs.config.allow_overwrite, is_truncate)
+            .await?;
         let key = lookup.inode.full_key();
         let handle = match fs.uploader.put(&fs.bucket, key).await {
             Err(e) => {
@@ -144,7 +142,7 @@ where
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        lookup.inode.start_reading()?;
+        let handle = fs.superblock.read(&fs.client, lookup.inode.ino()).await?;
         let full_key = lookup.inode.full_key().to_owned();
         let object_size = lookup.stat.size as u64;
         let etag = match &lookup.stat.etag {
@@ -154,7 +152,7 @@ where
         let request = fs
             .prefetcher
             .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone());
-        let handle = FileHandleState::Read(request);
+        let handle = FileHandleState::Read { handle, request };
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
     }
@@ -187,7 +185,7 @@ impl<Client: ObjectClient> UploadState<Client> {
                 // Abort the request.
                 match std::mem::replace(self, Self::Failed(e.to_errno())) {
                     UploadState::InProgress { handle, .. } => {
-                        if let Err(err) = handle.finish_writing() {
+                        if let Err(err) = handle.finish() {
                             // Log the issue but still return the write error.
                             error!(?err, ?key, "error updating the inode status");
                         }
@@ -250,7 +248,7 @@ impl<Client: ObjectClient> UploadState<Client> {
             }
             Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
         };
-        if let Err(err) = handle.finish_writing() {
+        if let Err(err) = handle.finish() {
             // Log the issue but still return put_result.
             error!(?err, ?key, "error updating the inode status");
         }
@@ -849,7 +847,7 @@ where
         logging::record_name(handle.inode.name());
         let mut state = handle.state.lock().await;
         let request = match &mut *state {
-            FileHandleState::Read(request) => request,
+            FileHandleState::Read { request, .. } => request,
             FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
@@ -1242,10 +1240,10 @@ where
         };
 
         let request = match file_handle.state.into_inner() {
-            FileHandleState::Read { .. } => {
+            FileHandleState::Read { handle, .. } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                file_handle.inode.finish_reading()?;
+                handle.finish()?;
                 return Ok(());
             }
             FileHandleState::Write(request) => request,
