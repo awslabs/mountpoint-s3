@@ -22,11 +22,11 @@ use test_case::test_case;
 
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
-    create_objects, get_non_test_region, get_subsession_iam_role, get_test_bucket_and_prefix,
-    get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
+    create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
+    get_test_sdk_client,
 };
 #[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id};
+use crate::common::s3::{get_non_test_region, get_scoped_down_credentials, get_test_kms_key_id};
 use crate::common::tokio_block_on;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -505,6 +505,7 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_name)
         .env_remove("AWS_ACCESS_KEY_ID")
@@ -515,7 +516,7 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
 
     let exit_status = wait_for_exit(child);
 
-    // verify mount status and mount entry
+    // Verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
@@ -527,15 +528,47 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+// For S3 Express One Zone, this test is not really reliable because we don't support auto region
+// detection for them. So, when you run this test on the default region (us-east-1) it will pass,
+// but if you run it on any other regions it will fail even if you can assume the role successfully.
+#[cfg(not(feature = "s3express_tests"))]
 fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("mount_with_assumed_role_in_other_region");
     let subsession_role = get_subsession_iam_role();
     let region = get_test_region();
     let other_region = get_non_test_region();
+    let invalid_region = "invalid-region";
     let mount_point = assert_fs::TempDir::new()?;
     let profile_name = "fork_test";
     let source_profile = "default";
 
+    // First, verify that the mount fails if the region in the config file is invalid
+    let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(invalid_region))?;
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .env("AWS_CONFIG_FILE", config_file.path())
+        .env("AWS_PROFILE", profile_name)
+        .env_remove("AWS_ACCESS_KEY_ID")
+        .env_remove("AWS_SECRET_ACCESS_KEY")
+        .env_remove("AWS_SESSION_TOKEN")
+        .env("AWS_EC2_METADATA_DISABLED", "true")
+        .env_remove("AWS_REGION")
+        .env_remove("AWS_DEFAULT_REGION")
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // Verify mount status and mount entry
+    assert!(!exit_status.success());
+    assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    // Next, verify the mount succeeds when assuming a role in other valid region
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&other_region))?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
@@ -557,7 +590,11 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
 
     let exit_status = wait_for_exit(child);
 
-    // verify mount status and mount entry
+    // Verify mount status and mount entry.
+    // This is where Mountpoint might be diverging from other clients, like AWS CLI, they would
+    // return failures in this case because their S3 endpoint resolver respects the region configured
+    // in the config file. However, Mountpoint never use that file for S3 endpoint resolver and
+    // try to resolve the endpoint on its own.
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
@@ -570,6 +607,10 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
 
 // Test profile auth without setting a region so it will fallback to global STS endpoint
 #[test]
+// For S3 Express One Zone, this test is not really reliable because we don't support auto region
+// detection for them. So, when you run this test on the default region (us-east-1) it will pass,
+// but if you run it on any other regions it will fail even if you can assume the role successfully.
+#[cfg(not(feature = "s3express_tests"))]
 fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("mount_with_assumed_role_no_region");
     let subsession_role = get_subsession_iam_role();
@@ -599,7 +640,6 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
 
     let exit_status = wait_for_exit(child);
 
-    // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
@@ -628,6 +668,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", "default")
         .env_remove("AWS_ACCESS_KEY_ID")
@@ -638,7 +679,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
 
     let exit_status = wait_for_exit(child);
 
-    // verify mount status and mount entry
+    // Verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
@@ -653,6 +694,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
         .env("AWS_CONFIG_FILE", config_file.path())
         .env("AWS_PROFILE", profile_with_bad_arn)
         .env_remove("AWS_ACCESS_KEY_ID")
@@ -663,7 +705,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
 
     let exit_status = wait_for_exit(child);
 
-    // verify mount status and mount entry
+    // Verify mount status and mount entry
     assert!(!exit_status.success());
     assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
@@ -914,7 +956,6 @@ fn create_cli_config_file(
             .expect("static credentials should be available")
     });
     writeln!(config_file, "[profile {}]", source_profile).unwrap();
-    writeln!(config_file, "region = {}", get_test_region()).unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
     if let Some(session_token) = credentials.session_token() {

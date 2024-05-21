@@ -218,7 +218,6 @@ async fn test_profile_provider_assume_role_async() {
         .expect("static credentials should be available");
 
     writeln!(config_file, "[profile {}]", source_profile).unwrap();
-    writeln!(config_file, "region = {}", get_test_region()).unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
     if let Some(session_token) = credentials.session_token() {
