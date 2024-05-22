@@ -252,3 +252,10 @@ impl PutObjectRequest for S3PutObjectRequest {
         })
     }
 }
+
+impl S3PutObjectRequest {
+    /// The number of bytes written to this request so far.
+    pub fn bytes_written(&self) -> u64 {
+        self.total_bytes
+    }
+}
