@@ -3,19 +3,21 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use async_io::block_on;
 use async_trait::async_trait;
-use futures::stream::BoxStream;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use pin_project::pin_project;
 
 use crate::mock_client::leaky_bucket::LeakyBucket;
 use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, MockPutObjectRequest};
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
+    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
+    ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
 };
 use crate::types::ETag;
+
+use super::MockGetObjectRequest;
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
 /// performance without the jitter or service latency of targeting a real service. Note that while
@@ -57,23 +59,42 @@ impl ThroughputMockClient {
 }
 
 #[pin_project]
-pub struct GetObjectResult {
+pub struct ThroughputGetObjectRequest {
     #[pin]
-    inner: BoxStream<'static, ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>>,
+    request: MockGetObjectRequest,
+    rate_limiter: LeakyBucket,
 }
 
-impl Stream for GetObjectResult {
+#[cfg_attr(not(docs_rs), async_trait)]
+impl GetObjectRequest for ThroughputGetObjectRequest {
+    type ClientError = MockClientError;
+
+    async fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
+        let this = self.project();
+        this.request.increment_read_window(len).await;
+    }
+}
+
+impl Stream for ThroughputGetObjectRequest {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        this.inner.poll_next(cx)
+        this.request.poll_next(cx).map(|next| {
+            next.map(|item| {
+                item.map(|body_part| {
+                    // Acquire enough tokens for the number of bytes we want to deliver
+                    block_on(this.rate_limiter.acquire(body_part.1.len() as u32));
+                    body_part
+                })
+            })
+        })
     }
 }
 
 #[async_trait]
 impl ObjectClient for ThroughputMockClient {
-    type GetObjectResult = GetObjectResult;
+    type GetObjectRequest = ThroughputGetObjectRequest;
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
@@ -95,19 +116,10 @@ impl ObjectClient for ThroughputMockClient {
         key: &str,
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
-    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
-        let inner = self.inner.get_object(bucket, key, range, if_match).await?;
+    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
+        let request = self.inner.get_object(bucket, key, range, if_match).await?;
         let rate_limiter = self.rate_limiter.clone();
-        let stream = inner.then(move |p| {
-            let rate_limiter = rate_limiter.clone();
-            async move {
-                let p = p?;
-                // Acquire enough tokens for the number of bytes we want to deliver
-                rate_limiter.acquire(p.1.len() as u32).await;
-                Ok(p)
-            }
-        });
-        Ok(GetObjectResult { inner: stream.boxed() })
+        Ok(ThroughputGetObjectRequest { request, rate_limiter })
     }
 
     async fn list_objects(
@@ -176,6 +188,8 @@ mod tests {
                     part_size: 8 * 1024 * 1024,
                     bucket: "test_bucket".to_owned(),
                     unordered_list_seed: None,
+                    enable_back_pressure: false,
+                    initial_read_window_size: 0,
                 };
                 let client = ThroughputMockClient::new(config, rate_gbps);
 

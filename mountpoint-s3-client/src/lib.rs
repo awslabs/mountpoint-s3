@@ -52,7 +52,7 @@ pub mod imds_crt_client;
 pub mod instance_info;
 #[doc(hidden)]
 pub mod mock_client;
-mod object_client;
+pub mod object_client;
 mod s3_crt_client;
 #[doc(hidden)]
 pub mod user_agent;

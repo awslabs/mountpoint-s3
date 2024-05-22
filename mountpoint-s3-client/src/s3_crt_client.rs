@@ -90,19 +90,24 @@ pub struct S3ClientConfig {
     request_payer: Option<String>,
     bucket_owner: Option<String>,
     max_attempts: Option<NonZeroUsize>,
+    read_backpressure: bool,
+    initial_read_window: usize,
 }
 
 impl Default for S3ClientConfig {
     fn default() -> Self {
+        const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
         Self {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
-            part_size: 8 * 1024 * 1024,
+            part_size: DEFAULT_PART_SIZE,
             endpoint_config: EndpointConfig::new("us-east-1"),
             user_agent: None,
             request_payer: None,
             bucket_owner: None,
             max_attempts: None,
+            read_backpressure: false,
+            initial_read_window: DEFAULT_PART_SIZE,
         }
     }
 }
@@ -166,6 +171,20 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn max_attempts(mut self, max_attempts: NonZeroUsize) -> Self {
         self.max_attempts = Some(max_attempts);
+        self
+    }
+
+    /// Set the flag for backpressure read
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn read_backpressure(mut self, read_backpressure: bool) -> Self {
+        self.read_backpressure = read_backpressure;
+        self
+    }
+
+    /// Set a value for initial backpressure read window size
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn initial_read_window(mut self, initial_read_window: usize) -> Self {
+        self.initial_read_window = initial_read_window;
         self
     }
 }
@@ -304,6 +323,8 @@ impl S3CrtClientInner {
             None,
         );
         client_config.express_support(true);
+        client_config.read_backpressure(config.read_backpressure);
+        client_config.initial_read_window(config.initial_read_window);
         client_config.signing_config(signing_config);
 
         client_config
@@ -1011,7 +1032,7 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
 
 #[cfg_attr(not(docs_rs), async_trait)]
 impl ObjectClient for S3CrtClient {
-    type GetObjectResult = S3GetObjectRequest;
+    type GetObjectRequest = S3GetObjectRequest;
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
@@ -1038,7 +1059,7 @@ impl ObjectClient for S3CrtClient {
         if_match: Option<ETag>,
         // TODO: If more arguments are added to get object, make a request struct having those arguments
         // along with bucket and key.
-    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
         self.get_object(bucket, key, range, if_match)
     }
 

@@ -2309,6 +2309,8 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024 * 1024,
             unordered_list_seed: (!ordered).then_some(123456),
+            enable_back_pressure: false,
+            initial_read_window_size: 0,
         };
         let client = Arc::new(MockClient::new(client_config));
 
