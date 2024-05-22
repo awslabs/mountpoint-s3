@@ -5,7 +5,7 @@ pub mod common;
 use std::time::Duration;
 
 use common::*;
-use futures::{pin_mut, StreamExt};
+use futures::{pin_mut, FutureExt, StreamExt};
 use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
@@ -216,19 +216,47 @@ async fn test_put_object_write_cancelled() {
         .await
         .expect("put_object should succeed");
 
-    // Complete one write to ensure the MPU was created
-    request.write(&[1, 2, 3, 4]).await.expect("write should succeed");
+    // Write a multiple of `part_size` to ensure it will not complete immediately.
+    let full_size = client.part_size().unwrap() * 10;
+    let buffer = vec![0u8; full_size];
+
+    // Complete one write to ensure the MPU was created and the buffer for the upload request is available.
+    // Subsequent `write` calls will not have to wait for CreateMPU to complete and are guaranteed to start
+    // writing on first poll.
+    let first_write_size = 32;
+    request
+        .write(&buffer[0..first_write_size])
+        .await
+        .expect("write should succeed");
+    assert_eq!(first_write_size, request.bytes_written() as usize);
 
     {
-        // Write a multiple of `part_size` to ensure it will not complete immediately.
-        let size = client.part_size().unwrap() * 10;
-        let buffer = vec![0u8; size];
-        let write = request.write(&buffer);
+        let mut write = request.write(&buffer[first_write_size..]);
 
-        tokio::time::timeout(Duration::from_millis(1), write)
-            .await
-            .expect_err("write should time out and be cancelled");
+        // Poll the future only once to get into a state where the write has started but not completed yet.
+        // Because we have previously awaited a write call for a small slice (see above), the first poll of
+        // `S3PutObjectRequest::write` performs the first `poll_write` on the CRT meta request, which in turn
+        // is guaranteed to copy part of the slice on the already available buffer and return.
+        // However, since we are trying to write a slice much larger than `part_size`, `poll_write` will not
+        // consume it on the first call (see loop in `write`). Subsequent `poll_write` calls will have to
+        // acquire new buffers and will return `Pending`, which will be propagated here.
+        let mut cx = std::task::Context::from_waker(futures::task::noop_waker_ref());
+        let poll_result = write.poll_unpin(&mut cx);
+        assert!(matches!(poll_result, std::task::Poll::Pending));
+
+        // Cancel the future.
+        drop(write);
     }
+
+    // Confirm the test assumptions.
+    assert!(
+        (request.bytes_written() as usize) > first_write_size,
+        "second write should have started and written some data"
+    );
+    assert!(
+        (request.bytes_written() as usize) < full_size,
+        "second write should have been cancelled before writing the whole slice"
+    );
 
     let err = request
         .write(&[1, 2, 3, 4])
