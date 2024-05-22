@@ -100,9 +100,9 @@ async fn test_static_provider() {
 /// test. So the [test_profile_provider] test below is forked into its own process, where it can set
 /// the environment variables it needs to point to an isolated CLI configuration file without
 /// affecting the rest of the real test runner.
-async fn test_profile_provider_async() {
+async fn test_profile_provider_static_async() {
     let sdk_client = get_test_sdk_client().await;
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider");
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider_static");
 
     let key = format!("{prefix}/hello");
     let body = b"hello world!";
@@ -187,12 +187,94 @@ async fn test_profile_provider_async() {
     let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
 }
 
+async fn test_profile_provider_assume_role_async() {
+    let sdk_client = get_test_sdk_client().await;
+    let subsession_role = get_subsession_iam_role();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider_assume_role");
+
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let profile_name = "mountpoint-profile";
+    let source_profile = "default";
+    let mut config_file = NamedTempFile::new().unwrap();
+
+    // Populate source profile from the default credentials chain
+    let sdk_provider = DefaultCredentialsChain::builder()
+        .region(Region::new(get_test_region()))
+        .build()
+        .await;
+    let credentials = sdk_provider
+        .provide_credentials()
+        .await
+        .expect("static credentials should be available");
+
+    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
+    writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
+    if let Some(session_token) = credentials.session_token() {
+        writeln!(config_file, "aws_session_token={session_token}").unwrap();
+    }
+
+    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+
+    // Set up the environment variables to use this new config file. This is only OK to do because
+    // this test is run in a forked process, so won't affect any other concurrently running tests.
+    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    std::env::remove_var("AWS_ACCESS_KEY_ID");
+    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+    std::env::remove_var("AWS_SESSION_TOKEN");
+
+    // First, verify that we can use this profile for the client but the request should fail because
+    // we did not configure which arn to assume yet.
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
+
+    let mut request = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should be sent");
+
+    let _error = request.next().await.unwrap().expect_err("role arn is not set");
+
+    // Build a S3CrtClient that uses the right config, now the request should succeed.
+    writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
+    writeln!(config_file, "source_profile = {}", source_profile).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
+
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
+}
+
 rusty_fork_test! {
     #[test]
-    fn test_profile_provider() {
+    fn test_profile_provider_static() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(test_profile_provider_async());
+        runtime.block_on(test_profile_provider_static_async());
+    }
+
+    #[test]
+    fn test_profile_provider_assume_role() {
+        // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_profile_provider_assume_role_async());
     }
 }
 

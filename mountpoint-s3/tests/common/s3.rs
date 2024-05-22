@@ -34,6 +34,14 @@ pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
 }
 
+// Get a region other than what configured in S3_REGION
+pub fn get_non_test_region() -> String {
+    match get_test_region().as_str() {
+        "us-east-1" => String::from("us-west-2"),
+        _ => String::from("us-east-1"),
+    }
+}
+
 pub fn get_subsession_iam_role() -> String {
     std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }

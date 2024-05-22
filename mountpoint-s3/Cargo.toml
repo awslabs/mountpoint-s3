@@ -53,6 +53,7 @@ mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
 assert_cmd = "2.0.6"
 assert_fs = "1.1.1"
 aws-config = "1.2.0"
+aws-credential-types = "1.2.0"
 aws-sdk-s3 = "1.23.0"
 aws-sdk-sts = "1.20.0"
 base16ct = { version = "0.1.1", features = ["alloc"] }
