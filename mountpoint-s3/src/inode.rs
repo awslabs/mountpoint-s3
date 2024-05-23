@@ -47,7 +47,7 @@ use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
 use crate::sync::RwLockWriteGuard;
 use crate::sync::{Arc, RwLock};
-use mountpoint_s3_client::error::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
+use mountpoint_s3_client::error::{ErrorMetadata, ProvideErrorMetadata};
 
 mod expiry;
 use expiry::Expiry;
@@ -578,11 +578,7 @@ impl Superblock {
                             error=?e,
                             "DeleteObject failed for unlink",
                         );
-                        let metadata = e.meta().clone();
-                        Err(InodeError::ClientError {
-                            source: anyhow!(e).context("DeleteObject failed"),
-                            metadata,
-                        })?;
+                        Err(InodeError::client_error(e, "DeleteObject failed"))?;
                     }
                 };
             }
@@ -789,18 +785,12 @@ impl SuperblockInner {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => {
-                            let metadata = e.meta().clone();
-                            return Err(InodeError::ClientError{source: anyhow!(e).context("HeadObject failed"), metadata})
-                        },
+                        Err(e) => return Err(InodeError::client_error(e, "HeadObject failed")),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| {
-                        let metadata = e.meta().clone();
-                        InodeError::ClientError{source: anyhow!(e).context("ListObjectsV2 failed"), metadata}
-                    })?;
+                    let result = result.map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed"))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1649,11 +1639,24 @@ pub enum InodeError {
     },
 }
 
+impl InodeError {
+    fn client_error<E>(err: E, context: &'static str) -> Self
+    where
+        E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+    {
+        let metadata = err.meta().clone();
+        InodeError::ClientError {
+            source: anyhow!(err).context(context),
+            metadata,
+        }
+    }
+}
+
 impl ProvideErrorMetadata for InodeError {
     fn meta(&self) -> &ErrorMetadata {
         match self {
             Self::ClientError { source: _, metadata } => metadata,
-            _ => &EMPTY_ERROR_METADATA,
+            _ => &ErrorMetadata::EMPTY,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::error::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
+use crate::error::{ErrorMetadata, ProvideErrorMetadata};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
@@ -169,7 +169,7 @@ where
     fn meta(&self) -> &ErrorMetadata {
         match self {
             Self::ClientError(err) => err.meta(),
-            _ => &EMPTY_ERROR_METADATA,
+            _ => &ErrorMetadata::EMPTY,
         }
     }
 }

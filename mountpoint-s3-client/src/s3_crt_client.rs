@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use crate::error::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
+use crate::error::{ErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -901,7 +901,7 @@ impl ProvideErrorMetadata for S3RequestError {
     fn meta(&self) -> &ErrorMetadata {
         match self {
             Self::Forbidden(_, metadata) => metadata,
-            _ => &EMPTY_ERROR_METADATA,
+            _ => &ErrorMetadata::EMPTY,
         }
     }
 }

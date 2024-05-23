@@ -92,7 +92,7 @@ pub mod error {
     #[doc(hidden)]
     pub use super::s3_crt_client::HeadBucketError;
 
-    pub use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata, EMPTY_ERROR_METADATA};
+    pub use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata};
 }
 
 #[cfg(test)]
