@@ -862,9 +862,10 @@ pub enum S3RequestError {
     #[error("Wrong region (expecting {0})")]
     IncorrectRegion(String),
 
-    /// Forbidden
+    /// Forbidden (metadata is boxed to avoid allocating unnecessary space in case of Result::Ok,
+    /// see "result_large_err" clippy warning for details)
     #[error("Forbidden: {0}")]
-    Forbidden(String, ErrorMetadata),
+    Forbidden(String, Box<ErrorMetadata>),
 
     /// No signing credential is set for requests
     #[error("No signing credentials found")]
@@ -956,10 +957,10 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
             // error, so just trust the response code
             return Some(S3RequestError::Forbidden(
                 "<no message>".to_owned(),
-                ErrorMetadata {
+                Box::new(ErrorMetadata {
                     http_code: Some(request_result.response_status),
-                    s3_error_code: None,
-                },
+                    ..Default::default()
+                }),
             ));
         };
         let error_elem = xmltree::Element::parse(body.as_bytes()).ok()?;
@@ -979,10 +980,11 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
                 .unwrap_or(error_code_str.clone());
             Some(S3RequestError::Forbidden(
                 message.into_owned(),
-                ErrorMetadata {
+                Box::new(ErrorMetadata {
                     http_code: Some(request_result.response_status),
                     s3_error_code: Some(error_code_str.to_string()),
-                },
+                    ..Default::default()
+                }),
             ))
         } else {
             None
