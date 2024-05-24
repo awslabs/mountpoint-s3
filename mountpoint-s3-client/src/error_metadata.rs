@@ -1,4 +1,4 @@
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct ErrorMetadata {
     pub http_code: Option<i32>,
     pub s3_error_code: Option<String>,
