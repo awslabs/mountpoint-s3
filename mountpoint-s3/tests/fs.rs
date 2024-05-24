@@ -1,19 +1,25 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
+use httpmock::{Method, MockServer, Then};
 use libc::S_IFREG;
 use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::error::{ErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
-use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_crt::common::allocator::Allocator;
+use mountpoint_s3_crt::common::uri::Uri;
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
 use std::ops::Add;
 use std::str::FromStr;
@@ -1463,6 +1469,120 @@ async fn test_readdir_rewind_with_local_files_only() {
     // Request everything from zero one more time
     let new_entries = ls(&fs, dir_handle, 0, 20).await;
     assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+}
+
+struct EnvVarGuard(String);
+
+impl EnvVarGuard {
+    fn new(key: &str, value: &str) -> Self {
+        let guard = Self(key.to_string());
+        env::set_var(key, value);
+        guard
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        env::remove_var(&self.0);
+    }
+}
+
+const LIST_RESPONSE: &str = r#"
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+    <Name>bucket</Name>
+    <Prefix/>
+    <KeyCount>205</KeyCount>
+    <MaxKeys>1000</MaxKeys>
+    <IsTruncated>false</IsTruncated>
+    <Contents>
+        <Key>throttled</Key>
+        <LastModified>2009-10-12T17:50:30.000Z</LastModified>
+        <ETag>"fba9dede5f27731c9771645a39863328"</ETag>
+        <Size>1024</Size>
+        <StorageClass>STANDARD</StorageClass>
+    </Contents>
+</ListBucketResult>
+"#;
+
+const DEFAULT_HEADERS: [(&str, &str); 7] = [
+    ("ETag", "b54357faf0632cce46e942fa68356b38"),
+    ("Date", "Thu, 12 Jan 2023 00:04:21 GMT"),
+    ("Last-Modified", "Tue, 10 Jan 2023 23:39:32 GMT"),
+    ("Accept-Ranges", "bytes"),
+    ("Content-Range", "bytes 0-65535/65536"),
+    ("Content-Type", "binary/octet-stream"),
+    ("Content-Length", "1024"),
+];
+
+fn create_fs_with_mock_s3(endpoint: &str, bucket: &str) -> TestS3Filesystem<S3CrtClient> {
+    let endpoint = Uri::new_from_str(&Allocator::default(), endpoint).expect("must be a valid uri");
+    let endpoint_config = EndpointConfig::new("PLACEHOLDER")
+        .addressing_style(AddressingStyle::Path)
+        .endpoint(endpoint);
+    let client_config = S3ClientConfig::default()
+        .endpoint_config(endpoint_config)
+        .auth_config(S3ClientAuthConfig::NoSigning);
+    let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
+    make_test_filesystem_with_client(client, bucket, &Default::default(), Default::default())
+}
+
+fn mock_list_server(bucket: &str) -> MockServer {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::GET)
+            .path(format!("/{}/", bucket))
+            .query_param("list-type", "2");
+        then.status(200).body(LIST_RESPONSE);
+    });
+    server
+}
+
+fn set_response_headers(mut then: Then, headers: &[(&str, &str)]) -> Then {
+    for (key, value) in headers.iter() {
+        then = then.header(*key, *value);
+    }
+    then
+}
+
+#[tokio::test]
+async fn test_lookup_404_not_an_error() {
+    // TODO (vlaad)
+}
+
+#[tokio::test]
+async fn test_lookup_forbidden() {
+    // TODO (vlaad)
+}
+
+#[tokio::test]
+async fn test_lookup_throttled() {
+    let _ = EnvVarGuard::new("AWS_MAX_ATTEMPTS", "2");
+    let bucket = "bucket";
+
+    let server = mock_list_server(bucket);
+    let key = "throttled";
+    server.mock(|when, then| {
+        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
+        set_response_headers(then.status(503), &DEFAULT_HEADERS);
+    });
+    let endpoint = format!("http://{}", server.address());
+
+    let fs = create_fs_with_mock_s3(&endpoint, bucket);
+    let err = fs
+        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .await
+        .expect_err("lookup must fail");
+    let metadata = err.meta();
+    assert_eq!(
+        *metadata,
+        ErrorMetadata {
+            http_code: Some(503),
+            s3_error_code: None,
+            error_code: Some("error.client".to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string())
+        }
+    );
 }
 
 async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) {
