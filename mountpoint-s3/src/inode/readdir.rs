@@ -354,7 +354,9 @@ impl RemoteIter {
                     self.full_path.as_str(),
                 )
                 .await
-                .map_err(|e| InodeError::client_error(e, "", MOUNTPOINT_ERROR_CLIENT, &self.bucket, &self.full_path))?;
+                .map_err(|e| {
+                    InodeError::client_error(e, None, MOUNTPOINT_ERROR_CLIENT, &self.bucket, &self.full_path)
+                })?;
 
             self.state = match result.next_continuation_token {
                 Some(token) => RemoteIterState::InProgress(Some(token)),

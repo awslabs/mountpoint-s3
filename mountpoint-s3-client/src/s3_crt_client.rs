@@ -890,6 +890,10 @@ pub enum S3RequestError {
     /// The request was canceled
     #[error("Request canceled")]
     RequestCanceled,
+
+    /// The request was throttled by S3
+    #[error("Request throttled")]
+    Throttled(Box<ErrorMetadata>),
 }
 
 impl S3RequestError {
@@ -902,6 +906,7 @@ impl ProvideErrorMetadata for S3RequestError {
     fn meta(&self) -> &ErrorMetadata {
         match self {
             Self::Forbidden(_, metadata) => metadata,
+            Self::Throttled(metadata) => metadata,
             _ => &ErrorMetadata::EMPTY,
         }
     }
@@ -1017,6 +1022,28 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
+    fn try_parse_throttled(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        let crt_error_code = request_result.crt_error.raw_error();
+        if crt_error_code == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_SLOW_DOWN as i32 {
+            // CRT does not set S3 response data for error codes other then AWS_ERROR_S3_INVALID_RESPONSE_STATUS
+            // In case of throttling we know for sure that the response status was 503 and metadata users may
+            // rely on it to detect throttling (see CRT's `s_s3_meta_request_error_code_from_response_status`).
+            //
+            // Alternatively, we could've set here `response_status` reported by the last `on_telemetry` callback.
+            // Another alternative is to introduce a new code "error.client.throttled" and set it in
+            // `ErrorMetadata::error_code`.
+            //
+            // Manually setting 503 seems like the option which introduces no overhead, is symmetric to how we
+            // expect users to detect other client errors and is robust enough (to be covered with test though).
+            Some(S3RequestError::Throttled(Box::new(ErrorMetadata {
+                http_code: Some(503),
+                ..Default::default()
+            })))
+        } else {
+            None
+        }
+    }
+
     /// Handle canceled requests
     fn try_parse_canceled_request(request_result: &MetaRequestResult) -> Option<S3RequestError> {
         request_result.is_canceled().then_some(S3RequestError::RequestCanceled)
@@ -1028,7 +1055,10 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
-        0 => try_parse_no_credentials(request_result).or_else(|| try_parse_canceled_request(request_result)),
+        // TODO (vlaad): try_parse_canceled_request looks to be unreachable
+        0 => try_parse_throttled(request_result).or_else(|| {
+            try_parse_no_credentials(request_result).or_else(|| try_parse_canceled_request(request_result))
+        }),
         _ => None,
     }
 }
