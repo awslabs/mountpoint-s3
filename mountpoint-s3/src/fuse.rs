@@ -17,7 +17,7 @@ use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
     ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
-use mountpoint_s3_client::error::ProvideErrorMetadata;
+use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 
 pub mod session;
 

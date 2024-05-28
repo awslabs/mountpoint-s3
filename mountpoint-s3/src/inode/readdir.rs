@@ -38,7 +38,7 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use mountpoint_s3_client::error::MOUNTPOINT_ERROR_CLIENT;
+use mountpoint_s3_client::error_metadata::MOUNTPOINT_ERROR_CLIENT;
 use mountpoint_s3_client::types::ObjectInfo;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{error, trace, warn};

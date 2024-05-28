@@ -12,11 +12,11 @@ use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{ObjectPart, PutObjectParams};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::common::allocator::Allocator;
 use tempfile::TempDir;
 
 use crate::common::tokio_block_on;
+
+use super::s3::get_crt_client_auth_config;
 
 pub trait TestClient: Send {
     fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
@@ -69,13 +69,7 @@ impl Default for TestSessionConfig {
 
 impl TestSessionConfig {
     pub fn with_credentials(mut self, credentials: aws_sdk_s3::config::Credentials) -> Self {
-        let auth_config = CredentialsProviderStaticOptions {
-            access_key_id: credentials.access_key_id(),
-            secret_access_key: credentials.secret_access_key(),
-            session_token: credentials.session_token(),
-        };
-        let credentials_provider = CredentialsProvider::new_static(&Allocator::default(), auth_config).unwrap();
-        self.auth_config = S3ClientAuthConfig::Provider(credentials_provider);
+        self.auth_config = get_crt_client_auth_config(credentials);
         self
     }
 }

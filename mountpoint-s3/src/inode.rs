@@ -31,7 +31,8 @@ use std::time::{Duration, SystemTime};
 use anyhow::anyhow;
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
-use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, MOUNTPOINT_ERROR_CLIENT};
+use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+use mountpoint_s3_client::error_metadata::{ErrorMetadata, ProvideErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3_client::types::{HeadObjectResult, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
@@ -47,7 +48,6 @@ use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::RwLockReadGuard;
 use crate::sync::RwLockWriteGuard;
 use crate::sync::{Arc, RwLock};
-use mountpoint_s3_client::error::{ErrorMetadata, ProvideErrorMetadata};
 
 mod expiry;
 use expiry::Expiry;

@@ -8,11 +8,13 @@ use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
-use mountpoint_s3_client::error::{ErrorMetadata, ProvideErrorMetadata};
+use mountpoint_s3_client::error_metadata::{
+    ErrorMetadata, ProvideErrorMetadata, MOUNTPOINT_ERROR_CLIENT, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT,
+};
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use nix::unistd::{getgid, getuid};
@@ -29,6 +31,11 @@ use test_case::test_case;
 
 mod common;
 use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
+
+#[cfg(feature = "s3_tests")]
+use crate::common::s3::{
+    get_crt_client_auth_config, get_scoped_down_credentials, get_test_bucket_and_prefix, get_test_region,
+};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1487,54 +1494,21 @@ impl Drop for EnvVarGuard {
     }
 }
 
-const LIST_RESPONSE: &str = r#"
-<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
-    <Name>bucket</Name>
-    <Prefix/>
-    <KeyCount>205</KeyCount>
-    <MaxKeys>1000</MaxKeys>
-    <IsTruncated>false</IsTruncated>
-    <Contents>
-        <Key>throttled</Key>
-        <LastModified>2009-10-12T17:50:30.000Z</LastModified>
-        <ETag>"fba9dede5f27731c9771645a39863328"</ETag>
-        <Size>1024</Size>
-        <StorageClass>STANDARD</StorageClass>
-    </Contents>
-</ListBucketResult>
-"#;
-
-const DEFAULT_HEADERS: [(&str, &str); 7] = [
-    ("ETag", "b54357faf0632cce46e942fa68356b38"),
-    ("Date", "Thu, 12 Jan 2023 00:04:21 GMT"),
-    ("Last-Modified", "Tue, 10 Jan 2023 23:39:32 GMT"),
-    ("Accept-Ranges", "bytes"),
-    ("Content-Range", "bytes 0-65535/65536"),
-    ("Content-Type", "binary/octet-stream"),
-    ("Content-Length", "1024"),
-];
-
-fn create_fs_with_mock_s3(endpoint: &str, bucket: &str) -> TestS3Filesystem<S3CrtClient> {
+fn create_fs_with_mock_s3(bucket: &str) -> (TestS3Filesystem<S3CrtClient>, MockServer) {
+    let server = MockServer::start();
+    let endpoint = format!("http://{}", server.address());
     let endpoint = Uri::new_from_str(&Allocator::default(), endpoint).expect("must be a valid uri");
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
-        .addressing_style(AddressingStyle::Path)
+        .addressing_style(AddressingStyle::Path) // mock server responds to path style requests only
         .endpoint(endpoint);
     let client_config = S3ClientConfig::default()
         .endpoint_config(endpoint_config)
         .auth_config(S3ClientAuthConfig::NoSigning);
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
-    make_test_filesystem_with_client(client, bucket, &Default::default(), Default::default())
-}
-
-fn mock_list_server(bucket: &str) -> MockServer {
-    let server = MockServer::start();
-    server.mock(|when, then| {
-        when.method(Method::GET)
-            .path(format!("/{}/", bucket))
-            .query_param("list-type", "2");
-        then.status(200).body(LIST_RESPONSE);
-    });
-    server
+    (
+        make_test_filesystem_with_client(client, bucket, &Default::default(), Default::default()),
+        server,
+    )
 }
 
 fn set_response_headers(mut then: Then, headers: &[(&str, &str)]) -> Then {
@@ -1544,41 +1518,184 @@ fn set_response_headers(mut then: Then, headers: &[(&str, &str)]) -> Then {
     then
 }
 
+#[cfg(feature = "s3_tests")]
 #[tokio::test]
 async fn test_lookup_404_not_an_error() {
-    // TODO (vlaad)
+    let name = "test_lookup_404_not_an_error";
+    let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let client_config = S3ClientConfig::default().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
+    let fs = make_test_filesystem_with_client(
+        client,
+        &bucket,
+        &prefix.parse().expect("prefix must be valid"),
+        Default::default(),
+    );
+    let err = fs
+        .lookup(FUSE_ROOT_INODE, name.as_ref())
+        .await
+        .expect_err("lookup must fail");
+    // ensure inexistent object has a dedicated error code
+    assert_eq!(
+        err.meta().error_code.as_deref(),
+        Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT)
+    );
 }
 
+const DENY_SINGLE_OBJECT_ACCESS_POLICY: &str = r#"{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "MountpointFullObjectAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:AbortMultipartUpload",
+                "s3:DeleteObject"
+            ],
+            "Resource": ["*"]
+        },
+        {
+            "Sid": "DenyForSubpath",
+            "Effect": "Deny",
+            "Action": [
+                "s3:GetObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::__BUCKET__/__KEY__"
+            ]
+        }
+    ]
+}"#;
+
+#[cfg(feature = "s3_tests")]
 #[tokio::test]
 async fn test_lookup_forbidden() {
-    // TODO (vlaad)
-}
+    let name = "test_lookup_forbidden";
+    let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let key = format!("{}{}", prefix, name);
+    let policy = DENY_SINGLE_OBJECT_ACCESS_POLICY
+        .replace("__BUCKET__", &bucket)
+        .replace("__KEY__", &key);
 
-#[tokio::test]
-async fn test_lookup_throttled() {
-    let _ = EnvVarGuard::new("AWS_MAX_ATTEMPTS", "2");
-    let bucket = "bucket";
+    let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
+    let client_config = S3ClientConfig::default()
+        .auth_config(auth_config)
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
 
-    let server = mock_list_server(bucket);
-    let key = "throttled";
-    server.mock(|when, then| {
-        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
-        set_response_headers(then.status(503), &DEFAULT_HEADERS);
-    });
-    let endpoint = format!("http://{}", server.address());
+    // create an empty file
+    client
+        .put_object(&bucket, &key, &Default::default())
+        .await
+        .expect("must be able to create a put object request")
+        .complete()
+        .await
+        .expect("uploading an object must succeeed");
 
-    let fs = create_fs_with_mock_s3(&endpoint, bucket);
+    // try to lookup file with a S3 policy that dissallows that
+    let fs = make_test_filesystem_with_client(
+        client,
+        &bucket,
+        &prefix.parse().expect("prefix must be valid"),
+        Default::default(),
+    );
     let err = fs
-        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .lookup(FUSE_ROOT_INODE, name.as_ref())
         .await
         .expect_err("lookup must fail");
     let metadata = err.meta();
     assert_eq!(
         *metadata,
         ErrorMetadata {
+            http_code: Some(403), // here we assume that HeadObject failes with 403 code
+            s3_error_code: None,
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string())
+        }
+    );
+}
+
+#[test_case(true, false; "head object")]
+#[test_case(false, true; "list object")]
+#[tokio::test]
+async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_throttled: bool) {
+    let _ = EnvVarGuard::new("AWS_MAX_ATTEMPTS", "2"); // retry S3 request 2 times instead of 10
+    let bucket = "bucket";
+    let key = "throttled";
+    let list_503_response = r#"
+    <?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <Error>
+        <Code>SlowDown</Code>
+        <RequestId>765b43b1b388405cb10ac1c510e7b6cd</RequestId>
+        <HostId>00000000000000000000000000000000000/000000000000000000==</HostId>
+    </Error>
+    "#
+    .to_string();
+    let list_ok_response = r#"
+    <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+        <Name>__BUCKET__</Name>
+        <Prefix>__KEY__/</Prefix>
+        <KeyCount>0</KeyCount>
+        <MaxKeys>1000</MaxKeys>
+        <IsTruncated>false</IsTruncated>
+    </ListBucketResult>
+    "#
+    .replace("__KEY__", key)
+    .replace("__BUCKET__", bucket);
+    let head_object_503_headers = [];
+    let head_object_ok_headers = [
+        ("ETag", "71a5b8dcb22444f1b2b899dedc1e4122"),
+        ("Date", "Thu, 12 Jan 2023 00:04:21 GMT"),
+        ("Last-Modified", "Tue, 10 Jan 2023 23:39:32 GMT"),
+        ("Accept-Ranges", "bytes"),
+        ("Content-Range", "bytes 0-65535/65536"),
+        ("Content-Type", "binary/octet-stream"),
+        ("Content-Length", "1024"),
+    ];
+
+    let (fs, server) = create_fs_with_mock_s3(bucket);
+
+    // lookup will issue 2 S3 calls, let's mock them
+    // those are the *assumed* S3 responses, based on: https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
+    let (list_http_code, list_response) = if list_object_throttled {
+        (503, list_503_response)
+    } else {
+        (200, list_ok_response)
+    };
+    let (head_object_http_code, head_object_headers): (u16, &[(&str, &str)]) = if head_object_throttled {
+        (503, &head_object_503_headers)
+    } else {
+        (200, &head_object_ok_headers)
+    };
+    server.mock(|when, then| {
+        when.method(Method::GET)
+            .path(format!("/{}/", bucket))
+            .query_param("list-type", "2")
+            .query_param("prefix", format!("{key}/"));
+        then.status(list_http_code).body(list_response);
+    });
+    server.mock(|when, then| {
+        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
+        set_response_headers(then.status(head_object_http_code), head_object_headers);
+    });
+
+    // perform a lookup
+    let err = fs
+        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .await
+        .expect_err("lookup must fail");
+    println!("{:?}", err);
+    let metadata = err.meta();
+    assert_eq!(
+        *metadata,
+        ErrorMetadata {
             http_code: Some(503),
             s3_error_code: None,
-            error_code: Some("error.client".to_string()),
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),
             s3_object_key: Some(key.to_string())
         }

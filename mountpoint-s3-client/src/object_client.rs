@@ -1,4 +1,4 @@
-use crate::error::{ErrorMetadata, ProvideErrorMetadata};
+use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
