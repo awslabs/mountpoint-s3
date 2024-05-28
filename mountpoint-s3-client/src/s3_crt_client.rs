@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use crate::error::{ErrorMetadata, ProvideErrorMetadata};
+use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };

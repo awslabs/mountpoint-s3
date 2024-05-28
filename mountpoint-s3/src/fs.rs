@@ -14,6 +14,7 @@ use tracing::{debug, error, trace, Level};
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
+use mountpoint_s3_client::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
@@ -694,7 +695,7 @@ where
             .map_err(|err| match err {
                 InodeError::FileDoesNotExist(_, _) => {
                     // Lookup returning ENOENT is common case, and we dont want to warn in case `FileDoesNotExist` within ENOENT
-                    err!(libc::ENOENT, source: err, Level::DEBUG, "file does not exist")
+                    err!(libc::ENOENT, source: err, Level::DEBUG, "file does not exist", metadata: ErrorMetadata{error_code: Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT.to_string()), ..Default::default()})
                 }
                 _ => err.into(),
             })?;
