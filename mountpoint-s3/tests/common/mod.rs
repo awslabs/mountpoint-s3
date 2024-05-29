@@ -8,14 +8,18 @@ pub mod fuse;
 #[cfg(feature = "s3_tests")]
 pub mod s3;
 
+use aws_sdk_s3::config::Credentials;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3::prefetch::{default_prefetch, DefaultPrefetcher};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::collections::VecDeque;
 use std::future::Future;
@@ -99,6 +103,16 @@ pub fn tokio_block_on<F: Future>(future: F) -> F::Output {
         .build()
         .unwrap();
     runtime.block_on(future)
+}
+
+pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfig {
+    let auth_config = CredentialsProviderStaticOptions {
+        access_key_id: credentials.access_key_id(),
+        secret_access_key: credentials.secret_access_key(),
+        session_token: credentials.session_token(),
+    };
+    let credentials_provider = CredentialsProvider::new_static(&Allocator::default(), auth_config).unwrap();
+    S3ClientAuthConfig::Provider(credentials_provider)
 }
 
 /// Enable tracing and CRT logging when running unit tests.

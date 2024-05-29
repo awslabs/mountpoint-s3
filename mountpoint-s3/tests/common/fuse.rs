@@ -14,9 +14,7 @@ use mountpoint_s3_client::types::{ObjectPart, PutObjectParams};
 use mountpoint_s3_client::ObjectClient;
 use tempfile::TempDir;
 
-use crate::common::tokio_block_on;
-
-use super::s3::get_crt_client_auth_config;
+use crate::common::{get_crt_client_auth_config, tokio_block_on};
 
 pub trait TestClient: Send {
     fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
