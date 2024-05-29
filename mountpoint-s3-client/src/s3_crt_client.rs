@@ -621,7 +621,15 @@ impl S3CrtClientInner {
                         }
 
                         // Fill in a generic error if we weren't able to parse one
-                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
+                        let http_code = if request_result.response_status >= 100 {
+                            Some(request_result.response_status)
+                        } else {
+                            None
+                        };
+                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result, Box::new(ErrorMetadata{
+                            http_code,
+                            ..Default::default()
+                        })))))
                     }
                 };
 
@@ -872,7 +880,7 @@ pub enum S3RequestError {
 
     /// The request was sent but an unknown or unhandled failure occurred while processing it.
     #[error("Unknown response error: {0:?}")]
-    ResponseError(MetaRequestResult),
+    ResponseError(MetaRequestResult, Box<ErrorMetadata>),
 
     /// The request was made to the wrong region
     #[error("Wrong region (expecting {0})")]
@@ -905,6 +913,7 @@ impl S3RequestError {
 impl ProvideErrorMetadata for S3RequestError {
     fn meta(&self) -> &ErrorMetadata {
         match self {
+            Self::ResponseError(_, metadata) => metadata,
             Self::Forbidden(_, metadata) => metadata,
             Self::Throttled(metadata) => metadata,
             _ => &ErrorMetadata::EMPTY,
@@ -1000,10 +1009,11 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
                 .and_then(|e| e.get_text())
                 .unwrap_or(error_code_str.clone());
             Some(S3RequestError::Forbidden(
-                message.into_owned(),
+                message.to_string(),
                 Box::new(ErrorMetadata {
                     http_code: Some(request_result.response_status),
                     s3_error_code: Some(error_code_str.to_string()),
+                    s3_error_message: Some(message.into_owned()),
                     ..Default::default()
                 }),
             ))

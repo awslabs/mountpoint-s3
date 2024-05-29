@@ -1604,7 +1604,7 @@ pub enum InodeError {
     #[error("error from ObjectClient")]
     ClientError {
         source: anyhow::Error,
-        metadata: ErrorMetadata,
+        metadata: Box<ErrorMetadata>,
     },
     #[error("file {0:?} does not exist in parent inode {1}")]
     FileDoesNotExist(String, InodeErrorInfo),
@@ -1661,6 +1661,7 @@ impl InodeError {
         metadata.error_code = Some(error_code.to_string());
         metadata.s3_bucket_name = Some(bucket.to_string());
         metadata.s3_object_key = Some(key.to_string());
+        let metadata = Box::new(metadata);
         let err = if let Some(context) = context {
             anyhow!(err).context(context)
         } else {
