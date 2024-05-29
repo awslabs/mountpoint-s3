@@ -5,6 +5,8 @@ on:
     branches: [ "main", "wf-changes/**" ]
   merge_group:
     types: [ "checks_requested" ]
+  schedule:
+    - cron: "0 * * * *"
 
 permissions:
   id-token: write
@@ -15,4 +17,4 @@ jobs:
     name: Integration
     uses: ./.github/workflows/integration.yml
     with:
-      ref: ${{ github.event.after }}
+      ref: ${{ github.sha }}
