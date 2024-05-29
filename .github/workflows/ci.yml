@@ -15,16 +15,15 @@ jobs:
         features: [ '', 'abi-7-19' ]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install packages
         run: |
           sudo apt update
           sudo apt install -y ${{ matrix.libfuse }} build-essential
 
-      - uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: x86_64-unknown-linux-musl
-          default: true
 
       - name: Run tests
         run: |
@@ -35,35 +34,32 @@ jobs:
           cargo doc --all --no-deps --features=${{ matrix.features }}
   ci:
     runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        test_group: [pre, mount_tests, pjdfs_tests, xfstests]
-
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache
-        id: rust-cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml', '.github/workflows/*.yml', 'rust-toolchain') }}
+      - uses: actions/checkout@v4
       - name: Install packages
         run: |
           sudo apt update
           sudo apt install -y libfuse-dev libfuse3-dev build-essential
 
-      - uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-          default: true
 
-      - name: Install cargo-deny
-        run: cargo install --force --version 0.14.3 cargo-deny --locked
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.14
+
+      - name: Run tests
+        run: INTERACTIVE="" make pre
+
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        test_group: [mount_tests, pjdfs_tests, xfstests]
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Run tests
         run: INTERACTIVE="" make ${{ matrix.test_group }}
