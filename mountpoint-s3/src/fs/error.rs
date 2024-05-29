@@ -35,7 +35,7 @@ use crate::upload::UploadWriteError;
 #[macro_export]
 macro_rules! err {
     // Base case -- don't use directly
-    ($errno:expr, __source:$source:expr, $level:expr, $message:literal, $metadata:expr, $($args:tt)*) => {
+    ($errno:expr, __source:$source:expr, $level:expr, $metadata:expr, $message:literal, $($args:tt)*) => {
         Error {
             errno: $errno,
             message: format!($message, $($args)*),
@@ -45,27 +45,27 @@ macro_rules! err {
         }
     };
     // Actual cases
-    ($errno:expr, source:$source:expr, $level:expr, $message:literal, metadata:$metadata:expr) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $message, $metadata, )
+    ($errno:expr, source:$source:expr, $level:expr, metadata:$metadata:expr, $message:literal) => {
+        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $metadata, $message, )
     };
-    // TODO (vlaad): metadata (even default) must be passed by the caller of err! macro
+    // For the following cases we construct an error with empty metadata
     ($errno:expr, source:$source:expr, $level:expr, $message:literal, $($args:tt)*) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $message, Default::default(), $($args)*)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, Default::default(), $message, $($args)*)
     };
     ($errno:expr, source:$source:expr, $level:expr, $message:literal) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $message, Default::default(),)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, Default::default(), $message,)
     };
     ($errno:expr, source:$source:expr, $message:literal, $($args:tt)*) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, $message, Default::default(), $($args)*)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, Default::default(), $message, $($args)*)
     };
     ($errno:expr, source:$source:expr, $message:literal) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, $message, Default::default(),)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, Default::default(), $message,)
     };
     ($errno:expr, $message:literal, $($args:tt)*) => {
-        err!($errno, __source:None, ::tracing::Level::WARN, $message, Default::default(), $($args)*)
+        err!($errno, __source:None, ::tracing::Level::WARN, Default::default(), $message, $($args)*)
     };
     ($errno:expr, $message:literal) => {
-        err!($errno, __source:None, ::tracing::Level::WARN, $message, Default::default(),)
+        err!($errno, __source:None, ::tracing::Level::WARN, Default::default(), $message,)
     };
 }
 
