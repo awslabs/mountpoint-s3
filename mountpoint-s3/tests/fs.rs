@@ -8,13 +8,15 @@ use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
-use mountpoint_s3_client::error_metadata::{
-    ErrorMetadata, ProvideErrorMetadata, MOUNTPOINT_ERROR_CLIENT, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT,
-};
+#[cfg(feature = "s3_tests")]
+use mountpoint_s3_client::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
+use mountpoint_s3_client::error_metadata::{ErrorMetadata, ProvideErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient};
+#[cfg(feature = "s3_tests")]
+use mountpoint_s3_client::PutObjectRequest;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::uri::Uri;
 use nix::unistd::{getgid, getuid};
@@ -30,12 +32,12 @@ use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
+#[cfg(feature = "s3_tests")]
+use common::get_crt_client_auth_config;
 use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
 
 #[cfg(feature = "s3_tests")]
-use crate::common::s3::{
-    get_crt_client_auth_config, get_scoped_down_credentials, get_test_bucket_and_prefix, get_test_region,
-};
+use crate::common::s3::{get_scoped_down_credentials, get_test_bucket_and_prefix, get_test_region};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1542,6 +1544,7 @@ async fn test_lookup_404_not_an_error() {
     );
 }
 
+#[cfg(feature = "s3_tests")]
 const DENY_SINGLE_OBJECT_ACCESS_POLICY: &str = r#"{
     "Version": "2012-10-17",
     "Statement": [

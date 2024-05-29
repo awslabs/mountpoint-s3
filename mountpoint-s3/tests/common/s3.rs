@@ -1,11 +1,6 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_sts::config::Credentials;
-use mountpoint_s3_client::config::S3ClientAuthConfig;
-use mountpoint_s3_crt::{
-    auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions},
-    common::allocator::Allocator,
-};
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
 
@@ -124,14 +119,4 @@ pub async fn get_scoped_down_credentials(policy: &str) -> Credentials {
     );
     mask_aws_creds_if_on_gha(&credentials);
     credentials
-}
-
-pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfig {
-    let auth_config = CredentialsProviderStaticOptions {
-        access_key_id: credentials.access_key_id(),
-        secret_access_key: credentials.secret_access_key(),
-        session_token: credentials.session_token(),
-    };
-    let credentials_provider = CredentialsProvider::new_static(&Allocator::default(), auth_config).unwrap();
-    S3ClientAuthConfig::Provider(credentials_provider)
 }
