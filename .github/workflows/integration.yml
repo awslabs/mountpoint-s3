@@ -81,6 +81,9 @@ jobs:
       run: cargo test --features $RUST_FEATURES --no-run
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
+    - name: Save dump files
+      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      run: aws s3 cp /var/lib/systemd/coredump/ s3://${{ env.S3_BUCKET_NAME }}/${{ env.S3_BUCKET_TEST_PREFIX }}coredump/ --recursive --exclude "*" --include "core.mountpoint_s3*"
 
   s3express-test:
     name: S3 Express One Zone tests (${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
@@ -126,6 +129,9 @@ jobs:
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests' --no-run
     - name: Run tests
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests'
+    - name: Save dump files
+      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      run: aws s3 cp /var/lib/systemd/coredump/ s3://${{ env.S3_EXPRESS_ONE_ZONE_BUCKET_NAME }}/${{ env.S3_BUCKET_TEST_PREFIX }}coredump/ --recursive --exclude "*" --include "core.mountpoint_s3*"
 
   asan:
     name: Address sanitizer
@@ -163,3 +169,6 @@ jobs:
       run: make test-asan-working
     - name: Run tests
       run: make test-asan
+    - name: Save dump files
+      if: ${{ failure() }}
+      run: aws s3 cp /var/lib/systemd/coredump/ s3://${{ env.S3_BUCKET_NAME }}/${{ env.S3_BUCKET_TEST_PREFIX }}coredump/ --recursive --exclude "*" --include "core.mountpoint_s3*"
