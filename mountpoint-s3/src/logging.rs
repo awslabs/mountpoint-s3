@@ -18,6 +18,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, Registry};
 
+pub mod event_log;
 mod syslog;
 use self::syslog::SyslogLayer;
 
