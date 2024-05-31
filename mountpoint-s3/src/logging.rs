@@ -1,5 +1,5 @@
 use std::backtrace::Backtrace;
-use std::fs::{DirBuilder, OpenOptions};
+use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicInfo};
@@ -32,6 +32,8 @@ pub struct LoggingConfig {
     /// The default filter directive (in the sense of [tracing_subscriber::filter::EnvFilter]) to
     /// use for logs. Will be overridden by the `MOUNTPOINT_LOG` environment variable if set.
     pub default_filter: String,
+    /// Enable structured event logging for failed fuse operations
+    pub emit_events: bool,
 }
 
 /// Set up all our logging infrastructure.
@@ -77,6 +79,23 @@ fn install_panic_hook() {
     }))
 }
 
+fn create_log_file(dir_path: &PathBuf, file_name_format: &[FormatItem<'static>]) -> anyhow::Result<File> {
+    let filename = OffsetDateTime::now_utc()
+        .format(file_name_format)
+        .context("couldn't format log file name")?;
+
+    // log directories and files created by Mountpoint should not be accessible by other users
+    let mut dir_builder = DirBuilder::new();
+    dir_builder.recursive(true).mode(0o750);
+    let mut file_options = OpenOptions::new();
+    file_options.mode(0o640).append(true).create(true);
+
+    dir_builder.create(dir_path).context("failed to create log folder")?;
+    file_options
+        .open(dir_path.join(filename))
+        .context("failed to create log file")
+}
+
 fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     /// Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
     /// if that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
@@ -96,25 +115,33 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     let file_layer = if let Some(path) = &config.log_directory {
         const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
             macros::format_description!("mountpoint-s3-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
-        let filename = OffsetDateTime::now_utc()
-            .format(LOG_FILE_NAME_FORMAT)
-            .context("couldn't format log file name")?;
 
-        // log directories and files created by Mountpoint should not be accessible by other users
-        let mut dir_builder = DirBuilder::new();
-        dir_builder.recursive(true).mode(0o750);
-        let mut file_options = OpenOptions::new();
-        file_options.mode(0o640).append(true).create(true);
-
-        dir_builder.create(path).context("failed to create log folder")?;
-        let file = file_options
-            .open(path.join(filename))
-            .context("failed to create log file")?;
-
+        let file = create_log_file(path, LOG_FILE_NAME_FORMAT)?;
         let file_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
             .with_writer(file)
             .with_filter(env_filter);
+        Some(file_layer)
+    } else {
+        None
+    };
+
+    let event_log_layer = if config.log_directory.is_some() && config.emit_events {
+        let path = config.log_directory.as_ref().unwrap();
+        const EVENT_LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
+            macros::format_description!("mountpoint-s3-event-log-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
+
+        let file = create_log_file(path, EVENT_LOG_FILE_NAME_FORMAT)?;
+        // keeps only the logs containing the `error_code` field, emitted from a `event_log` module
+        let event_log_filter = EnvFilter::new("mountpoint_s3::logging::event_log[{error_code}]");
+        let file_layer = tracing_subscriber::fmt::layer()
+            .json()
+            .flatten_event(true)
+            .with_current_span(false)
+            .with_span_list(false)
+            .with_ansi(false)
+            .with_writer(file)
+            .with_filter(event_log_filter);
         Some(file_layer)
     } else {
         None
@@ -143,6 +170,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         .with(syslog_layer)
         .with(console_layer)
         .with(file_layer)
+        .with(event_log_layer)
         .with(metrics_tracing_span_layer());
 
     registry.init();

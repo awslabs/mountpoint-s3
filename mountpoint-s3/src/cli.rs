@@ -227,13 +227,27 @@ pub struct CliArgs {
     #[clap(long, help = "Enable debug logging for AWS Common Runtime", help_heading = LOGGING_OPTIONS_HEADER)]
     pub debug_crt: bool,
 
+    #[cfg(feature = "event_log")]
+    #[clap(long, help = "Enable structured event logging for failed fuse operations", help_heading = LOGGING_OPTIONS_HEADER, requires = "log_directory")]
+    pub emit_events: bool,
+
+    #[cfg(feature = "event_log")]
     #[clap(
         long,
         help = "Disable all logging. You will still see stdout messages.",
         help_heading = LOGGING_OPTIONS_HEADER,
-        conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
+        conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics", "emit_events"])
     )]
     pub no_log: bool,
+
+    #[cfg(not(feature = "event_log"))]
+    #[clap(
+        long,
+        help = "Disable all logging. You will still see stdout messages.",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"]),
+    )]
+    pub no_log: bool, // NOTE: this CLI flag is defined 2 times because of the conditional compilation
 
     #[clap(
         long,
@@ -371,10 +385,14 @@ impl CliArgs {
             filter
         };
 
+        let _emit_events = false;
+        #[cfg(feature = "event_log")]
+        let _emit_events = self.emit_events;
         LoggingConfig {
             log_directory: self.log_directory.clone(),
             log_to_stdout: self.foreground,
             default_filter,
+            emit_events: _emit_events,
         }
     }
 

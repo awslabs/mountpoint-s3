@@ -20,6 +20,8 @@ use std::{path::PathBuf, process::Command};
 use tempfile::NamedTempFile;
 use test_case::test_case;
 
+#[cfg(all(feature = "event_log", not(feature = "s3express_tests")))]
+use crate::common::deny_single_object_access_policy;
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
     create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
@@ -28,6 +30,9 @@ use crate::common::s3::{
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::{get_non_test_region, get_scoped_down_credentials, get_test_kms_key_id};
 use crate::common::tokio_block_on;
+
+#[cfg(all(feature = "event_log", not(feature = "s3express_tests")))]
+use mountpoint_s3_client::error_metadata::MOUNTPOINT_ERROR_CLIENT;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -458,6 +463,15 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(feature = "s3express_tests"))]
+fn set_credentials(cmd: &mut Command, credentials: aws_sdk_s3::config::Credentials) {
+    cmd.env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
+    if let Some(token) = credentials.session_token() {
+        cmd.env("AWS_SESSION_TOKEN", token);
+    }
+}
+
+#[cfg(not(feature = "s3express_tests"))]
 fn mount_with_sse(
     bucket: &str,
     mount_point: &Path,
@@ -477,11 +491,7 @@ fn mount_with_sse(
         .arg("--auto-unmount")
         .arg("--foreground");
     if let Some(credentials) = credentials {
-        cmd.env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-            .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-        if let Some(token) = credentials.session_token() {
-            cmd.env("AWS_SESSION_TOKEN", token);
-        }
+        set_credentials(&mut cmd, credentials);
     }
     let child = cmd.spawn().expect("unable to spawn child");
     wait_for_mount("mountpoint-s3", mount_point.to_str().unwrap());
@@ -805,6 +815,88 @@ fn read_with_no_permissions_for_a_key_sse() {
     let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read failed: get request failed: get object request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
+}
+
+#[cfg(all(feature = "event_log", not(feature = "s3express_tests")))]
+fn locate_event_log(log_dir: &str) -> String {
+    let read_dir_iter = fs::read_dir(log_dir).unwrap();
+    let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
+    let file_name = dir_entry_names
+        .iter()
+        .find(|name| name.contains("event-log"))
+        .expect("event log must exist");
+    format!("{}/{}", log_dir, file_name)
+}
+
+#[cfg(all(feature = "event_log", not(feature = "s3express_tests")))]
+#[derive(serde::Deserialize)]
+struct Event {
+    operation: String,
+    fuse_request_id: u64,
+    error_code: String,
+    errno: u32,
+    internal_message: String,
+    s3_object_key: String,
+    s3_bucket_name: String,
+    s3_error_http_status: u32,
+    timestamp: String,
+    version: String,
+}
+
+#[cfg(all(feature = "event_log", not(feature = "s3express_tests")))]
+#[test]
+fn forbidden_event_is_written_to_log() {
+    let name = "forbidden_event_is_written_to_log";
+    let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let region = get_test_region();
+
+    create_objects(&bucket, &prefix, &region, name, &[0; 1024]);
+
+    // mount a bucket
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+    let log_directory = assert_fs::TempDir::new().expect("can not create a log dir");
+    let mut cmd = Command::cargo_bin("mount-s3").expect("mount-s3 binary must exist");
+    let key = format!("{prefix}{name}");
+    let credentials = tokio_block_on(get_scoped_down_credentials(&deny_single_object_access_policy(
+        &bucket, &key,
+    )));
+    set_credentials(&mut cmd, credentials);
+    let child = cmd
+        .arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"))
+        .arg("--emit-events")
+        .arg(format!("--log-directory={}", log_directory.path().display()))
+        .spawn()
+        .expect("unable to spawn child");
+
+    // verify mount status and mount entry
+    let exit_status = wait_for_exit(child);
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    // call for a read on a forbidden object
+    std::fs::read_to_string(mount_point.path().join(name)).expect_err("read must fail");
+
+    // check the event log
+    unmount(mount_point.path());
+    let event_log_path = locate_event_log(log_directory.path().to_str().expect("path must be a valid unicode"));
+    let event_log = std::fs::read_to_string(event_log_path).expect("event log must exist");
+    let event: Event = serde_json::from_str(&event_log).expect("must be able to parse an event");
+    let object_key_pattern = regex::Regex::new(&format!("^mountpoint-test/{name}/[0-9]*/{name}$")).unwrap();
+    assert_eq!(event.operation, "lookup");
+    assert!(event.fuse_request_id > 0);
+    assert_eq!(event.error_code, MOUNTPOINT_ERROR_CLIENT);
+    assert_eq!(event.errno, 5);
+    assert!(!event.internal_message.is_empty());
+    assert!(object_key_pattern.is_match(&event.s3_object_key));
+    assert_eq!(event.s3_bucket_name, bucket);
+    assert_eq!(event.s3_error_http_status, 403);
+    // s3_error_code and s3_error_message are not present for a failed HeadObject
+    assert!(!event.timestamp.is_empty());
+    assert_eq!(event.version, "1");
 }
 
 fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathBuf) {
