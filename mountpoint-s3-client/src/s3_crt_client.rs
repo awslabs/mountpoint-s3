@@ -303,6 +303,21 @@ impl S3CrtClientInner {
             None,
             None,
         );
+
+        let endpoint_config = match endpoint_config.get_endpoint() {
+            None => {
+                // No explicit endpoint was configured, let's try the environment variable
+                if let Ok(aws_endpoint_url) = std::env::var("AWS_ENDPOINT_URL") {
+                    debug!("using AWS_ENDPOINT_URL {}", aws_endpoint_url);
+                    let env_uri = Uri::new_from_str(&allocator, &aws_endpoint_url).unwrap();
+                    endpoint_config.endpoint(env_uri)
+                } else {
+                    endpoint_config
+                }
+            }
+            Some(_) => endpoint_config,
+        };
+
         client_config.express_support(true);
         client_config.signing_config(signing_config);
 
@@ -1153,6 +1168,63 @@ mod tests {
         assert!(user_agent_header_value
             .to_string_lossy()
             .starts_with(expected_user_agent));
+    }
+
+    #[test]
+    fn test_endpoint_favors_parameter_over_env_variable() {
+        let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();
+        let endpoint_config = EndpointConfig::new("region-place-holder").endpoint(endpoint_uri);
+        temp_env::with_var("AWS_ENDPOINT_URL", Some("https://s3.us-east-1.amazonaws.com"), || {
+            // even though we set the environment variable, the parameter takes precedence
+            assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
+        });
+    }
+
+    #[test]
+    fn test_endpoint_favors_env_variable() {
+        let endpoint_config = EndpointConfig::new("us-east-1");
+        temp_env::with_var("AWS_ENDPOINT_URL", Some("https://s3.eu-west-1.amazonaws.com"), || {
+            assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
+        });
+    }
+
+    #[test]
+    fn test_endpoint_with_invalid_env_variable() {
+        let endpoint_config = EndpointConfig::new("us-east-1");
+        temp_env::with_var("AWS_ENDPOINT_URL", Some("not-a-url"), || {
+            let config = S3ClientConfig {
+                endpoint_config,
+                ..Default::default()
+            };
+
+            let client = S3CrtClient::new(config).expect("create test client");
+
+            let result = client.inner.new_request_template("GET", "");
+            let Err(ConstructionError::InvalidEndpoint(..)) = result else {
+                panic!("wrong result, got: {:?}", result);
+            };
+        });
+    }
+
+    fn assert_expected_host(expected_host: &str, endpoint_config: EndpointConfig) {
+        let config = S3ClientConfig {
+            endpoint_config,
+            ..Default::default()
+        };
+
+        let client = S3CrtClient::new(config).expect("create test client");
+
+        let mut message = client
+            .inner
+            .new_request_template("GET", "")
+            .expect("new request template expected");
+
+        let headers = message.inner.get_headers().expect("expected a block of HTTP headers");
+
+        let user_agent_header = headers.get("Host").expect("Host header expected");
+        let user_agent_header_value = user_agent_header.value();
+
+        assert_eq!(user_agent_header_value.to_string_lossy(), expected_host);
     }
 
     /// Simple test to ensure the user agent header is correct even when prefix is not added
