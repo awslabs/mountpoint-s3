@@ -3,7 +3,7 @@
 bucket_name=$S3_BUCKET_NAME
 bucket_prefix=$S3_BUCKET_TEST_PREFIX
 coredump_path=/var/lib/systemd/coredump/
-coredump_pattern=core.mountpoint_s3*
+coredump_pattern=core.*
 
 # upload core dump files to S3
 aws s3 cp ${coredump_path} s3://${bucket_name}/${bucket_prefix}coredump/ --recursive --exclude "*" --include "${coredump_pattern}"
