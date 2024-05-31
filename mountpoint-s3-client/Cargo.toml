@@ -26,7 +26,6 @@ platform-info = "2.0.2"
 regex = "1.7.1"
 serde_json = "1.0.104"
 static_assertions = "1.1.0"
-temp-env = "0.3.6"
 thiserror = "1.0.34"
 time = { version = "0.3.17", features = ["formatting", "parsing"] }
 tracing = { version = "0.1.35", default-features = false, features = ["std", "log"] }

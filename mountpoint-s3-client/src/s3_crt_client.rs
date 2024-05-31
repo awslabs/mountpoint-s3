@@ -1102,6 +1102,7 @@ impl ObjectClient for S3CrtClient {
 #[cfg(test)]
 mod tests {
     use mountpoint_s3_crt::common::error::Error;
+    use rusty_fork::rusty_fork_test;
     use std::assert_eq;
 
     use super::*;
@@ -1170,42 +1171,6 @@ mod tests {
             .starts_with(expected_user_agent));
     }
 
-    #[test]
-    fn test_endpoint_favors_parameter_over_env_variable() {
-        let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();
-        let endpoint_config = EndpointConfig::new("region-place-holder").endpoint(endpoint_uri);
-        temp_env::with_var("AWS_ENDPOINT_URL", Some("https://s3.us-east-1.amazonaws.com"), || {
-            // even though we set the environment variable, the parameter takes precedence
-            assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
-        });
-    }
-
-    #[test]
-    fn test_endpoint_favors_env_variable() {
-        let endpoint_config = EndpointConfig::new("us-east-1");
-        temp_env::with_var("AWS_ENDPOINT_URL", Some("https://s3.eu-west-1.amazonaws.com"), || {
-            assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
-        });
-    }
-
-    #[test]
-    fn test_endpoint_with_invalid_env_variable() {
-        let endpoint_config = EndpointConfig::new("us-east-1");
-        temp_env::with_var("AWS_ENDPOINT_URL", Some("not-a-url"), || {
-            let config = S3ClientConfig {
-                endpoint_config,
-                ..Default::default()
-            };
-
-            let client = S3CrtClient::new(config).expect("create test client");
-
-            let result = client.inner.new_request_template("GET", "");
-            let Err(ConstructionError::InvalidEndpoint(..)) = result else {
-                panic!("wrong result, got: {:?}", result);
-            };
-        });
-    }
-
     fn assert_expected_host(expected_host: &str, endpoint_config: EndpointConfig) {
         let config = S3ClientConfig {
             endpoint_config,
@@ -1225,6 +1190,43 @@ mod tests {
         let user_agent_header_value = user_agent_header.value();
 
         assert_eq!(user_agent_header_value.to_string_lossy(), expected_host);
+    }
+
+    // run with ruty_fork to avoid issues with other tests and their env variables.
+    rusty_fork_test! {
+        #[test]
+        fn test_endpoint_favors_parameter_over_env_variable() {
+            let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();
+            let endpoint_config = EndpointConfig::new("region-place-holder").endpoint(endpoint_uri);
+            std::env::set_var("AWS_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com");
+                // even though we set the environment variable, the parameter takes precedence
+                assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
+        }
+
+        #[test]
+        fn test_endpoint_favors_env_variable() {
+            let endpoint_config = EndpointConfig::new("us-east-1");
+
+            std::env::set_var("AWS_ENDPOINT_URL", "https://s3.eu-west-1.amazonaws.com");
+                assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
+        }
+
+        #[test]
+        fn test_endpoint_with_invalid_env_variable() {
+            let endpoint_config = EndpointConfig::new("us-east-1");
+            std::env::set_var("AWS_ENDPOINT_URL", "not-a-url");
+                let config = S3ClientConfig {
+                    endpoint_config,
+                    ..Default::default()
+                };
+
+                let client = S3CrtClient::new(config).expect("create test client");
+
+                let result = client.inner.new_request_template("GET", "");
+                let Err(ConstructionError::InvalidEndpoint(..)) = result else {
+                    panic!("wrong result, got: {:?}", result);
+                };
+        }
     }
 
     /// Simple test to ensure the user agent header is correct even when prefix is not added
