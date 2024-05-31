@@ -1,5 +1,7 @@
 ## Unreleased changes
 
+* Adding support for `AWS_ENDPOINT_URL` environment variable.
+
 ### Breaking changes
 
 * The `trailing_checksums` field of `PutObjectParams` is now an enum, with a new `ReviewOnly` option that allows disabling sending additional checksum headers to S3 while still computing them for use by `UploadReview` callbacks. ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
