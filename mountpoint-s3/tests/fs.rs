@@ -14,7 +14,7 @@ use mountpoint_s3_client::error_metadata::{ErrorMetadata, ProvideErrorMetadata, 
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
-#[cfg(feature = "s3_tests")]
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
@@ -32,12 +32,12 @@ use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
-#[cfg(feature = "s3_tests")]
-use common::get_crt_client_auth_config;
 use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use common::{deny_single_object_access_policy, get_crt_client_auth_config, s3::get_scoped_down_credentials};
 
 #[cfg(feature = "s3_tests")]
-use crate::common::s3::{get_scoped_down_credentials, get_test_bucket_and_prefix, get_test_region};
+use crate::common::s3::{get_test_bucket_and_prefix, get_test_region};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1544,44 +1544,17 @@ async fn test_lookup_404_not_an_error() {
     );
 }
 
-#[cfg(feature = "s3_tests")]
-const DENY_SINGLE_OBJECT_ACCESS_POLICY: &str = r#"{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "MountpointFullObjectAccess",
-            "Effect": "Allow",
-            "Action": [
-                "s3:ListBucket",
-                "s3:GetObject",
-                "s3:PutObject",
-                "s3:AbortMultipartUpload",
-                "s3:DeleteObject"
-            ],
-            "Resource": ["*"]
-        },
-        {
-            "Sid": "DenyForSubpath",
-            "Effect": "Deny",
-            "Action": [
-                "s3:GetObject"
-            ],
-            "Resource": [
-                "arn:aws:s3:::__BUCKET__/__KEY__"
-            ]
-        }
-    ]
-}"#;
-
-#[cfg(feature = "s3_tests")]
+// For S3 Express issues with permissions will in most cases be observed before the mount as it uses
+// a single `s3express:CreateSession` action to grant access to ListObjectsV2 and all other operations.
+// We perform ListObjectsV2 before the mount, which ensures that all further calls to S3 will be allowed
+// unless a policy was modified while Mountpoint is running. We will test mount errors separately.
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 #[tokio::test]
 async fn test_lookup_forbidden() {
     let name = "test_lookup_forbidden";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
     let key = format!("{}{}", prefix, name);
-    let policy = DENY_SINGLE_OBJECT_ACCESS_POLICY
-        .replace("__BUCKET__", &bucket)
-        .replace("__KEY__", &key);
+    let policy = deny_single_object_access_policy(&bucket, &key);
 
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
