@@ -7,6 +7,12 @@ on:
     types: [ "checks_requested" ]
   schedule:
     - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git reference or commit hash to run the workflow against."
+        required: false
+        type: string
 
 permissions:
   id-token: write
