@@ -179,6 +179,23 @@ In this case, it is expected that Mountpoint will no longer show the directory o
 
 For more details on how Mountpoint maps S3 object keys to files and directories, see the [semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#mapping-s3-object-keys-to-files-and-directories).
 
+## Slow metadata operations
+
+If you're seeing slower performance than expected for things like opening files or reading file attributes, there are some actions that can be taken to mitigate this.
+
+Mountpoint supports Linux file system operations using FUSE.
+To communicate with Mountpoint, the Linux kernel refers to files and directories using inode numbers and sends many requests with reference to the parent directory.
+As an example, opening file `a/c.txt` will cause the kernel to lookup `a`, then lookup `c.txt` within `a`, and then finally open `c.txt`.
+The deeper the file system structure, the more lookups incurred.
+Each lookup may incur requests to S3.
+
+There are two recommendations for this scenario:
+
+- Use `--prefix <PREFIX>` to reduce the depth of the file system structure.
+  For example, if all files to be accessed are in `a/b/` then use `--prefix a/b/` to avoid any lookups to those two parts of the path.
+- If your bucket content isn't expected to change or your application can tolerate stale file system content, leverage metadata caching which allows lookups to be cached.
+  Learn more in our [configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#caching-configuration).
+
 ## Slower throughput than expected
 
 If you're seeing slower throughput than expected (i.e. significantly slower than the network bandwidth for an EC2 instance type), there may be a few areas to investigate.
