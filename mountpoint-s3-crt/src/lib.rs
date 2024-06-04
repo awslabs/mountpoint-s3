@@ -138,6 +138,12 @@ mod test {
         tracing_subscriber::fmt::init();
     }
 
+    #[ctor::ctor]
+    fn init_crt() {
+        crate::io::io_library_init(&crate::common::allocator::Allocator::default());
+        crate::s3::s3_library_init(&crate::common::allocator::Allocator::default());
+    }
+
     /// Validate that ASan is working across both Rust and the CRT by intentionally provoking a
     /// use-after-free that crosses the boundary: the allocation is created and freed by Rust, but
     /// accessed by the CRT. Ignored by default, and run only by ASan in CI.

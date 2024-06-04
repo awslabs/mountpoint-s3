@@ -15,7 +15,7 @@ pub mod retry_strategy;
 static IO_LIBRARY_INIT: Once = Once::new();
 
 /// Set up the aws-c-io library using the given allocator.
-fn io_library_init(allocator: &Allocator) {
+pub fn io_library_init(allocator: &Allocator) {
     IO_LIBRARY_INIT.call_once(|| {
         // Safety: the CRT ensures this call happens only once.
         unsafe {
