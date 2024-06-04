@@ -37,8 +37,8 @@ use tracing::{debug, error, trace, Span};
 
 use self::get_object::S3GetObjectRequest;
 use self::put_object::S3PutObjectRequest;
-use crate::endpoint_config::EndpointConfig;
 use crate::endpoint_config::EndpointError;
+use crate::endpoint_config::{self, EndpointConfig};
 use crate::object_client::*;
 use crate::user_agent::UserAgent;
 
@@ -309,7 +309,8 @@ impl S3CrtClientInner {
                 // No explicit endpoint was configured, let's try the environment variable
                 if let Ok(aws_endpoint_url) = std::env::var("AWS_ENDPOINT_URL") {
                     debug!("using AWS_ENDPOINT_URL {}", aws_endpoint_url);
-                    let env_uri = Uri::new_from_str(&allocator, &aws_endpoint_url).unwrap();
+                    let env_uri = Uri::new_from_str(&allocator, &aws_endpoint_url)
+                        .map_err(|e| EndpointError::InvalidUri(endpoint_config::InvalidUriError::CouldNotParse(e)))?;
                     endpoint_config.endpoint(env_uri)
                 } else {
                     endpoint_config
@@ -1186,10 +1187,10 @@ mod tests {
 
         let headers = message.inner.get_headers().expect("expected a block of HTTP headers");
 
-        let user_agent_header = headers.get("Host").expect("Host header expected");
-        let user_agent_header_value = user_agent_header.value();
+        let host_header = headers.get("Host").expect("Host header expected");
+        let host_header_value = host_header.value();
 
-        assert_eq!(user_agent_header_value.to_string_lossy(), expected_host);
+        assert_eq!(host_header_value.to_string_lossy(), expected_host);
     }
 
     // run with ruty_fork to avoid issues with other tests and their env variables.
@@ -1199,34 +1200,33 @@ mod tests {
             let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();
             let endpoint_config = EndpointConfig::new("region-place-holder").endpoint(endpoint_uri);
             std::env::set_var("AWS_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com");
-                // even though we set the environment variable, the parameter takes precedence
-                assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
+            // even though we set the environment variable, the parameter takes precedence
+            assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
         }
 
         #[test]
         fn test_endpoint_favors_env_variable() {
             let endpoint_config = EndpointConfig::new("us-east-1");
-
             std::env::set_var("AWS_ENDPOINT_URL", "https://s3.eu-west-1.amazonaws.com");
-                assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
+            assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
         }
 
         #[test]
         fn test_endpoint_with_invalid_env_variable() {
             let endpoint_config = EndpointConfig::new("us-east-1");
-            std::env::set_var("AWS_ENDPOINT_URL", "not-a-url");
-                let config = S3ClientConfig {
-                    endpoint_config,
-                    ..Default::default()
-                };
+            std::env::set_var("AWS_ENDPOINT_URL", "htp:/bad:url");
+            let config = S3ClientConfig {
+                endpoint_config,
+                ..Default::default()
+            };
 
-                let client = S3CrtClient::new(config).expect("create test client");
-
-                let result = client.inner.new_request_template("GET", "");
-                let Err(ConstructionError::InvalidEndpoint(..)) = result else {
-                    panic!("wrong result, got: {:?}", result);
-                };
+            let client = S3CrtClient::new(config);
+            match client {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => assert_eq!(e.to_string().to_lowercase(), "invalid s3 endpoint"),
+            }
         }
+
     }
 
     /// Simple test to ensure the user agent header is correct even when prefix is not added

@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Adding support for `AWS_ENDPOINT_URL` environment variable.
+
 ### New features
 * Metadata caching can now be configured independently of data caching. When passing the `--metadata-ttl <seconds>` argument without also specifying `--cache <directory>`, Mountpoint will cache file metadata in memory for up to the given TTL, but will not cache object data. The `--metadata-ttl` argument also accepts two special values: `minimal` to enable only the minimal necessary caching, and `indefinite` to cache indefinitely. These modes can help accelerate workloads that touch many files but do not need to cache object data for re-use (for example, listing a directory and then reading each file within it once). ([#855](https://github.com/awslabs/mountpoint-s3/pull/855))
 
