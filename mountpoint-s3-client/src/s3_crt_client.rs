@@ -1193,7 +1193,7 @@ mod tests {
         assert_eq!(host_header_value.to_string_lossy(), expected_host);
     }
 
-    // run with ruty_fork to avoid issues with other tests and their env variables.
+    // run with rusty_fork to avoid issues with other tests and their env variables.
     rusty_fork_test! {
         #[test]
         fn test_endpoint_favors_parameter_over_env_variable() {

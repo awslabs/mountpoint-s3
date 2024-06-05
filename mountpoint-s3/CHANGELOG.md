@@ -1,7 +1,5 @@
 ## Unreleased
 
-* Adding support for `AWS_ENDPOINT_URL` environment variable.
-
 ### New features
 * Metadata caching can now be configured independently of data caching. When passing the `--metadata-ttl <seconds>` argument without also specifying `--cache <directory>`, Mountpoint will cache file metadata in memory for up to the given TTL, but will not cache object data. The `--metadata-ttl` argument also accepts two special values: `minimal` to enable only the minimal necessary caching, and `indefinite` to cache indefinitely. These modes can help accelerate workloads that touch many files but do not need to cache object data for re-use (for example, listing a directory and then reading each file within it once). ([#855](https://github.com/awslabs/mountpoint-s3/pull/855))
 
@@ -11,6 +9,7 @@
 
 ### Other changes
 * The checksum algorithm to use for uploads to S3 can now be chosen with the `--upload-checksums <ALGORITHM>` command-line argument. The only supported values in this release are `crc32c` (the default, and the existing behavior) and `off`, which disables including checksums in uploads. The `off` value allows uploads to S3 implementations that do not support [additional checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/). This option defaults to `off` when the bucket name is an S3 on Outposts bucket access point (either an ARN or a bucket alias). ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
+* Adding support for `AWS_ENDPOINT_URL` environment variable.
 
 ## v1.6.0 (April 11, 2024)
 
