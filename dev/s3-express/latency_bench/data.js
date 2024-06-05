@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1717535540956,
+  "lastUpdate": 1717578104735,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1204aed8494cbe78dc6b0c9828d2c7d5143e6afe",
-          "message": "Allow building on 32-bit platforms (#852)\n\n* Allow building on 32bit platforms\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n* Fix style\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n---------\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>",
-          "timestamp": "2024-04-24T03:23:41Z",
-          "tree_id": "3b82167c691b85891b490fc629eb0d59572157a1",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/1204aed8494cbe78dc6b0c9828d2c7d5143e6afe"
-        },
-        "date": 1713930451001,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.118,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.494,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.113,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.669,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 11.7920238,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 12.1858887,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 11.705205900000001,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bornholt@amazon.com",
+            "name": "James Bornholt",
+            "username": "jamesbornholt"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b0bebe885ce4be9fa17461eda870057b639a7e60",
+          "message": "Initialize the CRT eagerly in tests (#900)\n\nWe think the lazy initialization might be the cause of some of our\r\nissues, because it happens on an ephemeral thread. Let's try\r\ninitializing it at load time.\r\n\r\nSigned-off-by: James Bornholt <bornholt@amazon.com>",
+          "timestamp": "2024-06-04T16:03:34-05:00",
+          "tree_id": "aedd2c8efe8ab87a73675e110b36c3109d79c677",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/b0bebe885ce4be9fa17461eda870057b639a7e60"
+        },
+        "date": 1717578104181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.122,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.437,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.177,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.77,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 12.4622884,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 12.0707341,
             "unit": "milliseconds"
           }
         ]
