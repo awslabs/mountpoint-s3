@@ -120,3 +120,34 @@ pub async fn get_scoped_down_credentials(policy: &str) -> Credentials {
     mask_aws_creds_if_on_gha(&credentials);
     credentials
 }
+
+pub fn deny_single_object_access_policy(bucket: &str, key: &str) -> String {
+    let template = r#"{
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "MountpointFullObjectAccess",
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:AbortMultipartUpload",
+                    "s3:DeleteObject"
+                ],
+                "Resource": ["*"]
+            },
+            {
+                "Sid": "DenyForSubpath",
+                "Effect": "Deny",
+                "Action": [
+                    "s3:GetObject"
+                ],
+                "Resource": [
+                    "arn:aws:s3:::__BUCKET__/__KEY__"
+                ]
+            }
+        ]
+    }"#;
+    template.replace("__BUCKET__", bucket).replace("__KEY__", key)
+}

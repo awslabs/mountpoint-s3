@@ -14,10 +14,10 @@ use tracing::{debug, error, trace, Level};
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::inode::{
     Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
 };
@@ -37,6 +37,8 @@ pub use error::{Error, ToErrno};
 
 mod time_to_live;
 pub use time_to_live::TimeToLive;
+
+pub mod error_metadata;
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 

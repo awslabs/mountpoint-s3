@@ -1,29 +1,25 @@
+/// Additional data fetched from S3 response, which caused an error
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct ErrorMetadata {
+pub struct ClientErrorMetadata {
+    /// http code of the response, e.g. 403
     pub http_code: Option<i32>,
+    /// error code from the response xml body, e.g. "AccessDenied"
     pub s3_error_code: Option<String>,
+    /// error message from the response xml body, e.g. "Access Denied"
     pub s3_error_message: Option<String>,
-    pub error_code: Option<String>,
-    pub s3_bucket_name: Option<String>,
-    pub s3_object_key: Option<String>,
 }
 
+/// Allows using metadata of errors in generic implementations without knowing the exact type of an error,
+/// which as of today may be s3_crt_client::S3RequestError / mock_client::MockClientError / GetObjectError and etc.
 pub trait ProvideErrorMetadata {
-    fn meta(&self) -> &ErrorMetadata;
+    fn meta(&self) -> &ClientErrorMetadata;
 }
 
-impl ErrorMetadata {
+impl ClientErrorMetadata {
     /// Empty error metadata
     pub const EMPTY: Self = Self {
         http_code: None,
         s3_error_code: None,
         s3_error_message: None,
-        error_code: None,
-        s3_bucket_name: None,
-        s3_object_key: None,
     };
 }
-
-pub const MOUNTPOINT_ERROR_CLIENT: &str = "error.client";
-pub const MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT: &str = "error.fs.lookup_nonexistent";
-pub const MOUNTPOINT_ERROR_INTERNAL: &str = "error.internal";

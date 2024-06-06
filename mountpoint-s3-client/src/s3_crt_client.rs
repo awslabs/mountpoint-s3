@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata};
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -626,7 +626,7 @@ impl S3CrtClientInner {
                         } else {
                             None
                         };
-                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result, Box::new(ErrorMetadata{
+                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result, Box::new(ClientErrorMetadata{
                             http_code,
                             ..Default::default()
                         })))))
@@ -880,7 +880,7 @@ pub enum S3RequestError {
 
     /// The request was sent but an unknown or unhandled failure occurred while processing it.
     #[error("Unknown response error: {0:?}")]
-    ResponseError(MetaRequestResult, Box<ErrorMetadata>),
+    ResponseError(MetaRequestResult, Box<ClientErrorMetadata>),
 
     /// The request was made to the wrong region
     #[error("Wrong region (expecting {0})")]
@@ -889,7 +889,7 @@ pub enum S3RequestError {
     /// Forbidden (metadata is boxed to avoid allocating unnecessary space in case of Result::Ok,
     /// see "result_large_err" clippy warning for details)
     #[error("Forbidden: {0}")]
-    Forbidden(String, Box<ErrorMetadata>),
+    Forbidden(String, Box<ClientErrorMetadata>),
 
     /// No signing credential is set for requests
     #[error("No signing credentials found")]
@@ -901,7 +901,7 @@ pub enum S3RequestError {
 
     /// The request was throttled by S3
     #[error("Request throttled")]
-    Throttled(Box<ErrorMetadata>),
+    Throttled(Box<ClientErrorMetadata>),
 }
 
 impl S3RequestError {
@@ -911,12 +911,12 @@ impl S3RequestError {
 }
 
 impl ProvideErrorMetadata for S3RequestError {
-    fn meta(&self) -> &ErrorMetadata {
+    fn meta(&self) -> &ClientErrorMetadata {
         match self {
             Self::ResponseError(_, metadata) => metadata,
             Self::Forbidden(_, metadata) => metadata,
             Self::Throttled(metadata) => metadata,
-            _ => &ErrorMetadata::EMPTY,
+            _ => &ClientErrorMetadata::EMPTY,
         }
     }
 }
@@ -987,7 +987,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
             // error, so just trust the response code
             return Some(S3RequestError::Forbidden(
                 "<no message>".to_owned(),
-                Box::new(ErrorMetadata {
+                Box::new(ClientErrorMetadata {
                     http_code: Some(request_result.response_status),
                     ..Default::default()
                 }),
@@ -1010,11 +1010,10 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
                 .unwrap_or(error_code_str.clone());
             Some(S3RequestError::Forbidden(
                 message.to_string(),
-                Box::new(ErrorMetadata {
+                Box::new(ClientErrorMetadata {
                     http_code: Some(request_result.response_status),
                     s3_error_code: Some(error_code_str.to_string()),
                     s3_error_message: Some(message.into_owned()),
-                    ..Default::default()
                 }),
             ))
         } else {
@@ -1041,11 +1040,11 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
             //
             // Alternatively, we could've set here `response_status` reported by the last `on_telemetry` callback.
             // Another alternative is to introduce a new code "error.client.throttled" and set it in
-            // `ErrorMetadata::error_code`.
+            // `ErrorMetadata::error_code` (which is part of `mountpoint-s3` crate).
             //
             // Manually setting 503 seems like the option which introduces no overhead, is symmetric to how we
-            // expect users to detect other client errors and is robust enough (to be covered with test though).
-            Some(S3RequestError::Throttled(Box::new(ErrorMetadata {
+            // expect users to detect other client errors and is robust enough (covered with a test).
+            Some(S3RequestError::Throttled(Box::new(ClientErrorMetadata {
                 http_code: Some(503),
                 ..Default::default()
             })))

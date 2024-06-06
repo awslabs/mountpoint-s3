@@ -32,7 +32,7 @@ use anyhow::anyhow;
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
-use mountpoint_s3_client::error_metadata::{ErrorMetadata, ProvideErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
+use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use mountpoint_s3_client::types::{HeadObjectResult, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
@@ -40,6 +40,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
 use crate::logging;
 use crate::prefix::Prefix;
@@ -1657,10 +1658,12 @@ impl InodeError {
     where
         E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
     {
-        let mut metadata = err.meta().clone();
-        metadata.error_code = Some(error_code.to_string());
-        metadata.s3_bucket_name = Some(bucket.to_string());
-        metadata.s3_object_key = Some(key.to_string());
+        let metadata = ErrorMetadata {
+            client_error_meta: err.meta().clone(),
+            error_code: Some(error_code.to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string()),
+        };
         let metadata = Box::new(metadata);
         let err = if let Some(context) = context {
             anyhow!(err).context(context)
@@ -1671,8 +1674,8 @@ impl InodeError {
     }
 }
 
-impl ProvideErrorMetadata for InodeError {
-    fn meta(&self) -> &ErrorMetadata {
+impl InodeError {
+    pub fn meta(&self) -> &ErrorMetadata {
         match self {
             Self::ClientError { source: _, metadata } => metadata,
             _ => &ErrorMetadata::EMPTY,

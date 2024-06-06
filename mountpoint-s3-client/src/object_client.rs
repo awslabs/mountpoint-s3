@@ -1,4 +1,4 @@
-use crate::error_metadata::{ErrorMetadata, ProvideErrorMetadata};
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
@@ -166,10 +166,10 @@ impl<S, C> ProvideErrorMetadata for ObjectClientError<S, C>
 where
     C: ProvideErrorMetadata,
 {
-    fn meta(&self) -> &ErrorMetadata {
+    fn meta(&self) -> &ClientErrorMetadata {
         match self {
             Self::ClientError(err) => err.meta(),
-            _ => &ErrorMetadata::EMPTY,
+            _ => &ClientErrorMetadata::EMPTY,
         }
     }
 }

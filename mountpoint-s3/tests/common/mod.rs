@@ -115,39 +115,6 @@ pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfi
     S3ClientAuthConfig::Provider(credentials_provider)
 }
 
-// This helper will be also used in `fuse_tests/fork_test.rs` to check that fuse operation errors are actually logged.
-#[cfg(feature = "s3_tests")]
-pub fn deny_single_object_access_policy(bucket: &str, key: &str) -> String {
-    let template = r#"{
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Sid": "MountpointFullObjectAccess",
-                "Effect": "Allow",
-                "Action": [
-                    "s3:ListBucket",
-                    "s3:GetObject",
-                    "s3:PutObject",
-                    "s3:AbortMultipartUpload",
-                    "s3:DeleteObject"
-                ],
-                "Resource": ["*"]
-            },
-            {
-                "Sid": "DenyForSubpath",
-                "Effect": "Deny",
-                "Action": [
-                    "s3:GetObject"
-                ],
-                "Resource": [
-                    "arn:aws:s3:::__BUCKET__/__KEY__"
-                ]
-            }
-        ]
-    }"#;
-    template.replace("__BUCKET__", bucket).replace("__KEY__", key)
-}
-
 /// Enable tracing and CRT logging when running unit tests.
 #[ctor::ctor]
 fn init_tracing_subscriber() {
