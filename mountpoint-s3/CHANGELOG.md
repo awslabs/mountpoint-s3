@@ -1,15 +1,20 @@
 ## Unreleased
 
+## v1.7.0 (June 6, 2024)
+
 ### New features
 * Metadata caching can now be configured independently of data caching. When passing the `--metadata-ttl <seconds>` argument without also specifying `--cache <directory>`, Mountpoint will cache file metadata in memory for up to the given TTL, but will not cache object data. The `--metadata-ttl` argument also accepts two special values: `minimal` to enable only the minimal necessary caching, and `indefinite` to cache indefinitely. These modes can help accelerate workloads that touch many files but do not need to cache object data for re-use (for example, listing a directory and then reading each file within it once). ([#855](https://github.com/awslabs/mountpoint-s3/pull/855))
 
 ### Breaking changes
 * The `--metadata-ttl 0` setting is no longer supported and will be removed in a future release. The new `--metadata-ttl minimal` has a similar effect, but behaves better when latency for S3 requests is high. ([#855](https://github.com/awslabs/mountpoint-s3/pull/855))
 * When using the `--cache` flag, the default metadata TTL is now set to 60 seconds (`--metadata-ttl 60`) instead of 1 second. ([#855](https://github.com/awslabs/mountpoint-s3/pull/855))
+* Mountpoint now uses [STS regionalized endpoints](https://docs.aws.amazon.com/sdkref/latest/guide/feature-sts-regionalized-endpoints.html) when assuming IAM roles configured in a CLI profile. If you specify a region in your CLI profile and want Mountpoint to use a role from that profile you have to make sure Mountpoint can access STS regionalized endpoints. This allows Mountpoint to assume an IAM role in regions outside of the `aws` partition. ([#877](https://github.com/awslabs/mountpoint-s3/pull/877))
 
 ### Other changes
 * The checksum algorithm to use for uploads to S3 can now be chosen with the `--upload-checksums <ALGORITHM>` command-line argument. The only supported values in this release are `crc32c` (the default, and the existing behavior) and `off`, which disables including checksums in uploads. The `off` value allows uploads to S3 implementations that do not support [additional checksums](https://aws.amazon.com/blogs/aws/new-additional-checksum-algorithms-for-amazon-s3/). This option defaults to `off` when the bucket name is an S3 on Outposts bucket access point (either an ARN or a bucket alias). ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
-* Adding support for `AWS_ENDPOINT_URL` environment variable.
+* Fixed an issue where Mountpoint did not send the `Content-Length` header when creating multi-part uploads. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
+* Fixed an issue where Mountpoint could not assume an IAM role specified in a CLI profile with `EcsContainer` as a credential source. ([#875](https://github.com/awslabs/mountpoint-s3/pull/875))
+* Added support for `AWS_ENDPOINT_URL` environment variable. ([#895](https://github.com/awslabs/mountpoint-s3/pull/895))
 
 ## v1.6.0 (April 11, 2024)
 
