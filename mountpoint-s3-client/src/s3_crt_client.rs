@@ -1064,9 +1064,8 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
-        // TODO (vlaad): try_parse_canceled_request looks to be unreachable
         0 => try_parse_throttled(request_result).or_else(|| {
-            try_parse_no_credentials(request_result).or_else(|| try_parse_canceled_request(request_result))
+            try_parse_canceled_request(request_result).or_else(|| try_parse_no_credentials(request_result))
         }),
         _ => None,
     }
