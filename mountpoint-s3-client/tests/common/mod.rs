@@ -10,6 +10,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::object_client::GetObjectRequest;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
@@ -70,6 +71,17 @@ pub fn get_test_kms_key_id() -> String {
 pub fn get_test_client() -> S3CrtClient {
     let endpoint_config = EndpointConfig::new(&get_test_region());
     S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("could not create test client")
+}
+
+pub fn get_test_backpressure_client(initial_read_window: usize) -> S3CrtClient {
+    let endpoint_config = EndpointConfig::new(&get_test_region());
+    S3CrtClient::new(
+        S3ClientConfig::new()
+            .endpoint_config(endpoint_config)
+            .read_backpressure(true)
+            .initial_read_window(initial_read_window),
+    )
+    .expect("could not create test client")
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
@@ -187,6 +199,35 @@ pub async fn check_get_result<E: std::fmt::Debug>(
     assert_eq!(&accum[..], expected, "body does not match");
 }
 
+/// Check the result of a GET against expected bytes.
+pub async fn check_back_pressure_get_result(
+    read_window: usize,
+    result: impl GetObjectRequest,
+    range: Option<Range<u64>>,
+    expected: &[u8],
+) {
+    let mut accum_read_window = read_window;
+    let mut accum_len = 0;
+    let mut accum = vec![];
+    let mut next_offset = range.map(|r| r.start).unwrap_or(0);
+    pin_mut!(result);
+    while let Some(r) = result.next().await {
+        let (offset, body) = r.expect("get_object body part failed");
+        assert_eq!(offset, next_offset, "wrong body part offset");
+        next_offset += body.len() as u64;
+        accum.extend_from_slice(&body[..]);
+
+        accum_len += body.len();
+        // We run out of data to read if read window is smaller than accum length of data,
+        // so we keeping adding window size, otherwise the request will be blocked.
+        while accum_read_window <= accum_len {
+            result.as_mut().increment_read_window(read_window);
+            accum_read_window += read_window;
+        }
+    }
+    assert_eq!(&accum[..], expected, "body does not match");
+}
+
 /// Create a test suite that will execute a test that works over a generic [ObjectClient] against
 /// both the Rust CRT as well and the mock object client implementations.
 ///
@@ -211,6 +252,8 @@ macro_rules! object_client_test {
                     bucket: bucket.to_string(),
                     part_size: 1024,
                     unordered_list_seed: None,
+                    enable_back_pressure: false,
+                    initial_read_window_size: 0,
                 });
 
                 let key = format!("{prefix}hello");

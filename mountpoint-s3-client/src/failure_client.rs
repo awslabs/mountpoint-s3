@@ -15,9 +15,9 @@ use pin_project::pin_project;
 
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
-    UploadReview,
+    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
+    ObjectAttribute, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
+    PutObjectResult, UploadReview,
 };
 use crate::ObjectClient;
 
@@ -69,7 +69,7 @@ where
     State: Send + Sync + 'static,
     GetWrapperState: Send + Sync + 'static,
 {
-    type GetObjectResult = FailureGetResult<Client, GetWrapperState>;
+    type GetObjectRequest = FailureGetRequest<Client, GetWrapperState>;
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
 
@@ -92,7 +92,7 @@ where
         key: &str,
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
-    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
         let wrapper = (self.get_object_cb)(
             &mut *self.state.lock().unwrap(),
             bucket,
@@ -100,11 +100,11 @@ where
             range.clone(),
             if_match.clone(),
         )?;
-        let get_result = self.client.get_object(bucket, key, range, if_match).await?;
-        Ok(FailureGetResult {
+        let request = self.client.get_object(bucket, key, range, if_match).await?;
+        Ok(FailureGetRequest {
             state: wrapper.state,
             result_fn: wrapper.result_fn,
-            get_result,
+            request,
         })
     }
 
@@ -170,20 +170,29 @@ where
 }
 
 #[pin_project]
-pub struct FailureGetResult<Client: ObjectClient, GetWrapperState> {
+pub struct FailureGetRequest<Client: ObjectClient, GetWrapperState> {
     state: GetWrapperState,
     result_fn: fn(&mut GetWrapperState) -> Result<(), Client::ClientError>,
     #[pin]
-    get_result: Client::GetObjectResult,
+    request: Client::GetObjectRequest,
 }
 
-impl<Client: ObjectClient, FailState> Stream for FailureGetResult<Client, FailState> {
+impl<Client: ObjectClient, FailState: Send> GetObjectRequest for FailureGetRequest<Client, FailState> {
+    type ClientError = Client::ClientError;
+
+    fn increment_read_window(self: Pin<&mut Self>, len: usize) {
+        let this = self.project();
+        this.request.increment_read_window(len);
+    }
+}
+
+impl<Client: ObjectClient, FailState> Stream for FailureGetRequest<Client, FailState> {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, Client::ClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let this = self.project();
         (this.result_fn)(this.state)?;
-        this.get_result.poll_next(cx)
+        this.request.poll_next(cx)
     }
 }
 
@@ -367,6 +376,8 @@ mod tests {
             bucket: bucket.to_string(),
             part_size: 128,
             unordered_list_seed: None,
+            enable_back_pressure: false,
+            initial_read_window_size: 0,
         });
 
         let body = vec![0u8; 50];

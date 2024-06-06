@@ -52,6 +52,43 @@ async fn test_get_object(size: usize, range: Option<Range<u64>>) {
     check_get_result(result, range, expected).await;
 }
 
+#[test_case(1, None; "1-byte object")]
+#[test_case(10, None; "small object")]
+#[test_case(30000000, None; "large object")]
+#[test_case(1, Some(0..1); "1-byte object with range")]
+#[test_case(10, Some(0..4); "small object with range")]
+#[test_case(30000000, Some(10000000..10000100); "large object with small range")]
+#[test_case(30000000, Some(10000000..30000000); "large object with large range")]
+#[tokio::test]
+async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let initial_window_size = 8 * 1024 * 1024;
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+
+    let result = client
+        .get_object(&bucket, &key, range.clone(), None)
+        .await
+        .expect("get_object should succeed");
+    let expected = match range {
+        Some(Range { start, end }) => &body[start as usize..end as usize],
+        None => &body,
+    };
+    check_back_pressure_get_result(initial_window_size, result, range, expected).await;
+}
+
 #[tokio::test]
 async fn test_get_object_404_key() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404_key");

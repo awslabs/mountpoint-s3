@@ -15,6 +15,8 @@ use pin_project::pin_project;
 use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
 use crate::s3_crt_client::{S3CrtClient, S3HttpRequest, S3RequestError};
 
+use super::GetObjectRequest;
+
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
     /// body parts of the object, which will be delivered in order.
@@ -111,6 +113,14 @@ pub struct S3GetObjectRequest {
     #[pin]
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
+}
+
+impl GetObjectRequest for S3GetObjectRequest {
+    type ClientError = S3RequestError;
+
+    fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
+        self.request.meta_request.increment_read_window(len as u64);
+    }
 }
 
 impl Stream for S3GetObjectRequest {
