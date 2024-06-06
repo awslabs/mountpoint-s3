@@ -376,8 +376,7 @@ mod tests {
             bucket: bucket.to_string(),
             part_size: 128,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let body = vec![0u8; 50];

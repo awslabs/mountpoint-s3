@@ -565,7 +565,7 @@ impl MetaRequest {
 
     /// Increment the flow-control windows size.
     pub fn increment_read_window(&mut self, bytes: u64) {
-        // SAFETY: `self.inner` is a valid `aws_s3_meta_request`.
+        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` since we hold a ref count to it.
         unsafe { aws_s3_meta_request_increment_read_window(self.inner.as_ptr(), bytes) };
     }
 }

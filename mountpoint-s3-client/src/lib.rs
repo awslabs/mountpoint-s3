@@ -52,7 +52,7 @@ pub mod imds_crt_client;
 pub mod instance_info;
 #[doc(hidden)]
 pub mod mock_client;
-pub mod object_client;
+mod object_client;
 mod s3_crt_client;
 #[doc(hidden)]
 pub mod user_agent;
@@ -71,9 +71,9 @@ pub mod config {
 pub mod types {
     pub use super::object_client::{
         Checksum, ChecksumAlgorithm, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesParts,
-        GetObjectAttributesResult, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult,
-        ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, RestoreStatus,
-        UploadReview, UploadReviewPart,
+        GetObjectAttributesResult, GetObjectRequest, HeadObjectResult, ListObjectsResult, ObjectAttribute,
+        ObjectClientResult, ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums,
+        RestoreStatus, UploadReview, UploadReviewPart,
     };
 }
 

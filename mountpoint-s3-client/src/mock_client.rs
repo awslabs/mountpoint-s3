@@ -916,8 +916,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let mut body = vec![0u8; size];
@@ -1007,8 +1006,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let mut body = vec![0u8; 2000];
@@ -1114,8 +1112,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let mut keys = vec![];
@@ -1204,8 +1201,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let mut keys = vec![];
@@ -1253,8 +1249,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         for i in 0..20 {
@@ -1328,8 +1323,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         for i in 0..20 {
@@ -1397,8 +1391,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         for i in 0..20 {
@@ -1465,8 +1458,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let mut put_request = client
@@ -1522,8 +1514,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let key = "key1";
@@ -1553,8 +1544,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let head_counter_1 = client.new_counter(Operation::HeadObject);
@@ -1591,8 +1581,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: PART_SIZE,
             unordered_list_seed: None,
-            enable_back_pressure: false,
-            initial_read_window_size: 0,
+            ..Default::default()
         });
 
         let key = "key1";

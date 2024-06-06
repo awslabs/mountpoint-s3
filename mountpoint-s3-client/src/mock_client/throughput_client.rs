@@ -187,8 +187,7 @@ mod tests {
                     part_size: 8 * 1024 * 1024,
                     bucket: "test_bucket".to_owned(),
                     unordered_list_seed: None,
-                    enable_back_pressure: false,
-                    initial_read_window_size: 0,
+                    ..Default::default()
                 };
                 let client = ThroughputMockClient::new(config, rate_gbps);
 

@@ -10,7 +10,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::object_client::GetObjectRequest;
+use mountpoint_s3_client::types::GetObjectRequest;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use rand::rngs::OsRng;
@@ -200,14 +200,13 @@ pub async fn check_get_result<E: std::fmt::Debug>(
 }
 
 /// Check the result of a GET against expected bytes.
-pub async fn check_back_pressure_get_result(
+pub async fn check_backpressure_get_result(
     read_window: usize,
     result: impl GetObjectRequest,
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {
     let mut accum_read_window = read_window;
-    let mut accum_len = 0;
     let mut accum = vec![];
     let mut next_offset = range.map(|r| r.start).unwrap_or(0);
     pin_mut!(result);
@@ -217,10 +216,9 @@ pub async fn check_back_pressure_get_result(
         next_offset += body.len() as u64;
         accum.extend_from_slice(&body[..]);
 
-        accum_len += body.len();
         // We run out of data to read if read window is smaller than accum length of data,
         // so we keeping adding window size, otherwise the request will be blocked.
-        while accum_read_window <= accum_len {
+        while accum_read_window <= accum.len() {
             result.as_mut().increment_read_window(read_window);
             accum_read_window += read_window;
         }
@@ -252,8 +250,7 @@ macro_rules! object_client_test {
                     bucket: bucket.to_string(),
                     part_size: 1024,
                     unordered_list_seed: None,
-                    enable_back_pressure: false,
-                    initial_read_window_size: 0,
+                    ..Default::default()
                 });
 
                 let key = format!("{prefix}hello");
