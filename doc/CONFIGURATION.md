@@ -156,6 +156,11 @@ In most scenarios, Mountpoint automatically infers the appropriate Amazon S3 end
 
 If necessary, you can use the `--endpoint-url` command-line argument to fully override Mountpoint's endpoint detection. For example, the argument `--endpoint-url https://example.com` will force Mountpoint to send S3 requests to `example.com`. You may need to also use the `--region` flag to correctly specify the region to use for signing requests. By default, Mountpoint will use [virtual-hosted-style addressing](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html) for the configured endpoint, and so will send requests to `https://docexamplebucket.example.com` if configured with `--endpoint-url https://example.com` and the bucket name `docexamplebucket`. To disable virtual-hosted-style addressing, use the `--force-path-style` command-line flag to instead send requests to `https://example.com/docexamplebucket/`.
 
+We also support the `AWS_ENDPOINT_URL` environment variable. The endpoint determination follows this order:
+- Use the CLI parameter `endpoint-url` if provided.
+- Use `AWS_ENDPOINT_URL` if provided.
+- Fallback to automically inferring the endpoint.
+
 ### Data encryption
 
 Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).

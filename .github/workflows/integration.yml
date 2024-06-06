@@ -81,6 +81,9 @@ jobs:
       run: cargo test --features $RUST_FEATURES --no-run
     - name: Run tests
       run: cargo test --features $RUST_FEATURES
+    - name: Save dump files
+      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      run: ./.github/actions/scripts/save-coredump.sh
 
   s3express-test:
     name: S3 Express One Zone tests (${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
@@ -126,6 +129,9 @@ jobs:
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests' --no-run
     - name: Run tests
       run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests'
+    - name: Save dump files
+      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      run: ./.github/actions/scripts/save-coredump.sh
 
   asan:
     name: Address sanitizer
@@ -163,3 +169,6 @@ jobs:
       run: make test-asan-working
     - name: Run tests
       run: make test-asan
+    - name: Save dump files
+      if: ${{ failure() }}
+      run: ./.github/actions/scripts/save-coredump.sh

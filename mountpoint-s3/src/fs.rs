@@ -17,7 +17,9 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
-use crate::inode::{Inode, InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle};
+use crate::inode::{
+    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
+};
 use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchReadError, PrefetchResult};
 use crate::prefix::Prefix;
@@ -77,7 +79,10 @@ where
     Prefetcher: Prefetch,
 {
     /// The file handle has been assigned as a read handle
-    Read(Prefetcher::PrefetchResult<Client>),
+    Read {
+        handle: ReadHandle,
+        request: Prefetcher::PrefetchResult<Client>,
+    },
     /// The file handle has been assigned as a write handle
     Write(UploadState<Client>),
 }
@@ -89,7 +94,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileHandleState::Read(_) => f.debug_struct("Read").finish(),
+            FileHandleState::Read { handle, .. } => f.debug_struct("Read").field("handle", handle).finish(),
             FileHandleState::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
         }
     }
@@ -110,22 +115,18 @@ where
         let is_truncate = flags & libc::O_TRUNC != 0;
         let handle = fs
             .superblock
-            .write(
-                &fs.client,
-                ino,
-                lookup.inode.parent(),
-                pid,
-                fs.config.allow_overwrite,
-                is_truncate,
-            )
-            .await
-            .start_writing()?;
+            .write(&fs.client, ino, fs.config.allow_overwrite, is_truncate)
+            .await?;
         let key = lookup.inode.full_key();
         let handle = match fs.uploader.put(&fs.bucket, key).await {
             Err(e) => {
                 return Err(err!(libc::EIO, source:e, "put failed to start"));
             }
-            Ok(request) => FileHandleState::Write(UploadState::InProgress { request, handle }),
+            Ok(request) => FileHandleState::Write(UploadState::InProgress {
+                request,
+                handle,
+                open_pid: pid,
+            }),
         };
         metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
         Ok(handle)
@@ -141,7 +142,7 @@ where
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        lookup.inode.start_reading()?;
+        let handle = fs.superblock.read(&fs.client, lookup.inode.ino()).await?;
         let full_key = lookup.inode.full_key().to_owned();
         let object_size = lookup.stat.size as u64;
         let etag = match &lookup.stat.etag {
@@ -151,7 +152,7 @@ where
         let request = fs
             .prefetcher
             .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone());
-        let handle = FileHandleState::Read(request);
+        let handle = FileHandleState::Read { handle, request };
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
     }
@@ -162,6 +163,8 @@ enum UploadState<Client: ObjectClient> {
     InProgress {
         request: UploadRequest<Client>,
         handle: WriteHandle,
+        /// Process that created the upload
+        open_pid: u32,
     },
     Completed,
     // Remember the failure reason to respond to retries
@@ -170,19 +173,22 @@ enum UploadState<Client: ObjectClient> {
 
 impl<Client: ObjectClient> UploadState<Client> {
     async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, Error> {
-        let upload = match self {
-            Self::InProgress { request, .. } => request,
+        let (upload, handle) = match self {
+            Self::InProgress { request, handle, .. } => (request, handle),
             Self::Completed => return Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
             Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
         };
 
         match upload.write(offset, data).await {
-            Ok(len) => Ok(len as u32),
+            Ok(len) => {
+                handle.inc_file_size(len);
+                Ok(len as u32)
+            }
             Err(e) => {
                 // Abort the request.
                 match std::mem::replace(self, Self::Failed(e.to_errno())) {
                     UploadState::InProgress { handle, .. } => {
-                        if let Err(err) = handle.finish_writing() {
+                        if let Err(err) = handle.finish() {
                             // Log the issue but still return the write error.
                             error!(?err, ?key, "error updating the inode status");
                         }
@@ -196,7 +202,7 @@ impl<Client: ObjectClient> UploadState<Client> {
 
     async fn complete(&mut self, key: &str, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
         let (request_size, open_pid) = match self {
-            Self::InProgress { request, handle } => (request.size(), handle.pid()),
+            Self::InProgress { request, open_pid, .. } => (request.size(), *open_pid),
             Self::Completed => return Ok(()),
             Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
         };
@@ -218,7 +224,7 @@ impl<Client: ObjectClient> UploadState<Client> {
         }
 
         let (upload, handle) = match std::mem::replace(self, Self::Completed) {
-            Self::InProgress { request, handle } => (request, handle),
+            Self::InProgress { request, handle, .. } => (request, handle),
             Self::Failed(_) | Self::Completed => unreachable!("checked above"),
         };
 
@@ -231,7 +237,7 @@ impl<Client: ObjectClient> UploadState<Client> {
 
     async fn complete_if_in_progress(self, key: &str) -> Result<(), Error> {
         match self {
-            Self::InProgress { request, handle } => Self::complete_upload(request, key, handle).await,
+            Self::InProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
             Self::Failed(_) | Self::Completed => Ok(()),
         }
     }
@@ -245,7 +251,7 @@ impl<Client: ObjectClient> UploadState<Client> {
             }
             Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
         };
-        if let Err(err) = handle.finish_writing() {
+        if let Err(err) = handle.finish() {
             // Log the issue but still return put_result.
             error!(?err, ?key, "error updating the inode status");
         }
@@ -844,7 +850,7 @@ where
         logging::record_name(handle.inode.name());
         let mut state = handle.state.lock().await;
         let request = match &mut *state {
-            FileHandleState::Read(request) => request,
+            FileHandleState::Read { request, .. } => request,
             FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
@@ -943,7 +949,6 @@ where
 
             request.write(offset, data, &handle.full_key).await?
         };
-        handle.inode.inc_file_size(len as usize);
         Ok(len)
     }
 
@@ -1237,10 +1242,10 @@ where
         };
 
         let request = match file_handle.state.into_inner() {
-            FileHandleState::Read { .. } => {
+            FileHandleState::Read { handle, .. } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                file_handle.inode.finish_reading()?;
+                handle.finish()?;
                 return Ok(());
             }
             FileHandleState::Write(request) => request,

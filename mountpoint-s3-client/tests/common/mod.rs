@@ -32,6 +32,12 @@ fn init_tracing_subscriber() {
     let _ = subscriber.try_init();
 }
 
+#[ctor::ctor]
+fn init_crt() {
+    mountpoint_s3_crt::io::io_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
+    mountpoint_s3_crt::s3::s3_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
+}
+
 pub enum AccessPointType {
     SingleRegion,
     ObjectLambda,

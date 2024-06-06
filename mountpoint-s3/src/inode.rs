@@ -291,19 +291,65 @@ impl Superblock {
         Ok(LookedUp { inode, stat })
     }
 
-    /// Create a new write handle to be used for state transition
+    /// Create a new handle for a file being written. The handle can be used to update the state of
+    /// the inflight write and commit it once finished.
     pub async fn write<OC: ObjectClient>(
         &self,
         _client: &OC,
         ino: InodeNo,
-        parent_ino: InodeNo,
-        pid: u32,
         allow_overwrite: bool,
         is_truncate: bool,
-    ) -> WriteHandle {
-        trace!(?ino, parent=?parent_ino, "write");
+    ) -> Result<WriteHandle, InodeError> {
+        trace!(?ino, "write");
 
-        WriteHandle::new(self.inner.clone(), ino, parent_ino, pid, allow_overwrite, is_truncate)
+        let inode = self.inner.get(ino)?;
+        let mut state = inode.get_mut_inode_state()?;
+        if state.reader_count > 0 {
+            return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
+        }
+        match state.write_status {
+            WriteStatus::LocalUnopened => {
+                state.write_status = WriteStatus::LocalOpen;
+                state.stat.size = 0;
+            }
+            WriteStatus::LocalOpen => return Err(InodeError::InodeAlreadyWriting(inode.err())),
+            WriteStatus::Remote => {
+                if !allow_overwrite {
+                    tracing::warn!(
+                        "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
+                    );
+                    return Err(InodeError::InodeNotWritable(inode.err()));
+                }
+
+                if !is_truncate {
+                    tracing::warn!(
+                        "modifying an existing file is only allowed when the file is opened in truncate mode (O_TRUNC)"
+                    );
+                    return Err(InodeError::InodeNotWritable(inode.err()));
+                }
+
+                state.write_status = WriteStatus::LocalOpen;
+                state.stat.size = 0;
+            }
+        }
+        drop(state);
+
+        Ok(WriteHandle::new(self.inner.clone(), inode))
+    }
+
+    /// Create a new handle for a file being read. The handle can be used to update the state of
+    /// the inflight read and commit it once finished.
+    pub async fn read<OC: ObjectClient>(&self, _client: &OC, ino: InodeNo) -> Result<ReadHandle, InodeError> {
+        trace!(?ino, "read");
+
+        let inode = self.inner.get(ino)?;
+        let mut state = inode.get_mut_inode_state()?;
+        if state.write_status != WriteStatus::Remote {
+            return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
+        }
+        state.reader_count += 1;
+        drop(state);
+        Ok(ReadHandle::new(inode))
     }
 
     /// Start a readdir stream for the given directory inode
@@ -1090,83 +1136,27 @@ impl LookedUp {
 #[derive(Debug, Clone)]
 pub struct WriteHandle {
     inner: Arc<SuperblockInner>,
-    ino: InodeNo,
-    parent_ino: InodeNo,
-    pid: u32,
-    allow_overwrite: bool,
-    is_truncate: bool,
+    inode: Inode,
 }
 
 impl WriteHandle {
     /// Create a new write handle
-    fn new(
-        inner: Arc<SuperblockInner>,
-        ino: InodeNo,
-        parent_ino: InodeNo,
-        pid: u32,
-        allow_overwrite: bool,
-        is_truncate: bool,
-    ) -> Self {
-        Self {
-            inner,
-            ino,
-            parent_ino,
-            pid,
-            allow_overwrite,
-            is_truncate,
-        }
+    fn new(inner: Arc<SuperblockInner>, inode: Inode) -> Self {
+        Self { inner, inode }
     }
 
-    /// Check the status on the inode and set it to writing state if it's writable
-    pub fn start_writing(self) -> Result<Self, InodeError> {
-        let inode = self.inner.get(self.ino)?;
-        let mut state = inode.get_mut_inode_state()?;
-        if state.reader_count > 0 {
-            return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
-        }
-        match state.write_status {
-            WriteStatus::LocalUnopened => {
-                state.write_status = WriteStatus::LocalOpen;
-                state.stat.size = 0;
-                Ok(self)
-            }
-            WriteStatus::LocalOpen => Err(InodeError::InodeAlreadyWriting(inode.err())),
-            WriteStatus::Remote => {
-                if !self.allow_overwrite {
-                    tracing::warn!(
-                        "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
-                    );
-                    return Err(InodeError::InodeNotWritable(inode.err()));
-                }
-
-                if !self.is_truncate {
-                    tracing::warn!(
-                        "modifying an existing file is only allowed when the file is opened in truncate mode (O_TRUNC)"
-                    );
-                    return Err(InodeError::InodeNotWritable(inode.err()));
-                }
-
-                state.write_status = WriteStatus::LocalOpen;
-                state.stat.size = 0;
-                Ok(self)
-            }
-        }
-    }
-
-    /// The pid of the process which opened this handle.
-    pub fn pid(&self) -> u32 {
-        self.pid
+    pub fn inc_file_size(&self, len: usize) {
+        let mut state = self.inode.inner.sync.write().unwrap();
+        state.stat.size += len;
     }
 
     /// Update status of the inode and of containing "local" directories.
-    pub fn finish_writing(self) -> Result<(), InodeError> {
-        let inode = self.inner.get(self.ino)?;
-
+    pub fn finish(self) -> Result<(), InodeError> {
         // Collect ancestor inodes that may need updating,
         // from parent to first remote ancestor.
         let ancestors = {
             let mut ancestors = Vec::new();
-            let mut ancestor_ino = self.parent_ino;
+            let mut ancestor_ino = self.inode.parent();
             let mut visited = HashSet::new();
             loop {
                 assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
@@ -1187,7 +1177,7 @@ impl WriteHandle {
             .map(|inode| inode.get_mut_inode_state())
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut state = inode.get_mut_inode_state()?;
+        let mut state = self.inode.get_mut_inode_state()?;
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
@@ -1197,7 +1187,8 @@ impl WriteHandle {
 
                 // Walk up the ancestors from parent to first remote ancestor to transition
                 // the inode and all "local" containing directories to "remote".
-                let children_inos = std::iter::once(self.ino).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
+                let children_inos =
+                    std::iter::once(self.inode.ino()).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
                 for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
                     match &mut ancestor_state.kind_data {
                         InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
@@ -1210,8 +1201,29 @@ impl WriteHandle {
 
                 Ok(())
             }
-            _ => Err(InodeError::InodeInvalidWriteStatus(inode.err())),
+            _ => Err(InodeError::InodeInvalidWriteStatus(self.inode.err())),
         }
+    }
+}
+
+/// Handle for a file being read
+#[derive(Debug)]
+pub struct ReadHandle {
+    inode: Inode,
+}
+
+impl ReadHandle {
+    /// Create a new read handle
+    fn new(inode: Inode) -> Self {
+        Self { inode }
+    }
+
+    /// Update status of the inode to reflect the read being finished
+    pub fn finish(self) -> Result<(), InodeError> {
+        // Decrease reader count for the inode
+        let mut state = self.inode.get_mut_inode_state()?;
+        state.reader_count -= 1;
+        Ok(())
     }
 }
 
@@ -1269,7 +1281,7 @@ impl Inode {
     /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
     ///
     /// Locks [InodeState] for writing.
-    pub fn inc_lookup_count(&self) -> u64 {
+    fn inc_lookup_count(&self) -> u64 {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         *lookup_count += 1;
@@ -1284,7 +1296,7 @@ impl Inode {
     /// Decrement lookup count by `n` for [Inode], returning the new value.
     ///
     /// Locks [InodeState] for writing.
-    pub fn dec_lookup_count(&self, n: u64) -> u64 {
+    fn dec_lookup_count(&self, n: u64) -> u64 {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
         debug_assert!(n <= *lookup_count, "lookup count cannot go negative");
@@ -1300,29 +1312,6 @@ impl Inode {
     pub fn is_remote(&self) -> Result<bool, InodeError> {
         let state = self.get_inode_state()?;
         Ok(state.write_status == WriteStatus::Remote)
-    }
-
-    pub fn inc_file_size(&self, len: usize) {
-        let mut state = self.inner.sync.write().unwrap();
-        state.stat.size += len;
-    }
-
-    pub fn start_reading(&self) -> Result<(), InodeError> {
-        let mut state = self.get_mut_inode_state()?;
-        match state.write_status {
-            WriteStatus::Remote => {
-                state.reader_count += 1;
-                Ok(())
-            }
-            _ => Err(InodeError::InodeNotReadableWhileWriting(self.err())),
-        }
-    }
-
-    pub fn finish_reading(&self) -> Result<(), InodeError> {
-        // Decrease reader count for the inode
-        let mut state = self.get_mut_inode_state()?;
-        state.reader_count -= 1;
-        Ok(())
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
@@ -1394,7 +1383,7 @@ impl Inode {
 
 /// A wrapper that prints useful customer-facing error messages for inodes by including the object
 /// key rather than just the inode number.
-pub struct InodeErrorInfo(pub Inode);
+pub struct InodeErrorInfo(Inode);
 
 impl Display for InodeErrorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2141,8 +2130,9 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
-                .await;
+                .write(&client, new_inode.inode.ino(), false, false)
+                .await
+                .expect("should be able to start writing");
             expected_list.push(filename);
         }
 
@@ -2197,8 +2187,9 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
-                .await;
+                .write(&client, new_inode.inode.ino(), false, false)
+                .await
+                .expect("should be able to start writing");
             expected_list.push(filename);
         }
 
@@ -2354,8 +2345,9 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
-                .await;
+                .write(&client, new_inode.inode.ino(), false, false)
+                .await
+                .expect("should be able to start writing");
         }
 
         // Create some local directories
@@ -2654,13 +2646,13 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), leaf_dir_ino, 0, false, false)
-            .await;
-        let writehandle = writehandle.start_writing().expect("should be able to start writing");
+            .write(&client, new_inode.inode.ino(), false, false)
+            .await
+            .expect("should be able to start writing");
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        writehandle.finish_writing().unwrap();
+        writehandle.finish().unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -2827,9 +2819,9 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), FUSE_ROOT_INODE, 0, false, false)
-            .await;
-        let writehandle = writehandle.start_writing().expect("should be able to start writing");
+            .write(&client, new_inode.inode.ino(), false, false)
+            .await
+            .expect("should be able to start writing");
 
         let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
         let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
@@ -2852,7 +2844,7 @@ mod tests {
         assert_eq!(stat.mtime, mtime);
 
         // Invoke [finish_writing] to make the file remote
-        writehandle.finish_writing().unwrap();
+        writehandle.finish().unwrap();
 
         // Should get an error back when calling setattr
         let result = superblock
