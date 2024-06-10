@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1718013940458,
+  "lastUpdate": 1718017525561,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a2d0af6da2f613fe7e8d1e67472cb5a620e28f12",
-          "message": "Update cargo dependencies (#873)\n\nRun `cargo update` and explicitly set required features for the `nix` crate.\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-05-09T22:09:31Z",
-          "tree_id": "3bcfecd973d79784f8aabe313bf3d1d623919fee",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a2d0af6da2f613fe7e8d1e67472cb5a620e28f12"
-        },
-        "date": 1715293826788,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.117,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.492,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.179,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.766,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 12.1164486,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 11.7355558,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 12.021479099999999,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbc8ec8d3886da07430f583d0121d028b5dfd020",
+          "message": "Update integration test schedule from hourly to daily at 06:45Z (#905)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-06-10T10:40:02Z",
+          "tree_id": "b0bc74cfd8abca7ffdd78752655c02d6a08a56d9",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/cbc8ec8d3886da07430f583d0121d028b5dfd020"
+        },
+        "date": 1718017524980,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.106,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.471,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.163,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.951,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 11.9347897,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 11.1806075,
             "unit": "milliseconds"
           }
         ]
