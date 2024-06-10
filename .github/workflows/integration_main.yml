@@ -6,7 +6,7 @@ on:
   merge_group:
     types: [ "checks_requested" ]
   schedule:
-    - cron: "0 * * * *"
+    - cron: "45 6 * * *" # Daily at 06:45 UTC
   workflow_dispatch:
     inputs:
       ref:
