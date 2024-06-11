@@ -54,6 +54,10 @@ pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
     aws_sdk_s3::Client::new(&sdk_config)
 }
 
+pub fn get_test_kms_key_arn() -> String {
+    std::env::var("KMS_TEST_KEY_ARN").expect("Set KMS_TEST_KEY_ARN to run integration tests")
+}
+
 pub fn get_test_kms_key_id() -> String {
     std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
 }

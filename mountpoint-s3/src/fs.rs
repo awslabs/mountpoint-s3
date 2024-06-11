@@ -490,7 +490,13 @@ impl ServerSideEncryption {
                 sse_type.map(str::to_string),
             ));
         }
-        if self.sse_kms_key_id.is_some() && self.sse_kms_key_id.as_deref() != sse_kms_key_id {
+
+        let key_is_ok = match (&self.sse_kms_key_id, &sse_kms_key_id) {
+            (Some(provided_key), Some(returned_key)) => returned_key.ends_with(provided_key),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        if !key_is_ok {
             return Err(SseCorruptedError::KeyMismatch(
                 self.sse_kms_key_id.as_ref().unwrap().clone(),
                 sse_kms_key_id.map(str::to_string),

@@ -26,7 +26,7 @@ use crate::common::s3::{
     get_test_sdk_client,
 };
 #[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::{get_non_test_region, get_scoped_down_credentials, get_test_kms_key_id};
+use crate::common::s3::{get_non_test_region, get_scoped_down_credentials, get_test_kms_key_arn, get_test_kms_key_id};
 use crate::common::tokio_block_on;
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
@@ -805,6 +805,27 @@ fn read_with_no_permissions_for_a_key_sse() {
     let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read failed: get request failed: get object request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
+}
+
+#[cfg(not(feature = "s3express_tests"))]
+#[test_case(get_test_kms_key_id().as_str(); "KMS Key ID")]
+#[test_case(get_test_kms_key_arn().as_str(); "KMS Key ARN")]
+fn write_with_sse_kms_key_id_ok(key_id: &str) {
+    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_sse_kms_key_id_ok");
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+    let _ = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, None);
+    let f_name = "f.txt";
+    write_to_file(mount_point.path(), f_name).expect("should be able to write to the file");
+    unmount(&mount_point);
+
+    let sdk_client = tokio_block_on(get_test_sdk_client(get_test_region().as_str()));
+    let key = format!("{}{}", prefix, f_name);
+    let head_object_output = tokio_block_on(sdk_client.head_object().bucket(&bucket).key(&key).send());
+    let head_object_output = head_object_output.expect("object must exist");
+    assert_eq!(
+        head_object_output.ssekms_key_id.expect("ssekms_key_id must be set"),
+        get_test_kms_key_arn()
+    );
 }
 
 fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathBuf) {
