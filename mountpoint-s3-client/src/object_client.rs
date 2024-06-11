@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::time::SystemTime;
 use std::{
@@ -71,7 +72,7 @@ impl FromStr for ETag {
 #[cfg_attr(not(docs_rs), async_trait)]
 #[auto_impl(Arc)]
 pub trait ObjectClient {
-    type GetObjectResult: Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send;
+    type GetObjectRequest: GetObjectRequest<ClientError = Self::ClientError>;
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + Send + Sync + 'static;
 
@@ -96,7 +97,7 @@ pub trait ObjectClient {
         key: &str,
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
-    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError>;
+    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
     async fn list_objects(
@@ -333,6 +334,34 @@ pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 
 /// A checksum algorithm used by the object client for integrity checks on uploads and downloads.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
+
+/// A streaming response to a GetObject request.
+///
+/// This struct implements [`futures::Stream`], which you can use to read the body of the object.
+/// Each item of the stream is a part of the object body together with the part's offset within the
+/// object.
+#[cfg_attr(not(docs_rs), async_trait)]
+pub trait GetObjectRequest:
+    Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send
+{
+    type ClientError: std::error::Error + Send + Sync + 'static;
+
+    /// Increment the flow-control window, so that response data continues downloading.
+    ///
+    /// If the client was created with `enable_read_backpressure` set true,
+    /// each meta request has a flow-control window that shrinks as response
+    /// body data is downloaded (headers do not affect the size of the window).
+    /// The client's `initial_read_window` determines the starting size of each meta request's window.
+    /// If a meta request's flow-control window reaches 0, no further data will be downloaded.
+    /// If the `initial_read_window` is 0, the request will not start until the window is incremented.
+    /// Maintain a larger window to keep up a high download throughput,
+    /// parts cannot download in parallel unless the window is large enough to hold multiple parts.
+    /// Maintain a smaller window to limit the amount of data buffered in memory.
+    ///
+    /// If `enable_read_backpressure` is false this call will have no effect,
+    /// no backpressure is being applied and data is being downloaded as fast as possible.
+    fn increment_read_window(self: Pin<&mut Self>, len: usize);
+}
 
 /// A streaming put request which allows callers to asynchronously write the body of the request.
 ///

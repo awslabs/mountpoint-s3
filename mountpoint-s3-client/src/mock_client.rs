@@ -24,9 +24,9 @@ use tracing::trace;
 use crate::checksums::crc32c_to_base64;
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
-    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, HeadObjectError, HeadObjectResult,
-    ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult,
-    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
+    ObjectClientResult, ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
     PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
@@ -62,6 +62,10 @@ pub struct MockClientConfig {
     pub part_size: usize,
     /// A seed to randomize the order of ListObjectsV2 results, or None to use ordered list
     pub unordered_list_seed: Option<u64>,
+    /// A flag to enable backpressure read
+    pub enable_back_pressure: bool,
+    /// Initial backpressure read window size, ignored if enable_back_pressure is false
+    pub initial_read_window_size: usize,
 }
 
 /// A mock implementation of an object client that we can manually add objects to, and then query
@@ -465,14 +469,16 @@ impl std::fmt::Debug for MockObject {
 }
 
 #[derive(Debug)]
-pub struct GetObjectResult {
+pub struct MockGetObjectRequest {
     object: MockObject,
     next_offset: u64,
     length: usize,
     part_size: usize,
+    enable_back_pressure: bool,
+    current_window_size: usize,
 }
 
-impl GetObjectResult {
+impl MockGetObjectRequest {
     /// Helpful test utility to just collect the entire object into memory. Will panic if the object
     /// parts are streamed out of order.
     pub async fn collect(mut self) -> ObjectClientResult<Box<[u8]>, GetObjectError, MockClientError> {
@@ -487,7 +493,15 @@ impl GetObjectResult {
     }
 }
 
-impl Stream for GetObjectResult {
+impl GetObjectRequest for MockGetObjectRequest {
+    type ClientError = MockClientError;
+
+    fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
+        self.current_window_size += len;
+    }
+}
+
+impl Stream for MockGetObjectRequest {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -495,12 +509,21 @@ impl Stream for GetObjectResult {
             return Poll::Ready(None);
         }
 
-        let next_part_size = self.part_size.min(self.length);
-        let next_part = self.object.read(self.next_offset, next_part_size);
+        let mut next_read_size = self.part_size.min(self.length);
+
+        // Simulate backpressure mechanism
+        if self.enable_back_pressure {
+            if self.current_window_size == 0 {
+                return Poll::Pending;
+            }
+            next_read_size = self.current_window_size.min(next_read_size);
+            self.current_window_size -= next_read_size;
+        }
+        let next_part = self.object.read(self.next_offset, next_read_size);
 
         let result = (self.next_offset, next_part);
-        self.next_offset += next_part_size as u64;
-        self.length -= next_part_size;
+        self.next_offset += next_read_size as u64;
+        self.length -= next_read_size;
         Poll::Ready(Some(Ok(result)))
     }
 }
@@ -520,7 +543,7 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
 
 #[cfg_attr(not(docs_rs), async_trait)]
 impl ObjectClient for MockClient {
-    type GetObjectResult = GetObjectResult;
+    type GetObjectRequest = MockGetObjectRequest;
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
@@ -551,7 +574,7 @@ impl ObjectClient for MockClient {
         key: &str,
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
-    ) -> ObjectClientResult<Self::GetObjectResult, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?range, ?if_match, "GetObject");
         self.inc_op_count(Operation::GetObject);
 
@@ -577,11 +600,13 @@ impl ObjectClient for MockClient {
                 (0, object.len())
             };
 
-            Ok(GetObjectResult {
+            Ok(MockGetObjectRequest {
                 object: object.clone(),
                 next_offset,
                 length,
                 part_size: self.config.part_size,
+                enable_back_pressure: self.config.enable_back_pressure,
+                current_window_size: self.config.initial_read_window_size,
             })
         } else {
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
@@ -872,7 +897,12 @@ enum MockObjectParts {
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
+    use std::{
+        sync::mpsc::{self, RecvTimeoutError},
+        thread,
+    };
+
+    use futures::{pin_mut, StreamExt};
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
     use test_case::test_case;
@@ -886,6 +916,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let mut body = vec![0u8; size];
@@ -917,6 +948,55 @@ mod tests {
         test_get_object("key1", 10, Some(0..10)).await;
     }
 
+    async fn test_get_object_backpressure(
+        key: &str,
+        size: usize,
+        range: Option<Range<u64>>,
+        backpressure_read_window_size: usize,
+    ) {
+        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            enable_back_pressure: true,
+            initial_read_window_size: backpressure_read_window_size,
+        });
+
+        let mut body = vec![0u8; size];
+        rng.fill_bytes(&mut body);
+        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+
+        let get_request = client
+            .get_object("test_bucket", key, range.clone(), None)
+            .await
+            .expect("should not fail");
+        pin_mut!(get_request);
+
+        let mut accum = vec![];
+        let mut next_offset = range.as_ref().map(|r| r.start).unwrap_or(0);
+        while let Some(r) = get_request.next().await {
+            let (offset, body) = r.expect("get_object body part failed");
+            assert_eq!(offset, next_offset, "wrong body part offset");
+            next_offset += body.len() as u64;
+            accum.extend_from_slice(&body[..]);
+            get_request
+                .as_mut()
+                .increment_read_window(backpressure_read_window_size);
+        }
+        let expected_range = range.unwrap_or(0..size as u64);
+        let expected_range = expected_range.start as usize..expected_range.end as usize;
+        assert_eq!(&accum[..], &body[expected_range], "body does not match");
+    }
+
+    #[tokio::test]
+    async fn get_object_backpressure() {
+        test_get_object_backpressure("key1", 2000, None, 256).await;
+        test_get_object_backpressure("key1", 9000, Some(50..2000), 512).await;
+        test_get_object_backpressure("key1", 10, Some(0..10), 256).await;
+    }
+
     #[allow(clippy::reversed_empty_ranges)]
     #[tokio::test]
     async fn get_object_errors() {
@@ -926,6 +1006,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let mut body = vec![0u8; 2000];
@@ -976,12 +1057,62 @@ mod tests {
         );
     }
 
+    // Verify that the request is blocked when we don't increment read window size
+    #[tokio::test]
+    async fn verify_backpressure_get_object() {
+        let key = "key1";
+        let size = 1000;
+        let range = 50..1000;
+        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            enable_back_pressure: true,
+            initial_read_window_size: 256,
+        });
+
+        let mut body = vec![0u8; size];
+        rng.fill_bytes(&mut body);
+        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+
+        let mut get_request = client
+            .get_object("test_bucket", key, Some(range.clone()), None)
+            .await
+            .expect("should not fail");
+
+        let mut accum = vec![];
+        let mut next_offset = range.start;
+
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            futures::executor::block_on(async move {
+                while let Some(r) = get_request.next().await {
+                    let (offset, body) = r.unwrap();
+                    assert_eq!(offset, next_offset, "wrong body part offset");
+                    next_offset += body.len() as u64;
+                    accum.extend_from_slice(&body[..]);
+                }
+                let expected_range = range;
+                let expected_range = expected_range.start as usize..expected_range.end as usize;
+                assert_eq!(&accum[..], &body[expected_range], "body does not match");
+                sender.send(accum).unwrap();
+            })
+        });
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(_) => panic!("request should have been blocked"),
+            Err(e) => assert_eq!(e, RecvTimeoutError::Timeout),
+        }
+    }
+
     #[tokio::test]
     async fn list_object_dirs() {
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let mut keys = vec![];
@@ -1070,6 +1201,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let mut keys = vec![];
@@ -1117,6 +1249,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
+            ..Default::default()
         });
 
         for i in 0..20 {
@@ -1190,6 +1323,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
+            ..Default::default()
         });
 
         for i in 0..20 {
@@ -1257,6 +1391,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
+            ..Default::default()
         });
 
         for i in 0..20 {
@@ -1323,6 +1458,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let mut put_request = client
@@ -1378,6 +1514,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let key = "key1";
@@ -1407,6 +1544,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let head_counter_1 = client.new_counter(Operation::HeadObject);
@@ -1443,6 +1581,7 @@ mod tests {
             bucket: bucket.to_owned(),
             part_size: PART_SIZE,
             unordered_list_seed: None,
+            ..Default::default()
         });
 
         let key = "key1";

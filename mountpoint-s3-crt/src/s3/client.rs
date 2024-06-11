@@ -102,6 +102,18 @@ impl ClientConfig {
         self
     }
 
+    /// Enable backpressure read
+    pub fn read_backpressure(&mut self, read_backpressure: bool) -> &mut Self {
+        self.inner.enable_read_backpressure = read_backpressure;
+        self
+    }
+
+    /// Initial read window size for backpressure read feature
+    pub fn initial_read_window(&mut self, initial_read_window: usize) -> &mut Self {
+        self.inner.initial_read_window = initial_read_window;
+        self
+    }
+
     /// Size in bytes of parts the files will be downloaded or uploaded in.
     ///
     /// The AWS CRT client may adjust this value per-request where possible
@@ -549,6 +561,12 @@ impl MetaRequest {
     /// will fail with an AWS_ERROR_INVALID_STATE error.
     pub fn write<'r, 's>(&'r mut self, slice: &'s [u8], eof: bool) -> MetaRequestWrite<'r, 's> {
         MetaRequestWrite::new(self, slice, eof)
+    }
+
+    /// Increment the flow-control windows size.
+    pub fn increment_read_window(&mut self, bytes: u64) {
+        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` since we hold a ref count to it.
+        unsafe { aws_s3_meta_request_increment_read_window(self.inner.as_ptr(), bytes) };
     }
 }
 

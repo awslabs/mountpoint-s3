@@ -117,6 +117,7 @@ fn main() {
                 bucket: BUCKET.to_owned(),
                 part_size: args.part_size,
                 unordered_list_seed: None,
+                ..Default::default()
             };
             let client = ThroughputMockClient::new(config, args.throughput_target_gbps);
             let client = Arc::new(client);

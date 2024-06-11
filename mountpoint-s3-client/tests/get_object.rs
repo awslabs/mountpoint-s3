@@ -5,6 +5,9 @@ pub mod common;
 use std::ops::Range;
 use std::option::Option::None;
 use std::str::FromStr;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
 
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
@@ -50,6 +53,94 @@ async fn test_get_object(size: usize, range: Option<Range<u64>>) {
         None => &body,
     };
     check_get_result(result, range, expected).await;
+}
+
+#[test_case(1, None; "1-byte object")]
+#[test_case(10, None; "small object")]
+#[test_case(30000000, None; "large object")]
+#[test_case(1, Some(0..1); "1-byte object with range")]
+#[test_case(10, Some(0..4); "small object with range")]
+#[test_case(30000000, Some(10000000..10000100); "large object with small range")]
+#[test_case(30000000, Some(10000000..30000000); "large object with large range")]
+#[tokio::test]
+async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let initial_window_size = 8 * 1024 * 1024;
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+
+    let request = client
+        .get_object(&bucket, &key, range.clone(), None)
+        .await
+        .expect("get_object should succeed");
+    let expected = match range {
+        Some(Range { start, end }) => &body[start as usize..end as usize],
+        None => &body,
+    };
+    check_backpressure_get_result(initial_window_size, request, range, expected).await;
+}
+
+// Verify that the request is blocked when we don't increment read window size
+#[tokio::test]
+async fn verify_backpressure_get_object() {
+    let size = 1000;
+    let range = 50..1000;
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let initial_window_size = 256;
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+
+    let mut get_request = client
+        .get_object("test_bucket", &key, Some(range.clone()), None)
+        .await
+        .expect("should not fail");
+
+    let mut accum = vec![];
+    let mut next_offset = range.start;
+
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        futures::executor::block_on(async move {
+            while let Some(r) = get_request.next().await {
+                let (offset, body) = r.unwrap();
+                assert_eq!(offset, next_offset, "wrong body part offset");
+                next_offset += body.len() as u64;
+                accum.extend_from_slice(&body[..]);
+            }
+            let expected_range = range;
+            let expected_range = expected_range.start as usize..expected_range.end as usize;
+            assert_eq!(&accum[..], &body[expected_range], "body does not match");
+            sender.send(accum).unwrap();
+        })
+    });
+    match receiver.recv_timeout(Duration::from_millis(100)) {
+        Ok(_) => panic!("request should have been blocked"),
+        Err(e) => assert_eq!(e, RecvTimeoutError::Timeout),
+    }
 }
 
 #[tokio::test]

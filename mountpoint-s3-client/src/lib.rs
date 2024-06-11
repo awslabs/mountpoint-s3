@@ -71,9 +71,9 @@ pub mod config {
 pub mod types {
     pub use super::object_client::{
         Checksum, ChecksumAlgorithm, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesParts,
-        GetObjectAttributesResult, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult,
-        ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, RestoreStatus,
-        UploadReview, UploadReviewPart,
+        GetObjectAttributesResult, GetObjectRequest, HeadObjectResult, ListObjectsResult, ObjectAttribute,
+        ObjectClientResult, ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums,
+        RestoreStatus, UploadReview, UploadReviewPart,
     };
 }
 
