@@ -77,8 +77,8 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
         ErrorMetadata {
             client_error_meta: ClientErrorMetadata {
                 http_code: Some(503),
-                s3_error_code: None,
-                s3_error_message: None,
+                error_code: None,
+                error_message: None,
             },
             error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),
@@ -114,8 +114,8 @@ async fn test_lookup_unhandled_error_mock() {
         ErrorMetadata {
             client_error_meta: ClientErrorMetadata {
                 http_code: Some(409),
-                s3_error_code: None,
-                s3_error_message: None,
+                error_code: None,
+                error_message: None,
             },
             error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),

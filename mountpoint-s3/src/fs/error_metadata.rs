@@ -19,8 +19,8 @@ impl ErrorMetadata {
     pub const EMPTY: Self = Self {
         client_error_meta: ClientErrorMetadata {
             http_code: None,
-            s3_error_code: None,
-            s3_error_message: None,
+            error_code: None,
+            error_message: None,
         },
         error_code: None,
         s3_bucket_name: None,

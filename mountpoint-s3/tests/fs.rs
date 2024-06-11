@@ -1550,8 +1550,8 @@ async fn test_lookup_forbidden() {
         ErrorMetadata {
             client_error_meta: ClientErrorMetadata {
                 http_code: Some(403), // here we assume that HeadObject failes with 403 code
-                s3_error_code: None,
-                s3_error_message: None,
+                error_code: None,
+                error_message: None,
             },
             error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),

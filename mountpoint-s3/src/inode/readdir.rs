@@ -42,7 +42,6 @@ use mountpoint_s3_client::types::ObjectInfo;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{error, trace, warn};
 
-use crate::fs::error_metadata::MOUNTPOINT_ERROR_CLIENT;
 use crate::sync::{Arc, AsyncMutex, Mutex};
 
 use super::{
@@ -354,9 +353,7 @@ impl RemoteIter {
                     self.full_path.as_str(),
                 )
                 .await
-                .map_err(|e| {
-                    InodeError::client_error(e, None, MOUNTPOINT_ERROR_CLIENT, &self.bucket, &self.full_path)
-                })?;
+                .map_err(|e| InodeError::client_error(e, None, &self.bucket, &self.full_path))?;
 
             self.state = match result.next_continuation_token {
                 Some(token) => RemoteIterState::InProgress(Some(token)),

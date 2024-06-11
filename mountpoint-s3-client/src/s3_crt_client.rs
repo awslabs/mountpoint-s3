@@ -620,12 +620,12 @@ impl S3CrtClientInner {
                             metrics::counter!("s3.meta_requests.failures", "op" => op, "status" => format!("{error_status}")).increment(1);
                         }
 
-                        // Fill in a generic error if we weren't able to parse one
                         let http_code = if request_result.response_status >= 100 {
                             Some(request_result.response_status)
                         } else {
                             None
                         };
+                        // Fill in a generic error if we weren't able to parse one
                         Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result, Box::new(ClientErrorMetadata{
                             http_code,
                             ..Default::default()
@@ -1012,8 +1012,8 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
                 message.to_string(),
                 Box::new(ClientErrorMetadata {
                     http_code: Some(request_result.response_status),
-                    s3_error_code: Some(error_code_str.to_string()),
-                    s3_error_message: Some(message.into_owned()),
+                    error_code: Some(error_code_str.to_string()),
+                    error_message: Some(message.into_owned()),
                 }),
             ))
         } else {
@@ -1021,13 +1021,13 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
-    /// Try to look for error related to no signing credentials
-    fn try_parse_no_credentials(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+    /// Try to look for error related to no signing credentials, returns generic error otherwise
+    fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
         if crt_error_code == mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
-            Some(S3RequestError::NoSigningCredentials)
+            S3RequestError::NoSigningCredentials
         } else {
-            Some(S3RequestError::CrtError(crt_error_code.into()))
+            S3RequestError::CrtError(crt_error_code.into())
         }
     }
 
@@ -1064,9 +1064,15 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
-        0 => try_parse_throttled(request_result).or_else(|| {
-            try_parse_canceled_request(request_result).or_else(|| try_parse_no_credentials(request_result))
-        }),
+        0 => {
+            if let Some(err) = try_parse_throttled(request_result) {
+                Some(err)
+            } else if let Some(err) = try_parse_canceled_request(request_result) {
+                Some(err)
+            } else {
+                Some(try_parse_no_credentials_or_generic(request_result))
+            }
+        }
         _ => None,
     }
 }

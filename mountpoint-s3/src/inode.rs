@@ -579,13 +579,7 @@ impl Superblock {
                             error=?e,
                             "DeleteObject failed for unlink",
                         );
-                        Err(InodeError::client_error(
-                            e,
-                            Some("DeleteObject failed"),
-                            MOUNTPOINT_ERROR_CLIENT,
-                            bucket,
-                            s3_key,
-                        ))?;
+                        Err(InodeError::client_error(e, Some("DeleteObject failed"), bucket, s3_key))?;
                     }
                 };
             }
@@ -792,12 +786,12 @@ impl SuperblockInner {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::client_error(e, Some("HeadObject failed"), MOUNTPOINT_ERROR_CLIENT, &self.bucket, &full_path)),
+                        Err(e) => return Err(InodeError::client_error(e, Some("HeadObject failed"), &self.bucket, &full_path)),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::client_error(e, Some("ListObjectsV2 failed"), MOUNTPOINT_ERROR_CLIENT, &self.bucket, &full_path))?;
+                    let result = result.map_err(|e| InodeError::client_error(e, Some("ListObjectsV2 failed"), &self.bucket, &full_path))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1654,13 +1648,13 @@ impl InodeError {
     /// To make it manageable the idea is to enrich metadata with error_code, bucket and key
     /// on the construction of mountpoint crate's errors, i.e. InodeError, PrefetchReadError
     /// and UploadPutError.
-    fn client_error<E>(err: E, context: Option<&'static str>, error_code: &str, bucket: &str, key: &str) -> Self
+    fn client_error<E>(err: E, context: Option<&'static str>, bucket: &str, key: &str) -> Self
     where
         E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
     {
         let metadata = ErrorMetadata {
             client_error_meta: err.meta().clone(),
-            error_code: Some(error_code.to_string()),
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),
             s3_object_key: Some(key.to_string()),
         };
