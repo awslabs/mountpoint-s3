@@ -166,10 +166,10 @@ impl<S, C> ProvideErrorMetadata for ObjectClientError<S, C>
 where
     C: ProvideErrorMetadata,
 {
-    fn meta(&self) -> &ClientErrorMetadata {
+    fn meta(&self) -> ClientErrorMetadata {
         match self {
             Self::ClientError(err) => err.meta(),
-            _ => &ClientErrorMetadata::EMPTY,
+            _ => Default::default(),
         }
     }
 }

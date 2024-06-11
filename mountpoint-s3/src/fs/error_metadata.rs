@@ -14,20 +14,6 @@ pub struct ErrorMetadata {
     pub s3_object_key: Option<String>,
 }
 
-impl ErrorMetadata {
-    /// Empty error metadata
-    pub const EMPTY: Self = Self {
-        client_error_meta: ClientErrorMetadata {
-            http_code: None,
-            error_code: None,
-            error_message: None,
-        },
-        error_code: None,
-        s3_bucket_name: None,
-        s3_object_key: None,
-    };
-}
-
 /// A code identifying the error reported to the event log. As of today, users who deploy Mountpoint as an infrastructural component
 /// are interested in errors which *may be fixed by users of this infrastructure* (e.g. a forbidden error). Next, it is vital
 /// to be able to distinguish fuse operation errors which *may be tolerated by a workload* (e.g. a non-existent object). Other errors

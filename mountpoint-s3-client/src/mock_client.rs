@@ -516,8 +516,8 @@ impl std::fmt::Display for MockClientError {
 }
 
 impl ProvideErrorMetadata for MockClientError {
-    fn meta(&self) -> &ClientErrorMetadata {
-        &ClientErrorMetadata::EMPTY
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
     }
 }
 

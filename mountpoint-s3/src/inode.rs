@@ -1669,10 +1669,10 @@ impl InodeError {
 }
 
 impl InodeError {
-    pub fn meta(&self) -> &ErrorMetadata {
+    pub fn meta(&self) -> ErrorMetadata {
         match self {
-            Self::ClientError { source: _, metadata } => metadata,
-            _ => &ErrorMetadata::EMPTY,
+            Self::ClientError { source: _, metadata } => (**metadata).clone(),
+            _ => Default::default(),
         }
     }
 }

@@ -12,14 +12,5 @@ pub struct ClientErrorMetadata {
 /// Allows using metadata of errors in generic implementations without knowing the exact type of an error,
 /// which as of today may be s3_crt_client::S3RequestError / mock_client::MockClientError / GetObjectError and etc.
 pub trait ProvideErrorMetadata {
-    fn meta(&self) -> &ClientErrorMetadata;
-}
-
-impl ClientErrorMetadata {
-    /// Empty error metadata
-    pub const EMPTY: Self = Self {
-        http_code: None,
-        error_code: None,
-        error_message: None,
-    };
+    fn meta(&self) -> ClientErrorMetadata;
 }

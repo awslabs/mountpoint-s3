@@ -620,16 +620,8 @@ impl S3CrtClientInner {
                             metrics::counter!("s3.meta_requests.failures", "op" => op, "status" => format!("{error_status}")).increment(1);
                         }
 
-                        let http_code = if request_result.response_status >= 100 {
-                            Some(request_result.response_status)
-                        } else {
-                            None
-                        };
                         // Fill in a generic error if we weren't able to parse one
-                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result, Box::new(ClientErrorMetadata{
-                            http_code,
-                            ..Default::default()
-                        })))))
+                        Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
                     }
                 };
 
@@ -880,7 +872,7 @@ pub enum S3RequestError {
 
     /// The request was sent but an unknown or unhandled failure occurred while processing it.
     #[error("Unknown response error: {0:?}")]
-    ResponseError(MetaRequestResult, Box<ClientErrorMetadata>),
+    ResponseError(MetaRequestResult),
 
     /// The request was made to the wrong region
     #[error("Wrong region (expecting {0})")]
@@ -901,7 +893,7 @@ pub enum S3RequestError {
 
     /// The request was throttled by S3
     #[error("Request throttled")]
-    Throttled(Box<ClientErrorMetadata>),
+    Throttled,
 }
 
 impl S3RequestError {
@@ -911,12 +903,37 @@ impl S3RequestError {
 }
 
 impl ProvideErrorMetadata for S3RequestError {
-    fn meta(&self) -> &ClientErrorMetadata {
+    fn meta(&self) -> ClientErrorMetadata {
         match self {
-            Self::ResponseError(_, metadata) => metadata,
-            Self::Forbidden(_, metadata) => metadata,
-            Self::Throttled(metadata) => metadata,
-            _ => &ClientErrorMetadata::EMPTY,
+            Self::ResponseError(request_result) => {
+                let http_code = if request_result.response_status >= 100 {
+                    Some(request_result.response_status)
+                } else {
+                    None
+                };
+                ClientErrorMetadata {
+                    http_code,
+                    ..Default::default()
+                }
+            }
+            Self::Forbidden(_, metadata) => (**metadata).clone(),
+            Self::Throttled => {
+                // CRT does not set S3 response data for error codes other then AWS_ERROR_S3_INVALID_RESPONSE_STATUS
+                // In case of throttling we know for sure that the response status was 503 and metadata users may
+                // rely on it to detect throttling (see CRT's `s_s3_meta_request_error_code_from_response_status`).
+                //
+                // Alternatively, we could've set here `response_status` reported by the last `on_telemetry` callback.
+                // Another alternative is to introduce a new code "error.client.throttled" and set it in
+                // `ErrorMetadata::error_code` (which is part of `mountpoint-s3` crate).
+                //
+                // Manually setting 503 seems like the option which introduces no overhead, is symmetric to how we
+                // expect users to detect other client errors and is robust enough (covered with a test).
+                ClientErrorMetadata {
+                    http_code: Some(503),
+                    ..Default::default()
+                }
+            }
+            _ => Default::default(),
         }
     }
 }
@@ -1034,20 +1051,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
     fn try_parse_throttled(request_result: &MetaRequestResult) -> Option<S3RequestError> {
         let crt_error_code = request_result.crt_error.raw_error();
         if crt_error_code == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_SLOW_DOWN as i32 {
-            // CRT does not set S3 response data for error codes other then AWS_ERROR_S3_INVALID_RESPONSE_STATUS
-            // In case of throttling we know for sure that the response status was 503 and metadata users may
-            // rely on it to detect throttling (see CRT's `s_s3_meta_request_error_code_from_response_status`).
-            //
-            // Alternatively, we could've set here `response_status` reported by the last `on_telemetry` callback.
-            // Another alternative is to introduce a new code "error.client.throttled" and set it in
-            // `ErrorMetadata::error_code` (which is part of `mountpoint-s3` crate).
-            //
-            // Manually setting 503 seems like the option which introduces no overhead, is symmetric to how we
-            // expect users to detect other client errors and is robust enough (covered with a test).
-            Some(S3RequestError::Throttled(Box::new(ClientErrorMetadata {
-                http_code: Some(503),
-                ..Default::default()
-            })))
+            Some(S3RequestError::Throttled)
         } else {
             None
         }
