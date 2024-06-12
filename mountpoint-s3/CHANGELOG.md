@@ -1,5 +1,10 @@
 ## Unreleased
 
+## v1.8.0 (June 12, 2024)
+
+### Breaking changes
+* Mountpoint now only accepts KMS key ARN as a valid input for `--sse-kms-key-id` argument. This prevents an issue where Mountpoint could crash when uploading a file with KMS key identifiers other than the key ARN. ([#908](https://github.com/awslabs/mountpoint-s3/pull/908))
+
 ## v1.7.0 (June 6, 2024)
 
 ### New features
