@@ -731,8 +731,7 @@ fn write_with_inexistent_key_sse() {
     let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, None);
     write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
 
-    let expected_log_line =
-        regex::Regex::new(r"^.*is not authorized to perform: kms:GenerateDataKey.*$").unwrap();
+    let expected_log_line = regex::Regex::new(r"^.*is not authorized to perform: kms:GenerateDataKey.*$").unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
 
