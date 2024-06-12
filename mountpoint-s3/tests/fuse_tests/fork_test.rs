@@ -723,13 +723,16 @@ fn write_to_file(mount_point: &Path, file_name: &str) -> Result<(), std::io::Err
 #[test]
 fn write_with_inexistent_key_sse() {
     let (bucket, prefix) = get_test_bucket_and_prefix("write_with_inexistent_key_sse");
-    let key_id = "SOME_INVALID_KEY";
+    let key_id = format!(
+        "arn:aws:kms:{}:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+        get_test_region()
+    );
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
-    let child = mount_with_sse(&bucket, mount_point.path(), &prefix, key_id, None);
+    let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, None);
     write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
 
     let expected_log_line =
-        regex::Regex::new(r"^.*WARN.*KMS.NotFoundException.*Invalid keyId \\'SOME_INVALID_KEY\\'.*$").unwrap();
+        regex::Regex::new(r"^.*is not authorized to perform: kms:GenerateDataKey on this resource because the resource does not exist in this Region.*$").unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
 
