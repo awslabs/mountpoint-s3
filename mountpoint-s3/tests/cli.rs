@@ -258,7 +258,7 @@ fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
         .arg(dir.path())
         .arg("--sse=aws:kms")
         .arg("--sse-kms-key-id=");
-    let error_message = "a value is required for '--sse-kms-key-id <SSE_KMS_KEY_ID>' but none was supplied";
+    let error_message = "invalid value \'\' for \'--sse-kms-key-id <AWS_KMS_KEY_ARN>\': KMS Key ARN is only accepted as a key identifier, Key Alias ARN is not accepted";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -271,7 +271,7 @@ fn sse_key_not_allowed_with_aes256() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("test-bucket")
         .arg(dir.path())
         .arg("--sse=AES256")
-        .arg("--sse-kms-key-id=some_key");
+        .arg("--sse-kms-key-id=arn:aws:kms:eu-west-1:151381207180:key/dabe1478-fe48-47ca-b6f8-ca044b643a82");
     let error_message = "--sse-kms-key-id can not be used with --sse AES256";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 

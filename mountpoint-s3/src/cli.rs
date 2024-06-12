@@ -278,10 +278,11 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "AWS Key Management Service (KMS) key ID to use with KMS server-side encryption when uploading new objects",
+        help = "AWS Key Management Service (KMS) key ARN to use with KMS server-side encryption when uploading new objects. Key ID, Alias and Alias ARN are all not supported.",
         help_heading = BUCKET_OPTIONS_HEADER,
         requires = "sse",
-        value_parser = clap::builder::NonEmptyStringValueParser::new(),
+        value_parser = parse_kms_key_arn,
+        value_name = "AWS_KMS_KEY_ARN",
     )]
     pub sse_kms_key_id: Option<String>,
 
@@ -875,6 +876,17 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     Ok(bucket_name.to_owned())
 }
 
+/// Validate a kms-key-id CLI parameter. Currently, Mountpoint only supports KMS Key ARNs.
+fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
+    if kms_key_arn.starts_with("arn:") && kms_key_arn.contains(":key") {
+        Ok(kms_key_arn.to_owned())
+    } else {
+        Err(anyhow!(
+            "KMS Key ARN is only accepted as a key identifier, Key Alias ARN is not accepted"
+        ))
+    }
+}
+
 fn env_region() -> Option<String> {
     env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
 }
@@ -1002,6 +1014,23 @@ mod tests {
             assert_eq!(parsed.expect("valid bucket name"), bucket_name);
         } else {
             parsed.expect_err("invalid bucket name");
+        }
+    }
+
+    // https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-id
+    #[test_case("arn:aws:kms:eu-west-1:151381207180:key/dabe1478-fe48-47ca-b6f8-ca044b643a82", true; "KMS Key ARN")]
+    #[test_case("arn:aws:kms:us-west-2:111122223333:key/mrk-1234abcd12ab34cd56ef1234567890ab", true; "Multi-region KMS Key ARN")]
+    #[test_case("", false; "empty")]
+    #[test_case("1234abcd-12ab-34cd-56ef-1234567890ab", false; "KMS Key ID")]
+    #[test_case("mrk-1234abcd12ab34cd56ef1234567890ab", false; "Multi-region KMS Key ID")]
+    #[test_case("alias/ExampleAlias", false; "KMS Key alias name")]
+    #[test_case("arn:aws:kms:us-west-2:111122223333:alias/ExampleAlias", false; "KMS Key alias ARN")]
+    fn test_parse_kms_key_arn(kms_key_id: &str, valid: bool) {
+        let parsed = parse_kms_key_arn(kms_key_id);
+        if valid {
+            assert_eq!(parsed.expect("valid kms key identifier"), kms_key_id);
+        } else {
+            parsed.expect_err("invalid kms key identifier");
         }
     }
 }
