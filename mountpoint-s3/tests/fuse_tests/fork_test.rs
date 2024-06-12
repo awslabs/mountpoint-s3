@@ -807,6 +807,54 @@ fn read_with_no_permissions_for_a_key_sse() {
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
 
+#[cfg(not(feature = "s3express_tests"))]
+#[test]
+fn write_with_sse_kms_key_id_ok() {
+    let kms_key_arn = get_test_kms_key_id();
+    assert!(kms_key_arn.starts_with("arn:") && kms_key_arn.contains(":key"));
+    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_sse_kms_key_id_ok");
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+    let _ = mount_with_sse(&bucket, mount_point.path(), &prefix, &kms_key_arn, None);
+    let f_name = "f.txt";
+    write_to_file(mount_point.path(), f_name).expect("should be able to write to the file");
+    unmount(&mount_point);
+
+    let sdk_client = tokio_block_on(get_test_sdk_client(get_test_region().as_str()));
+    let key = format!("{}{}", prefix, f_name);
+    let head_object_output = tokio_block_on(sdk_client.head_object().bucket(&bucket).key(&key).send());
+    let head_object_output = head_object_output.expect("object must exist");
+    assert_eq!(
+        head_object_output.ssekms_key_id.expect("ssekms_key_id must be set"),
+        kms_key_arn
+    );
+}
+
+#[cfg(not(feature = "s3express_tests"))]
+#[test_case("1234abcd-12ab-34cd-56ef-1234567890ab"; "KMS Key ID")]
+#[test_case("arn:aws:kms:us-west-2:111122223333:alias/ExampleAlias"; "KMS Key alias")]
+#[test_case("alias/ExampleAlias"; "KMS Key alias ARN")]
+fn write_with_sse_kms_key_id_unsupported(key_id: &str) {
+    let (bucket, prefix) = get_test_bucket_and_prefix("write_with_sse_kms_key_id_unsupported");
+    let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
+    let region = get_test_region();
+    let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
+    let child = cmd
+        .stdout(Stdio::piped())
+        .arg(bucket)
+        .arg(mount_point.path())
+        .arg(format!("--region={region}"))
+        .arg(format!("--prefix={prefix}"))
+        .arg("--sse=aws:kms:dsse")
+        .arg(format!("--sse-kms-key-id={key_id}"))
+        .arg("--auto-unmount")
+        .arg("--foreground")
+        .spawn()
+        .expect("must be able to fork mountpoint");
+    let exit_status = wait_for_exit(child);
+    assert!(!exit_status.success());
+    assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+}
+
 fn test_read_files(bucket: &str, prefix: &str, region: &str, mount_point: &PathBuf) {
     // create objects for test
     create_objects(bucket, prefix, region, "file1.txt", b"hello world");
