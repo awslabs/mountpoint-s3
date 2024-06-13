@@ -524,6 +524,10 @@ where
                 });
 
                 let timeout = Duration::from_secs(30);
+                tracing::debug!(
+                    "waiting up to {} seconds for child process to be ready",
+                    timeout.as_secs(),
+                );
                 let status = receiver.recv_timeout(timeout);
                 match status {
                     Ok('0') => {
@@ -535,6 +539,10 @@ where
                         return Err(anyhow!("Failed to create mount process"));
                     }
                     Err(_timeout_err) => {
+                        tracing::error!(
+                            "timeout after {} seconds waiting for message from child process",
+                            timeout.as_secs(),
+                        );
                         // kill child process before returning error.
                         if let Err(e) = nix::sys::signal::kill(child, Signal::SIGTERM) {
                             tracing::error!("Unable to kill hanging child process with SIGTERM: {:?}", e);
