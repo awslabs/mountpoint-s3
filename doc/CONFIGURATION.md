@@ -44,7 +44,7 @@ The IAM credentials you use with Mountpoint must have permission for the `s3:Lis
 
 By default, Mountpoint allows writing new files to your S3 bucket, and does not allow deleting existing files. You can disable writing new files, or enable deleting existing files, with [file system configuration flags](#file-system-configuration). Writing files requires permission for the `s3:PutObject` and `s3:AbortMultipartUpload` actions. Deleting existing files requires permission for the `s3:DeleteObject` action.
 
-If you are using server-side encryption with KMS (SSE-KMS), you will need addition permissions for KMS operations when reading or writing to objects.
+If you are using server-side encryption with KMS (SSE-KMS), you will need additional permissions for KMS operations when reading or writing to objects.
 To read objects that are server-side encrypted with SSE-KMS, you will need permission for the `kms:Decrypt` action for the keys used to encrypt the objects.
 To upload new objects that will be encrypted with SSE-KMS, you will need permission for the `kms:GenerateDataKey` action on the key used to encrypt the object.
 
