@@ -46,7 +46,8 @@ By default, Mountpoint allows writing new files to your S3 bucket, and does not 
 
 If you are using server-side encryption with KMS (SSE-KMS), you will need additional permissions for KMS operations when reading or writing to objects.
 To read objects that are server-side encrypted with SSE-KMS, you will need permission for the `kms:Decrypt` action for the keys used to encrypt the objects.
-To upload new objects that will be encrypted with SSE-KMS, you will need permission for the `kms:GenerateDataKey` action on the key used to encrypt the object.
+To upload new objects that will be encrypted with SSE-KMS, you will need permission for both the `kms:Decrypt` and `kms:GenerateDataKey` actions on the key used to encrypt the object.
+More details on permissions required when using SSE-KMS can be found in the [SSE-KMS section of the S3 User Guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html).
 
 If you only [mount a prefix of your S3 bucket](#mounting-a-bucket-prefix) rather than the entire bucket, you need these IAM permissions only for the prefix you mount. You can scope down your IAM permissions to a prefix using the `Resource` element of the policy statement for most of these permissions, but for `s3:ListBucket` you must use the `s3:prefix` condition key instead.
 
