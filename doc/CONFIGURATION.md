@@ -44,6 +44,11 @@ The IAM credentials you use with Mountpoint must have permission for the `s3:Lis
 
 By default, Mountpoint allows writing new files to your S3 bucket, and does not allow deleting existing files. You can disable writing new files, or enable deleting existing files, with [file system configuration flags](#file-system-configuration). Writing files requires permission for the `s3:PutObject` and `s3:AbortMultipartUpload` actions. Deleting existing files requires permission for the `s3:DeleteObject` action.
 
+If you are using server-side encryption with KMS (SSE-KMS), you will need additional permissions for KMS operations when reading or writing to objects.
+To read objects that are server-side encrypted with SSE-KMS, you will need permission for the `kms:Decrypt` action for the keys used to encrypt the objects.
+To upload new objects that will be encrypted with SSE-KMS, you will need permission for both the `kms:Decrypt` and `kms:GenerateDataKey` actions on the key used to encrypt the object.
+More details on permissions required when using SSE-KMS can be found in the [SSE-KMS section of the S3 User Guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html).
+
 If you only [mount a prefix of your S3 bucket](#mounting-a-bucket-prefix) rather than the entire bucket, you need these IAM permissions only for the prefix you mount. You can scope down your IAM permissions to a prefix using the `Resource` element of the policy statement for most of these permissions, but for `s3:ListBucket` you must use the `s3:prefix` condition key instead.
 
 Here is an example least-privilege policy document to add to an IAM user or role that allows full access to your S3 bucket for Mountpoint. Replace `DOC-EXAMPLE-BUCKET` with the name of your bucket. Alternatively, you can use the [`AmazonS3FullAccess`](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-iam-awsmanpol.html) managed policy, but the managed policy grants more permissions than needed for Mountpoint.
