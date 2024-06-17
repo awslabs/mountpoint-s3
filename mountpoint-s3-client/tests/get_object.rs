@@ -137,7 +137,7 @@ async fn verify_backpressure_get_object() {
             sender.send(accum).unwrap();
         })
     });
-    match receiver.recv_timeout(Duration::from_millis(100)) {
+    match receiver.recv_timeout(Duration::from_millis(1000)) {
         Ok(_) => panic!("request should have been blocked"),
         Err(e) => assert_eq!(e, RecvTimeoutError::Timeout),
     }
