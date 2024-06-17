@@ -95,49 +95,50 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
 // Verify that the request is blocked when we don't increment read window size
 #[tokio::test]
 async fn verify_backpressure_get_object() {
-    let size = 1000;
-    let range = 50..1000;
+    let initial_window_size = 256;
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+    let part_size = client.part_size().unwrap();
+
+    let size = part_size * 2;
+    let range = 0..(part_size + 1) as u64;
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
 
     let key = format!("{prefix}/test");
-    let body = vec![0x42; size];
+    let expected_body = vec![0x42; size];
     sdk_client
         .put_object()
         .bucket(&bucket)
         .key(&key)
-        .body(ByteStream::from(body.clone()))
+        .body(ByteStream::from(expected_body.clone()))
         .send()
         .await
         .unwrap();
 
-    let initial_window_size = 256;
-    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
-
     let mut get_request = client
-        .get_object("test_bucket", &key, Some(range.clone()), None)
+        .get_object(&bucket, &key, Some(range.clone()), None)
         .await
         .expect("should not fail");
 
-    let mut accum = vec![];
-    let mut next_offset = range.start;
+    // Verify that we can receive some data since the window size is more than 0
+    let first_part = get_request.next().await.expect("result should not be empty");
+    let (offset, body) = first_part.unwrap();
+    assert_eq!(offset, 0, "wrong body part offset");
+
+    // The CRT always return at least a part even if the window is smaller than that
+    let expected_range = range.start as usize..part_size;
+    assert_eq!(&body[..], &expected_body[expected_range]);
 
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         futures::executor::block_on(async move {
-            while let Some(r) = get_request.next().await {
-                let (offset, body) = r.unwrap();
-                assert_eq!(offset, next_offset, "wrong body part offset");
-                next_offset += body.len() as u64;
-                accum.extend_from_slice(&body[..]);
-            }
-            let expected_range = range;
-            let expected_range = expected_range.start as usize..expected_range.end as usize;
-            assert_eq!(&accum[..], &body[expected_range], "body does not match");
-            sender.send(accum).unwrap();
+            // This await should be blocked
+            let second_part = get_request.next().await.unwrap();
+            let (_offset, body) = second_part.unwrap();
+            sender.send(body).unwrap();
         })
     });
-    match receiver.recv_timeout(Duration::from_millis(100)) {
+    match receiver.recv_timeout(Duration::from_millis(1000)) {
         Ok(_) => panic!("request should have been blocked"),
         Err(e) => assert_eq!(e, RecvTimeoutError::Timeout),
     }
