@@ -46,27 +46,13 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        // Only use the CRT auto-ranged-get machinery for requests larger than the part size, or
-        // unknown lengths. This avoids the machinery's HeadObject requests for small/random
-        // requests. For auto-ranged-gets, the CRT takes care of adjusting the offset returned to
-        // the body callback to include the range start, but for manual requests we need to do it
-        // ourselves with `range_start`.
-        let (request_type, range_start) = if let Some(range) = range {
+        if let Some(range) = range {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .set_header(&Header::new("Range", range_value))
                 .map_err(S3RequestError::construction_failure)?;
-
-            let length = range.end.saturating_sub(range.start);
-            if length >= self.inner.part_size as u64 {
-                (MetaRequestType::GetObject, 0)
-            } else {
-                (MetaRequestType::Default, range.start)
-            }
-        } else {
-            (MetaRequestType::GetObject, 0)
-        };
+        }
 
         let key = format!("/{key}");
         message
@@ -77,11 +63,11 @@ impl S3CrtClient {
 
         let request = self.inner.make_meta_request(
             message,
-            request_type,
+            MetaRequestType::GetObject,
             span,
             |_, _| (),
             move |offset, data| {
-                let _ = sender.unbounded_send(Ok((range_start + offset, data.into())));
+                let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
             move |result| {
                 if result.is_err() {
