@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v1.7.2 (June 17, 2024)
+
+* Fix an issue where reading a file through Mountpoint could fail, even if the corresponding S3 GetObject request had succeeded. ([#917](https://github.com/awslabs/mountpoint-s3/pull/917))
+
 ## v1.7.1 (June 14, 2024)
 
 ### Breaking changes
