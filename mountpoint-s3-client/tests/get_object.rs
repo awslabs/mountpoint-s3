@@ -115,7 +115,7 @@ async fn verify_backpressure_get_object() {
     let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
 
     let mut get_request = client
-        .get_object("test_bucket", &key, Some(range.clone()), None)
+        .get_object(&bucket, &key, Some(range.clone()), None)
         .await
         .expect("should not fail");
 
