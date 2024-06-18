@@ -878,10 +878,9 @@ pub enum S3RequestError {
     #[error("Wrong region (expecting {0})")]
     IncorrectRegion(String),
 
-    /// Forbidden (metadata is boxed to avoid allocating unnecessary space in case of Result::Ok,
-    /// see "result_large_err" clippy warning for details)
+    /// Forbidden
     #[error("Forbidden: {0}")]
-    Forbidden(String, Box<ClientErrorMetadata>),
+    Forbidden(String, ClientErrorMetadata),
 
     /// No signing credential is set for requests
     #[error("No signing credentials found")]
@@ -916,7 +915,7 @@ impl ProvideErrorMetadata for S3RequestError {
                     ..Default::default()
                 }
             }
-            Self::Forbidden(_, metadata) => (**metadata).clone(),
+            Self::Forbidden(_, metadata) => metadata.clone(),
             Self::Throttled => ClientErrorMetadata {
                 http_code: Some(503),
                 ..Default::default()
@@ -992,10 +991,10 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
             // error, so just trust the response code
             return Some(S3RequestError::Forbidden(
                 "<no message>".to_owned(),
-                Box::new(ClientErrorMetadata {
+                ClientErrorMetadata {
                     http_code: Some(request_result.response_status),
                     ..Default::default()
-                }),
+                },
             ));
         };
         let error_elem = xmltree::Element::parse(body.as_bytes()).ok()?;
@@ -1015,11 +1014,11 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
                 .unwrap_or(error_code_str.clone());
             Some(S3RequestError::Forbidden(
                 message.to_string(),
-                Box::new(ClientErrorMetadata {
+                ClientErrorMetadata {
                     http_code: Some(request_result.response_status),
                     error_code: Some(error_code_str.to_string()),
                     error_message: Some(message.into_owned()),
-                }),
+                },
             ))
         } else {
             None
