@@ -238,7 +238,7 @@ async fn test_head_object_403() {
         .expect_err("head to no-permissions bucket should fail");
     assert!(matches!(
         err,
-        ObjectClientError::ClientError(S3RequestError::Forbidden(_))
+        ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
     ));
 
     drop(_guard);

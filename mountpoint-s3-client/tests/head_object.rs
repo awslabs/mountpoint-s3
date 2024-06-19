@@ -114,7 +114,7 @@ async fn test_head_object_no_perm() {
     let result = client.head_object(&bucket, &key).await;
     assert!(matches!(
         result,
-        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_)))
+        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)))
     ));
 }
 

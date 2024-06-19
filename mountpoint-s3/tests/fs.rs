@@ -2,14 +2,23 @@
 
 use fuser::FileType;
 use libc::S_IFREG;
+#[cfg(feature = "s3_tests")]
+use mountpoint_s3::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use mountpoint_s3::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
-use mountpoint_s3_client::ObjectClient;
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use mountpoint_s3_client::PutObjectRequest;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -23,6 +32,14 @@ use test_case::test_case;
 
 mod common;
 use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use common::{
+    get_crt_client_auth_config,
+    s3::{deny_single_object_access_policy, get_scoped_down_credentials},
+};
+
+#[cfg(feature = "s3_tests")]
+use crate::common::s3::{get_test_bucket_and_prefix, get_test_region};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1463,6 +1480,84 @@ async fn test_readdir_rewind_with_local_files_only() {
     // Request everything from zero one more time
     let new_entries = ls(&fs, dir_handle, 0, 20).await;
     assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+}
+
+#[cfg(feature = "s3_tests")]
+#[tokio::test]
+async fn test_lookup_404_not_an_error() {
+    let name = "test_lookup_404_not_an_error";
+    let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let client_config = S3ClientConfig::default().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
+    let fs = make_test_filesystem_with_client(
+        client,
+        &bucket,
+        &prefix.parse().expect("prefix must be valid"),
+        Default::default(),
+    );
+    let err = fs
+        .lookup(FUSE_ROOT_INODE, name.as_ref())
+        .await
+        .expect_err("lookup must fail");
+    // ensure inexistent object has a dedicated error code
+    assert_eq!(
+        err.meta().error_code.as_deref(),
+        Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT)
+    );
+}
+
+// For S3 Express issues with permissions will in most cases be observed before the mount as it uses
+// a single `s3express:CreateSession` action to grant access to ListObjectsV2 and all other operations.
+// We perform ListObjectsV2 before the mount, which ensures that all further calls to S3 will be allowed
+// unless a policy was modified while Mountpoint is running. We will test mount errors separately.
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+#[tokio::test]
+async fn test_lookup_forbidden() {
+    let name = "test_lookup_forbidden";
+    let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let key = format!("{}{}", prefix, name);
+    let policy = deny_single_object_access_policy(&bucket, &key);
+
+    let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
+    let client_config = S3ClientConfig::default()
+        .auth_config(auth_config)
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
+
+    // create an empty file
+    client
+        .put_object(&bucket, &key, &Default::default())
+        .await
+        .expect("must be able to create a put object request")
+        .complete()
+        .await
+        .expect("uploading an object must succeeed");
+
+    // try to lookup file with a S3 policy that dissallows that
+    let fs = make_test_filesystem_with_client(
+        client,
+        &bucket,
+        &prefix.parse().expect("prefix must be valid"),
+        Default::default(),
+    );
+    let err = fs
+        .lookup(FUSE_ROOT_INODE, name.as_ref())
+        .await
+        .expect_err("lookup must fail");
+    let metadata = err.meta();
+    assert_eq!(
+        *metadata,
+        ErrorMetadata {
+            client_error_meta: ClientErrorMetadata {
+                http_code: Some(403), // here we assume that HeadObject failes with 403 code
+                error_code: None,
+                error_message: None,
+            },
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string())
+        }
+    );
 }
 
 async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) {

@@ -1,3 +1,4 @@
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
@@ -74,7 +75,7 @@ impl FromStr for ETag {
 pub trait ObjectClient {
     type GetObjectRequest: GetObjectRequest<ClientError = Self::ClientError>;
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
-    type ClientError: std::error::Error + Send + Sync + 'static;
+    type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
     /// Query the part size this client uses for PUT and GET operations to the object store. This
     /// can be `None` if the client does not do multi-part operations.
@@ -160,6 +161,18 @@ pub enum ObjectClientError<S, C> {
     /// construct the request).
     #[error("Client error")]
     ClientError(#[from] C),
+}
+
+impl<S, C> ProvideErrorMetadata for ObjectClientError<S, C>
+where
+    C: ProvideErrorMetadata,
+{
+    fn meta(&self) -> ClientErrorMetadata {
+        match self {
+            Self::ClientError(err) => err.meta(),
+            _ => Default::default(),
+        }
+    }
 }
 
 /// Shorthand type for the result of an object client request

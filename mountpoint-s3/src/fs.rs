@@ -17,6 +17,7 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::inode::{
     Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
 };
@@ -36,6 +37,8 @@ pub use error::{Error, ToErrno};
 
 mod time_to_live;
 pub use time_to_live::TimeToLive;
+
+pub mod error_metadata;
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
@@ -694,7 +697,7 @@ where
             .map_err(|err| match err {
                 InodeError::FileDoesNotExist(_, _) => {
                     // Lookup returning ENOENT is common case, and we dont want to warn in case `FileDoesNotExist` within ENOENT
-                    err!(libc::ENOENT, source: err, Level::DEBUG, "file does not exist")
+                    err!(libc::ENOENT, source: err, Level::DEBUG, metadata: ErrorMetadata{error_code: Some(MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT.to_string()), ..Default::default()}, "file does not exist")
                 }
                 _ => err.into(),
             })?;

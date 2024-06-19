@@ -353,7 +353,7 @@ impl RemoteIter {
                     self.full_path.as_str(),
                 )
                 .await
-                .map_err(|e| InodeError::ClientError(anyhow::Error::new(e)))?;
+                .map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed", &self.bucket, &self.full_path))?;
 
             self.state = match result.next_continuation_token {
                 Some(token) => RemoteIterState::InProgress(Some(token)),

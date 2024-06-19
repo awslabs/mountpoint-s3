@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -900,7 +901,7 @@ pub enum S3RequestError {
 
     /// Forbidden
     #[error("Forbidden: {0}")]
-    Forbidden(String),
+    Forbidden(String, ClientErrorMetadata),
 
     /// No signing credential is set for requests
     #[error("No signing credentials found")]
@@ -909,11 +910,39 @@ pub enum S3RequestError {
     /// The request was canceled
     #[error("Request canceled")]
     RequestCanceled,
+
+    /// The request was throttled by S3
+    #[error("Request throttled")]
+    Throttled,
 }
 
 impl S3RequestError {
     fn construction_failure(inner: impl Into<ConstructionError>) -> Self {
         S3RequestError::ConstructionFailure(inner.into())
+    }
+}
+
+impl ProvideErrorMetadata for S3RequestError {
+    fn meta(&self) -> ClientErrorMetadata {
+        match self {
+            Self::ResponseError(request_result) => {
+                let http_code = if request_result.response_status >= 100 {
+                    Some(request_result.response_status)
+                } else {
+                    None
+                };
+                ClientErrorMetadata {
+                    http_code,
+                    ..Default::default()
+                }
+            }
+            Self::Forbidden(_, metadata) => metadata.clone(),
+            Self::Throttled => ClientErrorMetadata {
+                http_code: Some(503),
+                ..Default::default()
+            },
+            _ => Default::default(),
+        }
     }
 }
 
@@ -981,7 +1010,13 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         let Some(body) = request_result.error_response_body.as_ref() else {
             // Header-only requests like HeadObject and HeadBucket can't give us a more detailed
             // error, so just trust the response code
-            return Some(S3RequestError::Forbidden("<no message>".to_owned()));
+            return Some(S3RequestError::Forbidden(
+                "<no message>".to_owned(),
+                ClientErrorMetadata {
+                    http_code: Some(request_result.response_status),
+                    ..Default::default()
+                },
+            ));
         };
         let error_elem = xmltree::Element::parse(body.as_bytes()).ok()?;
         let error_code = error_elem.get_child("Code")?;
@@ -997,20 +1032,36 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
             let message = error_elem
                 .get_child("Message")
                 .and_then(|e| e.get_text())
-                .unwrap_or(error_code_str);
-            Some(S3RequestError::Forbidden(message.into_owned()))
+                .unwrap_or(error_code_str.clone());
+            Some(S3RequestError::Forbidden(
+                message.to_string(),
+                ClientErrorMetadata {
+                    http_code: Some(request_result.response_status),
+                    error_code: Some(error_code_str.to_string()),
+                    error_message: Some(message.into_owned()),
+                },
+            ))
         } else {
             None
         }
     }
 
-    /// Try to look for error related to no signing credentials
-    fn try_parse_no_credentials(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+    /// Try to look for error related to no signing credentials, returns generic error otherwise
+    fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
         if crt_error_code == mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
-            Some(S3RequestError::NoSigningCredentials)
+            S3RequestError::NoSigningCredentials
         } else {
-            Some(S3RequestError::CrtError(crt_error_code.into()))
+            S3RequestError::CrtError(crt_error_code.into())
+        }
+    }
+
+    fn try_parse_throttled(request_result: &MetaRequestResult) -> Option<S3RequestError> {
+        let crt_error_code = request_result.crt_error.raw_error();
+        if crt_error_code == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_SLOW_DOWN as i32 {
+            Some(S3RequestError::Throttled)
+        } else {
+            None
         }
     }
 
@@ -1025,7 +1076,10 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         // redirect
         400 => try_parse_forbidden(request_result).or_else(|| try_parse_redirect(request_result)),
         403 => try_parse_forbidden(request_result),
-        0 => try_parse_no_credentials(request_result).or_else(|| try_parse_canceled_request(request_result)),
+        // if the http response status is not set, we look into crt_error_code to identify the error
+        0 => try_parse_throttled(request_result)
+            .or_else(|| try_parse_canceled_request(request_result))
+            .or_else(|| Some(try_parse_no_credentials_or_generic(request_result))),
         _ => None,
     }
 }
@@ -1348,7 +1402,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message><RequestId>CM0R497NB0WAQ977</RequestId><HostId>w1TqUKGaIuNAIgzqm/L2azuzgEBINxTngWPbV1iH2IvpLsVCCTKHJTh4HsGp4JnggHqVkA+KN1MGqHDw1+WEuA==</HostId></Error>"#;
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::Forbidden(message)) = result else {
+        let Some(S3RequestError::Forbidden(message, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(message, "Access Denied");
@@ -1359,7 +1413,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidToken</Code><Message>The provided token is malformed or otherwise invalid.</Message><Token-0>THEREALTOKENGOESHERE</Token-0><RequestId>CBFNVADDAZ8661HK</RequestId><HostId>rb5dpgYeIFxi8p5BzVK8s8wG/nQ4a7C5kMBp/KWIT4bvOUihugpssMTy7xS0mispbz6IIaX8W1g=</HostId></Error>"#;
         let result = make_result(400, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::Forbidden(message)) = result else {
+        let Some(S3RequestError::Forbidden(message, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(message, "The provided token is malformed or otherwise invalid.");
@@ -1370,7 +1424,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>ExpiredToken</Code><Message>The provided token has expired.</Message><Token-0>THEREALTOKENGOESHERE</Token-0><RequestId>RFXW0E15XSRPJYSW</RequestId><HostId>djitP7S+g43JSzR4pMOJpOO3RYpQUOUsmD4AqhRe3v24+JB/c+vwOEZgI8A35KDUe1cqQ5yKHwg=</HostId></Error>"#;
         let result = make_result(400, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::Forbidden(message)) = result else {
+        let Some(S3RequestError::Forbidden(message, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(message, "The provided token has expired.");
@@ -1393,7 +1447,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided. Check your key and signing method.</Message><AWSAccessKeyId>ASIASMEXAMPLE0000000</AWSAccessKeyId><StringToSign>EXAMPLE</StringToSign><SignatureProvided>EXAMPLE</SignatureProvided><StringToSignBytes>EXAMPLE</StringToSignBytes><CanonicalRequest>EXAMPLE</CanonicalRequest><CanonicalRequestBytes>EXAMPLE</CanonicalRequestBytes><RequestId>A1F516XX5M8AATSQ</RequestId><HostId>qs9dULIp5ABM7U+H8nGfzKtMYTxvqxIVvOYZ8lEFBDyTF4Fe+876Y4bLptG4mb+PTZFyG4yaUjg=</HostId></Error>"#;
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::Forbidden(message)) = result else {
+        let Some(S3RequestError::Forbidden(message, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(message, "The request signature we calculated does not match the signature you provided. Check your key and signing method.");
@@ -1405,7 +1459,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NotARealError</Code><Message>This error is made up.</Message><RequestId>CM0R497NB0WAQ977</RequestId><HostId>w1TqUKGaIuNAIgzqm/L2azuzgEBINxTngWPbV1iH2IvpLsVCCTKHJTh4HsGp4JnggHqVkA+KN1MGqHDw1+WEuA==</HostId></Error>"#;
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::Forbidden(message)) = result else {
+        let Some(S3RequestError::Forbidden(message, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(message, "This error is made up.");

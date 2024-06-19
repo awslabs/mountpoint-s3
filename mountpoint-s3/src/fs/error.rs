@@ -2,6 +2,7 @@
 
 use tracing::Level;
 
+use crate::fs::error_metadata::ErrorMetadata;
 use crate::inode::InodeError;
 use crate::upload::UploadWriteError;
 
@@ -34,32 +35,37 @@ use crate::upload::UploadWriteError;
 #[macro_export]
 macro_rules! err {
     // Base case -- don't use directly
-    ($errno:expr, __source:$source:expr, $level:expr, $message:literal, $($args:tt)*) => {
+    ($errno:expr, __source:$source:expr, $level:expr, $metadata:expr, $message:literal, $($args:tt)*) => {
         Error {
             errno: $errno,
             message: format!($message, $($args)*),
             source: $source,
             level: $level,
+            metadata: $metadata,
         }
     };
     // Actual cases
+    ($errno:expr, source:$source:expr, $level:expr, metadata:$metadata:expr, $message:literal) => {
+        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $metadata, $message, )
+    };
+    // For the following cases we construct an error with empty metadata
     ($errno:expr, source:$source:expr, $level:expr, $message:literal, $($args:tt)*) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $message, $($args)*)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, Default::default(), $message, $($args)*)
     };
     ($errno:expr, source:$source:expr, $level:expr, $message:literal) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, $message,)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), $level, Default::default(), $message,)
     };
     ($errno:expr, source:$source:expr, $message:literal, $($args:tt)*) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, $message, $($args)*)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, Default::default(), $message, $($args)*)
     };
     ($errno:expr, source:$source:expr, $message:literal) => {
-        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, $message,)
+        err!($errno, __source:Some(::anyhow::Error::new($source)), ::tracing::Level::WARN, Default::default(), $message,)
     };
     ($errno:expr, $message:literal, $($args:tt)*) => {
-        err!($errno, __source:None, ::tracing::Level::WARN, $message, $($args)*)
+        err!($errno, __source:None, ::tracing::Level::WARN, Default::default(), $message, $($args)*)
     };
     ($errno:expr, $message:literal) => {
-        err!($errno, __source:None, ::tracing::Level::WARN, $message,)
+        err!($errno, __source:None, ::tracing::Level::WARN, Default::default(), $message,)
     };
 }
 
@@ -71,6 +77,7 @@ pub struct Error {
     pub(crate) message: String,
     pub(crate) source: Option<anyhow::Error>,
     pub(crate) level: Level,
+    pub(crate) metadata: ErrorMetadata,
 }
 
 impl std::fmt::Display for Error {
@@ -87,12 +94,14 @@ impl std::fmt::Display for Error {
 impl From<InodeError> for Error {
     fn from(err: InodeError) -> Self {
         let errno = err.to_errno();
+        let metadata = err.meta().clone();
         Error {
             errno,
             message: String::from("inode error"),
             source: Some(anyhow::anyhow!(err)),
             // We are having WARN as the default level of logging for fuse errors
             level: Level::WARN,
+            metadata,
         }
     }
 }
@@ -106,6 +115,7 @@ impl<E: std::error::Error + Send + Sync + 'static> From<UploadWriteError<E>> for
             source: Some(anyhow::anyhow!(err)),
             // We are having WARN as the default level of logging for fuse errors
             level: Level::WARN,
+            metadata: Default::default(), // TODO (vlaad): must be cloned from UploadWriteError
         }
     }
 }
@@ -124,7 +134,7 @@ impl ToErrno for Error {
 impl ToErrno for InodeError {
     fn to_errno(&self) -> libc::c_int {
         match self {
-            InodeError::ClientError(_) => libc::EIO,
+            InodeError::ClientError { .. } => libc::EIO,
             InodeError::FileDoesNotExist(_, _) => libc::ENOENT,
             InodeError::InodeDoesNotExist(_) => libc::ENOENT,
             InodeError::InvalidFileName(_) => libc::EINVAL,
@@ -155,5 +165,11 @@ impl<E: std::error::Error> ToErrno for UploadWriteError<E> {
             UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
             UploadWriteError::ObjectTooBig { .. } => libc::EFBIG,
         }
+    }
+}
+
+impl Error {
+    pub fn meta(&self) -> &ErrorMetadata {
+        &self.metadata
     }
 }

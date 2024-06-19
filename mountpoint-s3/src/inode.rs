@@ -32,6 +32,7 @@ use anyhow::anyhow;
 use fuser::FileType;
 use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use mountpoint_s3_client::types::{HeadObjectResult, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
@@ -39,6 +40,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
 use crate::logging;
 use crate::prefix::Prefix;
@@ -577,7 +579,7 @@ impl Superblock {
                             error=?e,
                             "DeleteObject failed for unlink",
                         );
-                        Err(InodeError::ClientError(anyhow!(e).context("DeleteObject failed")))?;
+                        Err(InodeError::client_error(e, "DeleteObject failed", bucket, s3_key))?;
                     }
                 };
             }
@@ -784,12 +786,12 @@ impl SuperblockInner {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::ClientError(anyhow!(e).context("HeadObject failed"))),
+                        Err(e) => return Err(InodeError::client_error(e, "HeadObject failed", &self.bucket, &full_path)),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::ClientError(anyhow!(e).context("ListObjectsV2 failed")))?;
+                    let result = result.map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed", &self.bucket, &full_path))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1593,8 +1595,12 @@ impl InodeMap {
 
 #[derive(Debug, Error)]
 pub enum InodeError {
+    /// Avoid constructing this directly, but use `InodeError::client_error` instead
     #[error("error from ObjectClient")]
-    ClientError(#[source] anyhow::Error),
+    ClientError {
+        source: anyhow::Error,
+        metadata: Box<ErrorMetadata>,
+    },
     #[error("file {0:?} does not exist in parent inode {1}")]
     FileDoesNotExist(String, InodeErrorInfo),
     #[error("inode {0} does not exist")]
@@ -1633,6 +1639,40 @@ pub enum InodeError {
         old_inode: InodeErrorInfo,
         new_inode: InodeErrorInfo,
     },
+}
+
+impl InodeError {
+    /// Constructs InodeError::ClientError enriching metadata with error_code, bucket and key.
+    ///
+    /// Detailed information about an error is gathered in different frames of the call stack.
+    /// To make it manageable the idea is to enrich metadata with error_code, bucket and key
+    /// on the construction of mountpoint crate's errors, i.e. InodeError, PrefetchReadError
+    /// and UploadPutError.
+    fn client_error<E>(err: E, context: &'static str, bucket: &str, key: &str) -> Self
+    where
+        E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+    {
+        let metadata = ErrorMetadata {
+            client_error_meta: err.meta(),
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string()),
+        };
+        let metadata = Box::new(metadata);
+        InodeError::ClientError {
+            source: anyhow!(err).context(context),
+            metadata,
+        }
+    }
+}
+
+impl InodeError {
+    pub fn meta(&self) -> ErrorMetadata {
+        match self {
+            Self::ClientError { source: _, metadata } => (**metadata).clone(),
+            _ => Default::default(),
+        }
+    }
 }
 
 #[cfg(test)]
