@@ -227,11 +227,20 @@ pub struct CliArgs {
     #[clap(long, help = "Enable debug logging for AWS Common Runtime", help_heading = LOGGING_OPTIONS_HEADER)]
     pub debug_crt: bool,
 
+    #[cfg(feature = "event_log")]
+    #[clap(
+        long,
+        help = "Write structured event log for failed fuse operations to a directory (allowed to be the same as --log-directory)",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "DIRECTORY",
+    )]
+    pub event_log_directory: Option<PathBuf>,
+
     #[clap(
         long,
         help = "Disable all logging. You will still see stdout messages.",
         help_heading = LOGGING_OPTIONS_HEADER,
-        conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
+        conflicts_with_all(NO_LOG_CONFLICTS_WITH),
     )]
     pub no_log: bool,
 
@@ -294,6 +303,17 @@ pub struct CliArgs {
     )]
     pub upload_checksums: Option<UploadChecksums>,
 }
+
+#[cfg(feature = "event_log")]
+const NO_LOG_CONFLICTS_WITH: [&str; 5] = [
+    "log_directory",
+    "debug",
+    "debug_crt",
+    "log_metrics",
+    "event_log_directory",
+];
+#[cfg(not(feature = "event_log"))]
+const NO_LOG_CONFLICTS_WITH: [&str; 4] = ["log_directory", "debug", "debug_crt", "log_metrics"];
 
 #[derive(Debug, Clone)]
 pub enum BucketType {
@@ -372,10 +392,14 @@ impl CliArgs {
             filter
         };
 
+        let _event_log_directory: Option<PathBuf> = None;
+        #[cfg(feature = "event_log")]
+        let _event_log_directory = self.event_log_directory.clone();
         LoggingConfig {
             log_directory: self.log_directory.clone(),
             log_to_stdout: self.foreground,
             default_filter,
+            event_log_directory: _event_log_directory,
         }
     }
 

@@ -8,7 +8,7 @@ pub fn log_fs_error_event(error: &Error, fuse_operation: &str, fuse_request_id: 
         None => MOUNTPOINT_ERROR_INTERNAL,
     };
     event!(
-        ::tracing::Level::ERROR,
+        ::tracing::Level::TRACE,
         operation = fuse_operation,
         fuse_request_id = fuse_request_id,
         error_code = error_code,
@@ -25,7 +25,7 @@ pub fn log_fs_error_event(error: &Error, fuse_operation: &str, fuse_request_id: 
 
 pub fn log_unsupported_event(fuse_operation: &str, fuse_request_id: u64) {
     event!(
-        ::tracing::Level::ERROR,
+        ::tracing::Level::TRACE,
         operation = fuse_operation,
         fuse_request_id = fuse_request_id,
         error_code = MOUNTPOINT_ERROR_UNSUPPORTED,
