@@ -13,9 +13,11 @@ use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
+
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::marker::PhantomPinned;
+use std::mem::MaybeUninit;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
@@ -1181,14 +1183,15 @@ impl RequestMetrics {
 
     /// Get the ID of the thread the request was made from
     pub fn thread_id(&self) -> Option<ThreadId> {
-        let mut out: aws_thread_id_t = 0;
-        // SAFETY: `inner` is a valid aws_s3_request_metrics
-        unsafe {
-            aws_s3_request_metrics_get_thread_id(self.inner.as_ptr(), &mut out)
+        let mut out: MaybeUninit<aws_thread_id_t> = MaybeUninit::uninit();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics, `out` will point to initialized memory if no error was set
+        let thread_id = unsafe {
+            aws_s3_request_metrics_get_thread_id(self.inner.as_ptr(), out.as_mut_ptr())
                 .ok_or_last_error()
-                .ok()?
+                .ok()?;
+            out.assume_init()
         };
-        Some(out.into())
+        Some(thread_id.into())
     }
 
     /// Get the stream ID of the request
