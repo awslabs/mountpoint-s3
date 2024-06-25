@@ -1184,15 +1184,11 @@ impl RequestMetrics {
     /// Get the ID of the thread the request was made from
     pub fn thread_id(&self) -> Option<ThreadId> {
         let mut out: MaybeUninit<aws_thread_id_t> = MaybeUninit::uninit();
-        // SAFETY: `inner` is a valid aws_s3_request_metrics, `out` will be a valid pointer if no error was set
+        // SAFETY: `inner` is a valid aws_s3_request_metrics, `out` will point to initialized memory if no error was set
         let thread_id = unsafe {
             aws_s3_request_metrics_get_thread_id(self.inner.as_ptr(), out.as_mut_ptr())
                 .ok_or_last_error()
                 .ok()?;
-            assert!(
-                !out.as_ptr().is_null(),
-                "Thread ID should be available if call succeeded",
-            );
             out.assume_init()
         };
         Some(thread_id.into())
