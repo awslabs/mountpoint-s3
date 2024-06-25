@@ -8,8 +8,8 @@ default-run = "mount-s3"
 
 [dependencies]
 fuser = { path = "../vendor/fuser", version = "0.14.0", features = ["abi-7-28"] }
-mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.8.1" }
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.7.0" }
+mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.9.0" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.7.1" }
 
 anyhow = { version = "1.0.64", features = ["backtrace"] }
 async-channel = "2.1.1"
