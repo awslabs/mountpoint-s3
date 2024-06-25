@@ -240,3 +240,24 @@ You can reduce the impact of throttling errors by distributing objects across mu
 By default, Mountpoint retries throttled requests up to a total to 10 attempts. You can increase this default by setting the `AWS_MAX_ATTEMPTS` environment variable.
 
 For more details on optimizing Amazon S3 performance and avoiding throttling errors, see the [S3 best practices documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html).
+
+## Unable to upload large files
+
+Amazon S3 supports object uploads of sizes up to 5 TiB and a maximum part count of 10,000, as documented in the [S3 User Guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html).
+Mountpoint uses a part size of 8MiB by default which is optimal for reading and writing most objects, however this does limit upload size to 80,000 MiB (78.1 GiB).
+
+If you encounter this limit, you may see error messages in your application similar to the one shown below for `dd`:
+
+```
+dd: error writing ‘/mnt/s3-bucket/200GiB-file’: File too large
+```
+
+You should also see an error message in Mountpoint's logs:
+
+```
+WARN write{req=100 ino=5 fh=2 offset=83886080000 length=1048576 pid=100 name="200GiB-file"}:
+mountpoint_s3::fuse: write failed: upload error: object exceeded maximum upload size of 83886080000 bytes
+```
+
+For workloads uploading files larger than 78GiB, we recommend configuring a larger part size using the `--part-size <MiB>` command-line argument.
+For more information, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#maximum-object-size).
