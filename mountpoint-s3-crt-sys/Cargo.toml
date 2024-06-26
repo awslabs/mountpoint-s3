@@ -8,7 +8,7 @@ repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust FFI bindings to the AWS Common Runtime for Mountpoint for Amazon S3."
 exclude = [
     # Exclude large files/directories not required to build the CRT (e.g. tests, docs)
-    "crt/*/tests/**",
+    "crt/*/tests",
     "!crt/aws-lc/tests/compiler_features_tests",
     "!crt/s2n-tls/tests/features",
     "crt/**/docs",
