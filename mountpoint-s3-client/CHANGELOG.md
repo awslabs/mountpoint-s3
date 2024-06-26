@@ -2,12 +2,10 @@
 
 * Adds support for `AWS_ENDPOINT_URL` environment variable. ([#895](https://github.com/awslabs/mountpoint-s3/pull/895))
 * Support backpressure for GetObject request ([#889](https://github.com/awslabs/mountpoint-s3/pull/889))
-* Fix an issue where mountpoint-s3-client could interpret a HTTP 206 Partial success response as an error ([#917](https://github.com/awslabs/mountpoint-s3/commit/e299e2b71b3e5a2882b2d16035df6875476b3588))
-* Provide ErrorMetadata to crate::fuse layer with errors from the client ([#882](https://github.com/awslabs/mountpoint-s3/pull/882))
-* Avoid creating a new rule engine for every endpoint resolution ([#860](https://github.com/awslabs/mountpoint-s3/pull/860))
-* Allow building on 32-bit platforms ([#852](https://github.com/awslabs/mountpoint-s3/pull/852))
+* Fix an issue where mountpoint-s3-client could interpret a HTTP 206 Partial success response as an error ([#917](https://github.com/awslabs/mountpoint-s3/pull/917))
+* Introduce a new trait `ProvideErrorMetadata` to provide additional information for error reporting ([#882](https://github.com/awslabs/mountpoint-s3/pull/882))
+* Improve overall performance by not creating a new rule engine for every endpoint resolution ([#860](https://github.com/awslabs/mountpoint-s3/pull/860))
 * Adopt polling API for uploading data in PutObject requests ([#874](https://github.com/awslabs/mountpoint-s3/pull/874))
-* Initialize the CRT eagerly in tests ([#900](https://github.com/awslabs/mountpoint-s3/pull/900))
 
 ### Breaking changes
 
