@@ -1,5 +1,7 @@
 ## v0.8.0 (June 26, 2024)
 
+* Update to latest CRT dependencies
+* Allow omitting additional checksums from PutObject requests while still computing them for upload reviews ([#849](https://github.com/awslabs/mountpoint-s3/pull/849))
 * Adopt polling API for uploading data in PutObject requests ([#874](https://github.com/awslabs/mountpoint-s3/pull/874))
 * Expose underlying functions to support backpressure GetObject ([#889](https://github.com/awslabs/mountpoint-s3/pull/889))
 
