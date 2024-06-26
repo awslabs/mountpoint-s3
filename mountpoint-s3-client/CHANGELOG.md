@@ -1,6 +1,11 @@
-## Unreleased changes
+## v0.9.0 (June 26, 2024)
 
-* Adding support for `AWS_ENDPOINT_URL` environment variable.
+* Adds support for `AWS_ENDPOINT_URL` environment variable. ([#895](https://github.com/awslabs/mountpoint-s3/pull/895))
+* Support backpressure for GetObject request ([#889](https://github.com/awslabs/mountpoint-s3/pull/889))
+* Fix an issue where mountpoint-s3-client could interpret a HTTP 206 Partial success response as an error ([#917](https://github.com/awslabs/mountpoint-s3/pull/917))
+* Introduce a new trait `ProvideErrorMetadata` to provide additional information for error reporting ([#882](https://github.com/awslabs/mountpoint-s3/pull/882))
+* Improve overall performance by not creating a new rule engine for every endpoint resolution ([#860](https://github.com/awslabs/mountpoint-s3/pull/860))
+* Adopt polling API for uploading data in PutObject requests ([#874](https://github.com/awslabs/mountpoint-s3/pull/874))
 
 ### Breaking changes
 
