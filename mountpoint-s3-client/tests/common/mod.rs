@@ -206,7 +206,6 @@ pub async fn check_backpressure_get_result(
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {
-    let mut accum_read_window = read_window;
     let mut accum = vec![];
     let mut next_offset = range.map(|r| r.start).unwrap_or(0);
     pin_mut!(result);
@@ -218,10 +217,13 @@ pub async fn check_backpressure_get_result(
 
         // We run out of data to read if read window is smaller than accum length of data,
         // so we keeping adding window size, otherwise the request will be blocked.
-        while accum_read_window <= accum.len() {
+        while result.as_ref().next_read_window_offset() <= next_offset {
             result.as_mut().increment_read_window(read_window);
-            accum_read_window += read_window;
         }
+        assert!(
+            result.as_ref().next_read_window_offset() > next_offset,
+            "next read window offset should always be more than read offset"
+        )
     }
     assert_eq!(&accum[..], expected, "body does not match");
 }

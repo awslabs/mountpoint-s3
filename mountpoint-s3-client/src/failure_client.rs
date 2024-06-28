@@ -77,6 +77,10 @@ where
         self.client.part_size()
     }
 
+    fn initial_read_window_size(&self) -> Option<usize> {
+        self.client.initial_read_window_size()
+    }
+
     async fn delete_object(
         &self,
         bucket: &str,
@@ -183,6 +187,11 @@ impl<Client: ObjectClient, FailState: Send> GetObjectRequest for FailureGetReque
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();
         this.request.increment_read_window(len);
+    }
+
+    fn next_read_window_offset(self: Pin<&Self>) -> u64 {
+        let this = self.project_ref();
+        this.request.next_read_window_offset()
     }
 }
 

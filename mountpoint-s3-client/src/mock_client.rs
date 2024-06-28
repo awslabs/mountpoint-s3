@@ -64,7 +64,7 @@ pub struct MockClientConfig {
     /// A seed to randomize the order of ListObjectsV2 results, or None to use ordered list
     pub unordered_list_seed: Option<u64>,
     /// A flag to enable backpressure read
-    pub enable_back_pressure: bool,
+    pub enable_backpressure: bool,
     /// Initial backpressure read window size, ignored if enable_back_pressure is false
     pub initial_read_window_size: usize,
 }
@@ -475,8 +475,8 @@ pub struct MockGetObjectRequest {
     next_offset: u64,
     length: usize,
     part_size: usize,
-    enable_back_pressure: bool,
-    current_window_size: usize,
+    enable_backpressure: bool,
+    next_read_window_offset: u64,
 }
 
 impl MockGetObjectRequest {
@@ -498,7 +498,11 @@ impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
-        self.current_window_size += len;
+        self.next_read_window_offset += len as u64;
+    }
+
+    fn next_read_window_offset(self: Pin<&Self>) -> u64 {
+        self.next_read_window_offset
     }
 }
 
@@ -510,15 +514,16 @@ impl Stream for MockGetObjectRequest {
             return Poll::Ready(None);
         }
 
-        let mut next_read_size = self.part_size.min(self.length);
+        let next_read_size = self.part_size.min(self.length);
 
         // Simulate backpressure mechanism
-        if self.enable_back_pressure {
-            if self.current_window_size == 0 {
+        if self.enable_backpressure {
+            if self.next_read_window_offset <= self.next_offset {
                 return Poll::Pending;
             }
-            next_read_size = self.current_window_size.min(next_read_size);
-            self.current_window_size -= next_read_size;
+            self.next_read_window_offset = self
+                .next_read_window_offset
+                .max(self.next_offset + next_read_size as u64);
         }
         let next_part = self.object.read(self.next_offset, next_read_size);
 
@@ -558,6 +563,14 @@ impl ObjectClient for MockClient {
         Some(self.config.part_size)
     }
 
+    fn initial_read_window_size(&self) -> Option<usize> {
+        if self.config.enable_backpressure {
+            Some(self.config.initial_read_window_size)
+        } else {
+            None
+        }
+    }
+
     async fn delete_object(
         &self,
         bucket: &str,
@@ -582,7 +595,15 @@ impl ObjectClient for MockClient {
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        trace!(bucket, key, ?range, ?if_match, "GetObject");
+        trace!(
+            bucket,
+            key,
+            ?range,
+            ?if_match,
+            enable_back_pressure = self.config.enable_backpressure,
+            initial_read_window_size = self.config.initial_read_window_size,
+            "GetObject"
+        );
         self.inc_op_count(Operation::GetObject);
 
         if bucket != self.config.bucket {
@@ -612,8 +633,8 @@ impl ObjectClient for MockClient {
                 next_offset,
                 length,
                 part_size: self.config.part_size,
-                enable_back_pressure: self.config.enable_back_pressure,
-                current_window_size: self.config.initial_read_window_size,
+                enable_backpressure: self.config.enable_backpressure,
+                next_read_window_offset: next_offset + self.config.initial_read_window_size as u64,
             })
         } else {
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
@@ -967,7 +988,7 @@ mod tests {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: true,
+            enable_backpressure: true,
             initial_read_window_size: backpressure_read_window_size,
         });
 
@@ -1068,43 +1089,45 @@ mod tests {
     #[tokio::test]
     async fn verify_backpressure_get_object() {
         let key = "key1";
-        let size = 1000;
-        let range = 50..1000;
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
+        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
             part_size: 1024,
             unordered_list_seed: None,
-            enable_back_pressure: true,
+            enable_backpressure: true,
             initial_read_window_size: 256,
         });
 
-        let mut body = vec![0u8; size];
-        rng.fill_bytes(&mut body);
-        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+        let part_size = client.part_size().unwrap();
+        let size = part_size * 2;
+        let range = 0..(part_size + 1) as u64;
+
+        let mut expected_body = vec![0u8; size];
+        rng.fill_bytes(&mut expected_body);
+        client.add_object(key, MockObject::from_bytes(&expected_body, ETag::for_tests()));
 
         let mut get_request = client
             .get_object("test_bucket", key, Some(range.clone()), None)
             .await
             .expect("should not fail");
 
-        let mut accum = vec![];
-        let mut next_offset = range.start;
+        // Verify that we can receive some data since the window size is more than 0
+        let first_part = get_request.next().await.expect("result should not be empty");
+        let (offset, body) = first_part.unwrap();
+        assert_eq!(offset, 0, "wrong body part offset");
+
+        // The CRT always return at least a part even if the window is smaller than that
+        let expected_range = range.start as usize..part_size;
+        assert_eq!(&body[..], &expected_body[expected_range]);
 
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
             futures::executor::block_on(async move {
-                while let Some(r) = get_request.next().await {
-                    let (offset, body) = r.unwrap();
-                    assert_eq!(offset, next_offset, "wrong body part offset");
-                    next_offset += body.len() as u64;
-                    accum.extend_from_slice(&body[..]);
-                }
-                let expected_range = range;
-                let expected_range = expected_range.start as usize..expected_range.end as usize;
-                assert_eq!(&accum[..], &body[expected_range], "body does not match");
-                sender.send(accum).unwrap();
+                // This await should be blocked
+                let second_part = get_request.next().await.unwrap();
+                let (_offset, body) = second_part.unwrap();
+                sender.send(body).unwrap();
             })
         });
         match receiver.recv_timeout(Duration::from_millis(100)) {

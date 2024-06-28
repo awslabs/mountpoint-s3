@@ -46,13 +46,16 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        if let Some(range) = range {
+        let next_offset = if let Some(range) = range {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .set_header(&Header::new("Range", range_value))
                 .map_err(S3RequestError::construction_failure)?;
-        }
+            range.start
+        } else {
+            0
+        };
 
         let key = format!("/{key}");
         message
@@ -60,6 +63,7 @@ impl S3CrtClient {
             .map_err(S3RequestError::construction_failure)?;
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let next_read_window_offset = next_offset + self.inner.initial_read_window_size as u64;
 
         let request = self.inner.make_meta_request(
             message,
@@ -82,6 +86,7 @@ impl S3CrtClient {
             request,
             finish_receiver: receiver,
             finished: false,
+            next_read_window_offset,
         })
     }
 }
@@ -99,13 +104,19 @@ pub struct S3GetObjectRequest {
     #[pin]
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
+    next_read_window_offset: u64,
 }
 
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
+        self.next_read_window_offset += len as u64;
         self.request.meta_request.increment_read_window(len as u64);
+    }
+
+    fn next_read_window_offset(self: Pin<&Self>) -> u64 {
+        self.next_read_window_offset
     }
 }
 
