@@ -25,13 +25,17 @@
 //!   inodes for them, achieving point 4. It also has a [ReaddirHandle::readd] method to handle
 //!   point 5.
 //! * [ReaddirIter] is an iterator over [ReaddirEntry]s, which are entries that may not yet have
-//!   inodes created for them. [ReaddirIter] merges together two streams, [RemoteIter] and
-//!   [LocalIter], to handle point 2. While merging, [ReaddirIter] also deduplicates the entries it
-//!   returns to handle point 1.
+//!   inodes created for them.
+//!   Addressing point 2, [ReaddirIter] merges together entries from two sources:
+//!   remotely from S3 using [RemoteIter] and locally from a snapshot of the parent's local children.
+//!   While merging, [ReaddirIter] also deduplicates the entries it returns to handle point 1.
+//!   [ReaddirIter] itself delegates to two different iterator implementations,
+//!   depending on if the S3 implementation returns ordered or unordered list results.
 //! * [RemoteIter] is an iterator over [ReaddirEntry]s returned by paginated calls to ListObjectsV2.
 //!   Rather than directly streaming the entries out of the list call, it collects them in memory
 //!   and re-sorts them to handle point 3.
-//! * [LocalIter] is an iterator over [ReaddirEntry]s that are local children of the directory.
+//! * A collection or iterator of [ReaddirEntry]s is built up and used by [ReaddirIter],
+//!   representing the local children of the directory.
 //!   These children are listed only once, at the start of the readdir operation, and so are a
 //!   snapshot in time of the directory.
 
@@ -276,6 +280,10 @@ impl Ord for ReaddirEntry {
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
+/// Iterator over [ReaddirEntry] items, which are entries that may not yet have inodes created for them.
+///
+/// This iterator delegates to one of two iterators,
+/// depending on if the S3 implementation returns ordered results or not.
 enum ReaddirIter {
     Ordered(ordered::ReaddirIter),
     Unordered(unordered::ReaddirIter),
@@ -306,17 +314,22 @@ enum RemoteIterState {
     Finished,
 }
 
-/// An iterator over [ReaddirEntry]s returned by paginated ListObjects calls to S3. This iterator
-/// handles combining directories (common prefixes) and files (objects) into a single stream,
-/// and re-sorting that stream to account for common prefixes not being in lexicographic order (see
-/// the module comment).
+/// An iterator over [ReaddirEntry]s returned by paginated ListObjects calls to S3.
+/// This iterator combines directories (common prefixes) and files (objects) into a single stream.
+///
+/// If the S3 implementation returns ordered results, this iterator will re-sort the stream to
+/// account for common prefixes not being in lexicographic order (see the module comment).
 #[derive(Debug)]
 struct RemoteIter {
+    /// Prepared entries in order to be returned by the iterator.
     entries: VecDeque<ReaddirEntry>,
     bucket: String,
+    /// S3 prefix for the [RemoteIter], used when listing objects in S3.
     full_path: String,
+    /// The maximum number of keys to be returned by a single S3 ListObjectsV2 request.
     page_size: usize,
     state: RemoteIterState,
+    /// Does the S3 implementation return ordered results?
     ordered: bool,
 }
 
@@ -394,6 +407,8 @@ impl RemoteIter {
 }
 
 /// Iterator implementation for S3 implementations that provide lexicographically ordered LIST.
+///
+/// See [self::ReaddirIter] for exact behavior differences.
 mod ordered {
     use super::*;
 
@@ -496,6 +511,8 @@ mod ordered {
 
 /// Iterator implementation for S3 implementations that do not provide lexicographically ordered
 /// LIST (i.e., S3 Express One Zone).
+///
+/// See [self::ReaddirIter] for exact behavior differences.
 mod unordered {
     use std::collections::HashMap;
 
@@ -507,7 +524,10 @@ mod unordered {
     #[derive(Debug)]
     pub struct ReaddirIter {
         remote: RemoteIter,
+        /// Local entries to be returned.
+        /// Entries may be removed from this collection if entries of the same name are returned by [Self::remote].
         local: HashMap<String, ReaddirEntry>,
+        /// Queue of local entries to be returned, prepared based on the contents of [Self::local].
         local_iter: VecDeque<ReaddirEntry>,
     }
 
