@@ -278,12 +278,12 @@ impl Ord for ReaddirEntry {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
 /// Iterator over [ReaddirEntry] items, which are entries that may not yet have inodes created for them.
 ///
 /// This iterator delegates to one of two iterators,
 /// depending on if the S3 implementation returns ordered results or not.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 enum ReaddirIter {
     Ordered(ordered::ReaddirIter),
     Unordered(unordered::ReaddirIter),
