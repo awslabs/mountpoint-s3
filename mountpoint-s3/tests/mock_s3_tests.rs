@@ -134,6 +134,7 @@ fn create_fs_with_mock_s3(bucket: &str) -> (TestS3Filesystem<S3CrtClient>, MockS
     let client_config = S3ClientConfig::default()
         .endpoint_config(endpoint_config)
         .auth_config(S3ClientAuthConfig::NoSigning)
+        .read_backpressure(true)
         .max_attempts(NonZeroUsize::new(3).unwrap()); // retry S3 request 3 times (which equals the existing default)
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
     (

@@ -31,7 +31,7 @@ use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLiv
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, LoggingConfig};
-use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
+use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch, PrefetcherConfig};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::{autoconfigure, metrics};
@@ -615,6 +615,8 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
         .part_size(args.part_size as usize)
+        .read_backpressure(true)
+        .initial_read_window(args.part_size as usize)
         .user_agent(user_agent);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
@@ -693,7 +695,7 @@ where
         filesystem_config.use_upload_checksums = false;
     }
 
-    let prefetcher_config = Default::default();
+    let prefetcher_config = PrefetcherConfig::new(&client);
 
     let mut metadata_cache_ttl = args.metadata_ttl.unwrap_or_else(|| {
         if args.cache.is_some() {

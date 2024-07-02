@@ -1,10 +1,11 @@
 use std::{fmt::Debug, ops::Range};
 
+use async_channel::unbounded;
 use bytes::Bytes;
 use futures::task::SpawnExt;
 use futures::{pin_mut, task::Spawn, StreamExt};
-use mountpoint_s3_client::{types::ETag, ObjectClient};
-use tracing::{debug_span, error, trace, Instrument};
+use mountpoint_s3_client::{types::ETag, types::GetObjectRequest, ObjectClient};
+use tracing::{debug, debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
 use crate::object::ObjectId;
@@ -168,49 +169,52 @@ where
         client: &Client,
         bucket: &str,
         key: &str,
-        if_match: ETag,
+        if_match: mountpoint_s3_client::types::ETag,
         range: RequestRange,
         preferred_part_size: usize,
     ) -> RequestTask<Client::ClientError>
     where
-        Client: ObjectClient + Clone + Send + Sync + 'static,
+        Client: mountpoint_s3_client::ObjectClient + Clone + Send + Sync + 'static,
     {
-        assert!(preferred_part_size > 0);
-        let request_range = range.align(client.part_size().unwrap_or(8 * 1024 * 1024) as u64, true);
-        let start = request_range.start();
-        let size = request_range.len();
+        let start = range.start();
+        let size = range.len();
 
         let (part_queue, part_queue_producer) = unbounded_part_queue();
-        trace!(range=?request_range, "spawning request");
+        let (sender, receiver) = unbounded();
+        trace!(range=?range, "spawning request");
 
         let request_task = {
             let client = client.clone();
             let bucket = bucket.to_owned();
             let id = ObjectId::new(key.to_owned(), if_match);
-            let span = debug_span!("prefetch", range=?request_range);
+            let last_offset = start + size as u64;
+            let span = debug_span!("prefetch", range=?range);
 
             async move {
-                let get_object_result = match client
-                    .get_object(&bucket, id.key(), Some(request_range.into()), Some(id.etag().clone()))
+                let request = match client
+                    .get_object(&bucket, id.key(), Some(range.into()), Some(id.etag().clone()))
                     .await
                 {
                     Ok(get_object_result) => get_object_result,
                     Err(e) => {
                         error!(key=id.key(), error=?e, "GetObject request failed");
-                        part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)));
+                        part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)), None);
                         return;
                     }
                 };
 
-                pin_mut!(get_object_result);
+                pin_mut!(request);
                 loop {
-                    match get_object_result.next().await {
+                    match request.next().await {
                         Some(Ok((offset, body))) => {
                             trace!(offset, length = body.len(), "received GetObject part");
-                            metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
+
                             // pre-split the body into multiple parts as suggested by preferred part size
                             // in order to avoid validating checksum on large parts at read.
                             let mut body: Bytes = body.into();
+                            let next_offset = offset + body.len() as u64;
+                            let next_read_window_offset = request.as_ref().next_read_window_offset();
+                            let remaining_window_size = next_read_window_offset.saturating_sub(next_offset);
                             let mut curr_offset = offset;
                             loop {
                                 let chunk_size = preferred_part_size.min(body.len());
@@ -223,12 +227,35 @@ where
                                 let checksum_bytes = ChecksummedBytes::new(chunk);
                                 let part = Part::new(id.clone(), curr_offset, checksum_bytes);
                                 curr_offset += part.len() as u64;
-                                part_queue_producer.push(Ok(part));
+                                part_queue_producer.push(Ok(part), Some(next_read_window_offset));
+                            }
+                            debug_assert!(
+                                curr_offset <= last_offset,
+                                "current offset must not be larger than last offset"
+                            );
+
+                            if remaining_window_size > 0 {
+                                if let Ok(len) = receiver.try_recv() {
+                                    request.as_mut().increment_read_window(len);
+                                }
+                            } else if last_offset != curr_offset {
+                                debug!(
+                                    curr_offset,
+                                    next_read_window_offset, "blocking for client's read window increment"
+                                );
+                                let recv = receiver.recv().await;
+                                match recv {
+                                    Ok(len) => request.as_mut().increment_read_window(len),
+                                    Err(_) => {
+                                        part_queue_producer.push(Err(PrefetchReadError::ReadWindowIncrement), None);
+                                        break;
+                                    }
+                                }
                             }
                         }
                         Some(Err(e)) => {
                             error!(key=id.key(), error=?e, "GetObject body part failed");
-                            part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)));
+                            part_queue_producer.push(Err(PrefetchReadError::GetRequestFailed(e)), None);
                             break;
                         }
                         None => break,
@@ -241,7 +268,7 @@ where
 
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
 
-        RequestTask::from_handle(task_handle, size, start, part_queue)
+        RequestTask::from_handle(task_handle, size, start, part_queue, sender)
     }
 }
 
