@@ -4,7 +4,7 @@
 //! it complicated:
 //!
 //! 1. It's possible for a directory to contain both a subdirectory and a file of the same name, in
-//!    which case we need to implement shadowing in the right way.
+//!    which case we should implement shadowing in the right way where possible.
 //! 2. A directory can also contain local files/subdirectories, which we want to have appear in the
 //!    readdir stream, but be shadowed by remote files/subdirectories.
 //! 3. ListObjectsV2 returns common prefixes including the trailing '/', which messes up ordering
@@ -28,7 +28,9 @@
 //!   inodes created for them.
 //!   Addressing point 2, [ReaddirIter] merges together entries from two sources:
 //!   remotely from S3 using [RemoteIter] and locally from a snapshot of the parent's local children.
-//!   While merging, [ReaddirIter] also deduplicates the entries it returns to handle point 1.
+//!   While merging, [ReaddirIter] makes a best effort to deduplicate entries returned to address point 1.
+//!   Notably, the [unordered] implementation does not address duplicate remote entries
+//!   as reported in [#725](https://github.com/awslabs/mountpoint-s3/issues/725).
 //!   [ReaddirIter] itself delegates to two different iterator implementations,
 //!   depending on if the S3 implementation returns ordered or unordered list results.
 //! * [RemoteIter] is an iterator over [ReaddirEntry]s returned by paginated calls to ListObjectsV2.
