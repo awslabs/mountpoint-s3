@@ -8,7 +8,6 @@
 //! non-sequential read, we abandon the prefetching and start again with the minimum request size.
 
 mod caching_stream;
-mod part;
 mod part_queue;
 mod part_stream;
 mod seek_window;
@@ -27,9 +26,8 @@ use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::trace;
 
-use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
-use crate::object::ObjectId;
+use crate::object::{ObjectId, ObjectPart, PartMismatchError, PartValidationError};
 use crate::prefetch::caching_stream::CachingPartStream;
 use crate::prefetch::part_stream::{ClientPartStream, ObjectPartStream, RequestRange};
 use crate::prefetch::seek_window::SeekWindow;
@@ -59,11 +57,7 @@ pub trait PrefetchResult<Client: ObjectClient>: Send + Sync {
     /// Read some bytes from the object. This function will always return exactly `size` bytes,
     /// except at the end of the object where it will return however many bytes are left (including
     /// possibly 0 bytes).
-    async fn read(
-        &mut self,
-        offset: u64,
-        length: usize,
-    ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>>;
+    async fn read(&mut self, offset: u64, length: usize) -> Result<ObjectPart, PrefetchReadError<Client::ClientError>>;
 }
 
 #[derive(Debug, Error)]
@@ -71,14 +65,14 @@ pub enum PrefetchReadError<E> {
     #[error("get object request failed")]
     GetRequestFailed(#[source] ObjectClientError<GetObjectError, E>),
 
-    #[error("get object request returned wrong offset")]
-    GetRequestReturnedWrongOffset { offset: u64, expected_offset: u64 },
+    #[error("get object request returned mismatching part")]
+    GetRequestReturnedMismatchingPart(#[from] PartMismatchError),
 
     #[error("get request terminated unexpectedly")]
     GetRequestTerminatedUnexpectedly,
 
     #[error("integrity check failed")]
-    Integrity(#[from] IntegrityError),
+    Integrity(#[from] PartValidationError),
 }
 
 pub type DefaultPrefetcher<Runtime> = Prefetcher<ClientPartStream<Runtime>>;
@@ -235,11 +229,7 @@ where
     /// Read some bytes from the object. This function will always return exactly `size` bytes,
     /// except at the end of the object where it will return however many bytes are left (including
     /// possibly 0 bytes).
-    async fn read(
-        &mut self,
-        offset: u64,
-        length: usize,
-    ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
+    async fn read(&mut self, offset: u64, length: usize) -> Result<ObjectPart, PrefetchReadError<Client::ClientError>> {
         trace!(
             offset,
             length,
@@ -257,9 +247,10 @@ where
         let max_preferred_part_size = 1024 * 1024;
         self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
+        let mut response = ObjectPart::new(self.object_id.clone(), offset, Default::default());
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
-            return Ok(ChecksummedBytes::default());
+            return Ok(response);
         }
         let mut to_read = (length as u64).min(remaining);
 
@@ -286,7 +277,6 @@ where
 
         self.prepare_requests();
 
-        let mut response = ChecksummedBytes::default();
         while to_read > 0 {
             let Some(current_task) = self.current_task.as_mut() else {
                 // If [prepare_requests] didn't spawn a request, we've reached the end of the object.
@@ -303,25 +293,23 @@ where
                 Ok(part) => part,
             };
             self.backward_seek_window.push(part.clone());
-            let part_bytes = part
-                .into_bytes(&self.object_id, self.next_sequential_read_offset)
-                .unwrap();
 
-            self.next_sequential_read_offset += part_bytes.len() as u64;
+            self.next_sequential_read_offset += part.len() as u64;
             self.prepare_requests();
 
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
-            if response.is_empty() && part_bytes.len() == to_read as usize {
-                return Ok(part_bytes);
+            if response.is_empty() && part.len() == to_read as usize {
+                part.check(&self.object_id, offset)?;
+                return Ok(part);
             }
 
-            let part_len = part_bytes.len() as u64;
-            let result = response.extend(part_bytes);
+            let part_len = part.len() as u64;
+            let result = response.extend(part);
             match result {
                 Ok(()) => {}
-                Err(e @ IntegrityError::ChecksumMismatch(_, _)) => {
+                Err(e) => {
                     // cancel inflight tasks
                     self.current_task = None;
                     self.future_tasks.drain(..);
@@ -517,7 +505,7 @@ where
         let backwards_length_needed = self.next_sequential_read_offset - offset;
         histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
 
-        let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize) else {
+        let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize)? else {
             trace!("seek failed: not enough data in backwards seek window");
             return Ok(false);
         };

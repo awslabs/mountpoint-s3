@@ -6,9 +6,7 @@ use futures::{pin_mut, task::Spawn, StreamExt};
 use mountpoint_s3_client::{types::ETag, ObjectClient};
 use tracing::{debug_span, error, trace, Instrument};
 
-use crate::checksums::ChecksummedBytes;
-use crate::object::ObjectId;
-use crate::prefetch::part::Part;
+use crate::object::{ObjectId, ObjectPart};
 use crate::prefetch::part_queue::unbounded_part_queue;
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
@@ -218,10 +216,7 @@ where
                                     break;
                                 }
                                 let chunk = body.split_to(chunk_size);
-                                // S3 doesn't provide checksum for us if the request range is not aligned to
-                                // object part boundaries, so we're computing our own checksum here.
-                                let checksum_bytes = ChecksummedBytes::new(chunk);
-                                let part = Part::new(id.clone(), curr_offset, checksum_bytes);
+                                let part = ObjectPart::new(id.clone(), curr_offset, chunk);
                                 curr_offset += part.len() as u64;
                                 part_queue_producer.push(Ok(part));
                             }

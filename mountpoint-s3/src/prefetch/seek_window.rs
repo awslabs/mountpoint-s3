@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use crate::prefetch::part::Part;
+use crate::object::{ObjectPart, PartValidationError};
 
 /// A backwards seek window for a single prefetch stream. Parts can be pushed onto the end of the
 /// window (== closest to the current offset in the stream) and older parts will be dropped to
 /// remain within a maximum size.
 #[derive(Debug)]
 pub struct SeekWindow {
-    parts: VecDeque<Part>,
+    parts: VecDeque<ObjectPart>,
     max_size: usize,
     current_size: usize,
 }
@@ -24,7 +24,7 @@ impl SeekWindow {
 
     /// Add a new part to the front of the window, and drop any parts necessary to fit the new part
     /// within the maximum size.
-    pub fn push(&mut self, part: Part) {
+    pub fn push(&mut self, part: ObjectPart) {
         if part.len() > self.max_size {
             self.clear();
             return;
@@ -44,9 +44,9 @@ impl SeekWindow {
 
     /// Read off the back of the window. Returns None if there's not enough data in the window to
     /// satisfy the desired length.
-    pub fn read_back(&mut self, mut length: usize) -> Option<Vec<Part>> {
+    pub fn read_back(&mut self, mut length: usize) -> Result<Option<Vec<ObjectPart>>, PartValidationError> {
         if length > self.current_size {
-            return None;
+            return Ok(None);
         }
 
         let mut result = VecDeque::new();
@@ -57,7 +57,7 @@ impl SeekWindow {
             let mut part = self.parts.pop_back().expect("we checked that current_size >= length");
             // If we only need some of this part, split it up and put the rest back onto the window
             if part.len() > length {
-                let back = part.split_off(part.len() - length);
+                let back = part.split_off(part.len() - length)?;
                 self.parts.push_back(part);
                 part = back;
             }
@@ -67,7 +67,7 @@ impl SeekWindow {
             // order, push to the front.
             result.push_front(part);
         }
-        Some(result.into())
+        Ok(Some(result.into()))
     }
 
     /// Reset the seek window to an empty state
