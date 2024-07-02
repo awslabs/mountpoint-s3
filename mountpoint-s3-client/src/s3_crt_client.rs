@@ -36,12 +36,10 @@ use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
-use self::get_object::S3GetObjectRequest;
-use self::put_object::S3PutObjectRequest;
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
-use crate::object_client::*;
 use crate::user_agent::UserAgent;
+use crate::{object_client::*, S3GetObjectRequest, S3PutObjectRequest};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -249,6 +247,8 @@ struct S3CrtClientInner {
     user_agent_header: String,
     request_payer: Option<String>,
     part_size: usize,
+    enable_backpressure: bool,
+    initial_read_window_size: usize,
     bucket_owner: Option<String>,
     credentials_provider: Option<CredentialsProvider>,
     host_resolver: HostResolver,
@@ -374,6 +374,8 @@ impl S3CrtClientInner {
             user_agent_header,
             request_payer: config.request_payer,
             part_size: config.part_size,
+            enable_backpressure: config.read_backpressure,
+            initial_read_window_size: config.initial_read_window,
             bucket_owner: config.bucket_owner,
             credentials_provider: Some(credentials_provider),
             host_resolver,
@@ -1111,6 +1113,14 @@ impl ObjectClient for S3CrtClient {
         // we configured it with, so this might be wrong. Right now the only clamping is to the max
         // S3 part size (5GiB), so this shouldn't affect the result.
         Some(self.inner.part_size)
+    }
+
+    fn initial_read_window_size(&self) -> Option<usize> {
+        if self.inner.enable_backpressure {
+            Some(self.inner.initial_read_window_size)
+        } else {
+            None
+        }
     }
 
     async fn delete_object(

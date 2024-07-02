@@ -14,7 +14,6 @@ mod part_stream;
 mod seek_window;
 mod task;
 
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::time::Duration;
 
@@ -79,6 +78,9 @@ pub enum PrefetchReadError<E> {
 
     #[error("integrity check failed")]
     Integrity(#[from] IntegrityError),
+
+    #[error("Read window increment failed")]
+    ReadWindowIncrement,
 }
 
 pub type DefaultPrefetcher<Runtime> = Prefetcher<ClientPartStream<Runtime>>;
@@ -110,35 +112,50 @@ where
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrefetcherConfig {
-    /// Size of the first request in a prefetch run
-    pub first_request_size: usize,
+    /// Size of the first read window in a prefetch run
+    initial_read_window_size: usize,
     /// Maximum size of a single prefetch request
-    pub max_request_size: usize,
+    max_request_size: usize,
     /// Factor to increase the request size by whenever the reader continues making sequential reads
-    pub sequential_prefetch_multiplier: usize,
+    sequential_prefetch_multiplier: usize,
     /// Timeout to wait for a part to become available
-    pub read_timeout: Duration,
+    read_timeout: Duration,
     /// The maximum amount of unavailable data the prefetcher will tolerate during a seek operation
     /// before resetting and starting a new S3 request.
-    pub max_forward_seek_wait_distance: u64,
+    max_forward_seek_wait_distance: u64,
     /// The maximum distance the prefetcher will seek backwards before resetting and starting a new
     /// S3 request. We keep this much data in memory in addition to any inflight requests.
-    pub max_backward_seek_distance: u64,
+    max_backward_seek_distance: u64,
 }
 
-impl Default for PrefetcherConfig {
-    fn default() -> Self {
-        #[allow(clippy::identity_op)]
+impl PrefetcherConfig {
+    /// Create a prefetcher config with default values. Panic if the client doesn't meet prefetcher's requirements.
+    pub fn new<Client>(client: &Client) -> Self
+    where
+        Client: ObjectClient + Send + Sync + 'static,
+    {
+        // The prefetcher now relies on backpressure mechanism so it's required
+        let initial_read_window_size = client
+            .initial_read_window_size()
+            .expect("Backpressure must be enabled for prefetcher's client");
+        // Make sure that we don't get blocked since the beginning
+        assert!(
+            initial_read_window_size > 0,
+            "Initial read window size must be larger than zero"
+        );
+
+        if let Some(part_size) = client.part_size() {
+            // The CRT will return a chunk of part size even if the initial read window is smaller than that,
+            // so we might as well check this explicitly.
+            assert!(
+                initial_read_window_size >= part_size,
+                "Initial read window size must not less than part size"
+            );
+        }
+
+        // Initialise the builder with default values
         Self {
-            // This is a weird looking number! We really want our first request size to be 1MiB,
-            // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
-            // top of a 1MiB read, which we'd have to wait for a second request to service. Because
-            // FUSE doesn't know the difference between regular reads and readahead reads, it will
-            // send us a READ request for that 128k, so we'll have to block waiting for it even if
-            // the application doesn't want it. This is all in the noise for sequential IO, but
-            // waiting for the readahead hurts random IO. So we add 128k to the first request size
-            // to avoid the latency hit of the second request.
-            first_request_size: 1 * 1024 * 1024 + 128 * 1024,
+            initial_read_window_size,
             max_request_size: 2 * 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
@@ -147,8 +164,33 @@ impl Default for PrefetcherConfig {
             // making a guess about where the optimal cut-off point is before it would be faster to
             // just start a new request instead.
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
-            max_backward_seek_distance: 1 * 1024 * 1024,
+            max_backward_seek_distance: 1024 * 1024,
         }
+    }
+
+    pub fn max_request_size(mut self, max_request_size: usize) -> Self {
+        self.max_request_size = max_request_size;
+        self
+    }
+
+    pub fn sequential_prefetch_multiplier(mut self, sequential_prefetch_multiplier: usize) -> Self {
+        self.sequential_prefetch_multiplier = sequential_prefetch_multiplier;
+        self
+    }
+
+    pub fn read_timeout(mut self, read_timeout: Duration) -> Self {
+        self.read_timeout = read_timeout;
+        self
+    }
+
+    pub fn max_forward_seek_wait_distance(mut self, max_forward_seek_wait_distance: u64) -> Self {
+        self.max_forward_seek_wait_distance = max_forward_seek_wait_distance;
+        self
+    }
+
+    pub fn max_backward_seek_distance(mut self, max_backward_seek_distance: u64) -> Self {
+        self.max_backward_seek_distance = max_backward_seek_distance;
+        self
     }
 }
 
@@ -206,11 +248,7 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     client: Arc<Client>,
     part_stream: Arc<Stream>,
     config: PrefetcherConfig,
-    // Invariant: the offset of the first byte in this task's part queue is always
-    // self.next_sequential_read_offset.
-    current_task: Option<RequestTask<Client::ClientError>>,
-    // Currently we only every spawn at most one future task (see [spawn_next_request])
-    future_tasks: VecDeque<RequestTask<Client::ClientError>>,
+    backpressure_task: Option<RequestTask<Client::ClientError>>,
     // Invariant: the offset of the last byte in this window is always
     // self.next_sequential_read_offset - 1.
     backward_seek_window: SeekWindow,
@@ -218,10 +256,11 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     object_id: ObjectId,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
+    current_read_window_size: usize,
+    next_read_window_size: Option<usize>,
     /// Start offset for sequential read, used for calculating contiguous read metric
     sequential_read_start_offset: u64,
     next_sequential_read_offset: u64,
-    next_request_size: usize,
     next_request_offset: u64,
     size: u64,
 }
@@ -284,17 +323,28 @@ where
         }
         assert_eq!(self.next_sequential_read_offset, offset);
 
-        self.prepare_requests();
+        if self.backpressure_task.is_none() {
+            self.backpressure_task = Some(self.spawn_read_backpressure_request());
+        }
 
         let mut response = ChecksummedBytes::default();
         while to_read > 0 {
-            let Some(current_task) = self.current_task.as_mut() else {
-                // If [prepare_requests] didn't spawn a request, we've reached the end of the object.
+            let Some(current_task) = self.backpressure_task.as_mut() else {
                 trace!(offset, length, "read beyond object size");
                 break;
             };
             debug_assert!(current_task.remaining() > 0);
 
+            if let Some(len) = self.next_read_window_size {
+                trace!(
+                    current_window = self.current_read_window_size,
+                    next_window = len,
+                    "incrementing read window"
+                );
+                current_task.increment_read_window(len);
+                self.current_read_window_size = len;
+                self.next_read_window_size = None;
+            }
             let part = match current_task.read(to_read as usize).await {
                 Err(e) => {
                     self.reset_prefetch_to_offset(offset);
@@ -302,13 +352,18 @@ where
                 }
                 Ok(part) => part,
             };
+
             self.backward_seek_window.push(part.clone());
             let part_bytes = part
                 .into_bytes(&self.object_id, self.next_sequential_read_offset)
                 .unwrap();
 
             self.next_sequential_read_offset += part_bytes.len() as u64;
-            self.prepare_requests();
+
+            // Determine whether we should increase the read window for the backpressure task
+            let next_read_window_offset = current_task.next_read_window_offset();
+            let remaining_window = next_read_window_offset.saturating_sub(self.next_sequential_read_offset) as usize;
+            self.prepare_next_read_window(remaining_window, next_read_window_offset);
 
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
@@ -323,8 +378,7 @@ where
                 Ok(()) => {}
                 Err(e @ IntegrityError::ChecksumMismatch(_, _)) => {
                     // cancel inflight tasks
-                    self.current_task = None;
-                    self.future_tasks.drain(..);
+                    self.backpressure_task = None;
                     return Err(e.into());
                 }
             }
@@ -354,13 +408,13 @@ where
             client,
             part_stream,
             config,
-            current_task: None,
-            future_tasks: Default::default(),
+            backpressure_task: None,
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
             preferred_part_size: 128 * 1024,
+            current_read_window_size: config.initial_read_window_size,
+            next_read_window_size: None,
             sequential_read_start_offset: 0,
             next_sequential_read_offset: 0,
-            next_request_size: config.first_request_size,
             next_request_offset: 0,
             bucket: bucket.to_owned(),
             object_id: ObjectId::new(key.to_owned(), etag),
@@ -368,40 +422,13 @@ where
         }
     }
 
-    /// Runs on every read to prepare and spawn any requests our prefetching logic requires
-    fn prepare_requests(&mut self) {
-        let current_task = self.current_task.as_ref();
-        if current_task.map(|task| task.remaining() == 0).unwrap_or(true) {
-            // There's no current task, or the current task is finished. Prepare the next request.
-            if let Some(next_task) = self.future_tasks.pop_front() {
-                self.current_task = Some(next_task);
-                return;
-            }
-            self.current_task = self.spawn_next_request();
-        } else if current_task
-            .map(|task| {
-                // Don't trigger prefetch if we're in a fake task created by backward streaming
-                task.is_streaming() && task.remaining() <= task.total_size() / 2
-            })
-            .unwrap_or(false)
-            && self.future_tasks.is_empty()
-        {
-            // The current task is nearing completion, so pre-spawn the next request in anticipation
-            // of it completing.
-            if let Some(task) = self.spawn_next_request() {
-                self.future_tasks.push_back(task);
-            }
-        }
-    }
+    /// Spawn a backpressure GetObject request which has a range from current offset to the end of the file.
+    /// We will be using flow-control window to control how much data we want to download into the prefetcher.
+    fn spawn_read_backpressure_request(&mut self) -> RequestTask<Client::ClientError> {
+        let start = self.next_sequential_read_offset;
+        let object_size = self.size as usize;
+        let range = RequestRange::new(object_size, start, object_size);
 
-    /// Spawn the next required request
-    fn spawn_next_request(&mut self) -> Option<RequestTask<Client::ClientError>> {
-        let start = self.next_request_offset;
-        if start >= self.size {
-            return None;
-        }
-
-        let range = RequestRange::new(self.size as usize, start, self.next_request_size);
         let task = self.part_stream.spawn_get_object_request(
             &self.client,
             &self.bucket,
@@ -410,33 +437,17 @@ where
             range,
             self.preferred_part_size,
         );
-
-        // [read] will reset these if the reader stops making sequential requests
-        self.next_request_offset += task.total_size() as u64;
-        self.next_request_size = self.get_next_request_size(task.total_size());
-
-        Some(task)
-    }
-
-    /// Suggest next request size.
-    /// The next request size is the current request size multiplied by sequential prefetch multiplier.
-    fn get_next_request_size(&self, request_size: usize) -> usize {
-        // TODO: this logic doesn't work well right now in the case where part_size <
-        // first_request_size and sequential_prefetch_multiplier = 1. It ends up just repeatedly
-        // shrinking the request size until it reaches 1. But this isn't a configuration we
-        // currently expect to ever run in (part_size will always be >= 5MB for MPU reasons, and a
-        // prefetcher with multiplier 1 is not very good).
-        (request_size * self.config.sequential_prefetch_multiplier).min(self.config.max_request_size)
+        task
     }
 
     /// Reset this prefetch request to a new offset, clearing any existing tasks queued.
     fn reset_prefetch_to_offset(&mut self, offset: u64) {
-        self.current_task = None;
-        self.future_tasks.drain(..);
+        self.backpressure_task = None;
         self.backward_seek_window.clear();
+        self.current_read_window_size = self.config.initial_read_window_size;
+        self.next_read_window_size = None;
         self.sequential_read_start_offset = offset;
         self.next_sequential_read_offset = offset;
-        self.next_request_size = self.config.first_request_size;
         self.next_request_offset = offset;
     }
 
@@ -449,7 +460,7 @@ where
         if offset > self.next_sequential_read_offset {
             self.try_seek_forward(offset).await
         } else {
-            self.try_seek_backward(offset)
+            self.try_seek_backward(offset).await
         }
     }
 
@@ -458,43 +469,17 @@ where
         let total_seek_distance = offset - self.next_sequential_read_offset;
         histogram!("prefetch.seek_distance", "dir" => "forward").record(total_seek_distance as f64);
 
-        let Some(current_task) = self.current_task.as_mut() else {
+        let Some(task) = self.backpressure_task.as_mut() else {
             // Can't seek if there's no requests in flight at all
             return Ok(false);
         };
 
-        // Jump ahead to the right request
-        if offset >= current_task.end_offset() {
-            self.next_sequential_read_offset = current_task.end_offset();
-            self.current_task = None;
-            while let Some(next_request) = self.future_tasks.pop_front() {
-                if next_request.end_offset() > offset {
-                    self.current_task = Some(next_request);
-                    break;
-                } else {
-                    self.next_sequential_read_offset = next_request.end_offset();
-                }
-            }
-            if self.current_task.is_none() {
-                // No inflight task containing the target offset.
-                trace!(current_offset=?self.next_sequential_read_offset, requested_offset=?offset, "seek failed: not enough inflight data");
-                return Ok(false);
-            }
-            // We could try harder to preserve the backwards seek buffer if we're near the
-            // request boundary, but it's probably not worth the trouble.
-            self.backward_seek_window.clear();
-        }
-
-        // At this point it's guaranteed by the previous if-block that `offset` is in the range of `self.current_task`
-        let current_task = self
-            .current_task
-            .as_mut()
-            .expect("a request existed that covered this seek offset");
         // If we have enough bytes already downloaded (`available`) to skip straight to this read, then do
         // it. Otherwise, we're willing to wait for the bytes to download only if they're coming "soon", where
         // soon is defined as up to `max_forward_seek_wait_distance` bytes ahead of the available offset.
-        let available_offset = current_task.available_offset();
-        if offset >= available_offset.saturating_add(self.config.max_forward_seek_wait_distance) {
+        let available_offset = task.available_offset();
+        let available_soon_offset = available_offset.saturating_add(self.config.max_forward_seek_wait_distance);
+        if offset >= available_soon_offset {
             trace!(
                 requested_offset = offset,
                 available_offset = available_offset,
@@ -502,9 +487,19 @@ where
             );
             return Ok(false);
         }
+
+        // Make sure there is enough data in the read window
+        let next_read_window_offset = task.next_read_window_offset();
+        if next_read_window_offset < available_soon_offset {
+            let diff = available_soon_offset - next_read_window_offset;
+            trace!(len = diff, "incrementing read window on forward seek");
+            task.increment_read_window(diff as usize);
+        }
+
         let mut seek_distance = offset - self.next_sequential_read_offset;
         while seek_distance > 0 {
-            let part = current_task.read(seek_distance as usize).await?;
+            let part = task.read(seek_distance as usize).await?;
+
             seek_distance -= part.len() as u64;
             self.next_sequential_read_offset += part.len() as u64;
             self.backward_seek_window.push(part);
@@ -512,7 +507,7 @@ where
         Ok(true)
     }
 
-    fn try_seek_backward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
+    async fn try_seek_backward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
         assert!(offset < self.next_sequential_read_offset);
         let backwards_length_needed = self.next_sequential_read_offset - offset;
         histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
@@ -521,16 +516,22 @@ where
             trace!("seek failed: not enough data in backwards seek window");
             return Ok(false);
         };
-        // We're going to create a new fake "request" that contains the parts we read out of the
-        // window. That sounds a bit hacky, but it keeps all the read logic simple rather than
-        // needing separate paths for backwards seeks vs others.
-        let request = RequestTask::from_parts(parts, offset);
-        if let Some(current_task) = self.current_task.take() {
-            self.future_tasks.push_front(current_task);
+        if let Some(task) = self.backpressure_task.as_mut() {
+            task.push_front(parts).await?;
+            self.next_sequential_read_offset = offset;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        self.current_task = Some(request);
-        self.next_sequential_read_offset = offset;
-        Ok(true)
+    }
+
+    fn prepare_next_read_window(&mut self, remaining_window_size: usize, next_read_window_offset: u64) {
+        let remaining = self.size.saturating_sub(next_read_window_offset);
+        if remaining > 0 && remaining_window_size < self.current_read_window_size / 2 {
+            let next_read_window_size = (self.current_read_window_size * self.config.sequential_prefetch_multiplier)
+                .min(self.config.max_request_size);
+            self.next_read_window_size = Some(next_read_window_size.min(remaining as usize));
+        }
     }
 }
 
@@ -556,12 +557,11 @@ mod tests {
     #![allow(clippy::identity_op)]
 
     use crate::data_cache::InMemoryDataCache;
-    use crate::prefetch::part_stream::ClientPartStream;
 
     use super::caching_stream::CachingPartStream;
     use super::*;
     use futures::executor::{block_on, ThreadPool};
-    use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
+    use mountpoint_s3_client::error::GetObjectError;
     use mountpoint_s3_client::failure_client::{countdown_failure_client, RequestFailureMap};
     use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use proptest::proptest;
@@ -575,7 +575,7 @@ mod tests {
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
         #[proptest(strategy = "16usize..1*1024*1024")]
-        first_request_size: usize,
+        initial_read_window_size: usize,
         #[proptest(strategy = "16usize..1*1024*1024")]
         max_request_size: usize,
         #[proptest(strategy = "1usize..8usize")]
@@ -586,6 +586,8 @@ mod tests {
         max_forward_seek_wait_distance: u64,
         #[proptest(strategy = "1u64..4*1024*1024")]
         max_backward_seek_distance: u64,
+        #[proptest(strategy = "16usize..1*1024*1024")]
+        cache_block_size: usize,
     }
 
     fn default_stream() -> ClientPartStream<ThreadPool> {
@@ -605,9 +607,12 @@ mod tests {
         read_size: usize,
         test_config: TestConfig,
     ) {
+        let initial_read_window_size = test_config.client_part_size.max(test_config.cache_block_size);
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            enable_backpressure: true,
+            initial_read_window_size,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
@@ -616,14 +621,12 @@ mod tests {
 
         client.add_object("hello", object);
 
-        let prefetcher_config = PrefetcherConfig {
-            first_request_size: test_config.first_request_size,
-            max_request_size: test_config.max_request_size,
-            sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            read_timeout: Duration::from_secs(5),
-            max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
-            max_backward_seek_distance: test_config.max_backward_seek_distance,
-        };
+        let prefetcher_config = PrefetcherConfig::new(&client)
+            .max_request_size(test_config.initial_read_window_size)
+            .sequential_prefetch_multiplier(test_config.sequential_prefetch_multiplier)
+            .read_timeout(Duration::from_secs(5))
+            .max_forward_seek_wait_distance(test_config.max_forward_seek_wait_distance)
+            .max_backward_seek_distance(test_config.max_backward_seek_distance);
 
         let prefetcher = Prefetcher::new(part_stream, prefetcher_config);
         let mut request = prefetcher.prefetch(client, "test-bucket", "hello", size, etag);
@@ -649,12 +652,13 @@ mod tests {
         Stream: ObjectPartStream + Send + Sync + 'static,
     {
         let config = TestConfig {
-            first_request_size: 256 * 1024,
+            initial_read_window_size: 8 * 1024 * 1024,
             max_request_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
         };
         run_sequential_read_test(part_stream, 1024 * 1024 + 111, 1024 * 1024, config);
     }
@@ -666,12 +670,13 @@ mod tests {
         Stream: ObjectPartStream + Send + Sync + 'static,
     {
         let config = TestConfig {
-            first_request_size: 256 * 1024,
+            initial_read_window_size: 8 * 1024 * 1024,
             max_request_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
         };
         run_sequential_read_test(part_stream, 16 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
@@ -683,12 +688,13 @@ mod tests {
         Stream: ObjectPartStream + Send + Sync + 'static,
     {
         let config = TestConfig {
-            first_request_size: 256 * 1024,
+            initial_read_window_size: 8 * 1024 * 1024,
             max_request_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
         };
 
         run_sequential_read_test(part_stream, 256 * 1024 * 1024 + 111, 1024 * 1024, config);
@@ -704,6 +710,8 @@ mod tests {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            enable_backpressure: true,
+            initial_read_window_size: test_config.initial_read_window_size,
             ..Default::default()
         };
         let client = MockClient::new(config);
@@ -714,12 +722,9 @@ mod tests {
 
         let client = countdown_failure_client(client, get_failures, HashMap::new(), HashMap::new(), HashMap::new());
 
-        let prefetcher_config = PrefetcherConfig {
-            first_request_size: test_config.first_request_size,
-            max_request_size: test_config.max_request_size,
-            sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            ..Default::default()
-        };
+        let prefetcher_config = PrefetcherConfig::new(&client)
+            .max_request_size(test_config.max_request_size)
+            .sequential_prefetch_multiplier(test_config.sequential_prefetch_multiplier);
 
         let prefetcher = Prefetcher::new(part_stream, prefetcher_config);
         let mut request = prefetcher.prefetch(Arc::new(client), "test-bucket", "hello", size, etag);
@@ -752,21 +757,19 @@ mod tests {
         Stream: ObjectPartStream + Send + Sync + 'static,
     {
         let config = TestConfig {
-            first_request_size: 256 * 1024,
+            initial_read_window_size: 1024 * 1024,
             max_request_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
-            client_part_size: 8 * 1024 * 1024,
+            client_part_size: 1024 * 1024,
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
         };
 
         let mut get_failures = HashMap::new();
-        get_failures.insert(
-            2,
-            Err(ObjectClientError::ClientError(MockClientError(
-                err_value.to_owned().into(),
-            ))),
-        );
+        // We only have one request with backpressure, so we are going to inject the failure at
+        // 2nd read from that request stream.
+        get_failures.insert(1, Ok((2, MockClientError(err_value.to_owned().into()))));
 
         fail_sequential_read_test(part_stream, 1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
@@ -792,18 +795,17 @@ mod tests {
         fn proptest_sequential_read_with_cache(
             size in 1u64..1 * 1024 * 1024,
             read_size in 1usize..1 * 1024 * 1024,
-            block_size in 16usize..1 * 1024 * 1024,
             config: TestConfig,
         ) {
-            run_sequential_read_test(caching_stream(block_size), size, read_size, config);
+            run_sequential_read_test(caching_stream(config.cache_block_size), size, read_size, config);
         }
 
         #[test]
         fn proptest_sequential_read_small_read_size_with_cache(size in 1u64..1 * 1024 * 1024, read_factor in 1usize..10,
-            block_size in 16usize..1 * 1024 * 1024, config: TestConfig) {
+            config: TestConfig) {
             // Pick read size smaller than the object size
             let read_size = (size as usize / read_factor).max(1);
-            run_sequential_read_test(caching_stream(block_size), size, read_size, config);
+            run_sequential_read_test(caching_stream(config.cache_block_size), size, read_size, config);
         }
     }
 
@@ -812,12 +814,13 @@ mod tests {
         let object_size = 854966;
         let read_size = 161647;
         let config = TestConfig {
-            first_request_size: 484941,
+            initial_read_window_size: 484941,
             max_request_size: 81509,
             sequential_prefetch_multiplier: 1,
             client_part_size: 181682,
             max_forward_seek_wait_distance: 1,
             max_backward_seek_distance: 18668,
+            cache_block_size: 1 * MB,
         };
         run_sequential_read_test(default_stream(), object_size, read_size, config);
     }
@@ -828,9 +831,12 @@ mod tests {
         reads: Vec<(u64, usize)>,
         test_config: TestConfig,
     ) {
+        let initial_read_window_size = test_config.client_part_size.max(test_config.cache_block_size);
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size: test_config.client_part_size,
+            enable_backpressure: true,
+            initial_read_window_size,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
@@ -839,14 +845,11 @@ mod tests {
 
         client.add_object("hello", object);
 
-        let prefetcher_config = PrefetcherConfig {
-            first_request_size: test_config.first_request_size,
-            max_request_size: test_config.max_request_size,
-            sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
-            max_backward_seek_distance: test_config.max_backward_seek_distance,
-            ..Default::default()
-        };
+        let prefetcher_config = PrefetcherConfig::new(&client)
+            .max_request_size(test_config.max_request_size)
+            .sequential_prefetch_multiplier(test_config.sequential_prefetch_multiplier)
+            .max_forward_seek_wait_distance(test_config.max_forward_seek_wait_distance)
+            .max_backward_seek_distance(test_config.max_backward_seek_distance);
 
         let prefetcher = Prefetcher::new(part_stream, prefetcher_config);
         let mut request = prefetcher.prefetch(client, "test-bucket", "hello", object_size, etag);
@@ -899,11 +902,10 @@ mod tests {
         #[test]
         fn proptest_random_read_with_cache(
             reads in random_read_strategy(1 * 1024 * 1024),
-            block_size in 16usize..1 * 1024 * 1024,
             config: TestConfig,
         ) {
             let (object_size, reads) = reads;
-            run_random_read_test(caching_stream(block_size), object_size, reads, config);
+            run_random_read_test(caching_stream(config.cache_block_size), object_size, reads, config);
         }
     }
 
@@ -912,12 +914,13 @@ mod tests {
         let object_size = 724314;
         let reads = vec![(0, 516883)];
         let config = TestConfig {
-            first_request_size: 3684779,
+            initial_read_window_size: 3684779,
             max_request_size: 2147621,
             sequential_prefetch_multiplier: 4,
             client_part_size: 516882,
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
     }
@@ -927,12 +930,13 @@ mod tests {
         let object_size = 755678;
         let reads = vec![(0, 278499), (311250, 1)];
         let config = TestConfig {
-            first_request_size: 556997,
+            initial_read_window_size: 556997,
             max_request_size: 105938,
             sequential_prefetch_multiplier: 7,
             client_part_size: 1219731,
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
     }
@@ -942,12 +946,13 @@ mod tests {
         let object_size = 755678;
         let reads = vec![(0, 236766), (291204, 1), (280930, 36002)];
         let config = TestConfig {
-            first_request_size: 556997,
+            initial_read_window_size: 556997,
             max_request_size: 105938,
             sequential_prefetch_multiplier: 7,
             client_part_size: 1219731,
             max_forward_seek_wait_distance: 2260662,
             max_backward_seek_distance: 2369799,
+            cache_block_size: 1 * MB,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
     }
@@ -957,12 +962,13 @@ mod tests {
         let object_size = 14201;
         let reads = vec![(3584, 1), (9424, 1460), (3582, 3340), (248, 9218)];
         let config = TestConfig {
-            first_request_size: 457999,
+            initial_read_window_size: 457999,
             max_request_size: 863511,
             sequential_prefetch_multiplier: 5,
             client_part_size: 1972409,
             max_forward_seek_wait_distance: 2810651,
             max_backward_seek_distance: 3531090,
+            cache_block_size: 1 * MB,
         };
         run_random_read_test(default_stream(), object_size, reads, config);
     }
@@ -973,11 +979,12 @@ mod tests {
     #[test_case(125, 110; "read in second request")]
     fn test_forward_seek(first_read_size: usize, part_size: usize) {
         const OBJECT_SIZE: usize = 200;
-        const FIRST_REQUEST_SIZE: usize = 100;
 
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size,
+            enable_backpressure: true,
+            initial_read_window_size: part_size,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
@@ -986,10 +993,7 @@ mod tests {
 
         client.add_object("hello", object);
 
-        let prefetcher_config = PrefetcherConfig {
-            first_request_size: FIRST_REQUEST_SIZE,
-            ..Default::default()
-        };
+        let prefetcher_config = PrefetcherConfig::new(&client);
 
         let prefetcher = Prefetcher::new(default_stream(), prefetcher_config);
 
@@ -1012,11 +1016,12 @@ mod tests {
     #[test_case(125, 110; "read in second request")]
     fn test_backward_seek(first_read_size: usize, part_size: usize) {
         const OBJECT_SIZE: usize = 200;
-        const FIRST_REQUEST_SIZE: usize = 100;
 
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
             part_size,
+            enable_backpressure: true,
+            initial_read_window_size: part_size,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
@@ -1025,10 +1030,7 @@ mod tests {
 
         client.add_object("hello", object);
 
-        let prefetcher_config = PrefetcherConfig {
-            first_request_size: FIRST_REQUEST_SIZE,
-            ..Default::default()
-        };
+        let prefetcher_config = PrefetcherConfig::new(&client);
         let prefetcher = Prefetcher::new(default_stream(), prefetcher_config);
 
         // Try every possible seek from first_read_size
@@ -1064,16 +1066,18 @@ mod tests {
         fn sequential_read_stress_helper() {
             let mut rng = shuttle::rand::thread_rng();
             let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
-            let first_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let max_request_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
             let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
+            let initial_read_window_size = rng.gen_range(part_size..1 * 1024 * 1024 + 128 * 1024);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
                 part_size,
+                enable_backpressure: true,
+                initial_read_window_size,
                 ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
@@ -1082,14 +1086,11 @@ mod tests {
 
             client.add_object("hello", object);
 
-            let prefetcher_config = PrefetcherConfig {
-                first_request_size,
-                max_request_size,
-                sequential_prefetch_multiplier,
-                max_forward_seek_wait_distance,
-                max_backward_seek_distance,
-                ..Default::default()
-            };
+            let prefetcher_config = PrefetcherConfig::new(&client)
+                .max_request_size(max_request_size)
+                .sequential_prefetch_multiplier(sequential_prefetch_multiplier)
+                .max_forward_seek_wait_distance(max_forward_seek_wait_distance)
+                .max_backward_seek_distance(max_backward_seek_distance);
 
             let prefetcher = Prefetcher::new(ClientPartStream::new(ShuttleRuntime), prefetcher_config);
             let mut request = prefetcher.prefetch(client, "test-bucket", "hello", object_size, file_etag);
@@ -1117,20 +1118,22 @@ mod tests {
 
         fn random_read_stress_helper() {
             let mut rng = shuttle::rand::thread_rng();
-            let first_request_size = rng.gen_range(16usize..32 * 1024);
             let max_request_size = rng.gen_range(16usize..32 * 1024);
-            // Try to prevent testing very small reads of very large objects, which are easy to OOM
-            // under Shuttle (lots of concurrent tasks)
-            let max_object_size = first_request_size.min(max_request_size) * 20;
-            let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
             let part_size = rng.gen_range(16usize..128 * 1024);
+            let initial_read_window_size = rng.gen_range(part_size..128 * 1024);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..192 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..192 * 1024);
+            // Try to prevent testing very small reads of very large objects, which are easy to OOM
+            // under Shuttle (lots of concurrent tasks)
+            let max_object_size = initial_read_window_size.min(max_request_size) * 20;
+            let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
 
             let config = MockClientConfig {
                 bucket: "test-bucket".to_string(),
                 part_size,
+                enable_backpressure: true,
+                initial_read_window_size,
                 ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
@@ -1139,14 +1142,11 @@ mod tests {
 
             client.add_object("hello", object);
 
-            let prefetcher_config = PrefetcherConfig {
-                first_request_size,
-                max_request_size,
-                sequential_prefetch_multiplier,
-                max_forward_seek_wait_distance,
-                max_backward_seek_distance,
-                ..Default::default()
-            };
+            let prefetcher_config = PrefetcherConfig::new(&client)
+                .max_request_size(max_request_size)
+                .sequential_prefetch_multiplier(sequential_prefetch_multiplier)
+                .max_forward_seek_wait_distance(max_forward_seek_wait_distance)
+                .max_backward_seek_distance(max_backward_seek_distance);
 
             let prefetcher = Prefetcher::new(ClientPartStream::new(ShuttleRuntime), prefetcher_config);
             let mut request = prefetcher.prefetch(client, "test-bucket", "hello", object_size, file_etag);

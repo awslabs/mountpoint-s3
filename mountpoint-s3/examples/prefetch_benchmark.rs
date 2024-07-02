@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use clap::{Arg, Command};
 use futures::executor::{block_on, ThreadPool};
-use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult};
+use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult, PrefetcherConfig};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::S3CrtClient;
@@ -80,7 +80,8 @@ fn main() {
 
     for i in 0..iterations.unwrap_or(1) {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-        let manager = default_prefetch(runtime, Default::default());
+        let prefetcher_config = PrefetcherConfig::new(&client);
+        let manager = default_prefetch(runtime, prefetcher_config);
         let received_size = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();

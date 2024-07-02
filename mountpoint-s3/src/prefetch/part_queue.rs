@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use metrics::atomics::AtomicU64;
 use tracing::trace;
 
 use crate::prefetch::part::Part;
@@ -17,6 +18,7 @@ pub struct PartQueue<E: std::error::Error> {
     failed: AtomicBool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
+    next_read_window_offset: Arc<AtomicU64>,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -25,21 +27,25 @@ pub struct PartQueueProducer<E: std::error::Error> {
     sender: Sender<Result<Part, PrefetchReadError<E>>>,
     /// The total number of bytes sent to `self.sender`
     bytes_sent: Arc<AtomicUsize>,
+    next_read_window_offset: Arc<AtomicU64>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
+    let next_read_window_offset = Arc::new(AtomicU64::new(0));
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
         receiver,
         failed: AtomicBool::new(false),
         bytes_received: Arc::clone(&bytes_counter),
+        next_read_window_offset: next_read_window_offset.clone(),
     };
     let part_queue_producer = PartQueueProducer {
         sender,
         bytes_sent: bytes_counter,
+        next_read_window_offset,
     };
     (part_queue, part_queue_producer)
 }
@@ -93,14 +99,36 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         Ok(part)
     }
 
+    /// Push a new [Part] onto the front of the queue
+    /// which actually just concatenate it with the current part
+    pub async fn push_front(&self, mut part: Part) {
+        let mut current_part = self.current_part.lock().await;
+
+        assert!(
+            !self.failed.load(Ordering::SeqCst),
+            "cannot use a PartQueue after failure"
+        );
+
+        if let Some(current_part) = current_part.as_mut() {
+            part.extend(current_part).unwrap();
+            *current_part = part;
+        } else {
+            *current_part = Some(part);
+        }
+    }
+
     pub fn bytes_received(&self) -> usize {
         self.bytes_received.load(Ordering::SeqCst)
+    }
+
+    pub fn next_read_window_offset(&self) -> u64 {
+        self.next_read_window_offset.load(Ordering::SeqCst)
     }
 }
 
 impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     /// Push a new [Part] onto the back of the queue
-    pub fn push(&self, part: Result<Part, PrefetchReadError<E>>) {
+    pub fn push(&self, part: Result<Part, PrefetchReadError<E>>, next_read_window_offset: Option<u64>) {
         let part_len = part.as_ref().map_or(0, |part| part.len());
 
         // Unbounded channel will never actually block
@@ -109,6 +137,9 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
             trace!("closed channel");
         } else {
             self.bytes_sent.fetch_add(part_len, Ordering::SeqCst);
+            let _ = self
+                .next_read_window_offset
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |_| next_read_window_offset);
             metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
         }
     }
@@ -199,7 +230,7 @@ mod tests {
                     let bytes: Bytes = body.into();
                     let checksummed_bytes = ChecksummedBytes::new(bytes);
                     let part = Part::new(part_id.clone(), offset, checksummed_bytes);
-                    part_queue_producer.push(Ok(part));
+                    part_queue_producer.push(Ok(part), None);
                     current_length += n;
                 }
             }

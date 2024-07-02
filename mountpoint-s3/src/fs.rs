@@ -867,6 +867,7 @@ where
             Err(PrefetchReadError::Integrity(e)) => Err(err!(libc::EIO, source:e, "integrity error")),
             Err(e @ PrefetchReadError::GetRequestFailed(_))
             | Err(e @ PrefetchReadError::GetRequestTerminatedUnexpectedly)
+            | Err(e @ PrefetchReadError::ReadWindowIncrement)
             | Err(e @ PrefetchReadError::GetRequestReturnedWrongOffset { .. }) => {
                 Err(err!(libc::EIO, source:e, "get request failed"))
             }
@@ -1288,7 +1289,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prefetch::default_prefetch;
+    use crate::prefetch::{default_prefetch, PrefetcherConfig};
     use fuser::FileType;
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
@@ -1359,13 +1360,17 @@ mod tests {
         let bucket = "bucket";
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
+            enable_backpressure: true,
+            initial_read_window_size: 1024 * 1024,
             ..Default::default()
         }));
         // Create "dir1" in the client to avoid creating it locally
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-        let prefetcher = default_prefetch(runtime, Default::default());
+
+        let prefetcher_config = PrefetcherConfig::new(&client);
+        let prefetcher = default_prefetch(runtime, prefetcher_config);
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
         let fs_config = S3FilesystemConfig {

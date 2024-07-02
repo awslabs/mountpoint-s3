@@ -81,6 +81,10 @@ pub trait ObjectClient {
     /// can be `None` if the client does not do multi-part operations.
     fn part_size(&self) -> Option<usize>;
 
+    /// Query the initial read window size this client uses for backpressure GetObject requests.
+    /// This can be `None` if backpressure is disabled.
+    fn initial_read_window_size(&self) -> Option<usize>;
+
     /// Delete a single object from the object store.
     ///
     /// DeleteObject will succeed even if the object within the bucket does not exist.
@@ -374,6 +378,9 @@ pub trait GetObjectRequest:
     /// If `enable_read_backpressure` is false this call will have no effect,
     /// no backpressure is being applied and data is being downloaded as fast as possible.
     fn increment_read_window(self: Pin<&mut Self>, len: usize);
+
+    // Get next read window offset for backpressure read
+    fn next_read_window_offset(self: Pin<&Self>) -> u64;
 }
 
 /// A streaming put request which allows callers to asynchronously write the body of the request.
