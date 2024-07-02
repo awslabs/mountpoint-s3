@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1719827194461,
+  "lastUpdate": 1719927234890,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "09546c1116c91838fd799ebac0162059859689b2",
-          "message": "Update CRT submodules to latest releases (#901)\n\n* Revert \"Revert s2n-tls submodule to v1.4.9 (#887)\"\r\n\r\nThis reverts commit fc60045f3358110a93b2b04e3852710b3f50020a.\r\n\r\n* Update CRT submodules to latest releases\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2024-06-05T17:04:02+01:00",
-          "tree_id": "20813c387dc01e95c520b8b67874bcf18d2804ae",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/09546c1116c91838fd799ebac0162059859689b2"
-        },
-        "date": 1717604145081,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.107,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.464,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 1.1,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.439,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 11.2334391,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 11.193615099999999,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 11.1023365,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b4c14d077943a79478e7abe7bdb05cb6816f2cb",
+          "message": "Update Rustdoc comments in the readdir module (#928)\n\n* Update Rustdoc comments in the readdir module\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Move rustdoc above macros\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Add clarification on Readdir deduplication behavior\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-07-02T13:08:47Z",
+          "tree_id": "3b3260494d783ba37bdfebdad6163a1c564ac9f3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0b4c14d077943a79478e7abe7bdb05cb6816f2cb"
+        },
+        "date": 1719927234437,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.066,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.321,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.96,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.632,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 10.8672103,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 11.0208681,
             "unit": "milliseconds"
           }
         ]
