@@ -1,18 +1,20 @@
 FROM public.ecr.aws/docker/library/centos:8
 
-# Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
+# Need this because of Centos reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
 RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
 RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
 
-RUN yum install -y epel-release
+RUN dnf install -y epel-release
 
-# Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
+RUN dnf -y group install "Development Tools"
+
+# Need this because of Centos reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
 RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
 RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
 
-RUN yum install -y \
+RUN dnf install -y \
         fuse \
         fuse-devel \
         make \
@@ -26,8 +28,11 @@ RUN yum install -y \
         python3 \
         python3-pip \
         wget \
+#        devtoolset-10-gcc \
+#        devtoolset-10-gcc-c++ \
+#        llvm-toolset-7.0-clang \
         && \
-    yum clean all
+    dnf clean all
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
