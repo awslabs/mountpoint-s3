@@ -1,6 +1,18 @@
 FROM public.ecr.aws/docker/library/centos:7
 
+# Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
+RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^#.*baseurl=http/baseurl=https/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^mirrorlist=http/#mirrorlist=https/g /etc/yum.repos.d/*.repo
+
 RUN yum install -y epel-release centos-release-scl
+
+# Fix up the newly added SCL repos, which don't have altarch baseurls
+RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^#.*baseurl=http/baseurl=https/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^mirrorlist=http/#mirrorlist=https/g /etc/yum.repos.d/*.repo
+RUN if [ `uname -p` == "aarch64" ]; then sed -i s+centos/7+altarch/7+g /etc/yum.repos.d/*.repo; fi
+
 RUN yum install -y \
         fuse \
         fuse-devel \
