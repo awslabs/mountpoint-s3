@@ -1,20 +1,19 @@
-FROM public.ecr.aws/docker/library/centos:8
+FROM public.ecr.aws/docker/library/centos:7
 
-# Need this because of Centos reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
+# Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
-RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
-RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^#.*baseurl=http/baseurl=https/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^mirrorlist=http/#mirrorlist=https/g /etc/yum.repos.d/*.repo
 
-RUN dnf install -y epel-release
+RUN yum install -y epel-release centos-release-scl
 
-RUN dnf -y group install "Development Tools"
-
-# Need this because of Centos reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
+# Fix up the newly added SCL repos, which don't have altarch baseurls
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
-RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
-RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^#.*baseurl=http/baseurl=https/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^mirrorlist=http/#mirrorlist=https/g /etc/yum.repos.d/*.repo
+RUN if [ `uname -p` == "aarch64" ]; then sed -i s+centos/7+altarch/7+g /etc/yum.repos.d/*.repo; fi
 
-RUN dnf install -y \
+RUN yum install -y \
         fuse \
         fuse-devel \
         make \
@@ -28,11 +27,11 @@ RUN dnf install -y \
         python3 \
         python3-pip \
         wget \
-#        devtoolset-10-gcc \
-#        devtoolset-10-gcc-c++ \
-#        llvm-toolset-7.0-clang \
+        devtoolset-10-gcc \
+        devtoolset-10-gcc-c++ \
+        llvm-toolset-7.0-clang \
         && \
-    dnf clean all
+    yum clean all
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
