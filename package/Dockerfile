@@ -1,7 +1,13 @@
 FROM public.ecr.aws/docker/library/centos:7
 
-RUN yum install -y epel-release centos-release-scl
+# Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
+RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^#.*baseurl=http/baseurl=https/g /etc/yum.repos.d/*.repo
+RUN sed -i s/^mirrorlist=http/#mirrorlist=https/g /etc/yum.repos.d/*.repo
+
 RUN yum install -y \
+        epel-release \
+        centos-release-scl \
         fuse \
         fuse-devel \
         make \
