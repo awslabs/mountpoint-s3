@@ -1,11 +1,11 @@
-FROM public.ecr.aws/docker/library/centos:7
+FROM public.ecr.aws/docker/library/centos:8
 
 # Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
 RUN sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo
 RUN sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo
 
-RUN yum install -y epel-release centos-release-scl
+RUN yum install -y epel-release
 
 # Need this because of Centos 7 reached EOL on July 1, 2024 and mirrorlist.centos.org does not exist anymore.
 RUN sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo
@@ -26,9 +26,6 @@ RUN yum install -y \
         python3 \
         python3-pip \
         wget \
-        devtoolset-10-gcc \
-        devtoolset-10-gcc-c++ \
-        llvm-toolset-7.0-clang \
         && \
     yum clean all
 
