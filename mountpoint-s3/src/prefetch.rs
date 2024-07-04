@@ -967,6 +967,59 @@ mod tests {
         run_random_read_test(default_stream(), object_size, reads, config);
     }
 
+    #[test]
+    fn test_forward_seek_failure() {
+        const PART_SIZE: usize = 8192;
+        const OBJECT_SIZE: usize = 2 * PART_SIZE;
+
+        let config = MockClientConfig {
+            bucket: "test-bucket".to_string(),
+            part_size: PART_SIZE,
+            ..Default::default()
+        };
+
+        let client = MockClient::new(config);
+        let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
+        let etag = object.etag();
+        client.add_object("hello", object);
+
+        let mut get_failures = HashMap::new();
+        get_failures.insert(
+            1,
+            Ok((2, MockClientError("error in the second chunk of a request".into()))),
+        );
+
+        let client = Arc::new(countdown_failure_client(
+            client,
+            get_failures,
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        ));
+
+        // For simplicity, prefetch the whole object in one request.
+        let prefetcher_config = PrefetcherConfig {
+            first_request_size: OBJECT_SIZE,
+            ..Default::default()
+        }; 
+
+        let prefetcher = Prefetcher::new(default_stream(), prefetcher_config);
+
+        let mut request = prefetcher.prefetch(client, "test-bucket", "hello", OBJECT_SIZE as u64, etag.clone());
+        block_on(async {
+            _ = request.read(0, 1).await.expect("first read should succeed");
+
+            // Seek beyond the first part.
+            let offset = PART_SIZE + 1;
+            _ = request.read(offset as u64, 1).await.expect_err("seek should fail");
+
+            _ = request
+                .read(offset as u64, 1)
+                .await
+                .expect_err("retry after failure should fail");
+        });
+    }
+
     #[test_case(0, 25; "no first read")]
     #[test_case(60, 25; "read beyond first part")]
     #[test_case(20, 25; "read in first part")]
