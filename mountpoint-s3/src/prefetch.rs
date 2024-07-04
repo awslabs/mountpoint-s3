@@ -357,16 +357,7 @@ where
             }
 
             let part_len = part_bytes.len() as u64;
-            let result = response.extend(part_bytes);
-            match result {
-                Ok(()) => {}
-                Err(e @ IntegrityError::ChecksumMismatch(_, _)) => {
-                    // cancel inflight tasks
-                    self.current_task = None;
-                    self.future_tasks.drain(..);
-                    return Err(e.into());
-                }
-            }
+            response.extend(part_bytes)?;
             to_read -= part_len;
         }
 
