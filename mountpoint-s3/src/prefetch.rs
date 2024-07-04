@@ -246,7 +246,52 @@ where
             next_seq_offset = self.next_sequential_read_offset,
             "read"
         );
+        let result = self.try_read(offset, length).await;
+        if result.is_err() {
+            self.reset_prefetch_to_offset(offset);
+        }
+        result
+    }
+}
 
+impl<Stream, Client> PrefetchGetObject<Stream, Client>
+where
+    Stream: ObjectPartStream,
+    Client: ObjectClient + Send + Sync + 'static,
+{
+    /// Create and spawn a new prefetching request for an object
+    fn new(
+        client: Arc<Client>,
+        part_stream: Arc<Stream>,
+        config: PrefetcherConfig,
+        bucket: &str,
+        key: &str,
+        size: u64,
+        etag: ETag,
+    ) -> Self {
+        PrefetchGetObject {
+            client,
+            part_stream,
+            config,
+            current_task: None,
+            future_tasks: Default::default(),
+            backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
+            preferred_part_size: 128 * 1024,
+            sequential_read_start_offset: 0,
+            next_sequential_read_offset: 0,
+            next_request_size: config.first_request_size,
+            next_request_offset: 0,
+            bucket: bucket.to_owned(),
+            object_id: ObjectId::new(key.to_owned(), etag),
+            size,
+        }
+    }
+
+    async fn try_read(
+        &mut self,
+        offset: u64,
+        length: usize,
+    ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
         // Currently, we set preferred part size to the current read size.
         // Our assumption is that the read size will be the same for most sequential
         // read and it can be aligned to the size of prefetched chunks.
@@ -295,13 +340,7 @@ where
             };
             debug_assert!(current_task.remaining() > 0);
 
-            let part = match current_task.read(to_read as usize).await {
-                Err(e) => {
-                    self.reset_prefetch_to_offset(offset);
-                    return Err(e);
-                }
-                Ok(part) => part,
-            };
+            let part = current_task.read(to_read as usize).await?;
             self.backward_seek_window.push(part.clone());
             let part_bytes = part
                 .into_bytes(&self.object_id, self.next_sequential_read_offset)
@@ -332,40 +371,6 @@ where
         }
 
         Ok(response)
-    }
-}
-
-impl<Stream, Client> PrefetchGetObject<Stream, Client>
-where
-    Stream: ObjectPartStream,
-    Client: ObjectClient + Send + Sync + 'static,
-{
-    /// Create and spawn a new prefetching request for an object
-    fn new(
-        client: Arc<Client>,
-        part_stream: Arc<Stream>,
-        config: PrefetcherConfig,
-        bucket: &str,
-        key: &str,
-        size: u64,
-        etag: ETag,
-    ) -> Self {
-        PrefetchGetObject {
-            client,
-            part_stream,
-            config,
-            current_task: None,
-            future_tasks: Default::default(),
-            backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
-            preferred_part_size: 128 * 1024,
-            sequential_read_start_offset: 0,
-            next_sequential_read_offset: 0,
-            next_request_size: config.first_request_size,
-            next_request_offset: 0,
-            bucket: bucket.to_owned(),
-            object_id: ObjectId::new(key.to_owned(), etag),
-            size,
-        }
     }
 
     /// Runs on every read to prepare and spawn any requests our prefetching logic requires
@@ -986,7 +991,16 @@ mod tests {
         let mut get_failures = HashMap::new();
         get_failures.insert(
             1,
-            Ok((2, MockClientError("error in the second chunk of a request".into()))),
+            Ok((
+                2,
+                MockClientError("error in the second chunk of the first request".into()),
+            )),
+        );
+        get_failures.insert(
+            2,
+            Err(ObjectClientError::ClientError(MockClientError(
+                "error in second request".into(),
+            ))),
         );
 
         let client = Arc::new(countdown_failure_client(
@@ -1001,22 +1015,31 @@ mod tests {
         let prefetcher_config = PrefetcherConfig {
             first_request_size: OBJECT_SIZE,
             ..Default::default()
-        }; 
-
+        };
         let prefetcher = Prefetcher::new(default_stream(), prefetcher_config);
-
-        let mut request = prefetcher.prefetch(client, "test-bucket", "hello", OBJECT_SIZE as u64, etag.clone());
         block_on(async {
+            let mut request = prefetcher.prefetch(client, "test-bucket", "hello", OBJECT_SIZE as u64, etag.clone());
+
+            // The first read should trigger the prefetcher to try and get the whole object (in 2 parts).
             _ = request.read(0, 1).await.expect("first read should succeed");
 
-            // Seek beyond the first part.
+            // Seek to the second part (where we injected a failure).
             let offset = PART_SIZE + 1;
             _ = request.read(offset as u64, 1).await.expect_err("seek should fail");
 
+            // A retry should trigger a new request (also failing).
             _ = request
                 .read(offset as u64, 1)
                 .await
-                .expect_err("retry after failure should fail");
+                .expect_err("first retry after failure should fail");
+
+            // New retry should succeed (no more failures injected).
+            let byte = request
+                .read(offset as u64, 1)
+                .await
+                .expect("second retry should succeed");
+            let expected = ramp_bytes(0xaa + offset, 1);
+            assert_eq!(byte.into_bytes().unwrap()[..], expected[..]);
         });
     }
 
