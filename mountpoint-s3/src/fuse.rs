@@ -97,8 +97,8 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
-    #[instrument(level="warn", skip_all, fields(req=req.unique()))]
-    fn init(&self, req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+    #[instrument(level="warn", skip_all, fields(req=_req.unique()))]
+    fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         block_on(self.fs.init(config).in_current_span())
     }
 
@@ -118,8 +118,8 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino, nlookup, name=field::Empty))]
-    fn forget(&self, req: &Request<'_>, ino: u64, nlookup: u64) {
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino, nlookup, name=field::Empty))]
+    fn forget(&self, _req: &Request<'_>, ino: u64, nlookup: u64) {
         block_on(self.fs.forget(ino, nlookup));
     }
 

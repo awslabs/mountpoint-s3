@@ -230,7 +230,7 @@ pub struct CliArgs {
     #[cfg(feature = "event_log")]
     #[clap(
         long,
-        help = "Write structured event log for failed fuse operations to a directory (allowed to be the same as --log-directory)",
+        help = "Write structured event log for failed fuse operations to a directory (allowed to be the same as --log-directory). Note that if `MOUNTPOINT_LOG=off` no events will be emitted.",
         help_heading = LOGGING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
     )]

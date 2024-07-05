@@ -3,7 +3,7 @@ use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicInfo};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 use crate::metrics::metrics_tracing_span_layer;
@@ -79,7 +79,7 @@ fn install_panic_hook() {
     }))
 }
 
-fn create_log_file(dir_path: &PathBuf, file_name_format: &[FormatItem<'static>]) -> anyhow::Result<File> {
+fn create_log_file(dir_path: &Path, file_name_format: &[FormatItem<'static>]) -> anyhow::Result<File> {
     let filename = OffsetDateTime::now_utc()
         .format(file_name_format)
         .context("couldn't format log file name")?;
@@ -126,8 +126,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         None
     };
 
-    let event_log_layer = if config.event_log_directory.is_some() {
-        let path = config.event_log_directory.as_ref().unwrap();
+    let event_log_layer = if let Some(path) = &config.event_log_directory {
         const EVENT_LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
             macros::format_description!("mountpoint-s3-event-log-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
 
