@@ -53,7 +53,7 @@ macro_rules! fuse_unsupported {
         event!($level, "{} failed: operation not supported by Mountpoint", $name);
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
         ::metrics::counter!("fuse.op_unimplemented","op" => $name).increment(1);
-        log_unsupported_event($name, $request_id);
+        log_unsupported_event($err, $name, $request_id);
         $reply.error($err);
     }};
     ($name:literal, $reply:expr, $request_id:expr) => {

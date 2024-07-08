@@ -23,12 +23,13 @@ pub fn log_fs_error_event(error: &Error, fuse_operation: &str, fuse_request_id: 
     );
 }
 
-pub fn log_unsupported_event(fuse_operation: &str, fuse_request_id: u64) {
+pub fn log_unsupported_event(errno: i32, fuse_operation: &str, fuse_request_id: u64) {
     event!(
         ::tracing::Level::TRACE,
         operation = fuse_operation,
         fuse_request_id = fuse_request_id,
         error_code = MOUNTPOINT_ERROR_UNSUPPORTED,
+        errno = errno,
         version = "1",
     );
 }
