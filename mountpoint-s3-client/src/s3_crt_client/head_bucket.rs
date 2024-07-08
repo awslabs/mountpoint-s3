@@ -27,7 +27,7 @@ impl S3CrtClient {
                 let span = request_span!(self.inner, "head_bucket");
 
                 self.inner
-                    .make_simple_http_request(message, MetaRequestType::Default, span, |request_result| {
+                    .make_simple_http_request(message, "HeadBucket", span, |request_result| {
                         match request_result.response_status {
                             404 => Some(HeadBucketError::NoSuchBucket),
                             _ => None,

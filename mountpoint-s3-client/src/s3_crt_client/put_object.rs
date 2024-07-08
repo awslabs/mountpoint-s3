@@ -65,7 +65,7 @@ impl S3CrtClient {
         let on_headers = move |headers: &Headers, _: i32| {
             *response_headers_writer.lock().unwrap() = Some(headers.clone());
         };
-        let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
+        let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject, None);
         options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
 

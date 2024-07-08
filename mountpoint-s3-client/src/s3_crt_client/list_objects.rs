@@ -188,7 +188,7 @@ impl S3CrtClient {
             );
 
             self.inner
-                .make_simple_http_request(message, MetaRequestType::Default, span, parse_list_objects_error)?
+                .make_simple_http_request(message, "ListObjectsV2", span, parse_list_objects_error)?
         };
 
         let body = body.await?;

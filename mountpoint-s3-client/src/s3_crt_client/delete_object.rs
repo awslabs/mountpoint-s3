@@ -26,7 +26,7 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             self.inner
-                .make_simple_http_request(message, MetaRequestType::Default, span, parse_delete_object_error)?
+                .make_simple_http_request(message, "DeleteObject", span, parse_delete_object_error)?
         };
 
         let _body = request.await?;

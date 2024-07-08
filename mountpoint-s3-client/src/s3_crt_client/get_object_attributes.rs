@@ -152,7 +152,7 @@ impl S3CrtClient {
 
             self.inner.make_simple_http_request(
                 message,
-                MetaRequestType::Default,
+                "GetObjectAttributes",
                 span,
                 parse_get_object_attributes_error,
             )?

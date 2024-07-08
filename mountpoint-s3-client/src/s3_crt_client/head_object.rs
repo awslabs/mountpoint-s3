@@ -134,6 +134,7 @@ impl S3CrtClient {
             self.inner.make_meta_request(
                 message,
                 MetaRequestType::Default,
+                Some("HeadObject"),
                 span,
                 move |headers, _status| {
                     let mut header = header1.lock().unwrap();
