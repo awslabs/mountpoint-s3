@@ -1,6 +1,5 @@
 use crate::object_client::ObjectClientResult;
-use crate::s3_crt_client::{S3CrtClient, S3RequestError};
-use mountpoint_s3_crt::s3::client::MetaRequestType;
+use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
 use thiserror::Error;
 
 /// Errors returned by a [`head_bucket`](S3CrtClient::head_bucket) request.
@@ -27,7 +26,7 @@ impl S3CrtClient {
                 let span = request_span!(self.inner, "head_bucket");
 
                 self.inner
-                    .make_simple_http_request(message, "HeadBucket", span, |request_result| {
+                    .make_simple_http_request(message, S3Operation::HeadBucket, span, |request_result| {
                         match request_result.response_status {
                             404 => Some(HeadBucketError::NoSuchBucket),
                             _ => None,

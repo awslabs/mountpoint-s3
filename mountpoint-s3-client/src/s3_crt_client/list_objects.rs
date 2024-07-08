@@ -3,7 +3,7 @@ use std::os::unix::prelude::OsStrExt;
 use std::str::FromStr;
 
 use mountpoint_s3_crt::http::request_response::Header;
-use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
+use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -12,7 +12,7 @@ use tracing::error;
 use crate::object_client::{
     ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo, RestoreStatus,
 };
-use crate::s3_crt_client::{S3CrtClient, S3RequestError};
+use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -188,7 +188,7 @@ impl S3CrtClient {
             );
 
             self.inner
-                .make_simple_http_request(message, "ListObjectsV2", span, parse_list_objects_error)?
+                .make_simple_http_request(message, S3Operation::ListObjects, span, parse_list_objects_error)?
         };
 
         let body = body.await?;

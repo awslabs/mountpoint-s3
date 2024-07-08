@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::http::request_response::{Headers, HeadersError};
-use mountpoint_s3_crt::s3::client::{MetaRequestResult, MetaRequestType};
+use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use regex::Regex;
 use thiserror::Error;
 use time::format_description::well_known::Rfc2822;
@@ -14,7 +14,7 @@ use tracing::error;
 use crate::object_client::{
     HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo, RestoreStatus,
 };
-use crate::s3_crt_client::{S3CrtClient, S3RequestError};
+use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -133,8 +133,7 @@ impl S3CrtClient {
 
             self.inner.make_meta_request(
                 message,
-                MetaRequestType::Default,
-                Some("HeadObject"),
+                S3Operation::HeadObject,
                 span,
                 move |headers, _status| {
                     let mut header = header1.lock().unwrap();
