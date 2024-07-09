@@ -29,6 +29,11 @@ impl FuseSession {
     ) -> anyhow::Result<Self> {
         assert!(max_worker_threads > 0);
 
+        tracing::trace!(
+            max_worker_threads,
+            "creating worker thread pool for handling FUSE requests",
+        );
+
         let unmounter = session.unmount_callable();
 
         let (tx, rx) = mpsc::channel();
@@ -37,10 +42,14 @@ impl FuseSession {
 
         // A thread that waits for all workers to exit and then sends a message on the channel
         let _waiter = {
+            const FUSE_WORKER_WAITER_THREAD_NAME: &str = "fuse-worker-waiter";
             let tx = tx.clone();
             thread::Builder::new()
-                .name("fuse-worker-waiter".to_owned())
+                .name(FUSE_WORKER_WAITER_THREAD_NAME.to_owned())
                 .spawn(move || {
+                    tracing::trace!(
+                        "{FUSE_WORKER_WAITER_THREAD_NAME} thread now waiting for all worker threads to exit",
+                    );
                     while let Ok(thd) = workers_rx.recv() {
                         let thread_name = thd.thread().name().map(ToOwned::to_owned);
                         match thd.join() {
@@ -137,6 +146,8 @@ impl<W: Work> WorkerPool<W> {
     fn start(work: W, workers: Sender<JoinHandle<W::Result>>, max_workers: usize) -> anyhow::Result<()> {
         assert!(max_workers > 0);
 
+        tracing::trace!(max_workers, "worker pool starting");
+
         let state = WorkerPoolState {
             work,
             worker_count: AtomicUsize::new(0),
@@ -150,6 +161,8 @@ impl<W: Work> WorkerPool<W> {
         if !pool.try_add_worker()? {
             unreachable!("should always create at least 1 worker (max_workers > 0)");
         }
+
+        tracing::trace!("worker pool started OK");
         Ok(())
     }
 
