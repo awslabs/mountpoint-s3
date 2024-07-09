@@ -657,9 +657,7 @@ where
     tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
-    {
-        validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
-    }
+    validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
 
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
