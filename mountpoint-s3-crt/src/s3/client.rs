@@ -279,6 +279,15 @@ impl MetaRequestOptions {
         Self(options)
     }
 
+    /// Set the S3 operation name of the request.
+    pub fn operation_name(&mut self, operation_name: &'static str) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        // SAFETY: `operation_name` has a static lifetime.
+        options.inner.operation_name = unsafe { operation_name.as_aws_byte_cursor() };
+        self
+    }
+
     /// Set the message of the request.
     pub fn message(&mut self, message: Message) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.

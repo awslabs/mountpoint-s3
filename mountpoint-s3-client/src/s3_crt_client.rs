@@ -444,7 +444,7 @@ impl S3CrtClientInner {
         })
     }
 
-    fn new_meta_request_options(message: S3Message, meta_request_type: MetaRequestType) -> MetaRequestOptions {
+    fn new_meta_request_options(message: S3Message, operation: S3Operation) -> MetaRequestOptions {
         let mut options = MetaRequestOptions::new();
         if let Some(checksum_config) = message.checksum_config {
             options.checksum_config(checksum_config);
@@ -455,7 +455,10 @@ impl S3CrtClientInner {
         options
             .message(message.inner)
             .endpoint(message.uri)
-            .request_type(meta_request_type);
+            .request_type(operation.meta_request_type());
+        if let Some(operation_name) = operation.operation_name() {
+            options.operation_name(operation_name);
+        }
         options
     }
 
@@ -470,7 +473,7 @@ impl S3CrtClientInner {
     fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
         &self,
         message: S3Message,
-        meta_request_type: MetaRequestType,
+        operation: S3Operation,
         request_span: Span,
         on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         on_body: impl FnMut(u64, &[u8]) + Send + 'static,
@@ -478,7 +481,7 @@ impl S3CrtClientInner {
             + Send
             + 'static,
     ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
-        let options = Self::new_meta_request_options(message, meta_request_type);
+        let options = Self::new_meta_request_options(message, operation);
         self.make_meta_request_from_options(options, request_span, |_| {}, on_headers, on_body, on_finish)
     }
 
@@ -669,11 +672,11 @@ impl S3CrtClientInner {
     fn make_simple_http_request<E: std::error::Error + Send + 'static>(
         &self,
         message: S3Message,
-        request_type: MetaRequestType,
+        operation: S3Operation,
         request_span: Span,
         on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
     ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
-        let options = Self::new_meta_request_options(message, request_type);
+        let options = Self::new_meta_request_options(message, operation);
         self.make_simple_http_request_from_options(options, request_span, |_| {}, on_error, |_, _| ())
     }
 
@@ -741,6 +744,42 @@ impl S3CrtClientInner {
 
     fn next_request_counter(&self) -> u64 {
         self.next_request_counter.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+/// S3 operation supported by this client.
+#[derive(Debug, Clone, Copy)]
+enum S3Operation {
+    DeleteObject,
+    GetObject,
+    GetObjectAttributes,
+    HeadBucket,
+    HeadObject,
+    ListObjects,
+    PutObject,
+}
+
+impl S3Operation {
+    /// The [MetaRequestType] to use for this operation.
+    fn meta_request_type(&self) -> MetaRequestType {
+        match self {
+            S3Operation::GetObject => MetaRequestType::GetObject,
+            S3Operation::PutObject => MetaRequestType::PutObject,
+            _ => MetaRequestType::Default,
+        }
+    }
+
+    /// The operation name to set when configuring a request, if required.
+    fn operation_name(&self) -> Option<&'static str> {
+        match self {
+            S3Operation::DeleteObject => Some("DeleteObject"),
+            S3Operation::GetObject => None,
+            S3Operation::GetObjectAttributes => Some("GetObjectAttributes"),
+            S3Operation::HeadBucket => Some("HeadBucket"),
+            S3Operation::HeadObject => Some("HeadObject"),
+            S3Operation::ListObjects => Some("ListObjectsV2"),
+            S3Operation::PutObject => None,
+        }
     }
 }
 

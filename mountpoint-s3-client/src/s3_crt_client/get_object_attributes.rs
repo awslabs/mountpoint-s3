@@ -2,17 +2,14 @@ use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::str::FromStr;
 
-use mountpoint_s3_crt::{
-    http::request_response::Header,
-    s3::client::{MetaRequestResult, MetaRequestType},
-};
+use mountpoint_s3_crt::{http::request_response::Header, s3::client::MetaRequestResult};
 use thiserror::Error;
 
 use crate::object_client::{
     Checksum, GetObjectAttributesError, GetObjectAttributesParts, GetObjectAttributesResult, ObjectAttribute,
     ObjectClientError, ObjectClientResult, ObjectPart,
 };
-use crate::s3_crt_client::{S3CrtClient, S3RequestError};
+use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -152,7 +149,7 @@ impl S3CrtClient {
 
             self.inner.make_simple_http_request(
                 message,
-                MetaRequestType::Default,
+                S3Operation::GetObjectAttributes,
                 span,
                 parse_get_object_attributes_error,
             )?

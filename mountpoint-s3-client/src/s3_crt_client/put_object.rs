@@ -2,14 +2,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
-use crate::s3_crt_client::{emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3RequestError};
+use crate::s3_crt_client::{
+    emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation,
+    S3RequestError,
+};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestType, RequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{ChecksumConfig, RequestType, UploadReview};
 use tracing::error;
-
-use super::{S3CrtClientInner, S3HttpRequest};
 
 const SSE_TYPE_HEADER_NAME: &str = "x-amz-server-side-encryption";
 const SSE_KEY_ID_HEADER_NAME: &str = "x-amz-server-side-encryption-aws-kms-key-id";
@@ -65,7 +66,7 @@ impl S3CrtClient {
         let on_headers = move |headers: &Headers, _: i32| {
             *response_headers_writer.lock().unwrap() = Some(headers.clone());
         };
-        let mut options = S3CrtClientInner::new_meta_request_options(message, MetaRequestType::PutObject);
+        let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
         options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
 
