@@ -375,7 +375,7 @@ impl CliArgs {
         self.prefix.as_ref().cloned().unwrap_or_default()
     }
 
-    fn logging_config(&self) -> LoggingConfig {
+    fn logging_config(&self, _is_fork_parent: bool) -> LoggingConfig {
         let default_filter = if self.no_log {
             String::from("off")
         } else {
@@ -394,7 +394,11 @@ impl CliArgs {
 
         let _event_log_directory: Option<PathBuf> = None;
         #[cfg(feature = "event_log")]
-        let _event_log_directory = self.event_log_directory.clone();
+        let _event_log_directory = if _is_fork_parent {
+            None
+        } else {
+            self.event_log_directory.clone()
+        };
         LoggingConfig {
             log_directory: self.log_directory.clone(),
             log_to_stdout: self.foreground,
@@ -456,7 +460,7 @@ where
     );
 
     if args.foreground {
-        init_logging(args.logging_config()).context("failed to initialize logging")?;
+        init_logging(args.logging_config(/* is_fork_parent= */ false)).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -483,7 +487,8 @@ where
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(args.logging_config(/* is_fork_parent= */ false))
+                    .context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -528,7 +533,8 @@ where
             ForkResult::Parent { child } => {
                 let args = CliArgs::parse();
 
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(args.logging_config(/* is_fork_parent= */ true))
+                    .context("failed to initialize logging")?;
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
 
