@@ -476,10 +476,12 @@ where
 
                 match session {
                     Ok(session) => {
+                        tracing::trace!("FUSE session created OK, sending message back to parent process");
                         pipe_file
                             .write(&status_success)
                             .context("Failed to write data to the pipe")?;
                         drop(pipe_file);
+                        tracing::trace!("message sent back to parent process");
 
                         // Logging is set up and the mount succeeded, so we can hang up
                         // stdin/out/err now to cleanly daemonize ourselves
@@ -490,9 +492,11 @@ where
                         session.join().context("failed to join session")?;
                     }
                     Err(e) => {
+                        tracing::trace!("FUSE session creation failed, sending message back to parent process");
                         pipe_file
                             .write(&status_failure)
                             .context("Failed to write data to the pipe")?;
+                        tracing::trace!("message sent back to parent process");
                         return Err(anyhow!(e));
                     }
                 }
@@ -653,9 +657,7 @@ where
     tracing::debug!("{:?}", args);
 
     validate_mount_point(&args.mount_point)?;
-    {
-        validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
-    }
+    validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
 
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
@@ -717,6 +719,7 @@ where
         }
         metadata_cache_ttl = TimeToLive::Minimal;
     }
+    tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
 
     if let Some(path) = args.cache {
@@ -780,7 +783,9 @@ where
     Client: ObjectClient + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
 {
+    tracing::trace!(?filesystem_config, "creating file system");
     let fs = S3FuseFilesystem::new(client, prefetcher, bucket_name, prefix, filesystem_config);
+    tracing::debug!(?fuse_session_config, "creating fuse session");
     let session = Session::new(fs, &fuse_session_config.mount_point, &fuse_session_config.options)
         .context("Failed to create FUSE session")?;
     let session = FuseSession::new(session, fuse_session_config.max_threads).context("Failed to start FUSE session")?;
