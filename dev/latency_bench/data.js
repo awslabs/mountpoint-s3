@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1720516235095,
+  "lastUpdate": 1720603674269,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e62951e87a9cc7f19ffe23f1637d531ca8ea8cab",
-          "message": "Add additional logging around mount timeout failures (#910)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-06-13T10:12:48Z",
-          "tree_id": "5eba9ca1b6f75e289e266b3c6c465e7ef91fa587",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/e62951e87a9cc7f19ffe23f1637d531ca8ea8cab"
-        },
-        "date": 1718275034188,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.051,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.132,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.895,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.469,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 35.9322793,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 53.9283745,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 54.4854789,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "278c42975ee93b9ab81b9f04054ba4ab5097a6bd",
+          "message": "Add additional trace logging during mount (#937)\n\n* Add additional trace logging during mount\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Remove old block used to gate SSE behind compile-time flag\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-07-10T09:02:41Z",
+          "tree_id": "ecd3eaa674a46302985e0fa01d08a791bf7a26e1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/278c42975ee93b9ab81b9f04054ba4ab5097a6bd"
+        },
+        "date": 1720603673785,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.045,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.132,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.878,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.439,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 46.1927674,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 33.782124700000004,
             "unit": "milliseconds"
           }
         ]
