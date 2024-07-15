@@ -45,9 +45,10 @@ fn event_log_forbidden_on_open_attempt() {
     create_objects(&bucket, &prefix, &region, allowed_object_name, &[0; 1024]);
 
     // mount a bucket
+    let forbidden_object_key = format!("{prefix}{forbidden_object_name}");
     let credentials = tokio_block_on(get_scoped_down_credentials(&deny_single_object_access_policy(
         &bucket,
-        &format!("{prefix}{forbidden_object_name}"),
+        &forbidden_object_key,
     )));
     let (mount_point, log_directory) = mount_with_event_log(
         Some(credentials),
@@ -73,7 +74,7 @@ fn event_log_forbidden_on_open_attempt() {
         operation: "lookup".to_owned(),
         error_code: MOUNTPOINT_ERROR_CLIENT.to_owned(),
         errno: Some(5),
-        s3_object_key: Some(format!("^mountpoint-test/{test_name}/[0-9]*/{forbidden_object_name}$")),
+        s3_object_key: Some(forbidden_object_key),
         s3_bucket_name: Some(bucket),
         s3_error_http_status: Some(403),
         version: "1".to_owned(),
@@ -136,7 +137,10 @@ fn event_log_internal_error_on_read_mutated_attempt() {
     let mut f = File::open(mount_point.path().join(test_name)).unwrap();
     let mut buf = vec![0_u8; 1024];
     let _ = f.read(&mut buf).unwrap();
-    create_objects(&bucket, &prefix, &region, test_name, &[0; 1024]);
+    // replace the original object
+    let content_16mb = vec![1_u8; 16 * 1024 * 1024];
+    create_objects(&bucket, &prefix, &region, test_name, &content_16mb);
+    drop(content_16mb);
     let mut str = Default::default();
     f.read_to_string(&mut str)
         .expect_err("must not read from a mutated object");
@@ -183,7 +187,7 @@ fn event_log_with_application_log() {
     let events = read_events(log_directory.path());
     assert!(!events.is_empty(), "empty events");
 
-    let application_log_path = locate_log(log_directory.path(), "^mountpoint-s3-event-log-[0-9]{4}.*$");
+    let application_log_path = locate_log(log_directory.path(), "^mountpoint-s3-[0-9]{4}.*$");
     let application_log_stat = std::fs::metadata(application_log_path).expect("");
     assert!(application_log_stat.size() > 0, "empty application log");
 }
@@ -255,10 +259,6 @@ fn assert_events_match(actual: &[Event], expected: &[Event]) {
 }
 
 fn assert_event_matches(actual: &Event, expected: &Event) {
-    let object_key_pattern = expected
-        .s3_object_key
-        .as_ref()
-        .map(|key_pattern| regex::Regex::new(key_pattern).unwrap());
     let internal_message_pattern = expected
         .internal_message
         .as_ref()
@@ -281,14 +281,7 @@ fn assert_event_matches(actual: &Event, expected: &Event) {
         ),
         None => assert!(actual.internal_message.is_none()),
     }
-    match &object_key_pattern {
-        Some(object_key_pattern) => assert!(
-            object_key_pattern.is_match(actual.s3_object_key.as_ref().expect("s3_object_key must be non empty")),
-            "unexpected object key: {:?}",
-            actual.s3_object_key
-        ),
-        None => assert!(actual.s3_object_key.is_none()),
-    }
+    assert_eq!(actual.s3_object_key, expected.s3_object_key);
     assert_eq!(actual.s3_bucket_name, expected.s3_bucket_name);
     assert_eq!(actual.s3_error_http_status, expected.s3_error_http_status);
     assert_eq!(actual.version, expected.version);
