@@ -4,6 +4,7 @@ use anyhow::Context;
 use fuser::{Filesystem, Session, SessionUnmounter};
 use tracing::{debug, error, trace, warn};
 
+use crate::logging::LogFileReopener;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
 use crate::sync::thread::{self, JoinHandle};
@@ -97,10 +98,14 @@ impl FuseSession {
 
     /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT.
     /// When that happens, unmount the file system (if it hasn't been already unmounted).
-    pub fn join(mut self) -> anyhow::Result<()> {
+    pub fn join(mut self, log_file_opener: Option<LogFileReopener>) -> anyhow::Result<()> {
         let msg = self.receiver.recv();
         trace!("received message {msg:?}, closing filesystem session");
 
+        // TODO: this should happen on SIGHUP (and keep running after it)
+        if let Some(log_file_opener) = log_file_opener {
+            log_file_opener.reopen()?;
+        }
         trace!("executing {} handler(s) on close", self.on_close.len());
         for handler in self.on_close {
             handler();

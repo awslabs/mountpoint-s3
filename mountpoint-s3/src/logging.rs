@@ -1,12 +1,14 @@
 use std::backtrace::Backtrace;
-use std::fs::{DirBuilder, OpenOptions};
+use std::fs::{DirBuilder, File, OpenOptions};
+use std::io;
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicInfo};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 use crate::metrics::metrics_tracing_span_layer;
+use crate::sync::{Arc, RwLock, RwLockReadGuard};
 use anyhow::Context;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use time::format_description::FormatItem;
@@ -16,7 +18,7 @@ use tracing::Span;
 use tracing_subscriber::filter::{EnvFilter, Filtered, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{Layer, Registry};
+use tracing_subscriber::{fmt::MakeWriter, Layer, Registry};
 
 mod syslog;
 use self::syslog::SyslogLayer;
@@ -39,10 +41,10 @@ pub struct LoggingConfig {
 /// - initializes the `tracing` subscriber for capturing log output
 /// - sets up the logging adapters for the CRT and for metrics
 /// - installs a panic hook to capture panics and log them with `tracing`
-pub fn init_logging(config: LoggingConfig) -> anyhow::Result<()> {
-    init_tracing_subscriber(config)?;
+pub fn init_logging(config: LoggingConfig) -> anyhow::Result<Option<LogFileReopener>> {
+    let log_file_reopener = init_tracing_subscriber(config)?;
     install_panic_hook();
-    Ok(())
+    Ok(log_file_reopener)
 }
 
 fn tracing_panic_hook(panic_info: &PanicInfo) {
@@ -76,7 +78,64 @@ fn install_panic_hook() {
     }))
 }
 
-fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
+#[derive(Debug)]
+pub struct LogWriterFactory {
+    current_file: Arc<RwLock<File>>,
+}
+
+pub struct LogFileReopener {
+    log_file_name: PathBuf,
+    current_file: Arc<RwLock<File>>,
+}
+
+impl LogFileReopener {
+    pub fn reopen(&self) -> anyhow::Result<()> {
+        let mut rw_lock_write_guard = self.current_file.write().expect("ignoring poisoned for now");
+        *rw_lock_write_guard = open_file(&self.log_file_name)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct FileWriter<'a>(RwLockReadGuard<'a, File>);
+
+impl io::Write for FileWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        (&*self.0).write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        (&*self.0).flush()
+    }
+}
+
+impl<'a> MakeWriter<'a> for LogWriterFactory {
+    type Writer = FileWriter<'a>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        FileWriter(self.current_file.read().expect("ignoring poisoned for now"))
+    }
+}
+
+fn make_log_writer_factory(filename: &Path) -> anyhow::Result<(LogWriterFactory, LogFileReopener)> {
+    let file = Arc::new(RwLock::new(open_file(filename)?));
+    let log_writer_factory = LogWriterFactory {
+        current_file: file.clone(),
+    };
+    let log_writer_reload_scheduler = LogFileReopener {
+        log_file_name: filename.to_owned(),
+        current_file: file,
+    };
+    Ok((log_writer_factory, log_writer_reload_scheduler))
+}
+
+fn open_file(filepath: &Path) -> anyhow::Result<File> {
+    let mut file_options = OpenOptions::new();
+    file_options.mode(0o640).append(true).create(true);
+    file_options.open(filepath).context("failed to create log file")
+}
+
+fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<Option<LogFileReopener>> {
     /// Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
     /// if that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
     /// need a copy of the filter for each [Layer].
@@ -87,12 +146,12 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     let env_filter = create_env_filter(&config.default_filter);
     // Don't create the files or subscribers if we'll never emit any logs
     if env_filter.max_level_hint() == Some(LevelFilter::OFF) {
-        return Ok(());
+        return Ok(None);
     }
 
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
-    let file_layer = if let Some(path) = &config.log_directory {
+    let (file_layer, log_file_reopener) = if let Some(path) = &config.log_directory {
         const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
             macros::format_description!("mountpoint-s3-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
         let filename = OffsetDateTime::now_utc()
@@ -106,17 +165,15 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         file_options.mode(0o640).append(true).create(true);
 
         dir_builder.create(path).context("failed to create log folder")?;
-        let file = file_options
-            .open(path.join(filename))
-            .context("failed to create log file")?;
 
+        let (log_writer_factory, log_file_reopener) = make_log_writer_factory(&path.join(filename))?;
         let file_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
-            .with_writer(file)
+            .with_writer(log_writer_factory)
             .with_filter(env_filter);
-        Some(file_layer)
+        (Some(file_layer), Some(log_file_reopener))
     } else {
-        None
+        (None, None)
     };
 
     let syslog_layer: Option<Filtered<_, _, Registry>> = if config.log_directory.is_none() {
@@ -146,7 +203,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
 
     registry.init();
 
-    Ok(())
+    Ok(log_file_reopener)
 }
 
 pub fn record_name(name: &str) -> Span {
