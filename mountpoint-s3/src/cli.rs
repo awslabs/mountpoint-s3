@@ -293,6 +293,16 @@ pub struct CliArgs {
         value_name = "ALGORITHM",
     )]
     pub upload_checksums: Option<UploadChecksums>,
+
+    #[cfg(feature = "multiple-nw-iface")]
+    #[clap(
+        long,
+        help = "One or more comma-delimited network interfaces for Mountpoint to use when accessing S3. Requires Linux 5.7+ or running as root.",
+        help_heading = CLIENT_OPTIONS_HEADER,
+        value_delimiter = ',',
+        value_name = "INTERFACE_NAMES",
+    )]
+    pub network_interfaces: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -614,12 +624,20 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     if let Some(ttl) = args.metadata_ttl {
         user_agent.key_value("mp-cache-ttl", &ttl.to_string());
     }
+    #[cfg(feature = "multiple-nw-iface")]
+    if let Some(interfaces) = &args.network_interfaces {
+        user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
+    }
 
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
         .part_size(args.part_size as usize)
         .user_agent(user_agent);
+    #[cfg(feature = "multiple-nw-iface")]
+    if let Some(interfaces) = &args.network_interfaces {
+        client_config = client_config.network_interface_names(interfaces.clone());
+    }
     if args.requester_pays {
         client_config = client_config.request_payer("requester");
     }
