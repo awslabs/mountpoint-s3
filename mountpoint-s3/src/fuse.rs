@@ -1,9 +1,13 @@
 //! Links _fuser_ method calls into Mountpoint's filesystem code in [crate::fs].
 
 use futures::executor::block_on;
-use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
+use mountpoint_s3_client::types::PutObjectParams;
+use futures::StreamExt;
 use std::ffi::OsStr;
 use std::path::Path;
+use std::pin::pin;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
@@ -412,7 +416,52 @@ where
         _flags: u32,
         reply: ReplyEmpty,
     ) {
-        fuse_unsupported!("rename", reply);
+        let clnt = &self.fs.get_client();
+        let bucket = &self.fs.get_bucket_name();
+        let key = name.to_str().unwrap();
+
+        let last_offset = Arc::new(Mutex::new(None));
+        let last_offset_clone = Arc::clone(&last_offset);
+        let mut accumulated_body = Vec::new();
+        futures::executor::block_on(async move {
+            let mut request = clnt
+                .get_object(bucket, key, None, None)
+                .await
+                .expect("couldn't create get request");
+            let mut request = pin!(request);
+            loop {
+                match StreamExt::next(&mut request).await {
+                    Some(Ok((offset, body))) => {
+                        let mut last_offset = last_offset_clone.lock().unwrap();
+                        assert!(Some(offset) > *last_offset, "out-of-order body parts");
+                        *last_offset = Some(offset);
+                        accumulated_body.extend_from_slice(&body[..]);
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!(error = ?e, "rename request failed");
+                        break;
+                    }
+                    None => break,
+                }
+            }
+
+            // Copy the object to new key
+            let newkey = newname.to_str().unwrap();
+            let request_params = PutObjectParams::new();
+            let mut put_request = clnt
+                .put_object(bucket, newkey, &request_params)
+                .await
+                .expect("put_object should succeed");
+            put_request.write(&accumulated_body).await.unwrap();
+            put_request.complete().await.unwrap();
+
+            // Finally remove the original object
+            let del_obj_res = clnt.delete_object(bucket, key).await;
+            match del_obj_res {
+                Ok(_res) => reply.ok(),
+                Err(e) => tracing::error!(error = ?e, "rename request failed"),
+            };
+        });
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, newparent=newparent, newname=?newname))]

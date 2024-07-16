@@ -583,6 +583,14 @@ where
     fn next_handle(&self) -> u64 {
         self.next_handle.fetch_add(1, Ordering::SeqCst)
     }
+
+    pub fn get_bucket_name(&self) -> String {
+        return self.bucket.clone();
+    }
+
+    pub fn get_client(&self) -> Arc<Client> {
+        return self.client.clone();
+    }
 }
 
 /// Reply to a `lookup` call
