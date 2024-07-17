@@ -9,7 +9,7 @@ use std::thread;
 
 use crate::metrics::metrics_tracing_span_layer;
 use crate::sync::{Arc, RwLock, RwLockReadGuard};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use time::format_description::FormatItem;
 use time::macros;
@@ -34,6 +34,24 @@ pub struct LoggingConfig {
     /// use for logs. Will be overridden by the `MOUNTPOINT_LOG` environment variable if set.
     pub default_filter: String,
 }
+
+/// Provides an ability to re-open the log file at the initial path, updating the file handle used for logging.
+pub struct LogFileReopener {
+    log_file_path: PathBuf,
+    current_file: Arc<RwLock<File>>,
+}
+
+/// Used by `tracing-subscriber::fmt` layer to obtain a log writer (any type implementing `io::Write`).
+/// Holds a file handle, which may be updated by `LogFileReopener`.
+///
+/// One notable detail from the `tracing-subscriber`` internals, is that `LogWriterFactory` will be used
+/// to obtain a log writer **each time** when a new log line is emitted, thus nothing time-consuming may
+/// reside in `make_writer` implementation.
+struct LogWriterFactory {
+    current_file: Arc<RwLock<File>>,
+}
+
+pub struct LogWriter<'a>(Option<RwLockReadGuard<'a, File>>);
 
 /// Set up all our logging infrastructure.
 ///
@@ -76,63 +94,6 @@ fn install_panic_hook() {
         tracing_panic_hook(panic_info);
         old_hook(panic_info);
     }))
-}
-
-#[derive(Debug)]
-pub struct LogWriterFactory {
-    current_file: Arc<RwLock<File>>,
-}
-
-pub struct LogFileReopener {
-    log_file_name: PathBuf,
-    current_file: Arc<RwLock<File>>,
-}
-
-impl LogFileReopener {
-    pub fn reopen(&self) -> anyhow::Result<()> {
-        let mut rw_lock_write_guard = self.current_file.write().expect("ignoring poisoned for now");
-        *rw_lock_write_guard = open_file(&self.log_file_name)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct FileWriter<'a>(RwLockReadGuard<'a, File>);
-
-impl io::Write for FileWriter<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        (&*self.0).write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        (&*self.0).flush()
-    }
-}
-
-impl<'a> MakeWriter<'a> for LogWriterFactory {
-    type Writer = FileWriter<'a>;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        FileWriter(self.current_file.read().expect("ignoring poisoned for now"))
-    }
-}
-
-fn make_log_writer_factory(filename: &Path) -> anyhow::Result<(LogWriterFactory, LogFileReopener)> {
-    let file = Arc::new(RwLock::new(open_file(filename)?));
-    let log_writer_factory = LogWriterFactory {
-        current_file: file.clone(),
-    };
-    let log_writer_reload_scheduler = LogFileReopener {
-        log_file_name: filename.to_owned(),
-        current_file: file,
-    };
-    Ok((log_writer_factory, log_writer_reload_scheduler))
-}
-
-fn open_file(filepath: &Path) -> anyhow::Result<File> {
-    let mut file_options = OpenOptions::new();
-    file_options.mode(0o640).append(true).create(true);
-    file_options.open(filepath).context("failed to create log file")
 }
 
 fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<Option<LogFileReopener>> {
@@ -208,4 +169,66 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<Option<LogFi
 
 pub fn record_name(name: &str) -> Span {
     Span::current().record("name", name).clone()
+}
+
+fn open_file(filepath: &Path) -> anyhow::Result<File> {
+    let mut file_options = OpenOptions::new();
+    file_options.mode(0o640).append(true).create(true);
+    file_options.open(filepath).context("failed to create log file")
+}
+
+fn make_log_writer_factory(filepath: &Path) -> anyhow::Result<(LogWriterFactory, LogFileReopener)> {
+    let file = Arc::new(RwLock::new(open_file(filepath)?));
+    let log_writer_factory = LogWriterFactory {
+        current_file: file.clone(),
+    };
+    let log_file_reopener = LogFileReopener {
+        log_file_path: filepath.to_owned(),
+        current_file: file,
+    };
+    Ok((log_writer_factory, log_file_reopener))
+}
+
+impl LogFileReopener {
+    /// Re-opens the log file at the initial path, updating the file handle used for logging.
+    pub fn reopen(&self) -> anyhow::Result<()> {
+        let mut rw_lock_write_guard = self
+            .current_file
+            .write()
+            .map_err(|_| anyhow!("log file handle lock is poisoned"))?;
+        // CWAgent may not export any logs written to an older file after the new one was created.
+        // Thus we need to hold the write lock while creating the file, to ensure that no writes
+        // to an old file will happen after this.
+        //
+        // Note that we write to `std::fs::File` via a shared reference to it, acquired with read lock.
+        *rw_lock_write_guard = open_file(&self.log_file_path)?;
+        Ok(())
+    }
+}
+
+impl io::Write for LogWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match &self.0 {
+            Some(rw_lock_read_guard) => (&**rw_lock_read_guard).write(buf),
+            None => Err(io::Error::from(io::ErrorKind::Other)), // unreachable
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match &self.0 {
+            Some(rw_lock_read_guard) => (&**rw_lock_read_guard).flush(),
+            None => Err(io::Error::from(io::ErrorKind::Other)), // unreachable
+        }
+    }
+}
+
+impl<'a> MakeWriter<'a> for LogWriterFactory {
+    type Writer = LogWriter<'a>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        // `RwLock::read()` will only return an error if a thread holding the write lock **panicked**.
+        // Implementation of `LogFileReopener::reopen` does not allow a panic while the lock is held.
+        // Thus this will always return a file handle.
+        LogWriter(self.current_file.read().ok())
+    }
 }

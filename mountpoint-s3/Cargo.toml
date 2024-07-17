@@ -20,7 +20,6 @@ bytes = { version = "1.2.1", features = ["serde"] }
 clap = { version = "4.1.9", features = ["derive"] }
 const_format = "0.2.30"
 crc32c = "0.6.3"
-ctrlc = { version = "3.2.3", features = ["termination"] }
 dashmap = "5.5.0"
 futures = "0.3.24"
 hdrhistogram = { version = "7.5.2", default-features = false }
@@ -43,6 +42,7 @@ time = { version = "0.3.17", features = ["macros", "formatting"] }
 tracing = { version = "0.1.35", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
+signal-hook = "0.3.17"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.16.0", default-features = false }

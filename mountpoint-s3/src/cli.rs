@@ -432,7 +432,7 @@ where
     );
 
     if args.foreground {
-        let log_file_opener = init_logging(args.logging_config()).context("failed to initialize logging")?;
+        let log_file_reopener = init_logging(args.logging_config()).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -441,7 +441,7 @@ where
 
         println!("{successful_mount_msg}");
 
-        session.join(log_file_opener).context("failed to join session")?;
+        session.join(log_file_reopener).context("failed to join session")?;
     } else {
         // mount file system as a background process
 
@@ -459,7 +459,7 @@ where
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                let log_file_opener = init_logging(args.logging_config()).context("failed to initialize logging")?;
+                let log_file_reopener = init_logging(args.logging_config()).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -489,7 +489,7 @@ where
                         nix::unistd::close(std::io::stdout().as_raw_fd()).context("couldn't close stdout")?;
                         nix::unistd::close(std::io::stderr().as_raw_fd()).context("couldn't close stderr")?;
 
-                        session.join(log_file_opener).context("failed to join session")?;
+                        session.join(log_file_reopener).context("failed to join session")?;
                     }
                     Err(e) => {
                         tracing::trace!("FUSE session creation failed, sending message back to parent process");

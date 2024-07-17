@@ -1,7 +1,10 @@
 use std::io;
+use std::sync::atomic::AtomicBool as StdAtomicBool;
+use std::time::Duration;
 
 use anyhow::Context;
 use fuser::{Filesystem, Session, SessionUnmounter};
+use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use tracing::{debug, error, trace, warn};
 
 use crate::logging::LogFileReopener;
@@ -9,6 +12,8 @@ use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
 use crate::sync::thread::{self, JoinHandle};
 use crate::sync::Arc;
+
+extern crate libc;
 
 /// A multi-threaded FUSE session that can be joined to wait for the FUSE filesystem to unmount or
 /// this process to be interrupted.
@@ -18,6 +23,35 @@ pub struct FuseSession {
     receiver: mpsc::Receiver<Message>,
     /// List of closures or functions to call when session is exiting.
     on_close: Vec<OnClose>,
+    signal_flags: SignalFlags,
+}
+
+#[derive(Default)]
+struct SignalFlags {
+    hup: Arc<StdAtomicBool>, // We can not use shuttle's types with `signal_hook`, thus using std type even in sanitizers
+    int: Arc<StdAtomicBool>,
+    term: Arc<StdAtomicBool>,
+}
+
+impl SignalFlags {
+    fn register(&self) -> Result<(), io::Error> {
+        signal_hook::flag::register(SIGHUP, Arc::clone(&self.hup))?;
+        signal_hook::flag::register(SIGINT, Arc::clone(&self.int))?;
+        signal_hook::flag::register(SIGTERM, Arc::clone(&self.term))?;
+        Ok(())
+    }
+
+    fn try_load(&self) -> Option<libc::c_int> {
+        if self.hup.swap(false, Ordering::SeqCst) {
+            Some(SIGHUP)
+        } else if self.int.swap(false, Ordering::SeqCst) {
+            Some(SIGINT)
+        } else if self.term.swap(false, Ordering::SeqCst) {
+            Some(SIGTERM)
+        } else {
+            None
+        }
+    }
 }
 
 type OnClose = Box<dyn FnOnce()>;
@@ -77,17 +111,16 @@ impl FuseSession {
                 .context("failed to spawn waiter thread")?
         };
 
-        ctrlc::set_handler(move || {
-            let _ = tx.send(Message::Interrupted);
-        })
-        .context("failed to set interrupt handler")?;
-
         WorkerPool::start(session, workers_tx, max_worker_threads).context("failed to start worker thread pool")?;
+
+        let signal_flags = SignalFlags::default();
+        signal_flags.register()?;
 
         Ok(Self {
             unmounter,
             receiver: rx,
             on_close: Default::default(),
+            signal_flags,
         })
     }
 
@@ -96,16 +129,32 @@ impl FuseSession {
         self.on_close.push(handler);
     }
 
-    /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT.
-    /// When that happens, unmount the file system (if it hasn't been already unmounted).
-    pub fn join(mut self, log_file_opener: Option<LogFileReopener>) -> anyhow::Result<()> {
-        let msg = self.receiver.recv();
-        trace!("received message {msg:?}, closing filesystem session");
+    /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT/SIGHUP.
+    /// When that happens, either unmount the file system (if it hasn't been already unmounted) or reload
+    /// the log file (on SIGHUP).
+    pub fn join(mut self, log_file_reopener: Option<LogFileReopener>) -> anyhow::Result<()> {
+        loop {
+            let msg = self.receiver.recv_timeout(Duration::from_millis(1));
 
-        // TODO: this should happen on SIGHUP (and keep running after it)
-        if let Some(log_file_opener) = log_file_opener {
-            log_file_opener.reopen()?;
+            let signal = self.signal_flags.try_load();
+            if let Some(signal) = signal {
+                trace!("received signal {signal}");
+            }
+            match signal {
+                Some(SIGHUP) => {
+                    if let Some(log_file_reopener) = &log_file_reopener {
+                        log_file_reopener.reopen()?;
+                    }
+                }
+                Some(_) => break,
+                None => (),
+            }
+            if let Ok(msg) = msg {
+                trace!("received message {msg:?}");
+                break;
+            }
         }
+
         trace!("executing {} handler(s) on close", self.on_close.len());
         for handler in self.on_close {
             handler();
@@ -119,7 +168,6 @@ impl FuseSession {
 #[derive(Debug)]
 enum Message {
     WorkersExited,
-    Interrupted,
 }
 
 trait Work: Send + Sync + 'static {
