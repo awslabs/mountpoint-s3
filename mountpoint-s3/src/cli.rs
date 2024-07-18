@@ -237,6 +237,14 @@ pub struct CliArgs {
 
     #[clap(
         long,
+        help = "Frequency of log file rotation [default: no rotation]",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        requires = "log_directory",
+    )]
+    pub log_rotation_frequency: Option<LogRotationFrequency>,
+
+    #[clap(
+        long,
         help = "Enable caching of object content to the given directory and set metadata TTL to 60 seconds",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
@@ -342,6 +350,27 @@ impl ValueEnum for UploadChecksums {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum LogRotationFrequency {
+    Minutely,
+    Hourly,
+    Daily,
+}
+
+impl ValueEnum for LogRotationFrequency {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Minutely, Self::Hourly, Self::Daily]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Minutely => Some(clap::builder::PossibleValue::new("minutely")),
+            Self::Hourly => Some(clap::builder::PossibleValue::new("hourly")),
+            Self::Daily => Some(clap::builder::PossibleValue::new("daily")),
+        }
+    }
+}
+
 impl CliArgs {
     fn addressing_style(&self) -> AddressingStyle {
         if self.force_path_style {
@@ -376,6 +405,7 @@ impl CliArgs {
             log_directory: self.log_directory.clone(),
             log_to_stdout: self.foreground,
             default_filter,
+            log_rotation_frequency: self.log_rotation_frequency,
         }
     }
 
