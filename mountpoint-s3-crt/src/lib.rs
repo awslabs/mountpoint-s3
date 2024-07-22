@@ -105,28 +105,6 @@ impl CrtError for i32 {
     }
 }
 
-/// Workaround until Result::inspect_err is stable.
-pub(crate) trait ResultExt: Sized {
-    fn on_err<F>(self, f: F) -> Self
-    where
-        F: FnOnce();
-}
-
-impl<T, E> ResultExt for Result<T, E> {
-    fn on_err<F>(self, f: F) -> Result<T, E>
-    where
-        F: FnOnce(),
-    {
-        match self {
-            Ok(val) => Ok(val),
-            Err(err) => {
-                f();
-                Err(err)
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::common::rust_log_adapter::RustLogAdapter;
