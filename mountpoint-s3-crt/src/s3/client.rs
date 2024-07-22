@@ -72,15 +72,15 @@ pub struct ClientConfig {
 /// This struct bundles together the list of owned strings for the network interfaces, and the
 /// cursors pointing to them.
 ///
-/// This is necessary because the CRT expects a pointer to the list of cursors,
-/// and the lifetime of the cursors must meet or exceed the lifetime of the [ClientConfig].
-/// By wrapping the array of cursors in this struct, we know the cursors will be valid
-/// and we can ensure the memory will be freed when dropped at the same time as [ClientConfig].
+/// This allows [ClientConfig] to keep the strings backing the cursors allocated until at least
+/// the time of [Client::new] (where the content of the cursors is copied),
+/// and deallocate when [ClientConfig] is dropped.
 #[derive(Debug)]
 struct NetworkInterfaceNames {
     /// The list of network interface names.
     ///
     /// We use a boxed array of strings, as we have no need for a mutable list like [Vec].
+    /// The [String] entries must never be mutated, the cursors point to their underlying memory.
     _names: Box<[String]>,
 
     /// List of owned cursors. This will be pointed at by [ClientConfig]'s inner [aws_s3_client_config].
@@ -98,6 +98,7 @@ impl NetworkInterfaceNames {
             .map(|name| {
                 // SAFETY: The names are stored alongside the cursors in NetworkInterfaceNamesInner.
                 //         The lifetime of NetworkInterfaceNamesInner will always meet the lifetime of the cursors.
+                //         We never mutate the String backing these byte cursors once created.
                 unsafe { name.as_aws_byte_cursor() }
             })
             .collect::<Vec<_>>()
