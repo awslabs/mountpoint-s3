@@ -230,7 +230,7 @@ pub struct CliArgs {
     #[cfg(feature = "event_log")]
     #[clap(
         long,
-        help = "Write structured event log for failed fuse operations to a directory (allowed to be the same as --log-directory). Note that if `MOUNTPOINT_LOG=off` no events will be emitted.",
+        help = "Write structured event log files to a directory (can be the same as --log-directory)",
         help_heading = LOGGING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
     )]
@@ -392,19 +392,26 @@ impl CliArgs {
             filter
         };
 
-        let _event_log_directory: Option<PathBuf> = None;
-        #[cfg(feature = "event_log")]
-        let _event_log_directory = if _is_fork_parent {
-            None
-        } else {
-            self.event_log_directory.clone()
-        };
         LoggingConfig {
             log_directory: self.log_directory.clone(),
             log_to_stdout: self.foreground,
             default_filter,
-            event_log_directory: _event_log_directory,
+            event_log_directory: self.get_event_log_directory(_is_fork_parent).map(Path::to_path_buf),
         }
+    }
+
+    fn get_event_log_directory(&self, _is_fork_parent: bool) -> Option<&Path> {
+        let _event_log_directory: Option<&Path> = None;
+        #[cfg(feature = "event_log")]
+        // We don't log events from the parent process, as, at least for now, all of them are coming from the child.
+        // If in future we wanted to log events from the parent process, we should consider creating a separate log
+        // file for the parent process to avoid non-synchronized writes to a single file.
+        let _event_log_directory = if _is_fork_parent {
+            None
+        } else {
+            self.event_log_directory.as_deref()
+        };
+        _event_log_directory
     }
 
     /// Human-readable description of the bucket being mounted
@@ -460,7 +467,7 @@ where
     );
 
     if args.foreground {
-        init_logging(args.logging_config(/* is_fork_parent= */ false)).context("failed to initialize logging")?;
+        init_logging(args.logging_config(false)).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -487,8 +494,7 @@ where
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                init_logging(args.logging_config(/* is_fork_parent= */ false))
-                    .context("failed to initialize logging")?;
+                init_logging(args.logging_config(false)).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -533,8 +539,7 @@ where
             ForkResult::Parent { child } => {
                 let args = CliArgs::parse();
 
-                init_logging(args.logging_config(/* is_fork_parent= */ true))
-                    .context("failed to initialize logging")?;
+                init_logging(args.logging_config(true)).context("failed to initialize logging")?;
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
 

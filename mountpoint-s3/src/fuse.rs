@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
 
 use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, S3FilesystemConfig, ToErrno};
-use crate::logging::event_log::{log_fs_error_event, log_unsupported_event};
+use crate::logging::event_log::{log_fuse_error_event, log_unsupported_event};
 use crate::prefetch::Prefetch;
 use crate::prefix::Prefix;
 #[cfg(target_os = "macos")]
@@ -42,7 +42,7 @@ macro_rules! fuse_error {
         let err = $err;
         event!(err.level, "{} failed: {:#}", $name, err);
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
-        log_fs_error_event(&err, $name, $request_id);
+        log_fuse_error_event(&err, $name, $request_id);
         $reply.error(err.to_errno());
     }};
 }
