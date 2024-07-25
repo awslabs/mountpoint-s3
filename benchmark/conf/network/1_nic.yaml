@@ -1,0 +1,3 @@
+interface_names:
+  - ${available_network_interfaces[0].interface_name}
+maximum_throughput_gbps: 100

@@ -1,0 +1,43 @@
+defaults:
+  - _self_
+  - network: default
+
+s3_bucket: ???
+s3_prefix: !!null
+
+metadata_ttl: "indefinite"
+
+# Maximum number of FUSE threads for Mountpoint. Passed as `--max-threads` argument.
+fuse_threads: !!null
+
+# Number of processes that will be interacting with the file.
+application_workers: 4
+
+direct_io: false
+
+# To be used by other configurations to vary number of interfaces used
+available_network_interfaces:
+  - interface_name: eth0
+  - interface_name: eth1
+  - interface_name: eth2
+  - interface_name: eth3
+
+mountpoint_binary: "../target/release/mount-s3"
+mountpoint_debug: false
+mountpoint_debug_crt: false
+
+# For S3 implementations not supporting additional checksums. Passed as `--upload-checksums` argument.
+upload_checksums: !!null
+
+hydra:
+  help:
+    app_name: "Mountpoint sequential read experiment runner"
+  mode: MULTIRUN
+  job:
+    chdir: true
+  sweeper:
+    params:
+      fuse_threads: 16, 32, 64, 128
+      application_workers: 1, 4, 8, 16, 32, 64, 128, 256
+      network: 1_nic, 2_nic, 3_nic, 4_nic
+      direct_io: false, true
