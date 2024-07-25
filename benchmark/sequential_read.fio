@@ -1,0 +1,17 @@
+[global]
+bs=256k
+runtime=30s
+time_based
+group_reporting
+thread
+
+[sequential_read]
+ramp_time=0s ; Do not use this, otherwise prefetching before ramp ends can influence results
+filename_format=j$jobnum_${SIZE_GIB}GiB_nochecksum.bin
+size=${SIZE_GIB}Gi
+rw=read
+ioengine=sync
+fallocate=none
+numjobs=${NUMJOBS}
+openfiles=${NUMJOBS}
+direct=${DIRECT}
