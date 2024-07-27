@@ -554,7 +554,11 @@ impl ObjectClient for MockClient {
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
-    fn part_size(&self) -> Option<usize> {
+    fn read_part_size(&self) -> Option<usize> {
+        Some(self.config.part_size)
+    }
+
+    fn write_part_size(&self) -> Option<usize> {
         Some(self.config.part_size)
     }
 

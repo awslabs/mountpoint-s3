@@ -176,7 +176,7 @@ where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         assert!(preferred_part_size > 0);
-        let request_range = range.align(client.part_size().unwrap_or(8 * 1024 * 1024) as u64, true);
+        let request_range = range.align(client.read_part_size().unwrap_or(8 * 1024 * 1024) as u64, true);
         let start = request_range.start();
         let size = request_range.len();
 

@@ -97,8 +97,12 @@ impl ObjectClient for ThroughputMockClient {
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
-    fn part_size(&self) -> Option<usize> {
-        self.inner.part_size()
+    fn read_part_size(&self) -> Option<usize> {
+        self.inner.read_part_size()
+    }
+
+    fn write_part_size(&self) -> Option<usize> {
+        self.inner.write_part_size()
     }
 
     async fn delete_object(
