@@ -13,9 +13,9 @@ use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
 
 use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
-use crate::s3_crt_client::{GetObjectRequest, S3CrtClient, S3HttpRequest, S3Operation, S3RequestError};
-
-use super::S3CrtClientInner;
+use crate::s3_crt_client::{
+    GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
