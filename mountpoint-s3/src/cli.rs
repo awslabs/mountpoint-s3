@@ -164,7 +164,7 @@ pub struct CliArgs {
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub part_size: Option<u64>,
+    pub part_size: u64,
 
     #[clap(
         long,
@@ -637,13 +637,10 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     }
 
     let (read_part_size, write_part_size) = match (args.read_part_size, args.write_part_size) {
-        (None, None) => {
-            let size = args.part_size.unwrap_or(S3ClientConfig::DEFAULT_PART_SIZE);
-            (size, size)
-        }
+        (None, None) => (args.part_size, args.part_size),
         _ => (
-            args.read_part_size.unwrap_or(S3ClientConfig::DEFAULT_PART_SIZE),
-            args.write_part_size.unwrap_or(S3ClientConfig::DEFAULT_PART_SIZE),
+            args.read_part_size.unwrap_or(args.part_size),
+            args.write_part_size.unwrap_or(args.part_size),
         ),
     };
 

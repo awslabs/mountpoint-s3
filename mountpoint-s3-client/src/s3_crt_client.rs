@@ -98,25 +98,24 @@ pub struct S3ClientConfig {
 
 impl Default for S3ClientConfig {
     fn default() -> Self {
+        const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
         Self {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
-            read_part_size: Self::DEFAULT_PART_SIZE as usize,
-            write_part_size: Self::DEFAULT_PART_SIZE as usize,
+            read_part_size: DEFAULT_PART_SIZE,
+            write_part_size: DEFAULT_PART_SIZE,
             endpoint_config: EndpointConfig::new("us-east-1"),
             user_agent: None,
             request_payer: None,
             bucket_owner: None,
             max_attempts: None,
             read_backpressure: false,
-            initial_read_window: Self::DEFAULT_PART_SIZE as usize,
+            initial_read_window: DEFAULT_PART_SIZE,
         }
     }
 }
 
 impl S3ClientConfig {
-    pub const DEFAULT_PART_SIZE: u64 = 8 * 1024 * 1024;
-
     pub fn new() -> Self {
         Self::default()
     }
