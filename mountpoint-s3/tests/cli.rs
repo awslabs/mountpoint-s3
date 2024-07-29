@@ -277,3 +277,27 @@ fn sse_key_not_allowed_with_aes256() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test_case(Some(1024), Some(1024))]
+#[test_case(None, Some(1024))]
+#[test_case(Some(1024), None)]
+fn verify_new_part_size_config_conflict_with_old_one(
+    read_part_size: Option<u64>,
+    write_part_size: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg("test-bucket").arg(dir.path()).arg("--part-size=1024");
+
+    if let Some(read_part_size) = read_part_size {
+        cmd.arg(format!("--read-part-size={}", read_part_size));
+    }
+    if let Some(write_part_size) = write_part_size {
+        cmd.arg(format!("--write-part-size={}", write_part_size));
+    }
+
+    let error_message = "cannot be used with";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
