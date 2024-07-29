@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1720785549246,
+  "lastUpdate": 1722276489816,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5795b38fe73ecafc76b682bc7ba44168568623f0",
-          "message": "Add guidance on KMS permissions when using SSE-KMS (#913)\n\n* Add guidance on KMS permissions when using SSE-KMS\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Fix typo\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Fix missing permission for object upload, add link to docs for more info\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-06-14T12:03:38Z",
-          "tree_id": "7facd9a6adbcaa6166c6561bc50b8909f5977d6c",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5795b38fe73ecafc76b682bc7ba44168568623f0"
-        },
-        "date": 1718374036641,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 1217.63212890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 2060.80830078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 841.7474609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 1560.73486328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 354.05517578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 423.51376953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 191.87568359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 299.7369140625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 3759.46064453125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 4170.075390625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 593.030078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 1407.84365234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1266.9546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 973.75966796875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1170.78955078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 0,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 1238.5283203125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 1366.5931640625,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b4e11b8e4046eee141fc70ab60778dbf15db3ab2",
+          "message": "Rename docs_rs config condition to docsrs (#956)\n\nThis change is made to avoid config condition errors now that check config is run by default in Rust 1.80+.\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-07-29T16:00:51Z",
+          "tree_id": "98a756cb7c33601e8f88e6dcb2926b00b72a285e",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/b4e11b8e4046eee141fc70ab60778dbf15db3ab2"
+        },
+        "date": 1722276489349,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 1261.2365234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 2066.22119140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 819.0583984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 1578.20302734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 295.70458984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 509.81826171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 237.69755859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 352.2076171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 3694.262109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 4178.13701171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 575.21787109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 1394.41611328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1449.989453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 1349.522265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1197.537890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1226.3765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 908.456640625,
             "unit": "MiB/s"
           }
         ]
