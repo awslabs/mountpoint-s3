@@ -1,9 +1,10 @@
 use std::time::Instant;
 use std::{ops::Range, sync::Arc};
 
+use async_channel::{unbounded, Receiver};
 use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
-use futures::{pin_mut, StreamExt};
+use futures::{join, pin_mut, StreamExt};
 use mountpoint_s3_client::{types::ETag, ObjectClient};
 use tracing::{debug_span, trace, warn, Instrument};
 
@@ -12,7 +13,7 @@ use crate::data_cache::{BlockIndex, DataCache};
 use crate::object::ObjectId;
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
-use crate::prefetch::part_stream::{ObjectPartStream, RequestRange};
+use crate::prefetch::part_stream::{read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput};
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
 
@@ -65,10 +66,9 @@ where
                 bucket.to_owned(),
                 key.to_owned(),
                 if_match,
-                part_queue_producer,
             );
             let span = debug_span!("prefetch", ?range);
-            request.get_from_cache(range).instrument(span)
+            request.get_from_cache(range, part_queue_producer).instrument(span)
         };
 
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
@@ -78,38 +78,29 @@ where
 }
 
 #[derive(Debug)]
-struct CachingRequest<Client: ObjectClient, Cache> {
+struct CachingRequest<Client: ObjectClient + Clone, Cache> {
     client: Client,
     cache: Arc<Cache>,
     bucket: String,
     cache_key: ObjectId,
-    part_queue_producer: PartQueueProducer<Client::ClientError>,
 }
 
 impl<Client, Cache> CachingRequest<Client, Cache>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Cache: DataCache + Send + Sync,
 {
-    fn new(
-        client: Client,
-        cache: Arc<Cache>,
-        bucket: String,
-        key: String,
-        etag: ETag,
-        part_queue_producer: PartQueueProducer<Client::ClientError>,
-    ) -> Self {
+    fn new(client: Client, cache: Arc<Cache>, bucket: String, key: String, etag: ETag) -> Self {
         let cache_key = ObjectId::new(key, etag);
         Self {
             client,
             cache,
             bucket,
             cache_key,
-            part_queue_producer,
         }
     }
 
-    async fn get_from_cache(self, range: RequestRange) {
+    async fn get_from_cache(self, range: RequestRange, part_queue_producer: PartQueueProducer<Client::ClientError>) {
         let cache_key = &self.cache_key;
         let block_size = self.cache.block_size();
         let block_range = self.block_indices_for_byte_range(&range);
@@ -124,8 +115,8 @@ where
             match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
-                    let part = self.make_part(block, block_index, block_offset, &range);
-                    self.part_queue_producer.push(Ok(part));
+                    let part = make_part(&self.cache_key, block_size, block, block_index, block_offset, &range);
+                    part_queue_producer.push(Ok(part));
                     block_offset += block_size;
                     continue;
                 }
@@ -142,14 +133,23 @@ where
             metrics::counter!("prefetch.blocks_served_from_cache").increment(block_index - block_range.start);
             metrics::counter!("prefetch.blocks_requested_to_client").increment(block_range.end - block_index);
             return self
-                .get_from_client(range.trim_start(block_offset), block_index..block_range.end)
+                .get_from_client(
+                    range.trim_start(block_offset),
+                    block_index..block_range.end,
+                    part_queue_producer,
+                )
                 .await;
         }
         // We served the whole range from cache.
         metrics::counter!("prefetch.blocks_served_from_cache").increment(block_range.end - block_range.start);
     }
 
-    async fn get_from_client(&self, range: RequestRange, block_range: Range<u64>) {
+    async fn get_from_client(
+        &self,
+        range: RequestRange,
+        block_range: Range<u64>,
+        part_queue_producer: PartQueueProducer<Client::ClientError>,
+    ) {
         let key = self.cache_key.key();
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
@@ -164,142 +164,25 @@ where
             original_range =? range,
             "fetching data from client"
         );
-        let get_object_result = match self
-            .client
-            .get_object(
-                &self.bucket,
-                key,
-                Some(block_aligned_byte_range),
-                Some(self.cache_key.etag().clone()),
-            )
-            .await
-        {
-            Ok(get_object_result) => get_object_result,
-            Err(e) => {
-                warn!(key, error=?e, "GetObject request failed");
-                self.part_queue_producer
-                    .push(Err(PrefetchReadError::GetRequestFailed(e)));
-                return;
-            }
-        };
 
-        pin_mut!(get_object_result);
-        let mut block_index = block_range.start;
-        let mut block_offset = block_range.start * block_size;
-        let mut buffer = ChecksummedBytes::default();
-        loop {
-            assert!(
-                buffer.len() < block_size as usize,
-                "buffer should be flushed when we get a full block"
-            );
-            match get_object_result.next().await {
-                Some(Ok((offset, body))) => {
-                    trace!(offset, length = body.len(), "received GetObject part");
-                    metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
-
-                    let expected_offset = block_offset + buffer.len() as u64;
-                    if offset != expected_offset {
-                        warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
-                        self.part_queue_producer
-                            .push(Err(PrefetchReadError::GetRequestReturnedWrongOffset {
-                                offset,
-                                expected_offset,
-                            }));
-                        break;
-                    }
-
-                    // Split the body into blocks.
-                    let mut body: Bytes = body.into();
-                    while !body.is_empty() {
-                        let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
-                        let chunk = body.split_to(remaining);
-                        if let Err(e) = buffer.extend(chunk.into()) {
-                            warn!(key, error=?e, "integrity check for body part failed");
-                            self.part_queue_producer.push(Err(e.into()));
-                            return;
-                        }
-                        if buffer.len() < block_size as usize {
-                            break;
-                        }
-
-                        // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                        self.update_cache(block_index, block_offset, &buffer);
-                        self.part_queue_producer
-                            .push(Ok(self.make_part(buffer, block_index, block_offset, &range)));
-                        block_index += 1;
-                        block_offset += block_size;
-                        buffer = ChecksummedBytes::default();
-                    }
-                }
-                Some(Err(e)) => {
-                    warn!(key, error=?e, "GetObject body part failed");
-                    self.part_queue_producer
-                        .push(Err(PrefetchReadError::GetRequestFailed(e)));
-                    break;
-                }
-                None => {
-                    if !buffer.is_empty() {
-                        // If we still have data in the buffer, this must be the last block for this object,
-                        // which can be smaller than block_size (and ends at the end of the object).
-                        assert_eq!(
-                            block_offset as usize + buffer.len(),
-                            range.object_size(),
-                            "a partial block is only allowed at the end of the object"
-                        );
-                        // Write the last block to the cache.
-                        self.update_cache(block_index, block_offset, &buffer);
-                        self.part_queue_producer
-                            .push(Ok(self.make_part(buffer, block_index, block_offset, &range)));
-                    }
-                    break;
-                }
-            }
-        }
+        let (body_sender, body_receiver) = unbounded();
+        let request_reader_future = read_from_request(
+            self.client.clone(),
+            self.bucket.clone(),
+            self.cache_key.clone(),
+            body_sender,
+            block_aligned_byte_range,
+        );
+        let part_composer_future = compose_parts::<Client, Cache>(
+            self.cache_key.clone(),
+            body_receiver,
+            part_queue_producer,
+            range,
+            block_range,
+            self.cache.clone(),
+        );
+        join!(request_reader_future, part_composer_future);
         trace!("request finished");
-    }
-
-    fn update_cache(&self, block_index: u64, block_offset: u64, block: &ChecksummedBytes) {
-        // TODO: consider updating the cache asynchronously
-        let start = Instant::now();
-        match self
-            .cache
-            .put_block(self.cache_key.clone(), block_index, block_offset, block.clone())
-        {
-            Ok(()) => {}
-            Err(error) => {
-                warn!(key=?self.cache_key.key(), block_index, ?error, "failed to update cache");
-            }
-        };
-        metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
-    }
-
-    /// Creates a Part that can be streamed to the prefetcher from the given cache block.
-    /// If required, trims the block bytes to the request range.
-    fn make_part(&self, block: ChecksummedBytes, block_index: u64, block_offset: u64, range: &RequestRange) -> Part {
-        assert_eq!(
-            block_offset,
-            block_index * self.cache.block_size(),
-            "invalid block offset"
-        );
-
-        let cache_key = &self.cache_key;
-        let block_size = block.len();
-        let part_range = range
-            .trim_start(block_offset)
-            .trim_end(block_offset + block_size as u64);
-        trace!(
-            ?cache_key,
-            block_index,
-            ?part_range,
-            block_offset,
-            block_size,
-            "creating part from block data",
-        );
-
-        let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
-        let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
-        let bytes = block.slice(trim_start..trim_end);
-        Part::new(cache_key.clone(), part_range.start(), bytes)
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -312,6 +195,151 @@ where
 
         start_block..end_block
     }
+}
+
+async fn compose_parts<Client: ObjectClient, Cache: DataCache + Send + Sync>(
+    object_id: ObjectId,
+    body_receiver: Receiver<RequestReaderOutput<Client::ClientError>>,
+    part_queue_producer: PartQueueProducer<Client::ClientError>,
+    range: RequestRange,
+    block_range: Range<u64>,
+    cache: Arc<Cache>,
+) {
+    let key = object_id.key();
+    let block_size = cache.block_size();
+
+    pin_mut!(body_receiver);
+    let mut block_index = block_range.start;
+    let mut block_offset = block_range.start * block_size;
+    let mut buffer = ChecksummedBytes::default();
+    loop {
+        assert!(
+            buffer.len() < block_size as usize,
+            "buffer should be flushed when we get a full block"
+        );
+        match body_receiver.next().await {
+            Some(Ok((offset, body))) => {
+                trace!(offset, length = body.len(), "received GetObject part");
+                metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
+
+                let expected_offset = block_offset + buffer.len() as u64;
+                if offset != expected_offset {
+                    warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
+                    part_queue_producer.push(Err(PrefetchReadError::GetRequestReturnedWrongOffset {
+                        offset,
+                        expected_offset,
+                    }));
+                    break;
+                }
+
+                // Split the body into blocks.
+                let mut body: Bytes = body.into();
+                while !body.is_empty() {
+                    let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
+                    let chunk = body.split_to(remaining);
+                    if let Err(e) = buffer.extend(chunk.into()) {
+                        warn!(key, error=?e, "integrity check for body part failed");
+                        part_queue_producer.push(Err(e.into()));
+                        return;
+                    }
+                    if buffer.len() < block_size as usize {
+                        break;
+                    }
+
+                    // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
+                    update_cache(&object_id, &(*cache), block_index, block_offset, &buffer);
+                    part_queue_producer.push(Ok(make_part(
+                        &object_id,
+                        block_size,
+                        buffer,
+                        block_index,
+                        block_offset,
+                        &range,
+                    )));
+                    block_index += 1;
+                    block_offset += block_size;
+                    buffer = ChecksummedBytes::default();
+                }
+            }
+            Some(Err(e)) => {
+                warn!(key, error=?e, "GetObject body part failed");
+                part_queue_producer.push(Err(e));
+                break;
+            }
+            None => {
+                if !buffer.is_empty() {
+                    // If we still have data in the buffer, this must be the last block for this object,
+                    // which can be smaller than block_size (and ends at the end of the object).
+                    assert_eq!(
+                        block_offset as usize + buffer.len(),
+                        range.object_size(),
+                        "a partial block is only allowed at the end of the object"
+                    );
+                    // Write the last block to the cache.
+                    update_cache(&object_id, &(*cache), block_index, block_offset, &buffer);
+                    part_queue_producer.push(Ok(make_part(
+                        &object_id,
+                        block_size,
+                        buffer,
+                        block_index,
+                        block_offset,
+                        &range,
+                    )));
+                }
+                break;
+            }
+        }
+    }
+    trace!("caching task finished");
+}
+
+fn update_cache<Cache: DataCache + Send + Sync>(
+    object_id: &ObjectId,
+    cache: &Cache,
+    block_index: u64,
+    block_offset: u64,
+    block: &ChecksummedBytes,
+) {
+    // TODO: consider updating the cache asynchronously
+    let start = Instant::now();
+    match cache.put_block(object_id.clone(), block_index, block_offset, block.clone()) {
+        Ok(()) => {}
+        Err(error) => {
+            warn!(key=?object_id, block_index, ?error, "failed to update cache");
+        }
+    };
+    metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
+}
+
+/// Creates a Part that can be streamed to the prefetcher from the given cache block.
+/// If required, trims the block bytes to the request range.
+fn make_part(
+    cache_key: &ObjectId,
+    block_size: u64,
+    block: ChecksummedBytes,
+    block_index: u64,
+    block_offset: u64,
+    range: &RequestRange,
+) -> Part {
+    assert_eq!(block_offset, block_index * block_size, "invalid block offset");
+
+    let block_size = block.len();
+    let part_range = range
+        .trim_start(block_offset)
+        .trim_end(block_offset + block_size as u64);
+    trace!(
+        ?cache_key,
+        block_index,
+        ?part_range,
+        block_offset,
+        block_size,
+        "creating part from block data",
+    );
+
+    let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
+    let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
+    let bytes = block.slice(trim_start..trim_end);
+    Part::new(cache_key.clone(), part_range.start(), bytes)
 }
 
 #[cfg(test)]
