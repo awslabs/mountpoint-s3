@@ -158,37 +158,31 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Part size for multi-part GET and PUT",
+        help = "Part size for multi-part GET and PUT in bytes",
         default_value = "8388608",
-        value_name = "Size",
+        value_name = "SIZE",
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub part_size: u64,
+    pub part_size: Option<u64>,
 
     #[clap(
         long,
-        long_help = "Optional, part size for multi-part GET operation. (in Bytes)
-
-Tweak this argument for better download throughput and efficiency.
-
-Original part-size will be used if not specified.",
-        value_name = "Size",
+        help = "Part size for multi-part GET in bytes [default: 8388608]",
+        value_name = "SIZE",
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
-        help_heading = CLIENT_OPTIONS_HEADER
+        help_heading = CLIENT_OPTIONS_HEADER,
+        conflicts_with = "part_size",
     )]
     pub read_part_size: Option<u64>,
 
     #[clap(
         long,
-        long_help = "Optional, part size for multi-part PUT operations. (in Bytes)
-
-Tweaking this argument for better upload speed and efficiency.
-
-Original part-size will be used if not specified.",
-        value_name = "Size",
+        help = "Part size for multi-part PUT in bytes [default: 8388608]",
+        value_name = "SIZE",
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
-        help_heading = CLIENT_OPTIONS_HEADER
+        help_heading = CLIENT_OPTIONS_HEADER,
+        conflicts_with = "part_size",
     )]
     pub write_part_size: Option<u64>,
 
@@ -642,11 +636,22 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
         user_agent.key_value("mp-cache-ttl", &ttl.to_string());
     }
 
+    let (read_part_size, write_part_size) = match (args.read_part_size, args.write_part_size) {
+        (None, None) => {
+            let size = args.part_size.unwrap_or(S3ClientConfig::DEFAULT_PART_SIZE);
+            (size, size)
+        }
+        _ => (
+            args.read_part_size.unwrap_or(S3ClientConfig::DEFAULT_PART_SIZE),
+            args.write_part_size.unwrap_or(S3ClientConfig::DEFAULT_PART_SIZE),
+        ),
+    };
+
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
-        .read_part_size(args.read_part_size.unwrap_or(args.part_size) as usize)
-        .write_part_size(args.write_part_size.unwrap_or(args.part_size) as usize)
+        .read_part_size(read_part_size as usize)
+        .write_part_size(write_part_size as usize)
         .user_agent(user_agent);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");

@@ -98,24 +98,25 @@ pub struct S3ClientConfig {
 
 impl Default for S3ClientConfig {
     fn default() -> Self {
-        const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
         Self {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
-            read_part_size: DEFAULT_PART_SIZE,
-            write_part_size: DEFAULT_PART_SIZE,
+            read_part_size: Self::DEFAULT_PART_SIZE as usize,
+            write_part_size: Self::DEFAULT_PART_SIZE as usize,
             endpoint_config: EndpointConfig::new("us-east-1"),
             user_agent: None,
             request_payer: None,
             bucket_owner: None,
             max_attempts: None,
             read_backpressure: false,
-            initial_read_window: DEFAULT_PART_SIZE,
+            initial_read_window: Self::DEFAULT_PART_SIZE as usize,
         }
     }
 }
 
 impl S3ClientConfig {
+    pub const DEFAULT_PART_SIZE: u64 = 8 * 1024 * 1024;
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -370,6 +371,7 @@ impl S3CrtClientInner {
 
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
         let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
+        // TODO: Review the part size validation for read_part_size, read_part_size can have a more relax limit.
         for part_size in [config.read_part_size, config.write_part_size] {
             if !(5 * 1024 * 1024..=max_part_size).contains(&part_size) {
                 return Err(NewClientError::InvalidConfiguration(format!(
@@ -1166,9 +1168,6 @@ impl ObjectClient for S3CrtClient {
     type ClientError = S3RequestError;
 
     fn read_part_size(&self) -> Option<usize> {
-        // TODO: the CRT does some clamping to a max size rather than just swallowing the part size
-        // we configured it with, so this might be wrong. Right now the only clamping is to the max
-        // S3 part size (5GiB), so this shouldn't affect the result.
         Some(self.inner.read_part_size)
     }
 
@@ -1176,6 +1175,7 @@ impl ObjectClient for S3CrtClient {
         // TODO: the CRT does some clamping to a max size rather than just swallowing the part size
         // we configured it with, so this might be wrong. Right now the only clamping is to the max
         // S3 part size (5GiB), so this shouldn't affect the result.
+        // https://github.com/awslabs/aws-c-s3/blob/94e3342c12833c5199/source/s3_client.c#L337-L344
         Some(self.inner.write_part_size)
     }
 

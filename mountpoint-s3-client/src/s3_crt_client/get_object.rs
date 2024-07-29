@@ -62,7 +62,7 @@ impl S3CrtClient {
         let (sender, receiver) = futures::channel::mpsc::unbounded();
 
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
-        options.part_size(self.inner.write_part_size as u64);
+        options.part_size(self.inner.read_part_size as u64);
         let request = self.inner.make_meta_request_from_options(
             options,
             span,
