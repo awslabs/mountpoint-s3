@@ -70,7 +70,7 @@ impl FromStr for ETag {
 /// This is an async trait defined with the [async-trait](https://crates.io/crates/async-trait)
 /// crate, and so implementations of this trait must use the `#[async_trait::async_trait]`
 /// attribute.
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 #[auto_impl(Arc)]
 pub trait ObjectClient {
     type GetObjectRequest: GetObjectRequest<ClientError = Self::ClientError>;
@@ -353,7 +353,7 @@ pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
 /// This struct implements [`futures::Stream`], which you can use to read the body of the object.
 /// Each item of the stream is a part of the object body together with the part's offset within the
 /// object.
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 pub trait GetObjectRequest:
     Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send
 {
@@ -386,7 +386,7 @@ pub trait GetObjectRequest:
 /// This is an async trait defined with the [async-trait](https://crates.io/crates/async-trait)
 /// crate, and so implementations of this trait must use the `#[async_trait::async_trait]`
 /// attribute.
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 pub trait PutObjectRequest: Send {
     type ClientError: std::error::Error + Send + Sync + 'static;
 

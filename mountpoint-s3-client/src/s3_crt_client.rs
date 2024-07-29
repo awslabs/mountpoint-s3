@@ -1139,7 +1139,7 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
     metrics::histogram!("s3.meta_requests.throughput_mibs", "op" => op, "size" => bucket).record(throughput_mbps);
 }
 
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 impl ObjectClient for S3CrtClient {
     type GetObjectRequest = S3GetObjectRequest;
     type PutObjectRequest = S3PutObjectRequest;

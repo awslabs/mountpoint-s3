@@ -41,7 +41,7 @@
 //! [awscrt]: https://docs.aws.amazon.com/sdkref/latest/guide/common-runtime.html
 
 // Make async trait docs not-ugly on docs.rs (https://github.com/dtolnay/async-trait/issues/213)
-#![cfg_attr(docs_rs, feature(async_fn_in_trait))]
+#![cfg_attr(docsrs, feature(async_fn_in_trait))]
 
 mod build_info;
 pub mod checksums;

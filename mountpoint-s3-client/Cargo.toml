@@ -72,7 +72,3 @@ s3express_tests = []
 
 [lib]
 doctest = false
-
-# Make async trait docs not-ugly on docs.rs (https://github.com/dtolnay/async-trait/issues/213)
-[package.metadata.docs.rs]
-rustdoc-args = ["--cfg", "docs_rs"]

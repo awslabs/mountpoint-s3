@@ -175,7 +175,7 @@ fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
     headers.get(key).ok()?.value().clone().into_string().ok()
 }
 
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
 

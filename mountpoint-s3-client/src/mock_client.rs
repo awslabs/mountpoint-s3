@@ -548,7 +548,7 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
     Err(ObjectClientError::ClientError(MockClientError(s.into())))
 }
 
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 impl ObjectClient for MockClient {
     type GetObjectRequest = MockGetObjectRequest;
     type PutObjectRequest = MockPutObjectRequest;
@@ -845,7 +845,7 @@ impl Drop for MockPutObjectRequest {
     }
 }
 
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 impl PutObjectRequest for MockPutObjectRequest {
     type ClientError = MockClientError;
 
