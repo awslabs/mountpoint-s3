@@ -62,7 +62,7 @@ pub struct FailureClient<Client: ObjectClient, State, RequestWrapperState> {
     >,
 }
 
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 impl<Client, State, GetWrapperState> ObjectClient for FailureClient<Client, State, GetWrapperState>
 where
     Client: ObjectClient + Send + Sync + 'static,
@@ -202,7 +202,7 @@ pub struct FailurePutObjectRequest<Client: ObjectClient, PutWrapperState> {
     result_fn: fn(&mut PutWrapperState) -> Result<(), Client::ClientError>,
 }
 
-#[cfg_attr(not(docs_rs), async_trait)]
+#[cfg_attr(not(docsrs), async_trait)]
 impl<Client: ObjectClient, PutWrapperState> PutObjectRequest for FailurePutObjectRequest<Client, PutWrapperState>
 where
     Client::PutObjectRequest: Send,
