@@ -69,6 +69,7 @@ impl S3CrtClient {
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
         options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
+        options.part_size(self.inner.write_part_size as u64);
 
         // Before the first write, we need to await for the multi-part upload to be created, so we can report errors.
         // To do so, we need to detect one of two events (whichever comes first):

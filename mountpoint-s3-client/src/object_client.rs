@@ -77,9 +77,13 @@ pub trait ObjectClient {
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
-    /// Query the part size this client uses for PUT and GET operations to the object store. This
+    /// Query the part size this client uses for GET operations to the object store. This
     /// can be `None` if the client does not do multi-part operations.
-    fn part_size(&self) -> Option<usize>;
+    fn read_part_size(&self) -> Option<usize>;
+
+    /// Query the part size this client uses for PUT operations to the object store. This
+    /// can be `None` if the client does not do multi-part operations.
+    fn write_part_size(&self) -> Option<usize>;
 
     /// Delete a single object from the object store.
     ///

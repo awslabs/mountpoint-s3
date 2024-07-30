@@ -126,7 +126,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         let request = inner.client.put_object(bucket, key, &params).await?;
         let maximum_upload_size = inner
             .client
-            .part_size()
+            .write_part_size()
             .map(|ps| ps.saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS));
 
         Ok(Self {

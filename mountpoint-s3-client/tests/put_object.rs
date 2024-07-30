@@ -217,7 +217,7 @@ async fn test_put_object_write_cancelled() {
         .expect("put_object should succeed");
 
     // Write a multiple of `part_size` to ensure it will not complete immediately.
-    let full_size = client.part_size().unwrap() * 10;
+    let full_size = client.write_part_size().unwrap() * 10;
     let buffer = vec![0u8; full_size];
 
     // Complete one write to ensure the MPU was created and the buffer for the upload request is available.

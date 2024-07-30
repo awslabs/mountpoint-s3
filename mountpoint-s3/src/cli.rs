@@ -158,12 +158,33 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Part size for multi-part GET and PUT",
+        help = "Part size for multi-part GET and PUT in bytes",
         default_value = "8388608",
+        value_name = "SIZE",
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
     pub part_size: u64,
+
+    #[clap(
+        long,
+        help = "Part size for multi-part GET in bytes [default: 8388608]",
+        value_name = "SIZE",
+        value_parser = value_parser!(u64).range(1..usize::MAX as u64),
+        help_heading = CLIENT_OPTIONS_HEADER,
+        conflicts_with = "part_size",
+    )]
+    pub read_part_size: Option<u64>,
+
+    #[clap(
+        long,
+        help = "Part size for multi-part PUT in bytes [default: 8388608]",
+        value_name = "SIZE",
+        value_parser = value_parser!(u64).range(1..usize::MAX as u64),
+        help_heading = CLIENT_OPTIONS_HEADER,
+        conflicts_with = "part_size",
+    )]
+    pub write_part_size: Option<u64>,
 
     #[clap(
         long,
@@ -618,7 +639,8 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
-        .part_size(args.part_size as usize)
+        .read_part_size(args.read_part_size.unwrap_or(args.part_size) as usize)
+        .write_part_size(args.write_part_size.unwrap_or(args.part_size) as usize)
         .user_agent(user_agent);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");

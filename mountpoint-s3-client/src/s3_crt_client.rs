@@ -85,7 +85,8 @@ macro_rules! event {
 pub struct S3ClientConfig {
     auth_config: S3ClientAuthConfig,
     throughput_target_gbps: f64,
-    part_size: usize,
+    read_part_size: usize,
+    write_part_size: usize,
     endpoint_config: EndpointConfig,
     user_agent: Option<UserAgent>,
     request_payer: Option<String>,
@@ -101,7 +102,8 @@ impl Default for S3ClientConfig {
         Self {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
-            part_size: DEFAULT_PART_SIZE,
+            read_part_size: DEFAULT_PART_SIZE,
+            write_part_size: DEFAULT_PART_SIZE,
             endpoint_config: EndpointConfig::new("us-east-1"),
             user_agent: None,
             request_payer: None,
@@ -128,7 +130,22 @@ impl S3ClientConfig {
     /// Set the part size for multi-part operations to S3 (both PUT and GET)
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn part_size(mut self, part_size: usize) -> Self {
-        self.part_size = part_size;
+        self.read_part_size = part_size;
+        self.write_part_size = part_size;
+        self
+    }
+
+    /// Set the part size for multi-part-get operations to S3.
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn read_part_size(mut self, size: usize) -> Self {
+        self.read_part_size = size;
+        self
+    }
+
+    /// Set the part size for multi-part-put operations to S3.
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn write_part_size(mut self, size: usize) -> Self {
+        self.write_part_size = size;
         self
     }
 
@@ -248,7 +265,8 @@ struct S3CrtClientInner {
     /// Here it will add the user agent prefix and s3 client information.
     user_agent_header: String,
     request_payer: Option<String>,
-    part_size: usize,
+    read_part_size: usize,
+    write_part_size: usize,
     bucket_owner: Option<String>,
     credentials_provider: Option<CredentialsProvider>,
     host_resolver: HostResolver,
@@ -352,13 +370,15 @@ impl S3CrtClientInner {
 
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
         let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
-        if !(5 * 1024 * 1024..=max_part_size).contains(&config.part_size) {
-            return Err(NewClientError::InvalidConfiguration(format!(
-                "part size must be at between 5MiB and {}GiB",
-                max_part_size / 1024 / 1024 / 1024
-            )));
+        // TODO: Review the part size validation for read_part_size, read_part_size can have a more relax limit.
+        for part_size in [config.read_part_size, config.write_part_size] {
+            if !(5 * 1024 * 1024..=max_part_size).contains(&part_size) {
+                return Err(NewClientError::InvalidConfiguration(format!(
+                    "part size must be at between 5MiB and {}GiB",
+                    max_part_size / 1024 / 1024 / 1024
+                )));
+            }
         }
-        client_config.part_size(config.part_size);
 
         let user_agent = config.user_agent.unwrap_or_else(|| UserAgent::new(None));
         let user_agent_header = user_agent.build();
@@ -373,7 +393,8 @@ impl S3CrtClientInner {
             next_request_counter: AtomicU64::new(0),
             user_agent_header,
             request_payer: config.request_payer,
-            part_size: config.part_size,
+            read_part_size: config.read_part_size,
+            write_part_size: config.write_part_size,
             bucket_owner: config.bucket_owner,
             credentials_provider: Some(credentials_provider),
             host_resolver,
@@ -1145,11 +1166,16 @@ impl ObjectClient for S3CrtClient {
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
-    fn part_size(&self) -> Option<usize> {
+    fn read_part_size(&self) -> Option<usize> {
+        Some(self.inner.read_part_size)
+    }
+
+    fn write_part_size(&self) -> Option<usize> {
         // TODO: the CRT does some clamping to a max size rather than just swallowing the part size
         // we configured it with, so this might be wrong. Right now the only clamping is to the max
         // S3 part size (5GiB), so this shouldn't affect the result.
-        Some(self.inner.part_size)
+        // https://github.com/awslabs/aws-c-s3/blob/94e3342c12833c5199/source/s3_client.c#L337-L344
+        Some(self.inner.write_part_size)
     }
 
     async fn delete_object(
@@ -1225,10 +1251,7 @@ mod tests {
 
     /// Test explicit validation in [Client::new]
     fn client_new_fails_with_invalid_part_size(part_size: usize) {
-        let config = S3ClientConfig {
-            part_size,
-            ..Default::default()
-        };
+        let config = S3ClientConfig::default().part_size(part_size);
         let e = S3CrtClient::new(config).expect_err("creating a new client should fail");
         let message = if cfg!(target_pointer_width = "64") {
             "invalid configuration: part size must be at between 5MiB and 5GiB".to_string()

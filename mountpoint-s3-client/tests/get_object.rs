@@ -97,7 +97,7 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
 async fn verify_backpressure_get_object() {
     let initial_window_size = 256;
     let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
-    let part_size = client.part_size().unwrap();
+    let part_size = client.read_part_size().unwrap();
 
     let size = part_size * 2;
     let range = 0..(part_size + 1) as u64;

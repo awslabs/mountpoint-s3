@@ -13,7 +13,9 @@ use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
 
 use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
-use crate::s3_crt_client::{GetObjectRequest, S3CrtClient, S3HttpRequest, S3Operation, S3RequestError};
+use crate::s3_crt_client::{
+    GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
@@ -59,10 +61,12 @@ impl S3CrtClient {
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
 
-        let request = self.inner.make_meta_request(
-            message,
-            S3Operation::GetObject,
+        let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
+        options.part_size(self.inner.read_part_size as u64);
+        let request = self.inner.make_meta_request_from_options(
+            options,
             span,
+            |_| (),
             |_, _| (),
             move |offset, data| {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
