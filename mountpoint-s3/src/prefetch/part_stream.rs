@@ -1,10 +1,10 @@
-use std::{fmt::Debug, ops::Range};
-
 use async_channel::{unbounded, Receiver, Sender};
 use bytes::Bytes;
 use futures::task::SpawnExt;
 use futures::{join, pin_mut, task::Spawn, StreamExt};
 use mountpoint_s3_client::{types::ETag, ObjectClient};
+use std::marker::{Send, Sync};
+use std::{fmt::Debug, ops::Range};
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
@@ -197,9 +197,9 @@ where
                     let object_id = ObjectId::new(key, if_match);
                     let (body_sender, body_receiver) = unbounded();
                     let request_reader_future =
-                        read_from_request(client, bucket, object_id.clone(), body_sender, request_range.into());
+                        read_from_request(body_sender, client, bucket, object_id.clone(), request_range.into());
                     let part_composer_future =
-                        compose_parts::<Client>(object_id, body_receiver, part_queue_producer, preferred_part_size);
+                        compose_parts(body_receiver, part_queue_producer, object_id, preferred_part_size);
                     join!(request_reader_future, part_composer_future);
                 }
                 .instrument(span),
@@ -210,11 +210,16 @@ where
     }
 }
 
+/// Spawns a `GetObject` request with the specified range and sends received body parts to the channel
+/// pointed by `body_sender`. Once the request was finished (`None` returned), this future closes the
+/// sending part of the channel and returns. After this the receiving part of the channel will still
+/// be able to receive pending chunks. If the receiving part of the channel is closed before the request
+/// was finished, future completes itself early canceling the request.
 pub async fn read_from_request<Client: ObjectClient>(
+    body_sender: Sender<RequestReaderOutput<Client::ClientError>>,
     client: Client,
     bucket: String,
     id: ObjectId,
-    body_sender: Sender<RequestReaderOutput<Client::ClientError>>,
     request_range: Range<u64>,
 ) {
     let get_object_result = match client
@@ -263,10 +268,10 @@ pub async fn read_from_request<Client: ObjectClient>(
     trace!("request finished");
 }
 
-async fn compose_parts<Client: ObjectClient>(
+async fn compose_parts<E: std::error::Error + Send + Sync>(
+    body_receiver: Receiver<RequestReaderOutput<E>>,
+    part_queue_producer: PartQueueProducer<E>,
     object_id: ObjectId,
-    body_receiver: Receiver<RequestReaderOutput<Client::ClientError>>,
-    part_queue_producer: PartQueueProducer<Client::ClientError>,
     preferred_part_size: usize,
 ) {
     pin_mut!(body_receiver);
@@ -291,7 +296,10 @@ async fn compose_parts<Client: ObjectClient>(
                     part_queue_producer.push(Ok(part));
                 }
             }
-            Some(Err(err)) => part_queue_producer.push(Err(err)),
+            Some(Err(err)) => {
+                part_queue_producer.push(Err(err));
+                break;
+            }
             None => break,
         }
     }

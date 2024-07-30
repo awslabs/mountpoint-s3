@@ -115,7 +115,7 @@ where
             match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
-                    let part = make_part(&self.cache_key, block_size, block, block_index, block_offset, &range);
+                    let part = make_part(block, block_index, block_offset, block_size, &self.cache_key, &range);
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
                     continue;
@@ -167,22 +167,21 @@ where
 
         let (body_sender, body_receiver) = unbounded();
         let request_reader_future = read_from_request(
+            body_sender,
             self.client.clone(),
             self.bucket.clone(),
             self.cache_key.clone(),
-            body_sender,
             block_aligned_byte_range,
         );
-        let part_composer_future = compose_parts::<Client, Cache>(
-            self.cache_key.clone(),
+        let part_composer_future = compose_parts(
             body_receiver,
             part_queue_producer,
+            self.cache_key.clone(),
             range,
             block_range,
             self.cache.clone(),
         );
         join!(request_reader_future, part_composer_future);
-        trace!("request finished");
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -197,14 +196,17 @@ where
     }
 }
 
-async fn compose_parts<Client: ObjectClient, Cache: DataCache + Send + Sync>(
+async fn compose_parts<E, Cache>(
+    body_receiver: Receiver<RequestReaderOutput<E>>,
+    part_queue_producer: PartQueueProducer<E>,
     object_id: ObjectId,
-    body_receiver: Receiver<RequestReaderOutput<Client::ClientError>>,
-    part_queue_producer: PartQueueProducer<Client::ClientError>,
     range: RequestRange,
     block_range: Range<u64>,
     cache: Arc<Cache>,
-) {
+) where
+    E: std::error::Error + Send + Sync,
+    Cache: DataCache + Send + Sync,
+{
     let key = object_id.key();
     let block_size = cache.block_size();
 
@@ -244,13 +246,13 @@ async fn compose_parts<Client: ObjectClient, Cache: DataCache + Send + Sync>(
                     }
 
                     // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                    update_cache(&object_id, &(*cache), block_index, block_offset, &buffer);
+                    update_cache(cache.as_ref(), &buffer, block_index, block_offset, &object_id);
                     part_queue_producer.push(Ok(make_part(
-                        &object_id,
-                        block_size,
                         buffer,
                         block_index,
                         block_offset,
+                        block_size,
+                        &object_id,
                         &range,
                     )));
                     block_index += 1;
@@ -259,7 +261,6 @@ async fn compose_parts<Client: ObjectClient, Cache: DataCache + Send + Sync>(
                 }
             }
             Some(Err(e)) => {
-                warn!(key, error=?e, "GetObject body part failed");
                 part_queue_producer.push(Err(e));
                 break;
             }
@@ -273,13 +274,13 @@ async fn compose_parts<Client: ObjectClient, Cache: DataCache + Send + Sync>(
                         "a partial block is only allowed at the end of the object"
                     );
                     // Write the last block to the cache.
-                    update_cache(&object_id, &(*cache), block_index, block_offset, &buffer);
+                    update_cache(cache.as_ref(), &buffer, block_index, block_offset, &object_id);
                     part_queue_producer.push(Ok(make_part(
-                        &object_id,
-                        block_size,
                         buffer,
                         block_index,
                         block_offset,
+                        block_size,
+                        &object_id,
                         &range,
                     )));
                 }
@@ -287,15 +288,15 @@ async fn compose_parts<Client: ObjectClient, Cache: DataCache + Send + Sync>(
             }
         }
     }
-    trace!("caching task finished");
+    trace!("part composer finished");
 }
 
 fn update_cache<Cache: DataCache + Send + Sync>(
-    object_id: &ObjectId,
     cache: &Cache,
+    block: &ChecksummedBytes,
     block_index: u64,
     block_offset: u64,
-    block: &ChecksummedBytes,
+    object_id: &ObjectId,
 ) {
     // TODO: consider updating the cache asynchronously
     let start = Instant::now();
@@ -311,11 +312,11 @@ fn update_cache<Cache: DataCache + Send + Sync>(
 /// Creates a Part that can be streamed to the prefetcher from the given cache block.
 /// If required, trims the block bytes to the request range.
 fn make_part(
-    cache_key: &ObjectId,
-    block_size: u64,
     block: ChecksummedBytes,
     block_index: u64,
     block_offset: u64,
+    block_size: u64,
+    cache_key: &ObjectId,
     range: &RequestRange,
 ) -> Part {
     assert_eq!(block_offset, block_index * block_size, "invalid block offset");
