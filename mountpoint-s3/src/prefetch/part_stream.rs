@@ -1,18 +1,22 @@
 use async_channel::{unbounded, Receiver, Sender};
 use bytes::Bytes;
 use futures::task::SpawnExt;
-use futures::{join, pin_mut, task::Spawn, StreamExt};
-use mountpoint_s3_client::{types::ETag, ObjectClient};
+use futures::try_join;
+use futures::{pin_mut, task::Spawn, StreamExt};
+use mountpoint_s3_client::{types::GetObjectRequest, ObjectClient};
 use std::marker::{Send, Sync};
+use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
-use tracing::{debug_span, error, trace, Instrument};
+use tracing::{debug_span, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
 use crate::object::ObjectId;
-use crate::prefetch::part::Part;
+use crate::prefetch::backpressure_controller::new_backpressure_controller;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
+
+use super::backpressure_controller::BackpressureLimiter;
 
 /// A generic interface to retrieve data from objects in a S3-like store.
 pub trait ObjectPartStream {
@@ -21,15 +25,23 @@ pub trait ObjectPartStream {
     /// size for the parts, but implementations are allowed to ignore it.
     fn spawn_get_object_request<Client>(
         &self,
-        client: &Client,
-        bucket: &str,
-        key: &str,
-        if_match: ETag,
-        range: RequestRange,
-        preferred_part_size: usize,
+        client: Arc<Client>,
+        config: RequestTaskConfig,
     ) -> RequestTask<Client::ClientError>
     where
-        Client: ObjectClient + Clone + Send + Sync + 'static;
+        Client: ObjectClient + Send + Sync + 'static;
+}
+
+#[derive(Clone, Debug)]
+/// The configs for spawning a task in [ObjectPartStream::spawn_get_object_request].
+pub struct RequestTaskConfig {
+    pub bucket: String,
+    pub object_id: ObjectId,
+    pub range: RequestRange,
+    pub preferred_part_size: usize,
+    pub initial_read_window_size: usize,
+    pub max_read_window_size: usize,
+    pub read_window_size_multiplier: usize,
 }
 
 /// The range of a [ObjectPartStream::spawn_get_object_request] request.
@@ -160,7 +172,7 @@ where
     }
 }
 
-pub type RequestReaderOutput<E> = Result<(u64, Box<[u8]>), PrefetchReadError<E>>;
+pub type RequestReaderOutput = (u64, Box<[u8]>);
 
 impl<Runtime> ObjectPartStream for ClientPartStream<Runtime>
 where
@@ -168,45 +180,145 @@ where
 {
     fn spawn_get_object_request<Client>(
         &self,
-        client: &Client,
-        bucket: &str,
-        key: &str,
-        if_match: ETag,
-        range: RequestRange,
-        preferred_part_size: usize,
+        client: Arc<Client>,
+        config: RequestTaskConfig,
     ) -> RequestTask<Client::ClientError>
     where
-        Client: ObjectClient + Clone + Send + Sync + 'static,
+        Client: ObjectClient + Send + Sync + 'static,
     {
-        assert!(preferred_part_size > 0);
-        let request_range = range.align(client.read_part_size().unwrap_or(8 * 1024 * 1024) as u64, true);
-        let start = request_range.start();
-        let size = request_range.len();
+        assert!(config.preferred_part_size > 0);
 
-        let (part_queue, part_queue_producer) = unbounded_part_queue();
-        trace!(range=?request_range, "spawning request");
+        let initial_read_window_offset = config.range.start() + config.initial_read_window_size as u64;
+        let range = config.range;
 
-        let span = debug_span!("prefetch", range=?request_range);
+        let (backpressure_controller, backpressure_limiter) = new_backpressure_controller(
+            config.initial_read_window_size,
+            config.max_read_window_size,
+            config.read_window_size_multiplier,
+            initial_read_window_offset,
+            range.into(),
+        );
+        let (part_queue, part_queue_producer) = unbounded_part_queue(Some(backpressure_controller));
+        trace!(range=?config.range, "spawning request");
+
+        let span = debug_span!("prefetch", ?range);
         let client = client.clone();
-        let bucket = bucket.to_owned();
-        let key = key.to_owned();
         let task_handle = self
             .runtime
             .spawn_with_handle(
                 async move {
-                    let object_id = ObjectId::new(key, if_match);
-                    let (body_sender, body_receiver) = unbounded();
-                    let request_reader_future =
-                        read_from_request(body_sender, client, bucket, object_id.clone(), request_range.into());
-                    let part_composer_future =
-                        compose_parts(body_receiver, part_queue_producer, object_id, preferred_part_size);
-                    join!(request_reader_future, part_composer_future);
+                    let mut client_request = ClientRequest {
+                        client: client.clone(),
+                        backpressure_limiter,
+                        config,
+                    };
+                    if let Err(e) = client_request
+                        .get_from_client(initial_read_window_offset, part_queue_producer.clone())
+                        .await
+                    {
+                        part_queue_producer.push(Err(e));
+                    }
                 }
                 .instrument(span),
             )
             .unwrap();
 
-        RequestTask::from_handle(task_handle, size, start, part_queue)
+        RequestTask::from_handle(task_handle, range, part_queue)
+    }
+}
+
+struct ClientRequest<Client: ObjectClient> {
+    client: Arc<Client>,
+    backpressure_limiter: BackpressureLimiter,
+    config: RequestTaskConfig,
+}
+
+impl<Client> ClientRequest<Client>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+{
+    async fn get_from_client(
+        &mut self,
+        initial_read_window_offset: u64,
+        part_queue_producer: PartQueueProducer<Client::ClientError>,
+    ) -> Result<(), PrefetchReadError<Client::ClientError>> {
+        let bucket = &self.config.bucket;
+        let object_id = &self.config.object_id;
+
+        let part_composer = ClientPartComposer {
+            part_queue_producer,
+            object_id: object_id.clone(),
+            preferred_part_size: self.config.preferred_part_size,
+        };
+
+        // Normally, initial read window size should be very small (~1MB) so that we can serve the first read request as soon as possible,
+        // but right now the CRT only returns data in chunks of part size (default to 8MB) even if initial read window is smaller than that.
+        // This makes time to first byte much higher than expected.
+        //
+        // To workaround this issue, we instead create two requests for the part stream where the first request has the range exactly equal to
+        // the initial read window size to force the CRT to return data immediately, and the second request for the rest of the stream.
+        // From this, our first read window range must be 2x of the initial read window size because we make two requests, each with the same
+        // initial read window size.
+        //
+        // Let's start by issuing the first request with a range trimmed to initial read window offset
+        let first_req_range = self.config.range.trim_end(initial_read_window_offset);
+
+        let (body_sender, body_receiver) = unbounded();
+        let request_reader_future = read_from_request(
+            body_sender,
+            &mut self.backpressure_limiter,
+            self.client.clone(),
+            bucket.clone(),
+            object_id.clone(),
+            first_req_range.into(),
+        );
+        let part_composer_future = part_composer.compose_parts(body_receiver);
+        try_join!(request_reader_future, part_composer_future)?;
+
+        // After the first request is completed we will create the second request for the rest of the stream,
+        // but only if there is something left to be fetched.
+        let range = self.config.range.trim_start(initial_read_window_offset);
+        if range.is_empty() {
+            return Ok(());
+        }
+        let (body_sender, body_receiver) = unbounded();
+        let request_reader_future = read_from_request(
+            body_sender,
+            &mut self.backpressure_limiter,
+            self.client.clone(),
+            bucket.clone(),
+            object_id.clone(),
+            range.into(),
+        );
+        let part_composer_future = part_composer.compose_parts(body_receiver);
+        try_join!(request_reader_future, part_composer_future)?;
+        Ok(())
+    }
+}
+
+struct ClientPartComposer<E: std::error::Error> {
+    part_queue_producer: PartQueueProducer<E>,
+    object_id: ObjectId,
+    preferred_part_size: usize,
+}
+
+impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
+    async fn compose_parts(&self, body_receiver: Receiver<RequestReaderOutput>) -> Result<(), PrefetchReadError<E>> {
+        pin_mut!(body_receiver);
+        loop {
+            let Some((offset, body)) = body_receiver.next().await else {
+                break;
+            };
+            // S3 doesn't provide checksum for us if the request range is not aligned to
+            // object part boundaries, so we're computing our own checksum here.
+            let body: ChecksummedBytes = Bytes::from(body).into();
+            // pre-split the body into multiple parts as suggested by preferred part size
+            // in order to avoid validating checksum on large parts at read.
+            self.part_queue_producer
+                .split_and_push(self.object_id.clone(), offset, body, self.preferred_part_size)?;
+        }
+        trace!("part composer finished");
+        Ok(())
     }
 }
 
@@ -216,94 +328,47 @@ where
 /// be able to receive pending chunks. If the receiving part of the channel is closed before the request
 /// was finished, future completes itself early canceling the request.
 pub async fn read_from_request<Client: ObjectClient>(
-    body_sender: Sender<RequestReaderOutput<Client::ClientError>>,
+    body_sender: Sender<RequestReaderOutput>,
+    backpressure_limiter: &mut BackpressureLimiter,
     client: Client,
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
-) {
-    let get_object_result = match client
+) -> Result<(), PrefetchReadError<Client::ClientError>> {
+    let request = client
         .get_object(&bucket, id.key(), Some(request_range), Some(id.etag().clone()))
         .await
-    {
-        Ok(get_object_result) => get_object_result,
-        Err(e) => {
-            error!(key=id.key(), error=?e, "GetObject request failed");
-            if body_sender
-                .send(Err(PrefetchReadError::GetRequestFailed(e)))
-                .await
-                .is_err()
-            {
-                trace!("body channel closed");
-            }
-            return;
-        }
-    };
+        .map_err(PrefetchReadError::GetRequestFailed)?;
 
-    pin_mut!(get_object_result);
+    pin_mut!(request);
+    let read_window_size_diff = backpressure_limiter
+        .read_window_offset()
+        .saturating_sub(request.as_ref().read_window_offset()) as usize;
+    request.as_mut().increment_read_window(read_window_size_diff);
+
     loop {
-        match get_object_result.next().await {
-            Some(Ok((offset, body))) => {
-                trace!(offset, length = body.len(), "received GetObject part");
-                metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
-                if body_sender.send(Ok((offset, body))).await.is_err() {
-                    trace!("body channel closed");
-                    break;
-                }
-            }
-            Some(Err(e)) => {
-                error!(key=id.key(), error=?e, "GetObject body part failed");
-                if body_sender
-                    .send(Err(PrefetchReadError::GetRequestFailed(e)))
-                    .await
-                    .is_err()
-                {
-                    trace!("body channel closed");
-                }
-                break;
-            }
-            None => break,
+        let Some(next) = request.next().await else {
+            break;
+        };
+
+        let (offset, body) = next.map_err(PrefetchReadError::GetRequestFailed)?;
+        let length = body.len() as u64;
+        trace!(offset, length, "received GetObject part");
+        metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
+        if body_sender.send((offset, body)).await.is_err() {
+            trace!("body channel closed");
+            break;
+        }
+
+        // Blocks if read window increment if it's not enough to read the next offset
+        let next_offset = offset + length;
+        if let Some(next_read_window_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
+            let diff = next_read_window_offset.saturating_sub(request.as_ref().read_window_offset()) as usize;
+            request.as_mut().increment_read_window(diff);
         }
     }
     trace!("request finished");
-}
-
-async fn compose_parts<E: std::error::Error + Send + Sync>(
-    body_receiver: Receiver<RequestReaderOutput<E>>,
-    part_queue_producer: PartQueueProducer<E>,
-    object_id: ObjectId,
-    preferred_part_size: usize,
-) {
-    pin_mut!(body_receiver);
-    loop {
-        match body_receiver.next().await {
-            Some(Ok((offset, body))) => {
-                // pre-split the body into multiple parts as suggested by preferred part size
-                // in order to avoid validating checksum on large parts at read.
-                let mut body: Bytes = body.into();
-                let mut curr_offset = offset;
-                loop {
-                    let chunk_size = preferred_part_size.min(body.len());
-                    if chunk_size == 0 {
-                        break;
-                    }
-                    let chunk = body.split_to(chunk_size);
-                    // S3 doesn't provide checksum for us if the request range is not aligned to
-                    // object part boundaries, so we're computing our own checksum here.
-                    let checksum_bytes = ChecksummedBytes::new(chunk);
-                    let part = Part::new(object_id.clone(), curr_offset, checksum_bytes);
-                    curr_offset += part.len() as u64;
-                    part_queue_producer.push(Ok(part));
-                }
-            }
-            Some(Err(err)) => {
-                part_queue_producer.push(Err(err));
-                break;
-            }
-            None => break,
-        }
-    }
-    trace!("part composer finished");
+    Ok(())
 }
 
 #[cfg(test)]

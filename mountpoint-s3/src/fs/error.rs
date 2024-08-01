@@ -129,9 +129,12 @@ impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> fo
                 GetObjectError::PreconditionFailed,
             )) => err!(libc::ESTALE, "object was mutated remotely"),
             PrefetchReadError::Integrity(e) => err!(libc::EIO, source:e, "integrity error"),
+            PrefetchReadError::PartReadFailed(e) => err!(libc::EIO, source:e, "part read failed"),
             PrefetchReadError::GetRequestFailed(_)
             | PrefetchReadError::GetRequestTerminatedUnexpectedly
-            | PrefetchReadError::GetRequestReturnedWrongOffset { .. } => {
+            | PrefetchReadError::GetRequestReturnedWrongOffset { .. }
+            | PrefetchReadError::BackpressurePreconditionFailed
+            | PrefetchReadError::ReadWindowIncrement => {
                 err!(libc::EIO, source:err, "get request failed")
             }
         }

@@ -2,11 +2,16 @@ use std::time::Instant;
 
 use tracing::trace;
 
+use crate::checksums::ChecksummedBytes;
+use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::BackpressureFeedbackEvent::{DataRead, PartQueueStall};
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
 use crate::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::sync::{Arc, AsyncMutex};
+
+use super::backpressure_controller::BackpressureController;
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
@@ -14,6 +19,8 @@ use crate::sync::{Arc, AsyncMutex};
 pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
     receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
+    /// Optional backpressure controller
+    backpressure_controller: Option<BackpressureController>,
     failed: AtomicBool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
@@ -28,12 +35,15 @@ pub struct PartQueueProducer<E: std::error::Error> {
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
-pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
+pub fn unbounded_part_queue<E: std::error::Error>(
+    backpressure_controller: Option<BackpressureController>,
+) -> (PartQueue<E>, PartQueueProducer<E>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
         receiver,
+        backpressure_controller,
         failed: AtomicBool::new(false),
         bytes_received: Arc::clone(&bytes_counter),
     };
@@ -51,7 +61,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub async fn read(&self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
         let mut current_part = self.current_part.lock().await;
 
         assert!(
@@ -66,6 +76,9 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             if let Ok(part) = self.receiver.try_recv() {
                 part
             } else {
+                if let Some(backpressure_controller) = &mut self.backpressure_controller {
+                    backpressure_controller.send_feedback(PartQueueStall).await?;
+                }
                 let start = Instant::now();
                 let part = self.receiver.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us").record(start.elapsed().as_micros() as f64);
@@ -89,12 +102,50 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             let tail = part.split_off(length);
             *current_part = Some(tail);
         }
+        // Send feedback to the backpressure controller as we read data out of the part queue
+        if let Some(backpressure_controller) = &mut self.backpressure_controller {
+            backpressure_controller.send_feedback(DataRead(part.len())).await?;
+        }
         metrics::gauge!("prefetch.bytes_in_queue").decrement(part.len() as f64);
         Ok(part)
     }
 
+    /// Push a new [Part] onto the front of the queue
+    /// which actually just concatenate it with the current part
+    pub async fn push_front(&self, mut part: Part) -> Result<(), PrefetchReadError<E>> {
+        let mut current_part = self.current_part.lock().await;
+
+        assert!(
+            !self.failed.load(Ordering::SeqCst),
+            "cannot use a PartQueue after failure"
+        );
+
+        if let Some(current_part) = current_part.as_mut() {
+            part.extend(current_part)?;
+            *current_part = part;
+        } else {
+            *current_part = Some(part);
+        }
+        Ok(())
+    }
+
     pub fn bytes_received(&self) -> usize {
         self.bytes_received.load(Ordering::SeqCst)
+    }
+
+    pub fn read_window_offset(&self) -> Option<u64> {
+        self.backpressure_controller
+            .as_ref()
+            .map(|controller| controller.read_window_offset())
+    }
+}
+
+impl<E: std::error::Error + Send + Sync> Clone for PartQueueProducer<E> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            bytes_sent: self.bytes_sent.clone(),
+        }
     }
 }
 
@@ -111,6 +162,46 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
             self.bytes_sent.fetch_add(part_len, Ordering::SeqCst);
             metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
         }
+    }
+
+    /// Split the given bytes into parts with the given boundaries and push them to the part queue, assuming that
+    /// the boundaries start from offset 0.
+    ///
+    /// Aligning part with the right boundaries can reduce compute time for validating checksum at read. Without
+    /// this, we will have to do multiple splits and extends on the part, which are expensive operations.
+    pub fn split_and_push(
+        &self,
+        id: ObjectId,
+        offset: u64,
+        mut body: ChecksummedBytes,
+        alignment: usize,
+    ) -> Result<(), PrefetchReadError<E>> {
+        if body.is_empty() {
+            return Ok(());
+        }
+        let mut curr_offset = offset;
+
+        // First, align the front to part boundaries
+        if offset % alignment as u64 != 0 {
+            let distance_to_align = alignment - (curr_offset % alignment as u64) as usize;
+            let chunk_size = distance_to_align.min(body.len());
+            let mut chunk = body.split_to(chunk_size);
+            chunk.shrink_to_fit()?;
+            let part = Part::new(id.clone(), curr_offset, chunk);
+            curr_offset += part.len() as u64;
+            self.push(Ok(part));
+        }
+
+        // After that we can just split it evenly
+        while !body.is_empty() {
+            let chunk_size = alignment.min(body.len());
+            let mut chunk = body.split_to(chunk_size);
+            chunk.shrink_to_fit()?;
+            let part = Part::new(id.clone(), curr_offset, chunk);
+            curr_offset += part.len() as u64;
+            self.push(Ok(part));
+        }
+        Ok(())
     }
 }
 
@@ -160,7 +251,7 @@ mod tests {
 
     async fn run_test(ops: Vec<Op>) {
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let (part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
+        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>(None);
         let mut current_offset = 0;
         let mut current_length = 0;
         for op in ops {

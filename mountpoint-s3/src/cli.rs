@@ -636,11 +636,25 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
         user_agent.key_value("mp-cache-ttl", &ttl.to_string());
     }
 
+    // This is a weird looking number! We really want our first request size to be 1MiB,
+    // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
+    // top of a 1MiB read, which we'd have to wait for a second request to service. Because
+    // FUSE doesn't know the difference between regular reads and readahead reads, it will
+    // send us a READ request for that 128k, so we'll have to block waiting for it even if
+    // the application doesn't want it. This is all in the noise for sequential IO, but
+    // waiting for the readahead hurts random IO. So we add 128k to the first request size
+    // to avoid the latency hit of the second request.
+    //
+    // Note the CRT does not respect this value right now, they always return chunks of part size
+    // but this is the first window size we prefer.
+    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
         .read_part_size(args.read_part_size.unwrap_or(args.part_size) as usize)
         .write_part_size(args.write_part_size.unwrap_or(args.part_size) as usize)
+        .read_backpressure(true)
+        .initial_read_window(initial_read_window_size)
         .user_agent(user_agent);
     if args.requester_pays {
         client_config = client_config.request_payer("requester");

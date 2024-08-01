@@ -1349,6 +1349,8 @@ mod tests {
         let bucket = "bucket";
         let client = Arc::new(MockClient::new(MockClientConfig {
             bucket: bucket.to_owned(),
+            enable_backpressure: true,
+            initial_read_window_size: 1024 * 1024,
             ..Default::default()
         }));
         // Create "dir1" in the client to avoid creating it locally

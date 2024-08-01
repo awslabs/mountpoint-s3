@@ -733,6 +733,8 @@ async fn test_upload_aborted_on_write_failure() {
     let client_config = MockClientConfig {
         bucket: BUCKET_NAME.to_string(),
         part_size: 1024 * 1024,
+        enable_backpressure: true,
+        initial_read_window_size: 256 * 1024,
         ..Default::default()
     };
 
@@ -810,6 +812,8 @@ async fn test_upload_aborted_on_fsync_failure() {
     let client_config = MockClientConfig {
         bucket: BUCKET_NAME.to_string(),
         part_size: 1024 * 1024,
+        enable_backpressure: true,
+        initial_read_window_size: 256 * 1024,
         ..Default::default()
     };
 
@@ -872,6 +876,8 @@ async fn test_upload_aborted_on_release_failure() {
     let client_config = MockClientConfig {
         bucket: BUCKET_NAME.to_string(),
         part_size: 1024 * 1024,
+        enable_backpressure: true,
+        initial_read_window_size: 256 * 1024,
         ..Default::default()
     };
 
@@ -1487,7 +1493,9 @@ async fn test_readdir_rewind_with_local_files_only() {
 async fn test_lookup_404_not_an_error() {
     let name = "test_lookup_404_not_an_error";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
-    let client_config = S3ClientConfig::default().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client_config = S3ClientConfig::default()
+        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .read_backpressure(true);
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
     let fs = make_test_filesystem_with_client(
         client,
@@ -1521,7 +1529,8 @@ async fn test_lookup_forbidden() {
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
         .auth_config(auth_config)
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .read_backpressure(true);
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
 
     // create an empty file

@@ -63,7 +63,7 @@ impl ChecksummedBytes {
     /// This operation just increases the reference count and sets a few indices,
     /// so there will be no validation and the checksum will not be recomputed.
     pub fn split_off(&mut self, at: usize) -> ChecksummedBytes {
-        assert!(at < self.len());
+        assert!(at <= self.len());
 
         let start = self.range.start;
         let prefix_range = start..(start + at);
@@ -73,6 +73,27 @@ impl ChecksummedBytes {
         Self {
             buffer: self.buffer.clone(),
             range: suffix_range,
+            checksum: self.checksum,
+        }
+    }
+
+    /// Splits the checksummed bytes into two at the given index.
+    ///
+    /// Afterwards self contains elements [at, len), and the returned Bytes contains elements [0, at).
+    ///
+    /// This operation just increases the reference count and sets a few indices,
+    /// so there will be no validation and the checksum will not be recomputed.
+    pub fn split_to(&mut self, at: usize) -> ChecksummedBytes {
+        assert!(at <= self.len());
+
+        let start = self.range.start;
+        let prefix_range = start..(start + at);
+        let suffix_range = (start + at)..self.range.end;
+
+        self.range = suffix_range;
+        Self {
+            buffer: self.buffer.clone(),
+            range: prefix_range,
             checksum: self.checksum,
         }
     }
@@ -317,6 +338,26 @@ mod tests {
         assert_eq!(expected, new_checksummed_bytes.buffer);
         assert_eq!(expected_part1, checksummed_bytes.buffer_slice());
         assert_eq!(expected_part2, new_checksummed_bytes.buffer_slice());
+        assert_eq!(expected_checksum, checksummed_bytes.checksum);
+        assert_eq!(expected_checksum, new_checksummed_bytes.checksum);
+    }
+
+    #[test]
+    fn test_split_to() {
+        let split_to_at = 4;
+        let bytes = Bytes::from_static(b"some bytes");
+        let expected = bytes.clone();
+        let expected_checksum = crc32c::checksum(&expected);
+        let mut checksummed_bytes = ChecksummedBytes::new(bytes);
+
+        let mut expected_part2 = expected.clone();
+        let expected_part1 = expected_part2.split_to(split_to_at);
+        let new_checksummed_bytes = checksummed_bytes.split_to(split_to_at);
+
+        assert_eq!(expected, checksummed_bytes.buffer);
+        assert_eq!(expected, new_checksummed_bytes.buffer);
+        assert_eq!(expected_part1, new_checksummed_bytes.buffer_slice());
+        assert_eq!(expected_part2, checksummed_bytes.buffer_slice());
         assert_eq!(expected_checksum, checksummed_bytes.checksum);
         assert_eq!(expected_checksum, new_checksummed_bytes.checksum);
     }

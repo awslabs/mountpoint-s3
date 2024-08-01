@@ -49,6 +49,7 @@ pub type TestClientBox = Box<dyn TestClient>;
 
 pub struct TestSessionConfig {
     pub part_size: usize,
+    pub initial_read_window_size: usize,
     pub filesystem_config: S3FilesystemConfig,
     pub prefetcher_config: PrefetcherConfig,
     pub auth_config: S3ClientAuthConfig,
@@ -56,8 +57,10 @@ pub struct TestSessionConfig {
 
 impl Default for TestSessionConfig {
     fn default() -> Self {
+        let part_size = 8 * 1024 * 1024;
         Self {
-            part_size: 8 * 1024 * 1024,
+            part_size,
+            initial_read_window_size: part_size,
             filesystem_config: Default::default(),
             prefetcher_config: Default::default(),
             auth_config: Default::default(),
@@ -125,6 +128,8 @@ pub mod mock_session {
         let client_config = MockClientConfig {
             bucket: BUCKET_NAME.to_string(),
             part_size: test_config.part_size,
+            enable_backpressure: true,
+            initial_read_window_size: test_config.initial_read_window_size,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
@@ -162,6 +167,8 @@ pub mod mock_session {
             let client_config = MockClientConfig {
                 bucket: BUCKET_NAME.to_string(),
                 part_size: test_config.part_size,
+                enable_backpressure: true,
+                initial_read_window_size: test_config.initial_read_window_size,
                 ..Default::default()
             };
             let client = Arc::new(MockClient::new(client_config));
@@ -284,7 +291,9 @@ pub mod s3_session {
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(EndpointConfig::new(&region))
-            .auth_config(test_config.auth_config);
+            .auth_config(test_config.auth_config)
+            .read_backpressure(true)
+            .initial_read_window(test_config.initial_read_window_size);
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = client.event_loop_group();
         let prefetcher = default_prefetch(runtime, test_config.prefetcher_config);
@@ -316,7 +325,9 @@ pub mod s3_session {
 
             let client_config = S3ClientConfig::default()
                 .part_size(test_config.part_size)
-                .endpoint_config(EndpointConfig::new(&region));
+                .endpoint_config(EndpointConfig::new(&region))
+                .read_backpressure(true)
+                .initial_read_window(test_config.initial_read_window_size);
             let client = S3CrtClient::new(client_config).unwrap();
             let runtime = client.event_loop_group();
             let prefetcher = caching_prefetch(cache, runtime, test_config.prefetcher_config);
