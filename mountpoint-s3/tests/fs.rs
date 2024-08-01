@@ -10,15 +10,18 @@ use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
+#[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::countdown_failure_client;
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
+use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+#[cfg(feature = "s3_tests")]
+use mountpoint_s3_client::S3CrtClient;
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
