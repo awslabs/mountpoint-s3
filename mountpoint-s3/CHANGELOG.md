@@ -7,7 +7,7 @@
 ### Other changes
 
 * Support added for providing `external_id` when defining AWS profiles in a config file. ([#962](https://github.com/awslabs/mountpoint-s3/pull/962))
-* Fix issue where empty environment variables for STS web identity credentials could cause segmentation fault. ([#246](https://github.com/awslabs/aws-c-auth/pull/246))
+* Fix issue where empty environment variables for STS web identity credentials could cause segmentation fault. ([#963](https://github.com/awslabs/mountpoint-s3/pull/963))
 
 ## v1.7.2 (June 17, 2024)
 
