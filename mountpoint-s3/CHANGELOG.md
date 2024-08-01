@@ -2,7 +2,7 @@
 
 ### New features
 
-* Mountpoint now offers two new command-line arguments `--read-part-size <SIZE>` and `--write-part-size <SIZE>` which allow to specify different part sizes to be used when reading and writing respectively.
+* Mountpoint now offers two new command-line arguments `--read-part-size <SIZE>` and `--write-part-size <SIZE>` which allow to specify different part sizes to be used when reading and writing respectively. ([#949](https://github.com/awslabs/mountpoint-s3/pull/949))
 
 ### Other changes
 
