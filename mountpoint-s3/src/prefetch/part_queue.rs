@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use bytes::Bytes;
 use tracing::trace;
 
 use crate::checksums::ChecksummedBytes;
@@ -113,6 +114,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// Push a new [Part] onto the front of the queue
     /// which actually just concatenate it with the current part
     pub async fn push_front(&self, mut part: Part) -> Result<(), PrefetchReadError<E>> {
+        let part_len = part.len();
         let mut current_part = self.current_part.lock().await;
 
         assert!(
@@ -126,6 +128,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         } else {
             *current_part = Some(part);
         }
+        metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
         Ok(())
     }
 
@@ -173,7 +176,7 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
         &self,
         id: ObjectId,
         offset: u64,
-        mut body: ChecksummedBytes,
+        mut body: Bytes,
         alignment: usize,
     ) -> Result<(), PrefetchReadError<E>> {
         if body.is_empty() {
@@ -185,9 +188,11 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
         if offset % alignment as u64 != 0 {
             let distance_to_align = alignment - (curr_offset % alignment as u64) as usize;
             let chunk_size = distance_to_align.min(body.len());
-            let mut chunk = body.split_to(chunk_size);
-            chunk.shrink_to_fit()?;
-            let part = Part::new(id.clone(), curr_offset, chunk);
+            let chunk = body.split_to(chunk_size);
+            // S3 doesn't provide checksum for us if the request range is not aligned to
+            // object part boundaries, so we're computing our own checksum here.
+            let checksummed_bytes = ChecksummedBytes::new(chunk);
+            let part = Part::new(id.clone(), curr_offset, checksummed_bytes);
             curr_offset += part.len() as u64;
             self.push(Ok(part));
         }
@@ -195,9 +200,9 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
         // After that we can just split it evenly
         while !body.is_empty() {
             let chunk_size = alignment.min(body.len());
-            let mut chunk = body.split_to(chunk_size);
-            chunk.shrink_to_fit()?;
-            let part = Part::new(id.clone(), curr_offset, chunk);
+            let chunk = body.split_to(chunk_size);
+            let checksummed_bytes = ChecksummedBytes::new(chunk);
+            let part = Part::new(id.clone(), curr_offset, checksummed_bytes);
             curr_offset += part.len() as u64;
             self.push(Ok(part));
         }

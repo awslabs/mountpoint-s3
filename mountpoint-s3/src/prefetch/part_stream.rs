@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
 use tracing::{debug_span, trace, Instrument};
 
-use crate::checksums::ChecksummedBytes;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::new_backpressure_controller;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
@@ -309,9 +308,7 @@ impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
             let Some((offset, body)) = body_receiver.next().await else {
                 break;
             };
-            // S3 doesn't provide checksum for us if the request range is not aligned to
-            // object part boundaries, so we're computing our own checksum here.
-            let body: ChecksummedBytes = Bytes::from(body).into();
+            let body: Bytes = body.into();
             // pre-split the body into multiple parts as suggested by preferred part size
             // in order to avoid validating checksum on large parts at read.
             self.part_queue_producer

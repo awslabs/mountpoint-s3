@@ -199,7 +199,6 @@ where
         let mut part_composer = CachingPartComposer {
             part_queue_producer,
             cache_key: cache_key.clone(),
-            preferred_part_size: self.config.preferred_part_size,
             original_range: range,
             block_index: block_range.start,
             block_offset: block_range.start * block_size,
@@ -260,7 +259,6 @@ where
 struct CachingPartComposer<E: std::error::Error, Cache> {
     part_queue_producer: PartQueueProducer<E>,
     cache_key: ObjectId,
-    preferred_part_size: usize,
     original_range: RequestRange,
     block_index: u64,
     block_offset: u64,
@@ -299,41 +297,39 @@ where
                 });
             }
 
-            // S3 doesn't provide checksum for us if the request range is not aligned to
-            // object part boundaries, so we're computing our own checksum here.
-            let mut body: ChecksummedBytes = Bytes::from(body).into();
-
-            // Return some bytes to the part queue even before we can fill an entire caching block because we want to
-            // start the feedback loop for the flow-control window.
-            //
-            // We need to do this because the read window might be enough to fetch "some data" from S3 but not the entire block.
-            // For example, consider that we got a file system read request with range 2MB to 4MB and we have to start
-            // reading from block_offset=0 and block_size=5MB. The first read window might have a range up to 4MB which is enough
-            // to serve the read request but if the prefetcher is not able to read anything it cannot tell the stream to move
-            // its read window.
-            //
-            // A side effect from this is delay on the cache updating which is actually good for performance but it makes testing
-            // a bit more complicated because the cache might not be updated immediately.
-            let part_range = self
-                .original_range
-                .trim_start(offset)
-                .trim_end(offset + body.len() as u64);
-            let trim_start = (part_range.start().saturating_sub(offset)) as usize;
-            let trim_end = (part_range.end().saturating_sub(offset)) as usize;
-            // Put to the part queue only if returned data is in the actual request range.
-            if trim_end > trim_start {
-                self.part_queue_producer.split_and_push(
-                    self.cache_key.clone(),
-                    part_range.start(),
-                    body.slice(trim_start..trim_end),
-                    self.preferred_part_size,
-                )?;
-            }
-
-            // Now we can fill the caching blocks.
+            // Split the body into blocks.
+            let mut body: Bytes = body.into();
+            let mut offset = offset;
             while !body.is_empty() {
                 let remaining = (block_size as usize).saturating_sub(self.buffer.len()).min(body.len());
-                let chunk = body.split_to(remaining);
+                let chunk: ChecksummedBytes = body.split_to(remaining).into();
+
+                // We need to return some bytes to the part queue even before we can fill an entire caching block because
+                // we want to start the feedback loop for the flow-control window.
+                //
+                // This is because the read window might be enough to fetch "some data" from S3 but not the entire block.
+                // For example, consider that we got a file system read request with range 2MB to 4MB and we have to start
+                // reading from block_offset=0 and block_size=5MB. The first read window might have a range up to 4MB which
+                // is enough to serve the read request but if the prefetcher is not able to read anything it cannot tell
+                // the stream to move its read window.
+                //
+                // A side effect from this is delay on the cache updating which is actually good for performance but it makes
+                // testing a bit more complicated because the cache might not be updated immediately.
+                let part_range = self
+                    .original_range
+                    .trim_start(offset)
+                    .trim_end(offset + chunk.len() as u64);
+                if !part_range.is_empty() {
+                    let trim_start = (part_range.start().saturating_sub(offset)) as usize;
+                    let trim_end = (part_range.end().saturating_sub(offset)) as usize;
+                    let part = Part::new(
+                        self.cache_key.clone(),
+                        part_range.start(),
+                        chunk.slice(trim_start..trim_end),
+                    );
+                    self.part_queue_producer.push(Ok(part));
+                }
+                offset += chunk.len() as u64;
                 if let Err(e) = self.buffer.extend(chunk) {
                     warn!(key, error=?e, "integrity check for body part failed");
                     return Err(e.into());
@@ -360,7 +356,7 @@ where
     }
 
     // Flush remaining data in the buffer to the cache
-    fn flush(&self) {
+    fn flush(self) {
         if !self.buffer.is_empty() {
             // If we still have data in the buffer, this must be the last block for this object,
             // which can be smaller than block_size (and ends at the end of the object).
@@ -378,7 +374,7 @@ where
                 &self.cache_key,
             );
             self.part_queue_producer.push(Ok(make_part(
-                self.buffer.clone(),
+                self.buffer,
                 self.block_index,
                 self.block_offset,
                 self.cache.block_size(),
