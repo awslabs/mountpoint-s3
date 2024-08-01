@@ -259,5 +259,5 @@ WARN write{req=100 ino=5 fh=2 offset=83886080000 length=1048576 pid=100 name="20
 mountpoint_s3::fuse: write failed: upload error: object exceeded maximum upload size of 83886080000 bytes
 ```
 
-For workloads uploading files larger than 78GiB, we recommend configuring a larger part size using the `--part-size <MiB>` command-line argument.
+For workloads uploading files larger than 78GiB, we recommend configuring a larger part size using the `--write-part-size <MiB>` command-line argument.
 For more information, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#maximum-object-size).

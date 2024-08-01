@@ -168,7 +168,7 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Part size for multi-part GET in bytes [default: 8388608]",
+        help = "Part size for GET in bytes [default: 8388608]",
         value_name = "SIZE",
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
         help_heading = CLIENT_OPTIONS_HEADER,

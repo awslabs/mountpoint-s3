@@ -1,6 +1,12 @@
 ## Unreleased
 
+### New features
+
+* Mountpoint now offers two new command-line arguments `--read-part-size <SIZE>` and `--write-part-size <SIZE>` which allow to specify different part sizes to be used when reading and writing respectively.
+
 ## v1.7.2 (June 17, 2024)
+
+### Other changes
 
 * Fix an issue where reading a file through Mountpoint could fail, even if the corresponding S3 GetObject request had succeeded. ([#917](https://github.com/awslabs/mountpoint-s3/pull/917))
 
