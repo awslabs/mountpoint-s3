@@ -1,4 +1,4 @@
-## Unreleased
+## v1.8.0
 
 ### New features
 
