@@ -631,6 +631,7 @@ where
             // we return it again. Last response may also be used partially, if an interrupt occured
             // (https://github.com/awslabs/mountpoint-s3/issues/955), which caused entries from it to
             // be only partially fetched by kernel.
+
             let last_response = dir_handle.last_response.lock().await;
             if let Some((last_offset, entries)) = last_response.as_ref() {
                 let offset = offset as usize;
