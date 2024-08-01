@@ -4,6 +4,11 @@
 
 * Mountpoint now offers two new command-line arguments `--read-part-size <SIZE>` and `--write-part-size <SIZE>` which allow to specify different part sizes to be used when reading and writing respectively.
 
+### Other changes
+
+* Support added for providing `external_id` when defining AWS profiles in a config file. ([#962](https://github.com/awslabs/mountpoint-s3/pull/962))
+* Fix issue where empty environment variables for STS web identity credentials could cause segmentation fault. ([#246](https://github.com/awslabs/aws-c-auth/pull/246))
+
 ## v1.7.2 (June 17, 2024)
 
 ### Other changes
