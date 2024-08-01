@@ -34,12 +34,11 @@ use std::time::{Duration, SystemTime};
 use test_case::test_case;
 
 mod common;
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use common::creds::get_scoped_down_credentials;
 use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use common::{
-    get_crt_client_auth_config,
-    s3::{deny_single_object_access_policy, get_scoped_down_credentials},
-};
+use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
 
 #[cfg(feature = "s3_tests")]
 use crate::common::s3::{get_test_bucket_and_prefix, get_test_region};
