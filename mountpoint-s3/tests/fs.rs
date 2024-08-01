@@ -1314,9 +1314,9 @@ async fn test_readdir_rewind_ordered() {
         .collect::<Vec<_>>();
     assert_eq!(entries.len(), 5);
 
-    // Trying to read out of order should fail (only the previous or next offsets are valid)
+    // Trying to read out of order should fail (only offsets in the range of the previous response, or the one immediately following, are valid)
     assert!(reply.entries.back().unwrap().offset > 1);
-    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 1, &mut Default::default())
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 6, &mut Default::default())
         .await
         .expect_err("out of order");
 
