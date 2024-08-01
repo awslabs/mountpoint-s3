@@ -20,7 +20,6 @@ use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
 use crate::io::futures::FutureSpawner;
 use crate::io::io_library_init;
 use crate::CrtError as _;
-use crate::ResultExt;
 
 /// An event loop that can be used to schedule and execute tasks
 #[derive(Debug)]
@@ -122,7 +121,7 @@ impl EventLoopGroup {
         let inner = unsafe {
             aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads, &shutdown_options)
                 .ok_or_last_error()
-                .on_err(|| abort_shutdown_callback(shutdown_options))?
+                .inspect_err(|_| abort_shutdown_callback(shutdown_options))?
         };
 
         Ok(Self { inner })

@@ -10,7 +10,7 @@ use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ResultExt, ToAwsByteCursor};
+use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
 
@@ -812,7 +812,7 @@ impl Client {
                 .ok_or_last_error()
                 // Drop the options Box if we failed to make the meta request.
                 // Assumption: CRT won't call shutdown callback if make_meta_request returns null.
-                .on_err(|| std::mem::drop(Box::from_raw(options)))?;
+                .inspect_err(|_| std::mem::drop(Box::from_raw(options)))?;
 
             Ok(MetaRequest { inner })
         }
