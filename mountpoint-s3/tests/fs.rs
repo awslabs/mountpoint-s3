@@ -1481,6 +1481,45 @@ async fn test_readdir_rewind_with_local_files_only() {
     assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
 }
 
+#[tokio::test]
+async fn test_readdir_repeat_response_partial() {
+    let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+
+    for i in 0..48 {
+        // "." and ".." make it a round 50 in total
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let max_entries = 25;
+
+    // FUSE( 10) READDIRPLUS fh FileHandle(1), offset 0, size 4096
+    // first request should just succeed
+    let first_response = ls(&fs, dir_handle, 0, max_entries).await;
+    assert!(first_response.len() == 25);
+
+    // FUSE( 11) INTERRUPT unique RequestId(10)
+    // don't really interrupt the application, but emulate the resulting fuse requests
+
+    // FUSE( 12) READDIRPLUS fh FileHandle(1), offset 1, size 4096
+    // first response was partially discarded because of an interrupt, but the returned entries should be the same for the second request
+    let second_response = ls(&fs, dir_handle, 1, max_entries).await;
+    assert_eq!(&first_response[1..], &second_response[..]);
+
+    // FUSE( 14) READDIRPLUS fh FileHandle(1), offset 25, size 4096
+    // read till the end
+    let third_response = ls(&fs, dir_handle, 25, max_entries).await;
+    assert!(third_response.len() == 25);
+
+    // should be able to repeat the whole previous response
+    let repeated_response = ls(&fs, dir_handle, 25, max_entries).await;
+    assert_eq!(third_response, repeated_response);
+
+    // final response must be empty, signaling about EOF
+    let final_response = ls(&fs, dir_handle, 50, max_entries).await;
+    assert!(final_response.is_empty());
+}
+
 #[cfg(feature = "s3_tests")]
 #[tokio::test]
 async fn test_lookup_404_not_an_error() {
