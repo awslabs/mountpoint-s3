@@ -72,6 +72,11 @@ impl GetObjectRequest for ThroughputGetObjectRequest {
         let this = self.project();
         this.request.increment_read_window(len);
     }
+
+    fn read_window_offset(self: Pin<&Self>) -> u64 {
+        let this = self.project_ref();
+        this.request.read_window_offset()
+    }
 }
 
 impl Stream for ThroughputGetObjectRequest {
@@ -103,6 +108,10 @@ impl ObjectClient for ThroughputMockClient {
 
     fn write_part_size(&self) -> Option<usize> {
         self.inner.write_part_size()
+    }
+
+    fn initial_read_window_size(&self) -> Option<usize> {
+        self.inner.initial_read_window_size()
     }
 
     async fn delete_object(

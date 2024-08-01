@@ -36,12 +36,10 @@ use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
-use self::get_object::S3GetObjectRequest;
-use self::put_object::S3PutObjectRequest;
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
-use crate::object_client::*;
 use crate::user_agent::UserAgent;
+use crate::{object_client::*, S3GetObjectRequest, S3PutObjectRequest};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -267,6 +265,8 @@ struct S3CrtClientInner {
     request_payer: Option<String>,
     read_part_size: usize,
     write_part_size: usize,
+    enable_backpressure: bool,
+    initial_read_window_size: usize,
     bucket_owner: Option<String>,
     credentials_provider: Option<CredentialsProvider>,
     host_resolver: HostResolver,
@@ -395,6 +395,8 @@ impl S3CrtClientInner {
             request_payer: config.request_payer,
             read_part_size: config.read_part_size,
             write_part_size: config.write_part_size,
+            enable_backpressure: config.read_backpressure,
+            initial_read_window_size: config.initial_read_window,
             bucket_owner: config.bucket_owner,
             credentials_provider: Some(credentials_provider),
             host_resolver,
@@ -974,6 +976,10 @@ pub enum S3RequestError {
     /// The request was throttled by S3
     #[error("Request throttled")]
     Throttled,
+
+    /// The request cannot fetch more data because window size is empty
+    #[error("Empty read window")]
+    EmptyReadWindow,
 }
 
 impl S3RequestError {
@@ -1176,6 +1182,14 @@ impl ObjectClient for S3CrtClient {
         // S3 part size (5GiB), so this shouldn't affect the result.
         // https://github.com/awslabs/aws-c-s3/blob/94e3342c12833c5199/source/s3_client.c#L337-L344
         Some(self.inner.write_part_size)
+    }
+
+    fn initial_read_window_size(&self) -> Option<usize> {
+        if self.inner.enable_backpressure {
+            Some(self.inner.initial_read_window_size)
+        } else {
+            None
+        }
     }
 
     async fn delete_object(
