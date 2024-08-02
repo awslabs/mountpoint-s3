@@ -10,8 +10,16 @@ Relevant issues: <!-- Please add issue numbers. -->
 
 ## Does this change need a changelog entry in any of the crates?
 
-<!-- Please confirm yes or no. -->
-<!-- If no, add justification. If unsure, ask a reviewer. -->
+<!--
+    Please confirm yes or no.
+    If no, add justification. If unsure, ask a reviewer.
+
+    You can find the changelog for each crate here:
+    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
+    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/CHANGELOG.md
+    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt/CHANGELOG.md
+    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt-sys/CHANGELOG.md
+-->
 
 ---
 
