@@ -1524,6 +1524,35 @@ async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, seco
     assert!(final_response.is_empty());
 }
 
+#[tokio::test]
+async fn test_readdir_repeat_response_after_rewind() {
+    let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+
+    for i in 0..73 {
+        // "." and ".." make it a round 50 in total
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let max_entries = 25;
+
+    // read the first response, we'll later use it as an expected result
+    let first_response = ls(&fs, dir_handle, 0, max_entries).await;
+    assert!(first_response.len() == max_entries);
+
+    // proceed in the stream, so we have a new response cached
+    let second_response = ls(&fs, dir_handle, 25, max_entries).await;
+    assert!(second_response.len() == max_entries);
+
+    // ask for offset 0, causing a rewind (new S3 request)
+    let rewinded_response = ls(&fs, dir_handle, 0, max_entries).await;
+    assert_eq!(first_response, rewinded_response);
+
+    // ask for offset 1, check that the correct cached response is used
+    let repeated_response = ls(&fs, dir_handle, 1, max_entries).await;
+    assert_eq!(&first_response[1..], repeated_response);
+}
+
 #[cfg(feature = "s3_tests")]
 #[tokio::test]
 async fn test_lookup_404_not_an_error() {
