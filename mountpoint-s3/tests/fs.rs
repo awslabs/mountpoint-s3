@@ -1481,8 +1481,12 @@ async fn test_readdir_rewind_with_local_files_only() {
     assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
 }
 
+#[test_case(1, 25; "first in the beginning, second in full")]
+#[test_case(24, 25; "first in the end, second in full")]
+#[test_case(0, 26; "first in full, second in the beginning")]
+#[test_case(0, 49; "first in full, second in the end")]
 #[tokio::test]
-async fn test_readdir_repeat_response_partial() {
+async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, second_repeated_offset: usize) {
     let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
 
     for i in 0..48 {
@@ -1496,24 +1500,24 @@ async fn test_readdir_repeat_response_partial() {
     // FUSE( 10) READDIRPLUS fh FileHandle(1), offset 0, size 4096
     // first request should just succeed
     let first_response = ls(&fs, dir_handle, 0, max_entries).await;
-    assert!(first_response.len() == 25);
+    assert!(first_response.len() == max_entries);
 
     // FUSE( 11) INTERRUPT unique RequestId(10)
     // don't really interrupt the application, but emulate the resulting fuse requests
 
     // FUSE( 12) READDIRPLUS fh FileHandle(1), offset 1, size 4096
     // first response was partially discarded because of an interrupt, but the returned entries should be the same for the second request
-    let second_response = ls(&fs, dir_handle, 1, max_entries).await;
-    assert_eq!(&first_response[1..], &second_response[..]);
+    let second_response = ls(&fs, dir_handle, first_repeated_offset as i64, max_entries).await;
+    assert_eq!(&first_response[first_repeated_offset..], &second_response[..]);
 
     // FUSE( 14) READDIRPLUS fh FileHandle(1), offset 25, size 4096
     // read till the end
     let third_response = ls(&fs, dir_handle, 25, max_entries).await;
-    assert!(third_response.len() == 25);
+    assert!(third_response.len() == max_entries);
 
     // should be able to repeat the whole previous response
-    let repeated_response = ls(&fs, dir_handle, 25, max_entries).await;
-    assert_eq!(third_response, repeated_response);
+    let repeated_response = ls(&fs, dir_handle, second_repeated_offset as i64, max_entries).await;
+    assert_eq!(&third_response[second_repeated_offset - 25..], &repeated_response[..]);
 
     // final response must be empty, signaling about EOF
     let final_response = ls(&fs, dir_handle, 50, max_entries).await;
