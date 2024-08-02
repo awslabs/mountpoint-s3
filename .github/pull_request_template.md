@@ -8,6 +8,11 @@ Relevant issues: <!-- Please add issue numbers. -->
 
 <!-- Please confirm there's no breaking change, or call our any behavior changes you think are necessary. -->
 
+## Does this change need a changelog entry in any of the crates?
+
+<!-- Please confirm yes or no. -->
+<!-- If no, add justification. If unsure, ask a reviewer. -->
+
 ---
 
 By submitting this pull request, I confirm that my contribution is made under the terms of the Apache 2.0 license and I agree to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/).
