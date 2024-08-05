@@ -1,3 +1,7 @@
+## Unreleased changes
+
+* Add support for passthrough mount options.
+
 ## v1.8.0
 
 ### New features
