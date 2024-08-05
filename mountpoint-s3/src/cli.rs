@@ -139,6 +139,13 @@ pub struct CliArgs {
 
     #[clap(
         long,
+        help = "Additional comma separated mount options. This will be passed verbatim to the mount command as -o <mount_options>",
+        help_heading = MOUNT_OPTIONS_HEADER,
+    )]
+    pub mount_options: Option<String>,
+
+    #[clap(
+        long,
         help = "Maximum throughput in Gbps [default: auto-detected on EC2 instances, 10 Gbps elsewhere]",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
@@ -427,6 +434,10 @@ impl CliArgs {
         }
         if self.allow_other {
             options.push(MountOption::AllowOther);
+        }
+
+        if let Some(mount_options) = &self.mount_options {
+            options.push(MountOption::CUSTOM(mount_options.clone()));
         }
 
         let mount_point = self.mount_point.to_owned();
