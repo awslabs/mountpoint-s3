@@ -46,13 +46,16 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        if let Some(range) = range {
+        let next_offset = if let Some(range) = range {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
                 .set_header(&Header::new("Range", range_value))
                 .map_err(S3RequestError::construction_failure)?;
-        }
+            range.start
+        } else {
+            0
+        };
 
         let key = format!("/{key}");
         message
@@ -60,6 +63,7 @@ impl S3CrtClient {
             .map_err(S3RequestError::construction_failure)?;
 
         let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let read_window_end_offset = next_offset + self.inner.initial_read_window_size as u64;
 
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
         options.part_size(self.inner.read_part_size as u64);
@@ -84,6 +88,9 @@ impl S3CrtClient {
             request,
             finish_receiver: receiver,
             finished: false,
+            enable_backpressure: self.inner.enable_backpressure,
+            next_offset,
+            read_window_end_offset,
         })
     }
 }
@@ -101,13 +108,21 @@ pub struct S3GetObjectRequest {
     #[pin]
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
+    enable_backpressure: bool,
+    next_offset: u64,
+    read_window_end_offset: u64,
 }
 
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
+        self.read_window_end_offset += len as u64;
         self.request.meta_request.increment_read_window(len as u64);
+    }
+
+    fn read_window_end_offset(self: Pin<&Self>) -> u64 {
+        self.read_window_end_offset
     }
 }
 
@@ -122,7 +137,14 @@ impl Stream for S3GetObjectRequest {
         let this = self.project();
 
         if let Poll::Ready(Some(val)) = this.finish_receiver.poll_next(cx) {
-            return Poll::Ready(Some(val.map_err(|e| ObjectClientError::ClientError(e.into()))));
+            let result = match val {
+                Ok(item) => {
+                    *this.next_offset += item.1.len() as u64;
+                    Some(Ok(item))
+                }
+                Err(e) => Some(Err(ObjectClientError::ClientError(e.into()))),
+            };
+            return Poll::Ready(result);
         }
 
         match this.request.poll(cx) {
@@ -134,7 +156,16 @@ impl Stream for S3GetObjectRequest {
                 *this.finished = true;
                 Poll::Ready(Some(Err(e)))
             }
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                // If the request is still not finished but the read window is not enough to poll
+                // the next chunk we might want to return error instead of keeping the request blocked.
+                if *this.enable_backpressure && this.read_window_end_offset <= this.next_offset {
+                    return Poll::Ready(Some(Err(ObjectClientError::ClientError(
+                        S3RequestError::EmptyReadWindow,
+                    ))));
+                }
+                Poll::Pending
+            }
         }
     }
 }

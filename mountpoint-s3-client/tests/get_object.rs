@@ -5,17 +5,15 @@ pub mod common;
 use std::ops::Range;
 use std::option::Option::None;
 use std::str::FromStr;
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::thread;
-use std::time::Duration;
 
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
+use futures::pin_mut;
 use futures::stream::StreamExt;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::ETag;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_client::types::{ETag, GetObjectRequest};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 use test_case::test_case;
 
@@ -102,7 +100,7 @@ async fn verify_backpressure_get_object() {
     let size = part_size * 2;
     let range = 0..(part_size + 1) as u64;
     let sdk_client = get_test_sdk_client().await;
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
+    let (bucket, prefix) = get_test_bucket_and_prefix("verify_backpressure_get_object");
 
     let key = format!("{prefix}/test");
     let expected_body = vec![0x42; size];
@@ -129,19 +127,70 @@ async fn verify_backpressure_get_object() {
     let expected_range = range.start as usize..part_size;
     assert_eq!(&body[..], &expected_body[expected_range]);
 
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        futures::executor::block_on(async move {
-            // This await should be blocked
-            let second_part = get_request.next().await.unwrap();
-            let (_offset, body) = second_part.unwrap();
-            sender.send(body).unwrap();
-        })
-    });
-    match receiver.recv_timeout(Duration::from_millis(1000)) {
-        Ok(_) => panic!("request should have been blocked"),
-        Err(e) => assert_eq!(e, RecvTimeoutError::Timeout),
-    }
+    // This await should return an error because current window is not enough to get the next part
+    let next = get_request.next().await.expect("result should not be empty");
+    assert!(matches!(
+        next,
+        Err(ObjectClientError::ClientError(S3RequestError::EmptyReadWindow))
+    ));
+}
+
+#[tokio::test]
+async fn test_mutated_during_get_object_backpressure() {
+    let initial_window_size = 8 * 1024 * 1024;
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+    let part_size = client.read_part_size().unwrap();
+    assert_eq!(part_size, initial_window_size);
+
+    let size = part_size * 2;
+    let range = 0..(part_size + 1) as u64;
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object");
+
+    let key = format!("{prefix}/test");
+    let expected_body = vec![0x42; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(expected_body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let mut get_request = client
+        .get_object(&bucket, &key, Some(range.clone()), None)
+        .await
+        .expect("should not fail");
+
+    // Verify that we can receive the first part successfully
+    let first_part = get_request.next().await.expect("result should not be empty");
+    let (offset, body) = first_part.unwrap();
+    assert_eq!(offset, 0, "wrong body part offset");
+
+    let expected_range = range.start as usize..part_size;
+    assert_eq!(&body[..], &expected_body[expected_range]);
+
+    // Overwrite the object
+    let new_content = vec![0xaa; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(new_content))
+        .send()
+        .await
+        .unwrap();
+
+    pin_mut!(get_request);
+    get_request.as_mut().increment_read_window(part_size);
+
+    // Verify that the next part is error
+    let next = get_request.next().await.expect("result should not be empty");
+    assert!(matches!(
+        next,
+        Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed))
+    ));
 }
 
 #[tokio::test]
