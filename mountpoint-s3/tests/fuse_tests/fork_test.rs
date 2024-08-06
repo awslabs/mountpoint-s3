@@ -2,13 +2,8 @@
 #![cfg(feature = "s3_tests")]
 
 use assert_cmd::prelude::*;
-use aws_config::default_provider::credentials::DefaultCredentialsChain;
-#[cfg(not(feature = "s3express_tests"))]
-use aws_config::BehaviorVersion;
-use aws_credential_types::provider::ProvideCredentials;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_sts::config::Region;
 use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
@@ -20,14 +15,14 @@ use std::{path::PathBuf, process::Command};
 use tempfile::NamedTempFile;
 use test_case::test_case;
 
+use crate::common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
-    create_objects, get_subsession_iam_role, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region,
-    get_test_sdk_client,
+    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
 };
-#[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::{get_non_test_region, get_scoped_down_credentials, get_test_kms_key_id};
 use crate::common::tokio_block_on;
+#[cfg(not(feature = "s3express_tests"))]
+use crate::common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -385,7 +380,6 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     let subprefix = format!("{prefix}sub/");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
-    let subsession_role = get_subsession_iam_role();
 
     // Get scoped down credentials to the subprefix
     let policy = r#"{"Statement": [
@@ -393,36 +387,21 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__", "Condition": {"StringLike": {"s3:prefix": "__PREFIX__*"}}}
     ]}"#;
     let policy = policy.replace("__BUCKET__", &bucket).replace("__PREFIX__", &subprefix);
-    let config = tokio_block_on(
-        aws_config::defaults(BehaviorVersion::latest())
-            .region(Region::new(get_test_region()))
-            .load(),
-    );
-    let sts_client = aws_sdk_sts::Client::new(&config);
-    let credentials = tokio_block_on(
-        sts_client
-            .assume_role()
-            .role_arn(subsession_role)
-            .role_session_name("test_scoped_credentials")
-            .policy(policy)
-            .send(),
-    )
-    .unwrap();
-    let credentials = credentials.credentials().unwrap();
+    let credentials = tokio_block_on(get_scoped_down_credentials(policy));
 
     // First try without the subprefix -- mount should fail as we don't have permissions on it
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg(format!("--region={region}"))
         .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key())
-        .env("AWS_SESSION_TOKEN", credentials.session_token())
-        .spawn()
-        .expect("unable to spawn child");
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
+    if let Some(token) = credentials.session_token() {
+        cmd.env("AWS_SESSION_TOKEN", token);
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
 
@@ -432,17 +411,17 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
 
     // Now try with the subprefix -- mount should work since we have the right permissions
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={subprefix}"))
         .arg("--auto-unmount")
         .arg(format!("--region={region}"))
         .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key())
-        .env("AWS_SESSION_TOKEN", credentials.session_token())
-        .spawn()
-        .expect("unable to spawn child");
+        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
+    if let Some(token) = credentials.session_token() {
+        cmd.env("AWS_SESSION_TOKEN", token);
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
 
@@ -994,17 +973,7 @@ fn create_cli_config_file(
     let mut config_file = NamedTempFile::new()?;
 
     // Populate source profile from the default credentials chain
-    let credentials = tokio_block_on(async {
-        // Get some static credentials by just using the SDK's default provider, which we know works
-        let sdk_provider = DefaultCredentialsChain::builder()
-            .region(Region::new(get_test_region()))
-            .build()
-            .await;
-        sdk_provider
-            .provide_credentials()
-            .await
-            .expect("static credentials should be available")
-    });
+    let credentials = tokio_block_on(get_sdk_default_chain_creds());
     writeln!(config_file, "[profile {}]", source_profile).unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();

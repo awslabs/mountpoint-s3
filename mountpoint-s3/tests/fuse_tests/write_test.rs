@@ -17,7 +17,7 @@ use mountpoint_s3::ServerSideEncryption;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use crate::common::s3::{get_scoped_down_credentials, get_test_kms_key_id};
+use crate::common::{creds::get_scoped_down_credentials, s3::get_test_kms_key_id};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
     let mut options = File::options();

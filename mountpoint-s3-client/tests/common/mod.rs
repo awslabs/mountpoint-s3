@@ -20,6 +20,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
 
+pub mod creds;
 pub mod tracing_test;
 
 /// Enable tracing and CRT logging when running unit tests.
@@ -131,10 +132,6 @@ pub fn get_secondary_test_region() -> String {
 
 pub fn get_test_domain() -> String {
     std::env::var("S3_DOMAIN").unwrap_or(String::from("amazonaws.com"))
-}
-
-pub fn get_subsession_iam_role() -> String {
-    std::env::var("S3_SUBSESSION_IAM_ROLE").expect("Set S3_SUBSESSION_IAM_ROLE to run integration tests")
 }
 
 pub async fn get_test_sdk_client() -> s3::Client {

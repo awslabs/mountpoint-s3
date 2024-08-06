@@ -2,13 +2,15 @@
 //! Allow for unused items since this is included independently in each module.
 #![allow(dead_code)]
 
+pub mod creds;
+
 #[cfg(feature = "fuse_tests")]
 pub mod fuse;
 
 #[cfg(feature = "s3_tests")]
 pub mod s3;
 
-use aws_sdk_s3::config::Credentials;
+use aws_credential_types::Credentials;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
 use mountpoint_s3::fs::{DirectoryEntry, DirectoryReplier};
