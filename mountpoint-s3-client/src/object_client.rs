@@ -383,8 +383,8 @@ pub trait GetObjectRequest:
     /// no backpressure is being applied and data is being downloaded as fast as possible.
     fn increment_read_window(self: Pin<&mut Self>, len: usize);
 
-    /// Get the upper bound of the range for read window. `GetObjectRequest` can only return data up to
-    /// this offset *exclusively*.
+    /// Get the upper bound of the current read window. When backpressure is enabled, [GetObjectRequest] can
+    /// return data up to this offset *exclusively*.
     fn read_window_end_offset(self: Pin<&Self>) -> u64;
 }
 

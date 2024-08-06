@@ -109,7 +109,10 @@ pub struct S3GetObjectRequest {
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
     enable_backpressure: bool,
+    /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
+    /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
+    /// can return data up to this offset *exclusively*.
     read_window_end_offset: u64,
 }
 
@@ -139,7 +142,7 @@ impl Stream for S3GetObjectRequest {
         if let Poll::Ready(Some(val)) = this.finish_receiver.poll_next(cx) {
             let result = match val {
                 Ok(item) => {
-                    *this.next_offset += item.1.len() as u64;
+                    *this.next_offset = item.0 + item.1.len() as u64;
                     Some(Ok(item))
                 }
                 Err(e) => Some(Err(ObjectClientError::ClientError(e.into()))),
@@ -158,7 +161,9 @@ impl Stream for S3GetObjectRequest {
             }
             Poll::Pending => {
                 // If the request is still not finished but the read window is not enough to poll
-                // the next chunk we might want to return error instead of keeping the request blocked.
+                // the next chunk we want to return error instead of keeping the request blocked.
+                // This prevents a risk of deadlock from using the [S3CrtClient], users must implement
+                // their own logic to block the request if they really want to block a [GetObjectRequest].
                 if *this.enable_backpressure && this.read_window_end_offset <= this.next_offset {
                     return Poll::Ready(Some(Err(ObjectClientError::ClientError(
                         S3RequestError::EmptyReadWindow,

@@ -977,8 +977,10 @@ pub enum S3RequestError {
     #[error("Request throttled")]
     Throttled,
 
-    /// The request cannot fetch more data because window size is empty
-    #[error("Empty read window")]
+    /// Cannot fetch more data because current read window is exhausted. The read window must
+    /// be advanced using [GetObjectRequest::increment_read_window(u64)] to continue fetching
+    /// new data.
+    #[error("Polled for data with empty read window")]
     EmptyReadWindow,
 }
 

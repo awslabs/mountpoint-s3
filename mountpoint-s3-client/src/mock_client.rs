@@ -596,15 +596,7 @@ impl ObjectClient for MockClient {
         range: Option<Range<u64>>,
         if_match: Option<ETag>,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        trace!(
-            bucket,
-            key,
-            ?range,
-            ?if_match,
-            enable_back_pressure = self.config.enable_backpressure,
-            initial_read_window_size = self.config.initial_read_window_size,
-            "GetObject"
-        );
+        trace!(bucket, key, ?range, ?if_match, "GetObject");
         self.inc_op_count(Operation::GetObject);
 
         if bucket != self.config.bucket {

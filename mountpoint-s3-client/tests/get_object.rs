@@ -77,7 +77,7 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
         .unwrap();
 
     let initial_window_size = 8 * 1024 * 1024;
-    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size, None);
 
     let request = client
         .get_object(&bucket, &key, range.clone(), None)
@@ -94,7 +94,7 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
 #[tokio::test]
 async fn verify_backpressure_get_object() {
     let initial_window_size = 256;
-    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size, None);
     let part_size = client.read_part_size().unwrap();
 
     let size = part_size * 2;
@@ -137,10 +137,9 @@ async fn verify_backpressure_get_object() {
 
 #[tokio::test]
 async fn test_mutated_during_get_object_backpressure() {
-    let initial_window_size = 8 * 1024 * 1024;
-    let client: S3CrtClient = get_test_backpressure_client(initial_window_size);
-    let part_size = client.read_part_size().unwrap();
-    assert_eq!(part_size, initial_window_size);
+    let part_size = 8 * 1024 * 1024;
+    let initial_window_size = part_size;
+    let client: S3CrtClient = get_test_backpressure_client(initial_window_size, Some(part_size));
 
     let size = part_size * 2;
     let range = 0..(part_size + 1) as u64;

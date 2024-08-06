@@ -1,7 +1,7 @@
 ## Unreleased
 
 * Allow querying initial read window size and read window end offset for backpressure GetObject. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
-* GetObject now returns an error instead of blocking when backpressure is enabled and there is not enough read window. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
+* When using GetObject with backpressure enabled, an error will be returned when there is not enough read window instead of blocking. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
 
 ## v0.9.0 (June 26, 2024)
 
