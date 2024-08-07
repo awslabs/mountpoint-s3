@@ -90,7 +90,7 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
     check_backpressure_get_result(initial_window_size, request, range, expected).await;
 }
 
-// Verify that the request is blocked when we don't increment read window size
+// Verify that an error is returned when we don't increment read window size
 #[tokio::test]
 async fn verify_backpressure_get_object() {
     let initial_window_size = 256;
