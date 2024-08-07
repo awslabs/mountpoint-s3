@@ -1,3 +1,13 @@
+## Unreleased
+
+### Breaking changes
+
+* When using GetObject with backpressure enabled, an error will be returned when there is not enough read window instead of blocking. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
+
+### Other changes
+
+* Allow querying initial read window size and read window end offset for backpressure GetObject. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
+
 ## v0.9.0 (June 26, 2024)
 
 * Adds support for `AWS_ENDPOINT_URL` environment variable. ([#895](https://github.com/awslabs/mountpoint-s3/pull/895))

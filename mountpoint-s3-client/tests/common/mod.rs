@@ -74,15 +74,16 @@ pub fn get_test_client() -> S3CrtClient {
     S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("could not create test client")
 }
 
-pub fn get_test_backpressure_client(initial_read_window: usize) -> S3CrtClient {
+pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Option<usize>) -> S3CrtClient {
     let endpoint_config = EndpointConfig::new(&get_test_region());
-    S3CrtClient::new(
-        S3ClientConfig::new()
-            .endpoint_config(endpoint_config)
-            .read_backpressure(true)
-            .initial_read_window(initial_read_window),
-    )
-    .expect("could not create test client")
+    let mut config = S3ClientConfig::new()
+        .endpoint_config(endpoint_config)
+        .read_backpressure(true)
+        .initial_read_window(initial_read_window);
+    if let Some(part_size) = part_size {
+        config = config.part_size(part_size);
+    }
+    S3CrtClient::new(config).expect("could not create test client")
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
@@ -203,7 +204,6 @@ pub async fn check_backpressure_get_result(
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {
-    let mut accum_read_window = read_window;
     let mut accum = vec![];
     let mut next_offset = range.map(|r| r.start).unwrap_or(0);
     pin_mut!(result);
@@ -215,9 +215,8 @@ pub async fn check_backpressure_get_result(
 
         // We run out of data to read if read window is smaller than accum length of data,
         // so we keeping adding window size, otherwise the request will be blocked.
-        while accum_read_window <= accum.len() {
+        while next_offset >= result.as_ref().read_window_end_offset() {
             result.as_mut().increment_read_window(read_window);
-            accum_read_window += read_window;
         }
     }
     assert_eq!(&accum[..], expected, "body does not match");
