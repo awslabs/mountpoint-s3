@@ -5,7 +5,7 @@ use async_channel::{unbounded, Receiver};
 use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{join, pin_mut, StreamExt};
-use mountpoint_s3_client::{types::ETag, ObjectClient};
+use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, warn, Instrument};
 
 use crate::checksums::ChecksummedBytes;
@@ -13,9 +13,11 @@ use crate::data_cache::{BlockIndex, DataCache};
 use crate::object::ObjectId;
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
-use crate::prefetch::part_stream::{read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput};
+use crate::prefetch::part_stream::{try_read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput};
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
+
+use super::part_stream::RequestTaskConfig;
 
 /// [ObjectPartStream] implementation which maintains a [DataCache] for the object data
 /// retrieved by an [ObjectClient].
@@ -42,16 +44,12 @@ where
     fn spawn_get_object_request<Client>(
         &self,
         client: &Client,
-        bucket: &str,
-        key: &str,
-        if_match: ETag,
-        range: RequestRange,
-        _preferred_part_size: usize,
+        config: RequestTaskConfig,
     ) -> RequestTask<<Client as ObjectClient>::ClientError>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let range = range.align(self.cache.block_size(), false);
+        let range = config.range.align(self.cache.block_size(), false);
 
         let start = range.start();
         let size = range.len();
@@ -60,13 +58,7 @@ where
         trace!(?range, "spawning request");
 
         let request_task = {
-            let request = CachingRequest::new(
-                client.clone(),
-                self.cache.clone(),
-                bucket.to_owned(),
-                key.to_owned(),
-                if_match,
-            );
+            let request = CachingRequest::new(client.clone(), self.cache.clone(), config);
             let span = debug_span!("prefetch", ?range);
             request.get_from_cache(range, part_queue_producer).instrument(span)
         };
@@ -81,8 +73,7 @@ where
 struct CachingRequest<Client: ObjectClient + Clone, Cache> {
     client: Client,
     cache: Arc<Cache>,
-    bucket: String,
-    cache_key: ObjectId,
+    config: RequestTaskConfig,
 }
 
 impl<Client, Cache> CachingRequest<Client, Cache>
@@ -90,18 +81,12 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Cache: DataCache + Send + Sync,
 {
-    fn new(client: Client, cache: Arc<Cache>, bucket: String, key: String, etag: ETag) -> Self {
-        let cache_key = ObjectId::new(key, etag);
-        Self {
-            client,
-            cache,
-            bucket,
-            cache_key,
-        }
+    fn new(client: Client, cache: Arc<Cache>, config: RequestTaskConfig) -> Self {
+        Self { client, cache, config }
     }
 
     async fn get_from_cache(self, range: RequestRange, part_queue_producer: PartQueueProducer<Client::ClientError>) {
-        let cache_key = &self.cache_key;
+        let cache_key = &self.config.object_id;
         let block_size = self.cache.block_size();
         let block_range = self.block_indices_for_byte_range(&range);
 
@@ -115,7 +100,7 @@ where
             match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
-                    let part = make_part(block, block_index, block_offset, block_size, &self.cache_key, &range);
+                    let part = make_part(block, block_index, block_offset, block_size, cache_key, &range);
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
                     continue;
@@ -150,7 +135,8 @@ where
         block_range: Range<u64>,
         part_queue_producer: PartQueueProducer<Client::ClientError>,
     ) {
-        let key = self.cache_key.key();
+        let bucket = &self.config.bucket;
+        let cache_key = &self.config.object_id;
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
@@ -159,28 +145,31 @@ where
             (block_range.start * block_size)..(block_range.end * block_size).min(range.object_size() as u64);
 
         trace!(
-            ?key,
+            key = cache_key.key(),
             range =? block_aligned_byte_range,
             original_range =? range,
             "fetching data from client"
         );
 
+        let mut part_composer = CachingPartComposer {
+            part_queue_producer,
+            cache_key: cache_key.clone(),
+            original_range: range,
+            block_index: block_range.start,
+            block_offset: block_range.start * block_size,
+            buffer: ChecksummedBytes::default(),
+            cache: self.cache.clone(),
+        };
+
         let (body_sender, body_receiver) = unbounded();
-        let request_reader_future = read_from_request(
+        let request_reader_future = try_read_from_request(
             body_sender,
             self.client.clone(),
-            self.bucket.clone(),
-            self.cache_key.clone(),
+            bucket.clone(),
+            cache_key.clone(),
             block_aligned_byte_range,
         );
-        let part_composer_future = compose_parts(
-            body_receiver,
-            part_queue_producer,
-            self.cache_key.clone(),
-            range,
-            block_range,
-            self.cache.clone(),
-        );
+        let part_composer_future = part_composer.try_compose_parts(body_receiver);
         join!(request_reader_future, part_composer_future);
     }
 
@@ -196,99 +185,114 @@ where
     }
 }
 
-async fn compose_parts<E, Cache>(
-    body_receiver: Receiver<RequestReaderOutput<E>>,
+struct CachingPartComposer<E: std::error::Error, Cache> {
     part_queue_producer: PartQueueProducer<E>,
-    object_id: ObjectId,
-    range: RequestRange,
-    block_range: Range<u64>,
+    cache_key: ObjectId,
+    original_range: RequestRange,
+    block_index: u64,
+    block_offset: u64,
+    buffer: ChecksummedBytes,
     cache: Arc<Cache>,
-) where
+}
+
+impl<E, Cache> CachingPartComposer<E, Cache>
+where
     E: std::error::Error + Send + Sync,
     Cache: DataCache + Send + Sync,
 {
-    let key = object_id.key();
-    let block_size = cache.block_size();
+    async fn try_compose_parts(&mut self, body_receiver: Receiver<RequestReaderOutput<E>>) {
+        if let Err(e) = self.compose_parts(body_receiver).await {
+            trace!(error=?e, "part stream task failed");
+            self.part_queue_producer.push(Err(e));
+        }
+        trace!("part composer finished");
+    }
 
-    pin_mut!(body_receiver);
-    let mut block_index = block_range.start;
-    let mut block_offset = block_range.start * block_size;
-    let mut buffer = ChecksummedBytes::default();
-    loop {
-        assert!(
-            buffer.len() < block_size as usize,
-            "buffer should be flushed when we get a full block"
-        );
-        match body_receiver.next().await {
-            Some(Ok((offset, body))) => {
-                let expected_offset = block_offset + buffer.len() as u64;
-                if offset != expected_offset {
-                    warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
-                    part_queue_producer.push(Err(PrefetchReadError::GetRequestReturnedWrongOffset {
-                        offset,
-                        expected_offset,
-                    }));
+    async fn compose_parts(
+        &mut self,
+        body_receiver: Receiver<RequestReaderOutput<E>>,
+    ) -> Result<(), PrefetchReadError<E>> {
+        let key = self.cache_key.key();
+        let block_size = self.cache.block_size();
+
+        pin_mut!(body_receiver);
+        while let Some(next) = body_receiver.next().await {
+            assert!(
+                self.buffer.len() < block_size as usize,
+                "buffer should be flushed when we get a full block"
+            );
+            let (offset, body) = next?;
+            let expected_offset = self.block_offset + self.buffer.len() as u64;
+            if offset != expected_offset {
+                warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
+                return Err(PrefetchReadError::GetRequestReturnedWrongOffset {
+                    offset,
+                    expected_offset,
+                });
+            }
+
+            // Split the body into blocks.
+            let mut body: Bytes = body.into();
+            while !body.is_empty() {
+                let remaining = (block_size as usize).saturating_sub(self.buffer.len()).min(body.len());
+                let chunk = body.split_to(remaining);
+                self.buffer
+                    .extend(chunk.into())
+                    .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;
+                if self.buffer.len() < block_size as usize {
                     break;
                 }
 
-                // Split the body into blocks.
-                let mut body: Bytes = body.into();
-                while !body.is_empty() {
-                    let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
-                    let chunk = body.split_to(remaining);
-                    if let Err(e) = buffer.extend(chunk.into()) {
-                        warn!(key, error=?e, "integrity check for body part failed");
-                        part_queue_producer.push(Err(e.into()));
-                        return;
-                    }
-                    if buffer.len() < block_size as usize {
-                        break;
-                    }
-
-                    // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                    update_cache(cache.as_ref(), &buffer, block_index, block_offset, &object_id);
-                    part_queue_producer.push(Ok(make_part(
-                        buffer,
-                        block_index,
-                        block_offset,
-                        block_size,
-                        &object_id,
-                        &range,
-                    )));
-                    block_index += 1;
-                    block_offset += block_size;
-                    buffer = ChecksummedBytes::default();
-                }
-            }
-            Some(Err(e)) => {
-                part_queue_producer.push(Err(e));
-                break;
-            }
-            None => {
-                if !buffer.is_empty() {
-                    // If we still have data in the buffer, this must be the last block for this object,
-                    // which can be smaller than block_size (and ends at the end of the object).
-                    assert_eq!(
-                        block_offset as usize + buffer.len(),
-                        range.object_size(),
-                        "a partial block is only allowed at the end of the object"
-                    );
-                    // Write the last block to the cache.
-                    update_cache(cache.as_ref(), &buffer, block_index, block_offset, &object_id);
-                    part_queue_producer.push(Ok(make_part(
-                        buffer,
-                        block_index,
-                        block_offset,
-                        block_size,
-                        &object_id,
-                        &range,
-                    )));
-                }
-                break;
+                // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
+                update_cache(
+                    self.cache.as_ref(),
+                    &self.buffer,
+                    self.block_index,
+                    self.block_offset,
+                    &self.cache_key,
+                );
+                self.part_queue_producer.push(Ok(make_part(
+                    self.buffer.clone(),
+                    self.block_index,
+                    self.block_offset,
+                    block_size,
+                    &self.cache_key,
+                    &self.original_range,
+                )));
+                self.block_index += 1;
+                self.block_offset += block_size;
+                self.buffer = ChecksummedBytes::default();
             }
         }
+
+        if !self.buffer.is_empty() {
+            // If we still have data in the buffer, this must be the last block for this object,
+            // which can be smaller than block_size (and ends at the end of the object).
+            assert_eq!(
+                self.block_offset as usize + self.buffer.len(),
+                self.original_range.object_size(),
+                "a partial block is only allowed at the end of the object"
+            );
+            // Write the last block to the cache.
+            update_cache(
+                self.cache.as_ref(),
+                &self.buffer,
+                self.block_index,
+                self.block_offset,
+                &self.cache_key,
+            );
+            self.part_queue_producer.push(Ok(make_part(
+                self.buffer.clone(),
+                self.block_index,
+                self.block_offset,
+                block_size,
+                &self.cache_key,
+                &self.original_range,
+            )));
+        }
+
+        Ok(())
     }
-    trace!("part composer finished");
 }
 
 fn update_cache<Cache: DataCache + Send + Sync>(
@@ -346,7 +350,10 @@ mod tests {
     #![allow(clippy::identity_op)]
 
     use futures::executor::{block_on, ThreadPool};
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject, Operation};
+    use mountpoint_s3_client::{
+        mock_client::{MockClient, MockClientConfig, MockObject, Operation},
+        types::ETag,
+    };
     use test_case::test_case;
 
     use crate::data_cache::InMemoryDataCache;
@@ -373,7 +380,6 @@ mod tests {
         let key = "object";
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
-        let etag = object.etag();
         let id = ObjectId::new(key.to_owned(), object.etag());
 
         let cache = InMemoryDataCache::new(block_size as u64);
@@ -393,7 +399,13 @@ mod tests {
         let first_read_count = {
             // First request (from client)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
-            let request_task = stream.spawn_get_object_request(&mock_client, bucket, key, etag.clone(), range, 0);
+            let config = RequestTaskConfig {
+                bucket: bucket.to_owned(),
+                object_id: id.clone(),
+                range,
+                preferred_part_size: 0,
+            };
+            let request_task = stream.spawn_get_object_request(&mock_client, config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -402,7 +414,13 @@ mod tests {
         let second_read_count = {
             // Second request (from cache)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
-            let request_task = stream.spawn_get_object_request(&mock_client, bucket, key, etag.clone(), range, 0);
+            let config = RequestTaskConfig {
+                bucket: bucket.to_owned(),
+                object_id: id.clone(),
+                range,
+                preferred_part_size: 0,
+            };
+            let request_task = stream.spawn_get_object_request(&mock_client, config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -418,7 +436,6 @@ mod tests {
         let object_size = 16 * MB;
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
-        let etag = object.etag();
         let id = ObjectId::new(key.to_owned(), object.etag());
 
         let cache = InMemoryDataCache::new(block_size as u64);
@@ -436,8 +453,13 @@ mod tests {
 
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
-                let range = RequestRange::new(object_size, offset as u64, preferred_size);
-                let request_task = stream.spawn_get_object_request(&mock_client, bucket, key, etag.clone(), range, 0);
+                let config = RequestTaskConfig {
+                    bucket: bucket.to_owned(),
+                    object_id: id.clone(),
+                    range: RequestRange::new(object_size, offset as u64, preferred_size),
+                    preferred_part_size: 0,
+                };
+                let request_task = stream.spawn_get_object_request(&mock_client, config);
                 compare_read(&id, &object, request_task);
             }
         }

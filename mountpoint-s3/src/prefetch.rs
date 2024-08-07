@@ -24,6 +24,7 @@ use metrics::{counter, histogram};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
+use part_stream::RequestTaskConfig;
 use thiserror::Error;
 use tracing::trace;
 
@@ -398,14 +399,13 @@ where
         }
 
         let range = RequestRange::new(self.size as usize, start, self.next_request_size);
-        let task = self.part_stream.spawn_get_object_request(
-            &self.client,
-            &self.bucket,
-            self.object_id.key(),
-            self.object_id.etag().clone(),
+        let config = RequestTaskConfig {
+            bucket: self.bucket.clone(),
+            object_id: self.object_id.clone(),
             range,
-            self.preferred_part_size,
-        );
+            preferred_part_size: self.preferred_part_size,
+        };
+        let task = self.part_stream.spawn_get_object_request(&self.client, config);
 
         // [read] will reset these if the reader stops making sequential requests
         self.next_request_offset += task.total_size() as u64;
