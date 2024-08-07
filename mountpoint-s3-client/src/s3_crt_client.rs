@@ -965,8 +965,8 @@ pub enum S3RequestError {
     #[error("Forbidden: {0}")]
     Forbidden(String, ClientErrorMetadata),
 
-    /// No signing credential is set for requests
-    #[error("No signing credentials found")]
+    /// The request was attempted but could not be signed due to no available credentials
+    #[error("No signing credentials available, see CRT debug logs")]
     NoSigningCredentials,
 
     /// The request was canceled
