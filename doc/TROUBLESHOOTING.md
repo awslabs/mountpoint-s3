@@ -261,3 +261,26 @@ mountpoint_s3::fuse: write failed: upload error: object exceeded maximum upload 
 
 For workloads uploading files larger than 78GiB, we recommend configuring a larger part size using the `--write-part-size <MiB>` command-line argument.
 For more information, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#maximum-object-size).
+
+## Credentials errors
+
+If you are seeing errors such as "No signing credentials available, see CRT debug logs" or "No signing credentials found",
+this means that Mountpoint was unable to load credentials to sign the request it was attempting to make.
+This could be due to no credentials being available or an error with the credentials provider.
+
+We recommend reviewing the AWS Common Runtime (CRT) client logs to identify the issue by using the `--debug-crt` command-line argument.
+The output is verbose, however it should be possible to identify the error coming from the AWS CRT.
+Review [Mountpoint's logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#advanced-logging-verbosity-options) for more information on how to configure logging.
+
+As an example, the logs below shows some error emitted when using an invalid `credential_source` property in an AWS Profile.
+
+```
+DEBUG awscrt::AWSProfile: Creating profile collection from file at "/home/ec2-user/.aws/config"
+INFO awscrt::AuthCredentialsProvider: static: profile my-profile has role_arn property is set to arn:aws:iam::111122223333:role/my-iam-role, attempting to create an STS credentials provider.
+DEBUG awscrt::AuthCredentialsProvider: static: computed session_name as aws-common-runtime-profile-config-19
+INFO awscrt::AuthCredentialsProvider: static: credential_source property set to SomeWrongSource
+ERROR awscrt::AuthCredentialsProvider: static: invalid credential_source property: SomeWrongSource
+```
+
+For more information on how to configure the AWS credentials Mountpoint uses,
+see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials).
