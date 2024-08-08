@@ -19,6 +19,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  run-as-root:
+    description: "Install as root user"
+    required: false
+    type: boolean
+    default: false
 runs:
   using: "composite"
   steps:
@@ -29,7 +34,8 @@ runs:
         --fuse-version ${{ inputs.fuseVersion }} \
         ${{ fromJSON(inputs.llvm) && '--with-llvm' || '' }} \
         ${{ fromJSON(inputs.libunwind) && '--with-libunwind' || '' }} \
-        ${{ fromJSON(inputs.fio) && '--with-fio' || '' }}
+        ${{ fromJSON(inputs.fio) && '--with-fio' || '' }} \
+        ${{ fromJSON(inputs.run-as-root) && '--run-as-root' || '' }}
   - name: Configure FUSE to allow other users to access FS
     shell: bash
-    run: echo 'user_allow_other' | sudo tee -a /etc/fuse.conf
+    run: echo 'user_allow_other' | ${{ !fromJSON(inputs.run-as-root) && 'sudo' || '' }} tee -a /etc/fuse.conf
