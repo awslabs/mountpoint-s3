@@ -239,11 +239,8 @@ impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
             // in order to avoid validating checksum on large parts at read.
             let mut body: Bytes = body.into();
             let mut curr_offset = offset;
-            loop {
+            while !body.is_empty() {
                 let chunk_size = self.preferred_part_size.min(body.len());
-                if chunk_size == 0 {
-                    break;
-                }
                 let chunk = body.split_to(chunk_size);
                 // S3 doesn't provide checksum for us if the request range is not aligned to
                 // object part boundaries, so we're computing our own checksum here.
@@ -257,7 +254,7 @@ impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
     }
 }
 
-/// Spawns a `GetObject` request with the specified range and sends received body parts to the channel
+/// Creates a `GetObject` request with the specified range and sends received body parts to the channel
 /// pointed by `body_sender`. Once the request was finished (`None` returned), this future closes the
 /// sending part of the channel and returns. After this the receiving part of the channel will still
 /// be able to receive pending chunks. If the receiving part of the channel is closed before the request
@@ -278,7 +275,7 @@ pub async fn try_read_from_request<Client: ObjectClient>(
     trace!("request finished");
 }
 
-pub async fn read_from_request<Client: ObjectClient>(
+async fn read_from_request<Client: ObjectClient>(
     body_sender: Sender<RequestReaderOutput<Client::ClientError>>,
     client: Client,
     bucket: String,

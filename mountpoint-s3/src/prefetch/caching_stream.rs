@@ -13,11 +13,11 @@ use crate::data_cache::{BlockIndex, DataCache};
 use crate::object::ObjectId;
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
-use crate::prefetch::part_stream::{try_read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput};
+use crate::prefetch::part_stream::{
+    try_read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
+};
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
-
-use super::part_stream::RequestTaskConfig;
 
 /// [ObjectPartStream] implementation which maintains a [DataCache] for the object data
 /// retrieved by an [ObjectClient].
