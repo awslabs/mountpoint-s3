@@ -166,8 +166,7 @@ where
             cache_key.clone(),
             block_aligned_byte_range,
         );
-        let part_composer_future = part_composer.try_compose_parts(request_stream);
-        part_composer_future.await;
+        part_composer.try_compose_parts(request_stream).await;
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
