@@ -4,6 +4,8 @@ use std::time::Instant;
 
 use clap::{Arg, Command};
 use futures::executor::{block_on, ThreadPool};
+use mountpoint_s3::mem_limiter::MemoryLimiter;
+use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::ETag;
@@ -77,6 +79,7 @@ fn main() {
         config = config.part_size(part_size);
     }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
+    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), 512 * 1024 * 1024));
 
     for i in 0..iterations.unwrap_or(1) {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -85,7 +88,8 @@ fn main() {
 
         let start = Instant::now();
 
-        let mut request = manager.prefetch(client.clone(), bucket, key, size, ETag::for_tests());
+        let object_id = ObjectId::new(key.clone(), ETag::for_tests());
+        let mut request = manager.prefetch(client.clone(), mem_limiter.clone(), bucket.clone(), object_id, size);
         block_on(async {
             loop {
                 let offset = received_size.load(Ordering::SeqCst);

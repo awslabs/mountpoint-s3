@@ -9,6 +9,7 @@ use tracing::{debug_span, trace, warn, Instrument};
 
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
+use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
 use crate::prefetch::part::Part;
@@ -43,26 +44,30 @@ where
 {
     fn spawn_get_object_request<Client>(
         &self,
-        client: &Client,
+        client: Arc<Client>,
         config: RequestTaskConfig,
-    ) -> RequestTask<<Client as ObjectClient>::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<<Client as ObjectClient>::ClientError, Client>
     where
-        Client: ObjectClient + Clone + Send + Sync + 'static,
+        Client: ObjectClient + Send + Sync + 'static,
     {
         let range = config.range;
 
         let backpressure_config = BackpressureConfig {
             initial_read_window_size: config.initial_read_window_size,
+            min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
+            read_part_size: config.read_part_size,
         };
-        let (backpressure_controller, backpressure_limiter) = new_backpressure_controller(backpressure_config);
-        let (part_queue, part_queue_producer) = unbounded_part_queue();
+        let (backpressure_controller, backpressure_limiter) =
+            new_backpressure_controller(backpressure_config, mem_limiter.clone());
+        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
         trace!(?range, "spawning request");
 
         let request_task = {
-            let request = CachingRequest::new(client.clone(), self.cache.clone(), backpressure_limiter, config);
+            let request = CachingRequest::new(client, self.cache.clone(), backpressure_limiter, config);
             let span = debug_span!("prefetch", ?range);
             request.get_from_cache(range, part_queue_producer).instrument(span)
         };
@@ -75,7 +80,7 @@ where
 
 #[derive(Debug)]
 struct CachingRequest<Client: ObjectClient, Cache> {
-    client: Client,
+    client: Arc<Client>,
     cache: Arc<Cache>,
     backpressure_limiter: BackpressureLimiter,
     config: RequestTaskConfig,
@@ -83,11 +88,11 @@ struct CachingRequest<Client: ObjectClient, Cache> {
 
 impl<Client, Cache> CachingRequest<Client, Cache>
 where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
+    Client: ObjectClient + Send + Sync + 'static,
     Cache: DataCache + Send + Sync,
 {
     fn new(
-        client: Client,
+        client: Arc<Client>,
         cache: Arc<Cache>,
         backpressure_limiter: BackpressureLimiter,
         config: RequestTaskConfig,
@@ -115,7 +120,7 @@ where
     async fn get_from_cache(
         mut self,
         range: RequestRange,
-        part_queue_producer: PartQueueProducer<Client::ClientError>,
+        part_queue_producer: PartQueueProducer<Client::ClientError, Client>,
     ) {
         let cache_key = &self.config.object_id;
         let block_size = self.cache.block_size();
@@ -174,7 +179,7 @@ where
         &mut self,
         range: RequestRange,
         block_range: Range<u64>,
-        part_queue_producer: PartQueueProducer<Client::ClientError>,
+        part_queue_producer: PartQueueProducer<Client::ClientError, Client>,
     ) {
         let bucket = &self.config.bucket;
         let cache_key = &self.config.object_id;
@@ -228,8 +233,8 @@ where
     }
 }
 
-struct CachingPartComposer<E: std::error::Error, Cache> {
-    part_queue_producer: PartQueueProducer<E>,
+struct CachingPartComposer<E: std::error::Error, Cache, Client: ObjectClient> {
+    part_queue_producer: PartQueueProducer<E, Client>,
     cache_key: ObjectId,
     original_range: RequestRange,
     block_index: u64,
@@ -238,10 +243,11 @@ struct CachingPartComposer<E: std::error::Error, Cache> {
     cache: Arc<Cache>,
 }
 
-impl<E, Cache> CachingPartComposer<E, Cache>
+impl<E, Cache, Client> CachingPartComposer<E, Cache, Client>
 where
     E: std::error::Error + Send + Sync,
     Cache: DataCache + Send + Sync,
+    Client: ObjectClient + Send + Sync + 'static,
 {
     async fn try_compose_parts(&mut self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
         if let Err(e) = self.compose_parts(request_stream).await {
@@ -388,7 +394,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{data_cache::InMemoryDataCache, object::ObjectId};
+    use crate::{data_cache::InMemoryDataCache, mem_limiter::MemoryLimiter, object::ObjectId};
 
     use super::*;
 
@@ -429,6 +435,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), 512 * 1024 * 1024));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -444,12 +451,13 @@ mod tests {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
+                read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
                 initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(&mock_client, config);
+            let request_task = stream.spawn_get_object_request(mock_client.clone(), config, mem_limiter.clone());
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -469,12 +477,13 @@ mod tests {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
+                read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
                 initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(&mock_client, config);
+            let request_task = stream.spawn_get_object_request(mock_client.clone(), config, mem_limiter.clone());
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -507,6 +516,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), 512 * 1024 * 1024));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -518,21 +528,22 @@ mod tests {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
+                    read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
                     initial_read_window_size,
                     max_read_window_size,
                     read_window_size_multiplier,
                 };
-                let request_task = stream.spawn_get_object_request(&mock_client, config);
+                let request_task = stream.spawn_get_object_request(mock_client.clone(), config, mem_limiter.clone());
                 compare_read(&id, &object, request_task);
             }
         }
     }
 
-    fn compare_read<E: std::error::Error + Send + Sync>(
+    fn compare_read<E: std::error::Error + Send + Sync, Client: ObjectClient>(
         id: &ObjectId,
         object: &MockObject,
-        mut request_task: RequestTask<E>,
+        mut request_task: RequestTask<E, Client>,
     ) {
         let mut offset = request_task.start_offset();
         let mut remaining = request_task.total_size();

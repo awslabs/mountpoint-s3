@@ -21,6 +21,8 @@ use crate::inode::{
     Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
 };
 use crate::logging;
+use crate::mem_limiter::MemoryLimiter;
+use crate::object::ObjectId;
 use crate::prefetch::{Prefetch, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -151,9 +153,14 @@ where
             None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
-        let request = fs
-            .prefetcher
-            .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone());
+        let object_id = ObjectId::new(full_key, etag);
+        let request = fs.prefetcher.prefetch(
+            fs.client.clone(),
+            fs.mem_limiter.clone(),
+            fs.bucket.clone(),
+            object_id,
+            object_size,
+        );
         let handle = FileHandleState::Read { handle, request };
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
@@ -393,6 +400,8 @@ pub struct S3FilesystemConfig {
     pub server_side_encryption: ServerSideEncryption,
     /// Use additional checksums for uploads
     pub use_upload_checksums: bool,
+    /// Memory limit
+    pub mem_limit: u64,
 }
 
 impl Default for S3FilesystemConfig {
@@ -413,6 +422,7 @@ impl Default for S3FilesystemConfig {
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
+            mem_limit: 512 * 1024 * 1024,
         }
     }
 }
@@ -526,6 +536,7 @@ where
 {
     config: S3FilesystemConfig,
     client: Arc<Client>,
+    mem_limiter: Arc<MemoryLimiter<Client>>,
     superblock: Superblock,
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
@@ -558,6 +569,7 @@ where
         let superblock = Superblock::new(bucket, prefix, superblock_config);
 
         let client = Arc::new(client);
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
 
         let uploader = Uploader::new(
             client.clone(),
@@ -569,6 +581,7 @@ where
         Self {
             config,
             client,
+            mem_limiter,
             superblock,
             prefetcher,
             uploader,

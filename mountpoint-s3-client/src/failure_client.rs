@@ -16,8 +16,8 @@ use pin_project::pin_project;
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, UploadReview,
+    MemoryUsageStats, ObjectAttribute, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, UploadReview,
 };
 use crate::ObjectClient;
 
@@ -83,6 +83,10 @@ where
 
     fn initial_read_window_size(&self) -> Option<usize> {
         self.client.initial_read_window_size()
+    }
+
+    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
+        self.client.mem_usage_stats()
     }
 
     async fn delete_object(

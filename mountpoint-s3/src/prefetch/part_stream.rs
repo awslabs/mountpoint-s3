@@ -4,10 +4,12 @@ use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::{types::GetObjectRequest, ObjectClient};
 use std::marker::{Send, Sync};
+use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
 use tracing::{debug_span, error, trace, Instrument};
 
 use crate::checksums::ChecksummedBytes;
+use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::{new_backpressure_controller, BackpressureConfig};
 use crate::prefetch::part::Part;
@@ -24,11 +26,12 @@ pub trait ObjectPartStream {
     /// size for the parts, but implementations are allowed to ignore it.
     fn spawn_get_object_request<Client>(
         &self,
-        client: &Client,
+        client: Arc<Client>,
         config: RequestTaskConfig,
-    ) -> RequestTask<Client::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<Client::ClientError, Client>
     where
-        Client: ObjectClient + Clone + Send + Sync + 'static;
+        Client: ObjectClient + Send + Sync + 'static;
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +40,7 @@ pub struct RequestTaskConfig {
     pub bucket: String,
     pub object_id: ObjectId,
     pub range: RequestRange,
+    pub read_part_size: usize,
     pub preferred_part_size: usize,
     pub initial_read_window_size: usize,
     pub max_read_window_size: usize,
@@ -179,11 +183,12 @@ where
 {
     fn spawn_get_object_request<Client>(
         &self,
-        client: &Client,
+        client: Arc<Client>,
         config: RequestTaskConfig,
-    ) -> RequestTask<Client::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<Client::ClientError, Client>
     where
-        Client: ObjectClient + Clone + Send + Sync + 'static,
+        Client: ObjectClient + Send + Sync + 'static,
     {
         assert!(config.preferred_part_size > 0);
 
@@ -191,16 +196,20 @@ where
 
         let backpressure_config = BackpressureConfig {
             initial_read_window_size: config.initial_read_window_size,
+            // We don't want to completely block the stream so let's use
+            // the read part size as minimum read window.
+            min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
+            read_part_size: config.read_part_size,
         };
-        let (backpressure_controller, mut backpressure_limiter) = new_backpressure_controller(backpressure_config);
-        let (part_queue, part_queue_producer) = unbounded_part_queue();
+        let (backpressure_controller, mut backpressure_limiter) =
+            new_backpressure_controller(backpressure_config, mem_limiter.clone());
+        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
         trace!(?range, "spawning request");
 
         let span = debug_span!("prefetch", ?range);
-        let client = client.clone();
         let task_handle = self
             .runtime
             .spawn_with_handle(
@@ -230,13 +239,17 @@ where
     }
 }
 
-struct ClientPartComposer<E: std::error::Error> {
-    part_queue_producer: PartQueueProducer<E>,
+struct ClientPartComposer<E: std::error::Error, Client: ObjectClient> {
+    part_queue_producer: PartQueueProducer<E, Client>,
     object_id: ObjectId,
     preferred_part_size: usize,
 }
 
-impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
+impl<E, Client> ClientPartComposer<E, Client>
+where
+    E: std::error::Error + Send + Sync,
+    Client: ObjectClient + Send + Sync + 'static,
+{
     async fn try_compose_parts(&self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
         if let Err(e) = self.compose_parts(request_stream).await {
             trace!(error=?e, "part stream task failed");

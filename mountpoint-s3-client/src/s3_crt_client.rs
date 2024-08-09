@@ -1207,6 +1207,13 @@ impl ObjectClient for S3CrtClient {
         }
     }
 
+    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
+        let crt_buffer_pool_stats = self.inner.s3_client.poll_buffer_pool_usage_stats();
+        let mem_reserved = crt_buffer_pool_stats.primary_reserved + crt_buffer_pool_stats.secondary_reserved;
+        let mem_used = crt_buffer_pool_stats.primary_used + crt_buffer_pool_stats.secondary_used;
+        Some(MemoryUsageStats { mem_reserved, mem_used })
+    }
+
     async fn delete_object(
         &self,
         bucket: &str,
