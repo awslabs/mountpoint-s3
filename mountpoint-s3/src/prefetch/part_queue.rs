@@ -51,7 +51,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub async fn read(&self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
         let mut current_part = self.current_part.lock().await;
 
         assert!(
@@ -91,6 +91,27 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         }
         metrics::gauge!("prefetch.bytes_in_queue").decrement(part.len() as f64);
         Ok(part)
+    }
+
+    /// Push a new [Part] onto the front of the queue
+    /// which actually just concatenate it with the current part
+    pub async fn push_front(&self, mut part: Part) -> Result<(), PrefetchReadError<E>> {
+        let part_len = part.len();
+        let mut current_part = self.current_part.lock().await;
+
+        assert!(
+            !self.failed.load(Ordering::SeqCst),
+            "cannot use a PartQueue after failure"
+        );
+
+        if let Some(current_part) = current_part.as_mut() {
+            part.extend(current_part)?;
+            *current_part = part;
+        } else {
+            *current_part = Some(part);
+        }
+        metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
+        Ok(())
     }
 
     pub fn bytes_received(&self) -> usize {
@@ -160,7 +181,7 @@ mod tests {
 
     async fn run_test(ops: Vec<Op>) {
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let (part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
+        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
         let mut current_offset = 0;
         let mut current_length = 0;
         for op in ops {

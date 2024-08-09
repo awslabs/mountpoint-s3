@@ -37,6 +37,8 @@ pub fn make_test_filesystem(
     let client_config = MockClientConfig {
         bucket: bucket.to_string(),
         part_size: 1024 * 1024,
+        enable_backpressure: true,
+        initial_read_window_size: 256 * 1024,
         ..Default::default()
     };
 
