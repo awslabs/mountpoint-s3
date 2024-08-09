@@ -1,10 +1,9 @@
 use std::time::Instant;
 use std::{ops::Range, sync::Arc};
 
-use async_channel::{unbounded, Receiver};
 use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
-use futures::{join, pin_mut, StreamExt};
+use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, warn, Instrument};
 
@@ -14,7 +13,7 @@ use crate::object::ObjectId;
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::part_stream::{
-    try_read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
+    read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
 };
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
@@ -161,16 +160,13 @@ where
             cache: self.cache.clone(),
         };
 
-        let (body_sender, body_receiver) = unbounded();
-        let request_reader_future = try_read_from_request(
-            body_sender,
+        let request_stream = read_from_request(
             self.client.clone(),
             bucket.clone(),
             cache_key.clone(),
             block_aligned_byte_range,
         );
-        let part_composer_future = part_composer.try_compose_parts(body_receiver);
-        join!(request_reader_future, part_composer_future);
+        part_composer.try_compose_parts(request_stream).await;
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -200,8 +196,8 @@ where
     E: std::error::Error + Send + Sync,
     Cache: DataCache + Send + Sync,
 {
-    async fn try_compose_parts(&mut self, body_receiver: Receiver<RequestReaderOutput<E>>) {
-        if let Err(e) = self.compose_parts(body_receiver).await {
+    async fn try_compose_parts(&mut self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
+        if let Err(e) = self.compose_parts(request_stream).await {
             trace!(error=?e, "part stream task failed");
             self.part_queue_producer.push(Err(e));
         }
@@ -210,13 +206,13 @@ where
 
     async fn compose_parts(
         &mut self,
-        body_receiver: Receiver<RequestReaderOutput<E>>,
+        request_stream: impl Stream<Item = RequestReaderOutput<E>>,
     ) -> Result<(), PrefetchReadError<E>> {
         let key = self.cache_key.key();
         let block_size = self.cache.block_size();
 
-        pin_mut!(body_receiver);
-        while let Some(next) = body_receiver.next().await {
+        pin_mut!(request_stream);
+        while let Some(next) = request_stream.next().await {
             assert!(
                 self.buffer.len() < block_size as usize,
                 "buffer should be flushed when we get a full block"
