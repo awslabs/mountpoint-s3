@@ -1,7 +1,7 @@
 //! Module for the on-disk data cache implementation.
 
 use std::fs;
-use std::io::{ErrorKind, Read, Seek, Write};
+use std::io::{BufReader, ErrorKind, Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -230,11 +230,12 @@ impl DiskDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        let mut file = match fs::File::open(path.as_ref()) {
+        let file = match fs::File::open(path.as_ref()) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(err.into()),
         };
+        let mut file = BufReader::new(file);
 
         let mut block_version = [0; CACHE_VERSION.len()];
         file.read_exact(&mut block_version)?;
@@ -246,7 +247,7 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block: DiskBlock = match bincode::deserialize_from(&file) {
+        let block: DiskBlock = match bincode::deserialize_from(&mut file) {
             Ok(block) => block,
             Err(e) => {
                 warn!("block could not be deserialized: {:?}", e);
