@@ -1,7 +1,7 @@
-use async_channel::{unbounded, Receiver, Sender};
+use async_stream::try_stream;
 use bytes::Bytes;
-use futures::task::SpawnExt;
-use futures::{join, pin_mut, task::Spawn, StreamExt};
+use futures::task::{Spawn, SpawnExt};
+use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::ObjectClient;
 use std::marker::{Send, Sync};
 use std::{fmt::Debug, ops::Range};
@@ -196,17 +196,15 @@ where
             .runtime
             .spawn_with_handle(
                 async move {
-                    let (body_sender, body_receiver) = unbounded();
                     let part_composer = ClientPartComposer {
                         part_queue_producer,
                         object_id: config.object_id.clone(),
                         preferred_part_size: config.preferred_part_size,
                     };
 
-                    let request_reader_future =
-                        try_read_from_request(body_sender, client, bucket, config.object_id, request_range.into());
-                    let part_composer_future = part_composer.try_compose_parts(body_receiver);
-                    join!(request_reader_future, part_composer_future);
+                    let request_stream = read_from_request(client, bucket, config.object_id, request_range.into());
+                    let part_composer_future = part_composer.try_compose_parts(request_stream);
+                    part_composer_future.await;
                 }
                 .instrument(span),
             )
@@ -223,17 +221,20 @@ struct ClientPartComposer<E: std::error::Error> {
 }
 
 impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
-    async fn try_compose_parts(&self, body_receiver: Receiver<RequestReaderOutput<E>>) {
-        if let Err(e) = self.compose_parts(body_receiver).await {
+    async fn try_compose_parts(&self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
+        if let Err(e) = self.compose_parts(request_stream).await {
             trace!(error=?e, "part stream task failed");
             self.part_queue_producer.push(Err(e));
         }
         trace!("part composer finished");
     }
 
-    async fn compose_parts(&self, body_receiver: Receiver<RequestReaderOutput<E>>) -> Result<(), PrefetchReadError<E>> {
-        pin_mut!(body_receiver);
-        while let Some(next) = body_receiver.next().await {
+    async fn compose_parts(
+        &self,
+        request_stream: impl Stream<Item = RequestReaderOutput<E>>,
+    ) -> Result<(), PrefetchReadError<E>> {
+        pin_mut!(request_stream);
+        while let Some(next) = request_stream.next().await {
             let (offset, body) = next?;
             // pre-split the body into multiple parts as suggested by preferred part size
             // in order to avoid validating checksum on large parts at read.
@@ -254,54 +255,33 @@ impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
     }
 }
 
-/// Creates a `GetObject` request with the specified range and sends received body parts to the channel
-/// pointed by `body_sender`. Once the request was finished (`None` returned), this future closes the
-/// sending part of the channel and returns. After this the receiving part of the channel will still
-/// be able to receive pending chunks. If the receiving part of the channel is closed before the request
-/// was finished, future completes itself early canceling the request.
-pub async fn try_read_from_request<Client: ObjectClient>(
-    body_sender: Sender<RequestReaderOutput<Client::ClientError>>,
+/// Creates a `GetObject` request with the specified range and sends received body parts to the stream.
+/// A [PrefetchReadError] is returned when the request cannot be completed.
+pub fn read_from_request<Client: ObjectClient>(
     client: Client,
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
-) {
-    if let Err(e) = read_from_request(body_sender.clone(), client, bucket, id, request_range).await {
-        trace!(error=?e, "part stream request failed");
-        if body_sender.send(Err(e)).await.is_err() {
-            trace!("body channel closed");
-        }
-    }
-    trace!("request finished");
-}
-
-async fn read_from_request<Client: ObjectClient>(
-    body_sender: Sender<RequestReaderOutput<Client::ClientError>>,
-    client: Client,
-    bucket: String,
-    id: ObjectId,
-    request_range: Range<u64>,
-) -> Result<(), PrefetchReadError<Client::ClientError>> {
-    let request = client
-        .get_object(&bucket, id.key(), Some(request_range), Some(id.etag().clone()))
-        .await
-        .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
-        .map_err(PrefetchReadError::GetRequestFailed)?;
-
-    pin_mut!(request);
-    while let Some(next) = request.next().await {
-        let (offset, body) = next
-            .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
+) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> {
+    try_stream! {
+        let request = client
+            .get_object(&bucket, id.key(), Some(request_range), Some(id.etag().clone()))
+            .await
+            .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(PrefetchReadError::GetRequestFailed)?;
 
-        trace!(offset, length = body.len(), "received GetObject part");
-        metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
-        if body_sender.send(Ok((offset, body))).await.is_err() {
-            trace!("body channel closed");
-            break;
+        pin_mut!(request);
+        while let Some(next) = request.next().await {
+            let (offset, body) = next
+                .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
+                .map_err(PrefetchReadError::GetRequestFailed)?;
+
+            trace!(offset, length = body.len(), "received GetObject part");
+            metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
+            yield(offset, body);
         }
+        trace!("request finished");
     }
-    Ok(())
 }
 
 #[cfg(test)]
