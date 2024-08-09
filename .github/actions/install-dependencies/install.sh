@@ -8,7 +8,7 @@ if [[ $ENHANCED_GETOPT -ne 4 ]]; then
     exit 1
 fi
 
-LONGOPTS="fuse-version:,with-fio,with-libunwind,with-llvm,dry-run"
+LONGOPTS="fuse-version:,with-fio,with-libunwind,with-llvm,dry-run,run-as-root"
 getopt --quiet-output --long=$LONGOPTS --name "$0" -- "$@"
 if [[ $? -ne 0 ]]; then
     echo "couldn't read arguments" >&2
@@ -19,6 +19,7 @@ dry_run=false
 install_llvm=false
 install_fio=false
 install_libunwind=false
+run_as_root=false
 unset -v fuse_version
 
 while true; do
@@ -41,6 +42,10 @@ while true; do
             ;;
         --with-llvm)
             install_llvm=true
+            shift
+            ;;
+        --run-as-root)
+            run_as_root=true
             shift
             ;;
         --)
@@ -76,6 +81,11 @@ fi
 os_release_id=$(cat /etc/os-release | grep "^ID=" | cut -d '=' -f2 | tr -d '"')
 
 package_list="jq"
+privilege_escalation_cmd="sudo"
+
+if [[ $run_as_root == true ]]; then
+    privilege_escalation_cmd=""
+fi
 
 case "$os_release_id" in
     amzn)
@@ -158,15 +168,15 @@ echo "Package list to install: \"${package_list}\""
 if [[ $dry_run == false ]]; then
     case $os_release_id in
         amzn)
-            sudo yum install -y $package_list
-            type -p yum-config-manager >/dev/null || sudo yum install yum-utils -y
-            sudo yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo -y
-            sudo yum install gh -y
-            sudo yum update gh -y
+            $privilege_escalation_cmd yum install -y $package_list
+            type -p yum-config-manager >/dev/null || $privilege_escalation_cmd yum install yum-utils -y
+            $privilege_escalation_cmd yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo -y
+            $privilege_escalation_cmd yum install gh -y
+            $privilege_escalation_cmd yum update gh -y
             ;;
         ubuntu)
-            sudo apt-get -q update
-            sudo apt-get install -y $package_list
+            $privilege_escalation_cmd apt-get -q update
+            $privilege_escalation_cmd apt-get install -y $package_list
             ;;
         *)
             echo "no distro specific config for $OS_RELEASE_ID" &>2
