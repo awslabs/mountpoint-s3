@@ -61,6 +61,56 @@ pub struct ClientConfig {
 
     /// The region
     region: Option<String>,
+
+    /// List of network interfaces to be used by the client.
+    ///
+    /// The client will determine the logic for balancing requests over the network interfaces
+    /// according to its own logic.
+    network_interface_names: Option<NetworkInterfaceNames>,
+}
+
+/// This struct bundles together the list of owned strings for the network interfaces, and the
+/// cursors pointing to them.
+///
+/// This allows [ClientConfig] to keep the strings backing the cursors allocated until at least
+/// the time of [Client::new] (where the content of the cursors is copied),
+/// and deallocate when [ClientConfig] is dropped.
+#[derive(Debug)]
+struct NetworkInterfaceNames {
+    /// The list of network interface names.
+    ///
+    /// We use a boxed array of strings, as we have no need for a mutable list like [Vec].
+    /// The [String] entries must never be mutated, the cursors point to their underlying memory.
+    _names: Box<[String]>,
+
+    /// List of owned cursors. This will be pointed at by [ClientConfig]'s inner [aws_s3_client_config].
+    cursors: Box<[aws_byte_cursor]>,
+}
+
+impl NetworkInterfaceNames {
+    /// Create a new [NetworkInterfaceNamesInner].
+    pub fn new(names: Vec<String>) -> Self {
+        // Turn this into a read-only representation of the vector of strings.
+        let names = names.into_boxed_slice();
+
+        let cursors = names
+            .iter()
+            .map(|name| {
+                // SAFETY: The names are stored alongside the cursors in NetworkInterfaceNamesInner.
+                //         The lifetime of NetworkInterfaceNamesInner will always meet the lifetime of the cursors.
+                //         We never mutate the String backing these byte cursors once created.
+                unsafe { name.as_aws_byte_cursor() }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Self { _names: names, cursors }
+    }
+
+    /// Immutable slice of interface names as [aws_byte_cursor].
+    pub fn aws_byte_cursors(&self) -> &[aws_byte_cursor] {
+        self.cursors.as_ref()
+    }
 }
 
 impl ClientConfig {
@@ -81,6 +131,19 @@ impl ClientConfig {
         self.region = Some(region.to_owned());
         // SAFETY: `self.inner.region` is not mutated further and lives as long as the `ClientConfig`, which outlives the client
         self.inner.region = unsafe { self.region.as_ref().unwrap().as_aws_byte_cursor() };
+        self
+    }
+
+    /// Replace list of network interface names to be used by S3 clients created with this config.
+    pub fn network_interface_names(&mut self, network_interface_names: Vec<String>) -> &mut Self {
+        let network_interface_names = self
+            .network_interface_names
+            .insert(NetworkInterfaceNames::new(network_interface_names));
+
+        // The cursor array will always outlive the inner config.
+        self.inner.network_interface_names_array = network_interface_names.aws_byte_cursors().as_ptr();
+        self.inner.num_network_interface_names = network_interface_names.aws_byte_cursors().len();
+
         self
     }
 
