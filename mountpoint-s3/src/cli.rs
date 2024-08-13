@@ -465,6 +465,8 @@ where
 
         let _metrics = metrics::install();
 
+        create_pid_file();
+
         // mount file system as a foreground process
         let session = mount(args, client_builder)?;
 
@@ -491,6 +493,8 @@ where
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
+
+                create_pid_file();
 
                 let session = mount(args, client_builder);
 
@@ -591,6 +595,20 @@ where
     }
 
     Ok(())
+}
+
+fn create_pid_file() {
+    // TODO: This shouldn't panic, but probably should still fail the mount.
+    match std::env::var("PID_FILE") {
+        Ok(val) => {
+            let mut file = std::fs::File::create(&val).expect("should probably be able to create PID file");
+            file.write_all(std::process::id().to_string().as_bytes())
+                .expect("writing PID file should succeed on open file");
+            tracing::trace!("File created containing PID at {:?}", &val);
+        }
+        Err(std::env::VarError::NotPresent) => (),
+        Err(_) => panic!("something went wrong with reading PID_FILE from env"),
+    }
 }
 
 /// Create a real S3 client
