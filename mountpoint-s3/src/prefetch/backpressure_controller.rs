@@ -48,6 +48,9 @@ pub struct BackpressureLimiter {
     /// Calling [BackpressureLimiter::wait_for_read_window_increment()] will block current
     /// thread until this value is advanced.
     read_window_end_offset: u64,
+    /// End offset for the request we want to apply backpressure. The request can return
+    /// data up to this offset *exclusively*.
+    request_end_offset: u64,
 }
 
 /// Creates a [BackpressureController] and its related [BackpressureLimiter].
@@ -76,6 +79,7 @@ pub fn new_backpressure_controller(config: BackpressureConfig) -> (BackpressureC
     let limiter = BackpressureLimiter {
         read_window_incrementing_queue,
         read_window_end_offset,
+        request_end_offset: config.request_range.end,
     };
     (controller, limiter)
 }
@@ -171,7 +175,7 @@ impl BackpressureLimiter {
         }
 
         // Reaching here means there is not enough read window, so we block until it is large enough
-        while self.read_window_end_offset <= offset {
+        while self.read_window_end_offset <= offset && self.read_window_end_offset < self.request_end_offset {
             trace!(
                 offset,
                 read_window_offset = self.read_window_end_offset,

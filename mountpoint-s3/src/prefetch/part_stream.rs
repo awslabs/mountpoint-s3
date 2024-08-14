@@ -195,7 +195,7 @@ where
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
         };
-        let (backpressure_controller, backpressure_limiter) = new_backpressure_controller(backpressure_config);
+        let (backpressure_controller, mut backpressure_limiter) = new_backpressure_controller(backpressure_config);
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -205,74 +205,29 @@ where
             .runtime
             .spawn_with_handle(
                 async move {
-                    let mut client_request = ClientRequest {
-                        client: client.clone(),
-                        backpressure_limiter,
-                        config,
+                    let first_read_window_end_offset = config.range.start() + config.initial_read_window_size as u64;
+                    let request_stream = read_from_client_stream(
+                        &mut backpressure_limiter,
+                        &client,
+                        config.bucket,
+                        config.object_id.clone(),
+                        first_read_window_end_offset,
+                        config.range,
+                    );
+
+                    let part_composer = ClientPartComposer {
+                        part_queue_producer,
+                        object_id: config.object_id,
+                        preferred_part_size: config.preferred_part_size,
                     };
-                    client_request.get_from_client(part_queue_producer).await;
+                    let part_composer_future = part_composer.try_compose_parts(request_stream);
+                    part_composer_future.await;
                 }
                 .instrument(span),
             )
             .unwrap();
 
         RequestTask::from_handle(task_handle, range, part_queue, backpressure_controller)
-    }
-}
-
-struct ClientRequest<Client: ObjectClient> {
-    client: Client,
-    backpressure_limiter: BackpressureLimiter,
-    config: RequestTaskConfig,
-}
-
-impl<Client> ClientRequest<Client>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    async fn get_from_client(&mut self, part_queue_producer: PartQueueProducer<Client::ClientError>) {
-        let bucket = &self.config.bucket;
-        let object_id = &self.config.object_id;
-        let first_read_window_end_offset = self.config.range.start() + self.config.initial_read_window_size as u64;
-
-        let part_composer = ClientPartComposer {
-            part_queue_producer,
-            object_id: object_id.clone(),
-            preferred_part_size: self.config.preferred_part_size,
-        };
-
-        // Normally, initial read window size should be very small (~1MB) so that we can serve the first read request as soon as possible,
-        // but right now the CRT only returns data in chunks of part size (default to 8MB) even if initial read window is smaller than that.
-        // This makes time to first byte much higher than expected.
-        //
-        // To workaround this issue, we instead create two requests for the part stream where the first request has the range exactly equal to
-        // the initial read window size to force the CRT to return data immediately, and the second request for the rest of the stream.
-        //
-        // Let's start by issuing the first request with a range trimmed to initial read window offset
-        let first_req_range = self.config.range.trim_end(first_read_window_end_offset);
-        let request_stream = read_from_request(
-            &mut self.backpressure_limiter,
-            self.client.clone(),
-            bucket.clone(),
-            object_id.clone(),
-            first_req_range.into(),
-        );
-        part_composer.try_compose_parts(request_stream).await;
-
-        // After the first request is completed we will create the second request for the rest of the stream,
-        // but only if there is something left to be fetched.
-        let range = self.config.range.trim_start(first_read_window_end_offset);
-        if range.is_empty() {
-            return;
-        }
-        let request_stream = read_from_request(
-            &mut self.backpressure_limiter,
-            self.client.clone(),
-            bucket.clone(),
-            object_id.clone(),
-            range.into(),
-        );
-        part_composer.try_compose_parts(request_stream).await;
     }
 }
 
@@ -319,11 +274,62 @@ impl<E: std::error::Error + Send + Sync> ClientPartComposer<E> {
     }
 }
 
+/// Creates a request stream with a given range. The stream will be served from two `GetObject` requests where the first request serves
+/// data up to `first_read_window_end_offset` and the second request serves the rest of the stream.
+/// A [PrefetchReadError] is returned when the request cannot be completed.
+///
+/// This is a workaround for a specific issue where initial read window size could be very small (~1MB), but the CRT only returns data
+/// in chunks of part size (default to 8MB) even if initial read window is smaller than that, which make time to first byte much higher
+/// than expected.
+pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
+    backpressure_limiter: &'a mut BackpressureLimiter,
+    client: &'a Client,
+    bucket: String,
+    object_id: ObjectId,
+    first_read_window_end_offset: u64,
+    range: RequestRange,
+) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
+    try_stream! {
+        // Let's start by issuing the first request with a range trimmed to initial read window offset
+        let first_req_range = range.trim_end(first_read_window_end_offset);
+        if !first_req_range.is_empty() {
+            let first_request_stream = read_from_request(
+                backpressure_limiter,
+                client,
+                bucket.clone(),
+                object_id.clone(),
+                first_req_range.into(),
+            );
+            pin_mut!(first_request_stream);
+            while let Some(next) = first_request_stream.next().await {
+                yield(next?);
+            }
+        }
+
+        // After the first request is completed we will create the second request for the rest of the stream,
+        // but only if there is something left to be fetched.
+        let range = range.trim_start(first_read_window_end_offset);
+        if !range.is_empty() {
+            let request_stream = read_from_request(
+                backpressure_limiter,
+                client,
+                bucket.clone(),
+                object_id.clone(),
+                range.into(),
+            );
+            pin_mut!(request_stream);
+            while let Some(next) = request_stream.next().await {
+                yield(next?);
+            }
+        }
+    }
+}
+
 /// Creates a `GetObject` request with the specified range and sends received body parts to the stream.
 /// A [PrefetchReadError] is returned when the request cannot be completed.
-pub fn read_from_request<'a, Client: ObjectClient + 'a>(
+fn read_from_request<'a, Client: ObjectClient + 'a>(
     backpressure_limiter: &'a mut BackpressureLimiter,
-    client: Client,
+    client: &'a Client,
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,

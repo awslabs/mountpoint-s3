@@ -171,7 +171,7 @@ impl Default for PrefetcherConfig {
             // making a guess about where the optimal cut-off point is before it would be faster to
             // just start a new request instead.
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
-            max_backward_seek_distance: 1024 * 1024,
+            max_backward_seek_distance: 1 * 1024 * 1024,
         }
     }
 }

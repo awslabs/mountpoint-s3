@@ -21,6 +21,12 @@ impl InMemoryDataCache {
             block_size,
         }
     }
+
+    /// Get number of caching blocks for the given cache key.
+    pub fn block_count(&self, cache_key: &ObjectId) -> usize {
+        let data = self.data.read().unwrap();
+        data.get(cache_key).map_or(0, |cache| cache.len())
+    }
 }
 
 impl DataCache for InMemoryDataCache {
