@@ -269,8 +269,13 @@ impl Superblock {
         logging::record_name(inode.name());
         let mut sync = inode.get_mut_inode_state()?;
 
+        // If the inode is remote, we would typically throw an error here, but instead we
+        // silently fail and return the current stat. This allows programs like `wget` to
+        // continue working.
         if sync.write_status == WriteStatus::Remote {
-            return Err(InodeError::SetAttrNotPermittedOnRemoteInode(inode.err()));
+            let stat = sync.stat.clone();
+            drop(sync);
+            return Ok(LookedUp { inode, stat });
         }
 
         let validity = match inode.kind() {
@@ -2887,11 +2892,11 @@ mod tests {
         // Invoke [finish_writing] to make the file remote
         writehandle.finish().unwrap();
 
-        // Should get an error back when calling setattr
+        // Should not get an error back when calling setattr now that we've patched the code to allow this.
         let result = superblock
             .setattr(&client, new_inode.inode.ino(), Some(atime), Some(mtime))
             .await;
-        assert!(matches!(result, Err(InodeError::SetAttrNotPermittedOnRemoteInode(_))));
+        assert!(matches!(result, Ok(_)));
     }
 
     #[tokio::test]
