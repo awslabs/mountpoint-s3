@@ -79,8 +79,15 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
             subprocess_args.append(f"--maximum-throughput-gbps={network['maximum_throughput_gbps']}")
 
     log.info(f"Mounting S3 bucket {bucket} using the following command: %s", " ".join(subprocess_args))
-    output = subprocess.check_output(subprocess_args)
+    output = subprocess.check_output(subprocess_args, env={"PID_FILE": "mount-s3.pid"})
     log.info("From Mountpoint: %s", output.decode("utf-8").strip())
+
+    with open("mount-s3.pid") as pid_file:
+        pid = pid_file.read().rstrip()
+    log.debug("Mountpoint PID: %s", pid)
+
+    if cfg['wait_for_profiler_attach']:
+        input("Press Enter once profiler is attached...")
 
     return mountpoint_version_output
 
