@@ -10,10 +10,11 @@ use tracing::{debug_span, trace, warn, Instrument};
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
 use crate::prefetch::part::Part;
 use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
 use crate::prefetch::part_stream::{
-    read_from_request, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
+    read_from_client_stream, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
 };
 use crate::prefetch::task::RequestTask;
 use crate::prefetch::PrefetchReadError;
@@ -48,30 +49,35 @@ where
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let range = config.range.align(self.cache.block_size(), false);
+        let range = config.range;
 
-        let start = range.start();
-        let size = range.len();
-
+        let backpressure_config = BackpressureConfig {
+            initial_read_window_size: config.initial_read_window_size,
+            max_read_window_size: config.max_read_window_size,
+            read_window_size_multiplier: config.read_window_size_multiplier,
+            request_range: range.into(),
+        };
+        let (backpressure_controller, backpressure_limiter) = new_backpressure_controller(backpressure_config);
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
         let request_task = {
-            let request = CachingRequest::new(client.clone(), self.cache.clone(), config);
+            let request = CachingRequest::new(client.clone(), self.cache.clone(), backpressure_limiter, config);
             let span = debug_span!("prefetch", ?range);
             request.get_from_cache(range, part_queue_producer).instrument(span)
         };
 
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
 
-        RequestTask::from_handle(task_handle, size, start, part_queue)
+        RequestTask::from_handle(task_handle, range, part_queue, backpressure_controller)
     }
 }
 
 #[derive(Debug)]
-struct CachingRequest<Client: ObjectClient + Clone, Cache> {
+struct CachingRequest<Client: ObjectClient, Cache> {
     client: Client,
     cache: Arc<Cache>,
+    backpressure_limiter: BackpressureLimiter,
     config: RequestTaskConfig,
 }
 
@@ -80,11 +86,37 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Cache: DataCache + Send + Sync,
 {
-    fn new(client: Client, cache: Arc<Cache>, config: RequestTaskConfig) -> Self {
-        Self { client, cache, config }
+    fn new(
+        client: Client,
+        cache: Arc<Cache>,
+        backpressure_limiter: BackpressureLimiter,
+        config: RequestTaskConfig,
+    ) -> Self {
+        Self {
+            client,
+            cache,
+            backpressure_limiter,
+            config,
+        }
     }
 
-    async fn get_from_cache(self, range: RequestRange, part_queue_producer: PartQueueProducer<Client::ClientError>) {
+    // We have changed how often this method is being called after backpressure is used.
+    // Before, every time the prefetcher asked for more data and a new RequestTask is
+    // spawned, we would first check the cache and fall back to the client at the first
+    // cache miss.
+    // Now new RequestTasks are only spawned on out-of-order reads, while sequential data
+    // is requested via backpressure. This means that a fully sequential read will switch
+    // entirely to the client after a single cache miss.
+    //
+    // In theory, that could mean more requests to S3, but in practice the previous behavior
+    // would only be better when we have data cache scattered across the ranges and the new
+    // RequestTasks must happen to start somewhere in one of those ranges to benefit from
+    // the cache. This change should only affect sequential read workloads.
+    async fn get_from_cache(
+        mut self,
+        range: RequestRange,
+        part_queue_producer: PartQueueProducer<Client::ClientError>,
+    ) {
         let cache_key = &self.config.object_id;
         let block_size = self.cache.block_size();
         let block_range = self.block_indices_for_byte_range(&range);
@@ -99,9 +131,19 @@ where
             match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
-                    let part = make_part(block, block_index, block_offset, block_size, cache_key, &range);
+                    // Cache blocks always contain bytes in the request range
+                    let part = try_make_part(&block, block_offset, cache_key, &range).unwrap();
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
+
+                    if let Err(e) = self
+                        .backpressure_limiter
+                        .wait_for_read_window_increment(block_offset)
+                        .await
+                    {
+                        part_queue_producer.push(Err(e));
+                        break;
+                    }
                     continue;
                 }
                 Ok(None) => trace!(?cache_key, block_index, ?range, "cache miss - no data for block"),
@@ -129,25 +171,37 @@ where
     }
 
     async fn get_from_client(
-        &self,
+        &mut self,
         range: RequestRange,
         block_range: Range<u64>,
         part_queue_producer: PartQueueProducer<Client::ClientError>,
     ) {
         let bucket = &self.config.bucket;
         let cache_key = &self.config.object_id;
+        let first_read_window_end_offset = self.config.range.start() + self.config.initial_read_window_size as u64;
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
         // Always request a range aligned with block boundaries (or to the end of the object).
-        let block_aligned_byte_range =
-            (block_range.start * block_size)..(block_range.end * block_size).min(range.object_size() as u64);
+        let start_offset = block_range.start * block_size;
+        let end_offset = (block_range.end * block_size).min(range.object_size() as u64);
+        let request_len = (end_offset - start_offset) as usize;
+        let block_aligned_byte_range = RequestRange::new(range.object_size(), start_offset, request_len);
 
         trace!(
             key = cache_key.key(),
             range =? block_aligned_byte_range,
             original_range =? range,
             "fetching data from client"
+        );
+
+        let request_stream = read_from_client_stream(
+            &mut self.backpressure_limiter,
+            &self.client,
+            bucket.clone(),
+            cache_key.clone(),
+            first_read_window_end_offset,
+            block_aligned_byte_range,
         );
 
         let mut part_composer = CachingPartComposer {
@@ -159,13 +213,6 @@ where
             buffer: ChecksummedBytes::default(),
             cache: self.cache.clone(),
         };
-
-        let request_stream = read_from_request(
-            self.client.clone(),
-            bucket.clone(),
-            cache_key.clone(),
-            block_aligned_byte_range,
-        );
         part_composer.try_compose_parts(request_stream).await;
     }
 
@@ -229,11 +276,29 @@ where
 
             // Split the body into blocks.
             let mut body: Bytes = body.into();
+            let mut offset = offset;
             while !body.is_empty() {
                 let remaining = (block_size as usize).saturating_sub(self.buffer.len()).min(body.len());
-                let chunk = body.split_to(remaining);
+                let chunk: ChecksummedBytes = body.split_to(remaining).into();
+
+                // We need to return some bytes to the part queue even before we can fill an entire caching block because
+                // we want to start the feedback loop for the flow-control window.
+                //
+                // This is because the read window may not be aligned to block boundaries and therefore not enough to fetch
+                // the entire block, but we know it always fetch enough data for the prefetcher to start reading.
+                // For example, consider that we got a file system read request with range 2MB to 4MB and we have to start
+                // reading from block_offset=0 and block_size=5MB. The first read window might have a range up to 4MB which
+                // is enough to serve the read request but if the prefetcher is not able to read anything it cannot tell
+                // the stream to move its read window.
+                //
+                // A side effect from this is the delay on cache updating which makes testing a bit more complicated because
+                // the cache is not updated synchronously.
+                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range) {
+                    self.part_queue_producer.push(Ok(part));
+                }
+                offset += chunk.len() as u64;
                 self.buffer
-                    .extend(chunk.into())
+                    .extend(chunk)
                     .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;
                 if self.buffer.len() < block_size as usize {
                     break;
@@ -247,14 +312,6 @@ where
                     self.block_offset,
                     &self.cache_key,
                 );
-                self.part_queue_producer.push(Ok(make_part(
-                    self.buffer.clone(),
-                    self.block_index,
-                    self.block_offset,
-                    block_size,
-                    &self.cache_key,
-                    &self.original_range,
-                )));
                 self.block_index += 1;
                 self.block_offset += block_size;
                 self.buffer = ChecksummedBytes::default();
@@ -277,16 +334,7 @@ where
                 self.block_offset,
                 &self.cache_key,
             );
-            self.part_queue_producer.push(Ok(make_part(
-                self.buffer.clone(),
-                self.block_index,
-                self.block_offset,
-                block_size,
-                &self.cache_key,
-                &self.original_range,
-            )));
         }
-
         Ok(())
     }
 }
@@ -309,41 +357,29 @@ fn update_cache<Cache: DataCache + Send + Sync>(
     metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
 }
 
-/// Creates a Part that can be streamed to the prefetcher from the given cache block.
-/// If required, trims the block bytes to the request range.
-fn make_part(
-    block: ChecksummedBytes,
-    block_index: u64,
-    block_offset: u64,
-    block_size: u64,
-    cache_key: &ObjectId,
-    range: &RequestRange,
-) -> Part {
-    assert_eq!(block_offset, block_index * block_size, "invalid block offset");
-
-    let block_size = block.len();
-    let part_range = range
-        .trim_start(block_offset)
-        .trim_end(block_offset + block_size as u64);
-    trace!(
-        ?cache_key,
-        block_index,
-        ?part_range,
-        block_offset,
-        block_size,
-        "creating part from block data",
-    );
-
-    let trim_start = (part_range.start().saturating_sub(block_offset)) as usize;
-    let trim_end = (part_range.end().saturating_sub(block_offset)) as usize;
-    let bytes = block.slice(trim_start..trim_end);
-    Part::new(cache_key.clone(), part_range.start(), bytes)
+/// Creates a Part that can be streamed to the prefetcher if the given bytes
+/// are in the request range, otherwise return None.
+fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, range: &RequestRange) -> Option<Part> {
+    let part_range = range.trim_start(offset).trim_end(offset + bytes.len() as u64);
+    if part_range.is_empty() {
+        return None;
+    }
+    trace!(?part_range, "creating part trimmed to the request range");
+    let trim_start = (part_range.start().saturating_sub(offset)) as usize;
+    let trim_end = (part_range.end().saturating_sub(offset)) as usize;
+    Some(Part::new(
+        object_id.clone(),
+        part_range.start(),
+        bytes.slice(trim_start..trim_end),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
+
+    use std::{thread, time::Duration};
 
     use futures::executor::{block_on, ThreadPool};
     use mountpoint_s3_client::{
@@ -352,7 +388,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::data_cache::InMemoryDataCache;
+    use crate::{data_cache::InMemoryDataCache, object::ObjectId};
 
     use super::*;
 
@@ -378,11 +414,18 @@ mod tests {
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let id = ObjectId::new(key.to_owned(), object.etag());
 
+        // backpressure config
+        let initial_read_window_size = 1 * MB;
+        let max_read_window_size = 64 * MB;
+        let read_window_size_multiplier = 2;
+
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
         let config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: client_part_size,
+            enable_backpressure: true,
+            initial_read_window_size,
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
@@ -391,6 +434,8 @@ mod tests {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let stream = CachingPartStream::new(runtime, cache);
         let range = RequestRange::new(object_size, offset as u64, preferred_size);
+        let expected_start_block = (range.start() as usize).div_euclid(block_size);
+        let expected_end_block = (range.end() as usize).div_ceil(block_size);
 
         let first_read_count = {
             // First request (from client)
@@ -399,13 +444,23 @@ mod tests {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
-                preferred_part_size: 0,
+                preferred_part_size: 256 * KB,
+                initial_read_window_size,
+                max_read_window_size,
+                read_window_size_multiplier,
             };
             let request_task = stream.spawn_get_object_request(&mock_client, config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
         assert!(first_read_count > 0);
+
+        // Wait until all blocks are saved to the cache before spawning a new request
+        let expected_block_count = expected_end_block - expected_start_block;
+        while stream.cache.block_count(&id) < expected_block_count {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(expected_block_count, stream.cache.block_count(&id));
 
         let second_read_count = {
             // Second request (from cache)
@@ -414,7 +469,10 @@ mod tests {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
-                preferred_part_size: 0,
+                preferred_part_size: 256 * KB,
+                initial_read_window_size,
+                max_read_window_size,
+                read_window_size_multiplier,
             };
             let request_task = stream.spawn_get_object_request(&mock_client, config);
             compare_read(&id, &object, request_task);
@@ -434,11 +492,18 @@ mod tests {
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let id = ObjectId::new(key.to_owned(), object.etag());
 
+        // backpressure config
+        let initial_read_window_size = 1 * MB;
+        let max_read_window_size = 64 * MB;
+        let read_window_size_multiplier = 2;
+
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
         let config = MockClientConfig {
             bucket: bucket.to_string(),
             part_size: client_part_size,
+            enable_backpressure: true,
+            initial_read_window_size,
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
@@ -453,7 +518,10 @@ mod tests {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
-                    preferred_part_size: 0,
+                    preferred_part_size: 256 * KB,
+                    initial_read_window_size,
+                    max_read_window_size,
+                    read_window_size_multiplier,
                 };
                 let request_task = stream.spawn_get_object_request(&mock_client, config);
                 compare_read(&id, &object, request_task);
