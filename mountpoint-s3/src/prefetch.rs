@@ -806,15 +806,14 @@ mod tests {
         };
 
         let mut get_failures = HashMap::new();
-        // We only have one request with backpressure, so we are going to inject the failure at
-        // 2nd read from that request stream.
-        get_failures.insert(1, Ok((2, MockClientError(err_value.to_owned().into()))));
+        get_failures.insert(
+            2,
+            Err(ObjectClientError::ClientError(MockClientError(
+                err_value.to_owned().into(),
+            ))),
+        );
 
-        // Object needs to be bigger than a part size in order to trigger the failure
-        // because the CRT data returns in chunks of part size.
-        let object_size = config.client_part_size + 111;
-
-        fail_sequential_read_test(part_stream, object_size as u64, 1024 * 1024, config, get_failures);
+        fail_sequential_read_test(part_stream, 1024 * 1024 + 111, 1024 * 1024, config, get_failures);
     }
 
     proptest! {

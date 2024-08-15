@@ -336,7 +336,7 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         let request = client
-            .get_object(&bucket, id.key(), Some(request_range), Some(id.etag().clone()))
+            .get_object(&bucket, id.key(), Some(request_range.clone()), Some(id.etag().clone()))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(PrefetchReadError::GetRequestFailed)?;
@@ -357,8 +357,12 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
             yield(offset, body);
 
-            // Blocks if read window increment if it's not enough to read the next offset
             let next_offset = offset + length;
+            // We are reaching the end so don't have to wait for more read window
+            if next_offset == request_range.end {
+                break;
+            }
+            // Blocks if read window increment if it's not enough to read the next offset
             if let Some(next_read_window_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
                 let diff = next_read_window_offset.saturating_sub(request.as_ref().read_window_end_offset()) as usize;
                 request.as_mut().increment_read_window(diff);

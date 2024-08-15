@@ -112,7 +112,7 @@ impl BackpressureController {
                         to_increase,
                         "incrementing read window"
                     );
-                    self.increment_read_window(to_increase).await?;
+                    self.increment_read_window(to_increase).await;
                     self.read_window_end_offset = new_read_window_end_offset;
                 }
             }
@@ -122,12 +122,13 @@ impl BackpressureController {
     }
 
     // Send an increment read window request to the stream producer
-    async fn increment_read_window<E>(&self, len: usize) -> Result<(), PrefetchReadError<E>> {
+    async fn increment_read_window(&self, len: usize) {
         // This should not block since the channel is unbounded
-        self.read_window_updater
+        let _ = self
+            .read_window_updater
             .send(len)
             .await
-            .map_err(|_| PrefetchReadError::ReadWindowIncrement)
+            .inspect_err(|_| trace!("read window incrementing queue is already closed"));
     }
 
     fn remaining_window(&self) -> usize {
