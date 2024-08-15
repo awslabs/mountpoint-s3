@@ -220,8 +220,7 @@ where
                         object_id: config.object_id,
                         preferred_part_size: config.preferred_part_size,
                     };
-                    let part_composer_future = part_composer.try_compose_parts(request_stream);
-                    part_composer_future.await;
+                    part_composer.try_compose_parts(request_stream).await;
                 }
                 .instrument(span),
             )

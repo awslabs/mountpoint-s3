@@ -131,7 +131,8 @@ where
             match self.cache.get_block(cache_key, block_index, block_offset) {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
-                    let part = make_part(block, block_index, block_offset, block_size, cache_key, &range);
+                    // Cache blocks always contain bytes in the request range
+                    let part = try_make_part(&block, block_offset, cache_key, &range).unwrap();
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
 
@@ -182,11 +183,10 @@ where
         assert!(block_size > 0);
 
         // Always request a range aligned with block boundaries (or to the end of the object).
-        let block_aligned_byte_range =
-            (block_range.start * block_size)..(block_range.end * block_size).min(range.object_size() as u64);
-        let request_len = (block_aligned_byte_range.end - block_aligned_byte_range.start) as usize;
-        let block_aligned_byte_range =
-            RequestRange::new(range.object_size(), block_aligned_byte_range.start, request_len);
+        let start_offset = block_range.start * block_size;
+        let end_offset = (block_range.end * block_size).min(range.object_size() as u64);
+        let request_len = (end_offset - start_offset) as usize;
+        let block_aligned_byte_range = RequestRange::new(range.object_size(), start_offset, request_len);
 
         trace!(
             key = cache_key.key(),
@@ -213,9 +213,7 @@ where
             buffer: ChecksummedBytes::default(),
             cache: self.cache.clone(),
         };
-        let part_composer_future = part_composer.try_compose_parts(request_stream);
-        part_composer_future.await;
-        part_composer.flush();
+        part_composer.try_compose_parts(request_stream).await;
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -319,19 +317,10 @@ where
                 self.buffer = ChecksummedBytes::default();
             }
         }
-        Ok(())
-    }
 
-    /// Flush remaining data in the buffer to the cache. This can be called to write the last
-    /// block for the object.
-    fn flush(self) {
-        let block_size = self.cache.block_size();
         if !self.buffer.is_empty() {
-            assert!(
-                self.buffer.len() < block_size as usize,
-                "buffer should be flushed when we get a full block"
-            );
-            // The last block for the object can be smaller than block_size (and ends at the end of the object).
+            // If we still have data in the buffer, this must be the last block for this object,
+            // which can be smaller than block_size (and ends at the end of the object).
             assert_eq!(
                 self.block_offset as usize + self.buffer.len(),
                 self.original_range.object_size(),
@@ -346,6 +335,7 @@ where
                 &self.cache_key,
             );
         }
+        Ok(())
     }
 }
 
@@ -382,28 +372,6 @@ fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, ra
         part_range.start(),
         bytes.slice(trim_start..trim_end),
     ))
-}
-
-/// Creates a Part that can be streamed to the prefetcher from the given cache block.
-/// If required, trims the block bytes to the request range.
-fn make_part(
-    block: ChecksummedBytes,
-    block_index: u64,
-    block_offset: u64,
-    block_size: u64,
-    cache_key: &ObjectId,
-    range: &RequestRange,
-) -> Part {
-    assert_eq!(block_offset, block_index * block_size, "invalid block offset");
-    trace!(
-        ?cache_key,
-        block_index,
-        block_offset,
-        block_size,
-        "creating part from block data",
-    );
-    // Cache blocks always contain bytes in the request range
-    try_make_part(&block, block_offset, cache_key, range).unwrap()
 }
 
 #[cfg(test)]
