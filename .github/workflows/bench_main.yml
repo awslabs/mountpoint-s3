@@ -17,11 +17,11 @@ jobs:
     with:
       ref: ${{ github.event.after }}
       publish: ${{ github.event.ref == 'refs/heads/main' }}
-      s3_bench_results_prefix: ${{ github.event_name == 'schedule' && 'results/main' || null }}
+      s3_bench_results_prefix: ${{ github.event_name == 'schedule' && 'results/main/s3_standard' || null }}
   s3express-integration:
     name: Benchmarks (s3express)
     uses: ./.github/workflows/bench_s3express.yml
     with:
       ref: ${{ github.event.after }}
       publish: ${{ github.event.ref == 'refs/heads/main' }}
-      s3_bench_results_prefix: ${{ github.event_name == 'schedule' && 'results/main' || null }}
+      s3_bench_results_prefix: ${{ github.event_name == 'schedule' && 'results/main/s3_express' || null }}
