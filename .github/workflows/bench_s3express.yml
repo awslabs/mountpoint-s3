@@ -13,6 +13,8 @@ on:
       ref:
         required: true
         type: string
+      s3_bench_results_prefix:
+        type: string
 
 env:
   RUST_BACKTRACE: 1
@@ -69,7 +71,14 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
-  
+    - name: Save benchmark results in S3
+      if: inputs.s3_bench_results_prefix
+      run: .github/actions/scripts/save-benchmark-results.sh
+      env:
+        S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_BUCKET_NAME }}
+        S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
+
   latency-bench:
     name: Benchmark (Latency)
     runs-on: [self-hosted, linux, x64, nvme-high-performance]
@@ -115,3 +124,10 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
+    - name: Save benchmark results in S3
+      if: inputs.s3_bench_results_prefix
+      run: .github/actions/scripts/save-benchmark-results.sh
+      env:
+        S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_BUCKET_NAME }}
+        S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
