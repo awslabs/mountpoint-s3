@@ -45,21 +45,18 @@ pub struct DiskDataCacheConfig {
     pub limit: CacheLimit,
 }
 
-impl Default for DiskDataCacheConfig {
-    fn default() -> Self {
-        Self {
-            block_size: 1024 * 1024,                               // 1 MiB block size
-            limit: CacheLimit::AvailableSpace { min_ratio: 0.05 }, // Preserve 5% available space
-        }
-    }
-}
-
 /// Limit the cache size.
 #[derive(Debug)]
 pub enum CacheLimit {
     Unbounded,
     TotalSize { max_size: usize },
     AvailableSpace { min_ratio: f64 },
+}
+
+impl Default for CacheLimit {
+    fn default() -> Self {
+        CacheLimit::AvailableSpace { min_ratio: 0.05 } // Preserve 5% available space
+    }
 }
 
 /// Describes additional information about the data stored in the block.

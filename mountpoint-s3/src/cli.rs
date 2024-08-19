@@ -282,6 +282,16 @@ pub struct CliArgs {
     )]
     pub max_cache_size: Option<u64>,
 
+    #[cfg(feature = "block_size")]
+    #[clap(
+        long,
+        help = "Size of a cache block in KiB [Default: 1024 (1 MiB)]",
+        help_heading = CACHING_OPTIONS_HEADER,
+        value_name = "KiB",
+        requires = "cache"
+    )]
+    pub cache_block_size: Option<u64>,
+
     #[clap(
         long,
         help = "Configure a string to be prepended to the 'User-Agent' HTTP request header for all S3 requests",
@@ -382,6 +392,14 @@ impl CliArgs {
 
     fn prefix(&self) -> Prefix {
         self.prefix.as_ref().cloned().unwrap_or_default()
+    }
+
+    fn cache_block_size_in_bytes(&self) -> u64 {
+        #[cfg(feature = "block_size")]
+        if let Some(kib) = self.cache_block_size {
+            return kib * 1024;
+        }
+        1024 * 1024 // 1 MiB default block size
     }
 
     fn logging_config(&self) -> LoggingConfig {
@@ -728,11 +746,11 @@ where
     if let Some(file_mode) = args.file_mode {
         filesystem_config.file_mode = file_mode;
     }
-    filesystem_config.storage_class = args.storage_class;
+    filesystem_config.storage_class = args.storage_class.clone();
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality = s3_personality;
-    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse, args.sse_kms_key_id);
+    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
 
     // Written in this awkward way to force us to update it if we add new checksum types
     filesystem_config.use_upload_checksums = match args.upload_checksums {
@@ -771,20 +789,20 @@ where
     tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
 
-    if let Some(path) = args.cache {
-        let cache_config = match args.max_cache_size {
+    if let Some(path) = &args.cache {
+        let cache_limit = match args.max_cache_size {
             // Fallback to no data cache.
             Some(0) => None,
-            Some(max_size_in_mib) => Some(DiskDataCacheConfig {
-                limit: CacheLimit::TotalSize {
-                    max_size: (max_size_in_mib * 1024 * 1024) as usize,
-                },
-                ..Default::default()
+            Some(max_size_in_mib) => Some(CacheLimit::TotalSize {
+                max_size: (max_size_in_mib * 1024 * 1024) as usize,
             }),
-            None => Some(DiskDataCacheConfig::default()),
+            None => Some(CacheLimit::default()),
         };
-
-        if let Some(cache_config) = cache_config {
+        if let Some(cache_limit) = cache_limit {
+            let cache_config = DiskDataCacheConfig {
+                block_size: args.cache_block_size_in_bytes(),
+                limit: cache_limit,
+            };
             let cache_key = env_unstable_cache_key();
             let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(path, cache_key)
                 .context("failed to create cache directory")?;
