@@ -76,7 +76,7 @@ jobs:
       run: .github/actions/scripts/save-benchmark-results.sh
       env:
         S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
-        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_BUCKET_NAME }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
 
   latency-bench:
@@ -129,5 +129,5 @@ jobs:
       run: .github/actions/scripts/save-benchmark-results.sh
       env:
         S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
-        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_BUCKET_NAME }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
