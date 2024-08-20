@@ -248,11 +248,20 @@ pub struct CliArgs {
     #[clap(long, help = "Enable debug logging for AWS Common Runtime", help_heading = LOGGING_OPTIONS_HEADER)]
     pub debug_crt: bool,
 
+    #[cfg(feature = "event_log")]
+    #[clap(
+        long,
+        help = "Write structured event log files to a directory (can be the same as --log-directory)",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "DIRECTORY",
+    )]
+    pub event_log_directory: Option<PathBuf>,
+
     #[clap(
         long,
         help = "Disable all logging. You will still see stdout messages.",
         help_heading = LOGGING_OPTIONS_HEADER,
-        conflicts_with_all(["log_directory", "debug", "debug_crt", "log_metrics"])
+        conflicts_with_all(NO_LOG_CONFLICTS_WITH),
     )]
     pub no_log: bool,
 
@@ -325,6 +334,17 @@ pub struct CliArgs {
     pub bind: Option<Vec<String>>,
 }
 
+#[cfg(feature = "event_log")]
+const NO_LOG_CONFLICTS_WITH: [&str; 5] = [
+    "log_directory",
+    "debug",
+    "debug_crt",
+    "log_metrics",
+    "event_log_directory",
+];
+#[cfg(not(feature = "event_log"))]
+const NO_LOG_CONFLICTS_WITH: [&str; 4] = ["log_directory", "debug", "debug_crt", "log_metrics"];
+
 #[derive(Debug, Clone)]
 pub enum BucketType {
     GeneralPurpose,
@@ -385,7 +405,7 @@ impl CliArgs {
         self.prefix.as_ref().cloned().unwrap_or_default()
     }
 
-    fn logging_config(&self) -> LoggingConfig {
+    fn logging_config(&self, _is_fork_parent: bool) -> LoggingConfig {
         let default_filter = if self.no_log {
             String::from("off")
         } else {
@@ -406,7 +426,22 @@ impl CliArgs {
             log_directory: self.log_directory.clone(),
             log_to_stdout: self.foreground,
             default_filter,
+            event_log_directory: self.get_event_log_directory(_is_fork_parent).map(Path::to_path_buf),
         }
+    }
+
+    fn get_event_log_directory(&self, _is_fork_parent: bool) -> Option<&Path> {
+        let _event_log_directory: Option<&Path> = None;
+        #[cfg(feature = "event_log")]
+        // We don't log events from the parent process, as, at least for now, all of them are coming from the child.
+        // If in future we wanted to log events from the parent process, we should consider creating a separate log
+        // file for the parent process to avoid non-synchronized writes to a single file.
+        let _event_log_directory = if _is_fork_parent {
+            None
+        } else {
+            self.event_log_directory.as_deref()
+        };
+        _event_log_directory
     }
 
     /// Human-readable description of the bucket being mounted
@@ -462,7 +497,7 @@ where
     );
 
     if args.foreground {
-        init_logging(args.logging_config()).context("failed to initialize logging")?;
+        init_logging(args.logging_config(false)).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -489,7 +524,7 @@ where
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(args.logging_config(false)).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -534,7 +569,7 @@ where
             ForkResult::Parent { child } => {
                 let args = CliArgs::parse();
 
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(args.logging_config(true)).context("failed to initialize logging")?;
                 // close unused file descriptor, we only read from this end.
                 nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
 

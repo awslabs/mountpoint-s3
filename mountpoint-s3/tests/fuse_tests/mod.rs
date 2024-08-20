@@ -1,4 +1,6 @@
 mod consistency_test;
+#[cfg(all(feature = "event_log", feature = "s3_tests"))]
+mod event_log_test;
 mod fork_test;
 mod lookup_test;
 mod mkdir_test;
