@@ -1,10 +1,10 @@
-use crate::common::fuse::read_dir_to_entry_names;
-use crate::common::mount::{mount_exists, unmount, wait_for_exit};
-use crate::common::s3::{create_objects, get_test_bucket_and_prefix, get_test_region};
-#[cfg(not(feature = "s3express_tests"))]
-use crate::common::s3::deny_single_object_access_policy;
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::creds::get_scoped_down_credentials;
+use crate::common::fuse::read_dir_to_entry_names;
+use crate::common::mount::{mount_exists, unmount, wait_for_exit};
+#[cfg(not(feature = "s3express_tests"))]
+use crate::common::s3::deny_single_object_access_policy;
+use crate::common::s3::{create_objects, get_test_bucket_and_prefix, get_test_region};
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::tokio_block_on;
 use assert_cmd::prelude::*;
