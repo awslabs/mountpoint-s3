@@ -17,6 +17,8 @@ jobs:
     with:
       environment: PR benchmarks
       ref: ${{ github.event.pull_request.head.sha }}
+      # store results with prefix defined by PR id (github.event.number)
+      s3_bench_results_prefix: ${{ github.event_name == 'pull_request_target' && format('results/{0}/s3_standard', github.event.number) || null }}
   s3express-integration:
     name: Benchmarks (s3express)
     uses: ./.github/workflows/bench_s3express.yml
@@ -24,3 +26,5 @@ jobs:
     with:
       environment: PR benchmarks
       ref: ${{ github.event.pull_request.head.sha }}
+      # store results with prefix defined by PR id (github.event.number)
+      s3_bench_results_prefix: ${{ github.event_name == 'pull_request_target' && format('results/{0}/s3_express', github.event.number) || null }}
