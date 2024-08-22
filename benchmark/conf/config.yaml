@@ -26,6 +26,8 @@ mountpoint_debug_crt: false
 # For S3 implementations not supporting additional checksums. Passed as `--upload-checksums` argument.
 upload_checksums: !!null
 
+iterations: 1
+
 hydra:
   help:
     app_name: "Mountpoint sequential read experiment runner"
