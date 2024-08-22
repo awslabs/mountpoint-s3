@@ -309,6 +309,19 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
         // but only if there is something left to be fetched.
         let range = range.trim_start(first_read_window_end_offset);
         if !range.is_empty() {
+            // To optimize random reads we don't start the second request until half of the first one was read as the second
+            // request may not be needed. After increment threshold is reached `backpressure_limiter` will receive a diff to
+            // add to the window. This diff will be the initial read window size of the second request and we use it as
+            // a signal to start the request. This is how it looks when the start offset is 1000 KiB and caching is not
+            // enabled (i.e. 1st request size is 1152 KiB):
+            //
+            //  KiB: 1000             1576             2152                             3304                    10 000
+            //       |________________|________________|________________________________|________  ...  ________|
+            //   1st req start  increment threshold   2d req start             2d req window end      2d req end (object size)
+            //                                        1st req end
+            //                                        1st req window end
+            backpressure_limiter.wait_for_read_window_increment(range.start()).await?;
+
             let request_stream = read_from_request(
                 backpressure_limiter,
                 client,
