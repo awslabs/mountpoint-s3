@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1724168266939,
+  "lastUpdate": 1724332832107,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b4e11b8e4046eee141fc70ab60778dbf15db3ab2",
-          "message": "Rename docs_rs config condition to docsrs (#956)\n\nThis change is made to avoid config condition errors now that check config is run by default in Rust 1.80+.\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-07-29T16:00:51Z",
-          "tree_id": "98a756cb7c33601e8f88e6dcb2926b00b72a285e",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b4e11b8e4046eee141fc70ab60778dbf15db3ab2"
-        },
-        "date": 1722270338481,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.065,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.138,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.871,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.325,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 59.1316048,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 61.8694044,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 60.750547700000006,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "2cb9c72e747097c32c0ed34a7d18ebabdf26871b",
+          "message": "Start second request only if required (#984)\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2024-08-22T12:53:50Z",
+          "tree_id": "5ab8ff6340712fa17310471bb6a29568c70c3d13",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/2cb9c72e747097c32c0ed34a7d18ebabdf26871b"
+        },
+        "date": 1724332831634,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.061,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.134,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.953,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.828,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 104.12070990000001,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 49.156006700000006,
             "unit": "milliseconds"
           }
         ]
