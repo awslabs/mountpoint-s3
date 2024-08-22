@@ -2,7 +2,7 @@ use std::sync::{atomic::Ordering, Arc};
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
-use tracing::{debug, info};
+use tracing::debug;
 
 use mountpoint_s3_client::ObjectClient;
 
@@ -78,7 +78,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
         available_mem
     }
 
-    pub fn print_total_usage(&self) {
+    pub fn log_total_usage(&self) {
         let formatter = make_format(humansize::BINARY);
         let prefetcher_mem_used = self.prefetcher_mem_used.load(Ordering::SeqCst);
         let prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
@@ -89,7 +89,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
             let effective_client_mem_usage = client_stats.mem_used.max(client_stats.mem_reserved);
             total_usage = total_usage.saturating_add(effective_client_mem_usage);
 
-            info!(
+            debug!(
                 total_usage = formatter(total_usage),
                 client_mem_used = formatter(client_stats.mem_used),
                 client_mem_reserved = formatter(client_stats.mem_reserved),

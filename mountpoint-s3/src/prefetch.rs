@@ -50,7 +50,7 @@ use mountpoint_s3_client::ObjectClient;
 use part::PartOperationError;
 use part_stream::RequestTaskConfig;
 use thiserror::Error;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
@@ -333,7 +333,7 @@ where
             if self.try_seek(offset).await? {
                 trace!("seek succeeded");
             } else {
-                trace!(
+                debug!(
                     expected = self.next_sequential_read_offset,
                     actual = offset,
                     "out-of-order read, resetting prefetch"
@@ -419,7 +419,6 @@ where
 
     /// Reset this prefetch request to a new offset, clearing any existing tasks queued.
     fn reset_prefetch_to_offset(&mut self, offset: u64) {
-        tracing::warn!("resetting prefetch");
         self.backpressure_task = None;
         self.backward_seek_window.clear();
         self.sequential_read_start_offset = offset;
@@ -512,7 +511,7 @@ impl<Stream: ObjectPartStream, Client: ObjectClient> PrefetchGetObject<Stream, C
 impl<Stream: ObjectPartStream, Client: ObjectClient> Drop for PrefetchGetObject<Stream, Client> {
     fn drop(&mut self) {
         self.record_contiguous_read_metric();
-        self.mem_limiter.print_total_usage();
+        self.mem_limiter.log_total_usage();
     }
 }
 
