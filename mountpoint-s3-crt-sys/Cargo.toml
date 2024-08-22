@@ -62,7 +62,9 @@ exclude = [
 ]
 
 [build-dependencies]
-bindgen = { version = "0.66.1", default-features = false, features = ["runtime"] }
+bindgen = { version = "0.66.1", default-features = false, features = [
+    "runtime",
+] }
 cc = "1.0.73"
 cmake = "0.1.48"
 rustflags = "0.1.1"
