@@ -39,5 +39,4 @@ hydra:
     params:
       fuse_threads: 16, 32, 64, 128
       application_workers: 1, 4, 8, 16, 32, 64, 128, 256
-      network: 1_nic, 2_nic, 3_nic, 4_nic
       direct_io: false, true
