@@ -17,10 +17,7 @@ direct_io: false
 
 # To be used by other configurations to vary number of interfaces used
 available_network_interfaces:
-  - interface_name: eth0
-  - interface_name: eth1
-  - interface_name: eth2
-  - interface_name: eth3
+  - interface_name: ???
 
 mountpoint_binary: "../target/release/mount-s3"
 mountpoint_debug: false
