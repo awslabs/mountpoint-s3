@@ -619,11 +619,15 @@ where
             let new_handle = self.readdir_handle(parent).await?;
             *dir_handle.handle.lock().await = new_handle;
             dir_handle.rewind_offset();
+            // drop any cached entries, as new response may be unordered and cache would be stale
+            *dir_handle.last_response.lock().await = None;
         }
 
         let readdir_handle = dir_handle.handle.lock().await;
 
-        if offset != dir_handle.offset() && offset > -1 {
+        // If offset is 0 we've already restarted the request and do not use cache, otherwise we're using the same request
+        // and it is safe to repeat the response. We do not repeat the response if negative offset was provided.
+        if offset != dir_handle.offset() && offset > 0 {
             // POSIX allows seeking an open directory. That's a pain for us since we are streaming
             // the directory entries and don't want to keep them all in memory. But one common case
             // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
