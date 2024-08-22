@@ -35,7 +35,10 @@ impl ManagedCacheDir {
         Self::new_from_parent_with_cache_key(parent_path, PathBuf::new())
     }
 
-    pub fn new_from_parent_with_cache_key<P: AsRef<Path>, P2: AsRef<Path>>(parent_path: P, cache_key: P2) -> Result<Self, ManagedCacheDirError> {
+    pub fn new_from_parent_with_cache_key<P: AsRef<Path>, P2: AsRef<Path>>(
+        parent_path: P,
+        cache_key: P2,
+    ) -> Result<Self, ManagedCacheDirError> {
         let outer_path = parent_path.as_ref().join("mountpoint-cache");
         let managed_cache_dir = Self {
             managed_path: outer_path.join(cache_key),
@@ -135,8 +138,8 @@ mod tests {
         let cache_key = Path::new("cache_key");
         let should_exist = temp_dir.path().join("mountpoint-cache").join("cache_key");
 
-        let managed_dir =
-            ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), cache_key).expect("creating managed dir should succeed");
+        let managed_dir = ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), cache_key)
+            .expect("creating managed dir should succeed");
         assert_dir_exists_with_permissions(&should_exist);
 
         drop(managed_dir);
@@ -179,8 +182,8 @@ mod tests {
         let cache_key = Path::new("cache_key");
         let expected_path = temp_dir.path().join("mountpoint-cache").join("cache_key");
 
-        let managed_dir =
-            ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), cache_key).expect("creating managed dir should succeed");
+        let managed_dir = ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), cache_key)
+            .expect("creating managed dir should succeed");
         assert_dir_exists_with_permissions(&expected_path);
 
         fs::File::create(expected_path.join("file.txt"))
