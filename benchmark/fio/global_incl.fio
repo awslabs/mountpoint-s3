@@ -1,0 +1,11 @@
+bs=256k
+runtime=30s
+time_based
+group_reporting
+thread
+size=${SIZE_GIB}Gi
+ramp_time=0s ; Do not use this, otherwise prefetching before ramp ends can influence results
+ioengine=sync
+numjobs=${NUMJOBS}
+openfiles=${NUMJOBS}
+direct=${DIRECT}

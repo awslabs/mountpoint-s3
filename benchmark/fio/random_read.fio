@@ -1,0 +1,7 @@
+[global]
+include global_incl.fio
+
+[random_read]
+filename_format=j$jobnum_${SIZE_GIB}GiB_nochecksum.bin ; TODO: fix naming
+rw=randread
+fallocate=none
