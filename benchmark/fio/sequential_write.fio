@@ -1,0 +1,11 @@
+[global]
+include global_incl.fio
+
+[sequential_write]
+; We use a unique directory to ensure its a new file. There's no way to specify O_TRUNCATE.
+filename_format=${UNIQUE_DIR}/$jobname/$jobnum.bin
+rw=write
+fallocate=none
+create_on_open=1
+fsync_on_close=1
+unlink=1

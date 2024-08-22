@@ -56,6 +56,8 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
         mount_dir,
         f"--metadata-ttl={cfg['metadata_ttl']}",
         "--log-metrics",
+        "--allow-overwrite",
+        "--allow-delete",
         f"--log-directory={MP_LOGS_DIRECTORY}",
         "--write-part-size=16777216", # 16MiB, to allow upload of 100GiB
     ]
@@ -81,7 +83,7 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     Run the FIO workload against the file system.
     """
     FIO_BINARY = "/usr/bin/fio"
-    job_names = ["sequential_read"]
+    job_names = cfg["fio_benchmarks"]
     for job_name in job_names:
         job_out_dir = f"fio_out/{job_name}/"
         os.makedirs(job_out_dir, exist_ok=True)
@@ -99,6 +101,7 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
             "NUMJOBS": str(cfg['application_workers']),
             "SIZE_GIB": str(100),
             "DIRECT": str(1 if cfg['direct_io'] else 0),
+            "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
         }
         log.debug(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
         subprocess.check_output(subprocess_args, env=subprocess_env)

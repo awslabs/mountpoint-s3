@@ -14,6 +14,11 @@ application_workers: 4
 
 direct_io: false
 
+fio_benchmarks:
+  - "sequential_read"
+  - "random_read"
+  - "sequential_write"
+
 mountpoint_binary: "../target/release/mount-s3"
 mountpoint_debug: false
 mountpoint_debug_crt: false
