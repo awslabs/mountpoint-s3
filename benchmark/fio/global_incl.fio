@@ -5,7 +5,7 @@ group_reporting
 thread
 size=${SIZE_GIB}Gi
 ramp_time=0s ; Do not use this, otherwise prefetching before ramp ends can influence results
-ioengine=sync
+ioengine=${IO_ENGINE}
 numjobs=${NUMJOBS}
 openfiles=${NUMJOBS}
 direct=${DIRECT}
