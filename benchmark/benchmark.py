@@ -103,6 +103,7 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
                 "SIZE_GIB": str(100),
                 "DIRECT": str(1 if cfg['direct_io'] else 0),
                 "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
+                "IO_ENGINE": str("libaio" if cfg['direct_io'] else "psync"),
             }
             log.debug(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
             subprocess.check_output(subprocess_args, env=subprocess_env)
