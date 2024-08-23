@@ -16,8 +16,8 @@ use thiserror::Error;
 /// Cache directory that has been created and emptied, and will be emptied when dropped.
 #[derive(Debug)]
 pub struct ManagedCacheDir {
-    outer_path: PathBuf,
-    managed_path: PathBuf,
+    wrapping_path: PathBuf,
+    path_with_cache_key: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -31,18 +31,14 @@ pub enum ManagedCacheDirError {
 impl ManagedCacheDir {
     /// Create a new directory inside the provided parent path.
     /// If the directory already exists, it will be deleted before being recreated.
-    pub fn new_from_parent<P: AsRef<Path>>(parent_path: P) -> Result<Self, ManagedCacheDirError> {
-        Self::new_from_parent_with_cache_key(parent_path, PathBuf::new())
-    }
-
     pub fn new_from_parent_with_cache_key<P: AsRef<Path>, P2: AsRef<Path>>(
         parent_path: P,
         cache_key: P2,
     ) -> Result<Self, ManagedCacheDirError> {
-        let outer_path = parent_path.as_ref().join("mountpoint-cache");
+        let wrapping_path = parent_path.as_ref().join("mountpoint-cache");
         let managed_cache_dir = Self {
-            managed_path: outer_path.join(cache_key),
-            outer_path,
+            path_with_cache_key: wrapping_path.join(cache_key),
+            wrapping_path,
         };
 
         managed_cache_dir.remove()?;
@@ -52,20 +48,20 @@ impl ManagedCacheDir {
 
     /// Remove the cache sub-directory, along with its contents if any
     fn remove(&self) -> Result<(), ManagedCacheDirError> {
-        tracing::debug!(cache_subdirectory = ?self.outer_path, "removing the cache sub-directory and any contents");
-        if let Err(remove_dir_err) = fs::remove_dir_all(&self.outer_path) {
+        tracing::debug!(cache_subdirectory = ?self.wrapping_path, "removing the cache sub-directory and any contents");
+        if let Err(remove_dir_err) = fs::remove_dir_all(&self.wrapping_path) {
             match remove_dir_err.kind() {
                 io::ErrorKind::NotFound => (),
                 _kind => return Err(ManagedCacheDirError::CleanupFailure(remove_dir_err)),
             }
         }
-        tracing::trace!(cache_subdirectory = ?self.outer_path, "cache sub-directory removal complete");
+        tracing::trace!(cache_subdirectory = ?self.wrapping_path, "cache sub-directory removal complete");
         Ok(())
     }
 
     /// Create the cache sub-directory, assumes the parent path exists.
     fn create_cache_dir(&self) -> Result<(), ManagedCacheDirError> {
-        Self::create_dir(&self.outer_path)?;
+        Self::create_dir(&self.wrapping_path)?;
         Self::create_dir(self.as_path())
     }
 
@@ -87,25 +83,26 @@ impl ManagedCacheDir {
 
     /// Retrieve a reference to the managed path
     pub fn as_path(&self) -> &Path {
-        self.managed_path.as_path()
+        self.path_with_cache_key.as_path()
     }
 
     /// Create an owned copy of the managed path
     pub fn as_path_buf(&self) -> PathBuf {
-        self.managed_path.clone()
+        self.path_with_cache_key.clone()
     }
 }
 
 impl Drop for ManagedCacheDir {
     fn drop(&mut self) {
         if let Err(err) = self.remove() {
-            tracing::error!(cache_subdirectory = ?self.outer_path, "failed to remove cache sub-directory: {err}");
+            tracing::error!(cache_subdirectory = ?self.wrapping_path, "failed to remove cache sub-directory: {err}");
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use super::ManagedCacheDir;
 
     use std::fs;
@@ -120,7 +117,7 @@ mod tests {
         let expected_path = temp_dir.path().join("mountpoint-cache");
 
         let managed_dir =
-            ManagedCacheDir::new_from_parent(temp_dir.path()).expect("creating managed dir should succeed");
+            ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), OsString::new()).expect("creating managed dir should succeed");
         assert_dir_exists_with_permissions(&expected_path);
 
         drop(managed_dir);
@@ -158,7 +155,7 @@ mod tests {
         let expected_path = temp_dir.path().join("mountpoint-cache");
 
         let managed_dir =
-            ManagedCacheDir::new_from_parent(temp_dir.path()).expect("creating managed dir should succeed");
+            ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), OsString::new()).expect("creating managed dir should succeed");
         assert_dir_exists_with_permissions(&expected_path);
 
         fs::File::create(expected_path.join("file.txt"))
@@ -214,7 +211,7 @@ mod tests {
         fs::File::create(expected_path.join("dir/file.txt")).unwrap();
 
         let managed_dir =
-            ManagedCacheDir::new_from_parent(temp_dir.path()).expect("creating managed dir should succeed");
+            ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), OsString::new()).expect("creating managed dir should succeed");
 
         assert_dir_exists_with_permissions(&expected_path);
 

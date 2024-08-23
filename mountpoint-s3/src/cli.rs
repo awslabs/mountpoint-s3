@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
@@ -789,11 +790,8 @@ where
         };
 
         if let Some(cache_config) = cache_config {
-            let managed_cache_dir = match env_unstable_cache_key() {
-                None => ManagedCacheDir::new_from_parent(path),
-                Some(cache_key) => ManagedCacheDir::new_from_parent_with_cache_key(path, cache_key),
-            }
-            .context("failed to create cache directory")?;
+            let cache_key = env_unstable_cache_key().unwrap_or(OsString::new());
+            let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(path, cache_key).context("failed to create cache directory")?;
 
             let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
             let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
@@ -961,8 +959,8 @@ fn env_region() -> Option<String> {
     env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
 }
 
-fn env_unstable_cache_key() -> Option<String> {
-    env::var_os("UNSTABLE_CACHE_KEY").map(|val| val.to_string_lossy().into())
+fn env_unstable_cache_key() -> Option<OsString> {
+    env::var_os("UNSTABLE_MOUNTPOINT_CACHE_KEY")
 }
 
 /// Determine the region using the following sources (in order):
