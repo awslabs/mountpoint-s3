@@ -78,6 +78,7 @@ jobs:
         S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
         S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
+        COMMIT_ID: ${{ inputs.ref }}
 
   latency-bench:
     name: Benchmark (Latency)
@@ -131,3 +132,4 @@ jobs:
         S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
         S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
+        COMMIT_ID: ${{ inputs.ref }}

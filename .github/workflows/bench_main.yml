@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main", "wf-changes/**" ]
   schedule:
-    - cron: "0 */8 * * *" # every 8 hours
+    - cron: "0 2 * * *" # Daily at 02:00 UTC
 
 permissions:
   id-token: write
@@ -14,14 +14,16 @@ jobs:
   integration:
     name: Benchmarks
     uses: ./.github/workflows/bench.yml
+    if: github.event_name != 'schedule' || github.repository == 'awslabs/mountpoint-s3'
     with:
-      ref: ${{ github.event.after }}
+      ref: ${{ github.sha }}
       publish: ${{ github.event.ref == 'refs/heads/main' }}
       s3_bench_results_prefix: ${{ github.event_name == 'schedule' && 'results/main/s3_standard' || null }}
   s3express-integration:
     name: Benchmarks (s3express)
     uses: ./.github/workflows/bench_s3express.yml
+    if: github.event_name != 'schedule' || github.repository == 'awslabs/mountpoint-s3'
     with:
-      ref: ${{ github.event.after }}
+      ref: ${{ github.sha }}
       publish: ${{ github.event.ref == 'refs/heads/main' }}
       s3_bench_results_prefix: ${{ github.event_name == 'schedule' && 'results/main/s3_express' || null }}
