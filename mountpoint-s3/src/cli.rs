@@ -790,8 +790,9 @@ where
         };
 
         if let Some(cache_config) = cache_config {
-            let cache_key = env_unstable_cache_key().unwrap_or(OsString::new());
-            let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(path, cache_key).context("failed to create cache directory")?;
+            let cache_key = env_unstable_cache_key();
+            let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(path, cache_key)
+                .context("failed to create cache directory")?;
 
             let cache = DiskDataCache::new(managed_cache_dir.as_path_buf(), cache_config);
             let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
