@@ -1,0 +1,10 @@
+interface_names:
+  - ${available_network_interfaces[0].interface_name}
+  - ${available_network_interfaces[1].interface_name}
+  - ${available_network_interfaces[2].interface_name}
+  - ${available_network_interfaces[3].interface_name}
+  - ${available_network_interfaces[4].interface_name}
+  - ${available_network_interfaces[5].interface_name}
+  - ${available_network_interfaces[6].interface_name}
+  - ${available_network_interfaces[7].interface_name}
+maximum_throughput_gbps: 800
