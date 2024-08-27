@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Cache directory that has been created and emptied, and will be emptied when dropped.
+/// When using a `cache_key`, the key is hashed and added as a subdirectory of `mountpoint-cache`.
 #[derive(Debug)]
 pub struct ManagedCacheDir {
     wrapping_path: PathBuf,
