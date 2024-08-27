@@ -1,6 +1,5 @@
 defaults:
   - _self_
-  - network: default
 
 s3_bucket: ???
 s3_prefix: !!null
@@ -14,10 +13,6 @@ fuse_threads: !!null
 application_workers: 4
 
 direct_io: false
-
-# To be used by other configurations to vary number of interfaces used
-available_network_interfaces:
-  - interface_name: ???
 
 mountpoint_binary: "../target/release/mount-s3"
 mountpoint_debug: false
