@@ -27,8 +27,9 @@ class Metadata(object):
     """
     start_time: str
     end_time: str
-    mp_version: str
+    mp_version: Optional[str] = None
     ec2_instance_id: Optional[str] = None
+    success: bool = False
 
 def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
     """
@@ -80,11 +81,9 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
 
     return mountpoint_version_output
 
-def _run_fio(cfg: DictConfig, mount_dir: str) -> tuple[datetime, datetime]:
+def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     """
     Run the FIO workload against the file system.
-
-    Returns the start and end times of the workload.
     """
     FIO_BINARY = "/usr/bin/fio"
     subprocess_args = [
@@ -100,24 +99,29 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> tuple[datetime, datetime]:
         "SIZE_GIB": str(100),
         "DIRECT": str(1 if cfg['direct_io'] else 0),
     }
-    start_time = datetime.now(tz=timezone.utc)
     log.debug(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
-    log.info(f"FIO job starting now at %s", start_time)
     subprocess.check_output(subprocess_args, env=subprocess_env)
-    end_time = datetime.now(tz=timezone.utc)
-    log.info(f"FIO job complete now at %s", end_time)
-    return start_time, end_time
 
 def _unmount_mp(mount_dir: str) -> None:
+    """
+    Attempts to unmount Mountpoint
+    """
     subprocess.check_output(["/usr/bin/umount", mount_dir])
     log.info(f"{mount_dir} unmounted")
 
 def _collect_logs() -> None:
     """
     Collect all logs and move them to the output directory. Drop the old directory.
+
+    Fails if more than one log file is found.
     """
     dir_entries = os.listdir(MP_LOGS_DIRECTORY)
-    assert len(dir_entries) == 1, f"Expected exactly one log file in {MP_LOGS_DIRECTORY}"
+
+    if not dir_entries:
+        return
+
+    assert len(dir_entries) <= 1, f"Expected no more than one log file in {MP_LOGS_DIRECTORY}"
+
     old_log_dir = os.path.join(MP_LOGS_DIRECTORY, dir_entries[0])
     new_log_path = "mountpoint-s3.log"
     log.debug(f"Renaming {old_log_dir} to {new_log_path}")
@@ -160,20 +164,33 @@ def run_experiment(cfg: DictConfig) -> None:
     We should collect all of the logs and metric and dump them in the output directory.
     """
     log.info("Experiment starting")
+    success = False
+    start_time = datetime.now(tz=timezone.utc)
+    mp_version = None
+
     instance_id = _get_ec2_instance_id()
     mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
     try:
         mp_version = _mount_mp(cfg, mount_dir)
-        start_time, end_time = _run_fio(cfg, mount_dir)
-        metadata = Metadata(
-            start_time=start_time,
-            end_time=end_time,
-            mp_version=mp_version,
-            ec2_instance_id=instance_id,
-        )
-    finally:
+        _run_fio(cfg, mount_dir)
+        success = True
+    except subprocess.SubprocessError as e:
+        log.error(f"Error running experiment: {e}")
+
+    metadata = Metadata(
+        start_time=start_time,
+        end_time=datetime.now(tz=timezone.utc),
+        mp_version=mp_version,
+        ec2_instance_id=instance_id,
+        success=success,
+    )
+
+    try:
         _unmount_mp(mount_dir)
         os.rmdir(mount_dir)
+    except Exception as e:
+        log.error(f"Error cleaning up Mountpoint at {mount_dir}: {e}")
+
     _postprocessing(metadata)
     log.info("Experiment complete")
 
