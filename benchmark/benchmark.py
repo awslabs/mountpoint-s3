@@ -3,6 +3,7 @@ import dataclasses
 import json
 import logging
 import os
+from os import path
 import subprocess
 import tempfile
 from typing import Optional
@@ -86,21 +87,27 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     Run the FIO workload against the file system.
     """
     FIO_BINARY = "/usr/bin/fio"
-    subprocess_args = [
-        FIO_BINARY,
-        "--output=fio-output.json",
-        "--output-format=json",
-        "--eta=never",
-        f"--directory={mount_dir}",
-        hydra.utils.to_absolute_path("sequential_read.fio"),
-    ]
-    subprocess_env = {
-        "NUMJOBS": str(cfg['application_workers']),
-        "SIZE_GIB": str(100),
-        "DIRECT": str(1 if cfg['direct_io'] else 0),
-    }
-    log.debug(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
-    subprocess.check_output(subprocess_args, env=subprocess_env)
+    job_names = ["sequential_read"]
+    for job_name in job_names:
+        job_out_dir = f"fio_out/{job_name}/"
+        os.makedirs(job_out_dir, exist_ok=True)
+
+        fio_output = path.join(job_out_dir, "result.json")
+        subprocess_args = [
+            FIO_BINARY,
+            f"--output={fio_output}",
+            "--output-format=json",
+            "--eta=never",
+            f"--directory={mount_dir}",
+            hydra.utils.to_absolute_path(f"fio/{job_name}.fio"),
+        ]
+        subprocess_env = {
+            "NUMJOBS": str(cfg['application_workers']),
+            "SIZE_GIB": str(100),
+            "DIRECT": str(1 if cfg['direct_io'] else 0),
+        }
+        log.debug(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
+        subprocess.check_output(subprocess_args, env=subprocess_env)
 
 def _unmount_mp(mount_dir: str) -> None:
     """
