@@ -20,8 +20,10 @@ use thiserror::Error;
 /// When using a `cache_key`, the key is hashed and added as a subdirectory of `mountpoint-cache`.
 #[derive(Debug)]
 pub struct ManagedCacheDir {
-    wrapping_path: PathBuf,
-    path_with_cache_hash: PathBuf,
+    /// `<parent_path>/mountpoint-cache`
+    mountpoint_cache_path: PathBuf,
+    /// `<parent_path>/mountpoint-cache` or `<parent_path>/mountpoint-cache/<hashed_cache_key>`
+    managed_cache_path: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -34,18 +36,21 @@ pub enum ManagedCacheDirError {
 
 impl ManagedCacheDir {
     /// Create a new directory inside the provided parent path.
-    /// If the directory already exists, it will be deleted before being recreated.
+    /// If `<parent_path>/mountpoint-cache` already exists, it will be deleted before being
+    /// recreated. This can cause performance degradation, but will never result in unused caches
+    /// being retained, assuming other Mountpoint instances are being ran on the host.
     pub fn new_from_parent_with_cache_key(
         parent_path: impl AsRef<Path>,
         cache_key: Option<OsString>,
     ) -> Result<Self, ManagedCacheDirError> {
-        let wrapping_path = parent_path.as_ref().join("mountpoint-cache");
+        let mountpoint_cache_path = parent_path.as_ref().join("mountpoint-cache");
+        let managed_cache_path = match cache_key {
+            None => mountpoint_cache_path.clone(),
+            Some(cache_key) => mountpoint_cache_path.join(hash_cache_key(cache_key.as_bytes())),
+        };
         let managed_cache_dir = Self {
-            wrapping_path: wrapping_path.clone(),
-            path_with_cache_hash: match cache_key {
-                None => wrapping_path,
-                Some(cache_key) => wrapping_path.join(hash_cache_key(cache_key.as_bytes())),
-            },
+            mountpoint_cache_path,
+            managed_cache_path,
         };
 
         managed_cache_dir.remove()?;
@@ -55,21 +60,24 @@ impl ManagedCacheDir {
 
     /// Remove the cache sub-directory, along with its contents if any
     fn remove(&self) -> Result<(), ManagedCacheDirError> {
-        tracing::debug!(cache_subdirectory = ?self.wrapping_path, "removing the cache sub-directory and any contents");
-        if let Err(remove_dir_err) = fs::remove_dir_all(&self.wrapping_path) {
+        tracing::debug!(cache_subdirectory = ?self.mountpoint_cache_path, "removing the cache sub-directory and any contents");
+        if let Err(remove_dir_err) = fs::remove_dir_all(&self.mountpoint_cache_path) {
             match remove_dir_err.kind() {
                 io::ErrorKind::NotFound => (),
                 _kind => return Err(ManagedCacheDirError::CleanupFailure(remove_dir_err)),
             }
         }
-        tracing::trace!(cache_subdirectory = ?self.wrapping_path, "cache sub-directory removal complete");
+        tracing::trace!(cache_subdirectory = ?self.mountpoint_cache_path, "cache sub-directory removal complete");
         Ok(())
     }
 
     /// Create the cache sub-directory, assumes the parent path exists.
     fn create_cache_dir(&self) -> Result<(), ManagedCacheDirError> {
-        Self::create_dir(&self.wrapping_path)?;
-        Self::create_dir(self.as_path())
+        Self::create_dir(&self.mountpoint_cache_path)?;
+        if self.mountpoint_cache_path != self.managed_cache_path {
+            Self::create_dir(&self.managed_cache_path)?;
+        }
+        Ok(())
     }
 
     /// Create a directory, assuming the parent path exists.
@@ -90,19 +98,19 @@ impl ManagedCacheDir {
 
     /// Retrieve a reference to the managed path
     pub fn as_path(&self) -> &Path {
-        self.path_with_cache_hash.as_path()
+        self.managed_cache_path.as_path()
     }
 
     /// Create an owned copy of the managed path
     pub fn as_path_buf(&self) -> PathBuf {
-        self.path_with_cache_hash.clone()
+        self.managed_cache_path.clone()
     }
 }
 
 impl Drop for ManagedCacheDir {
     fn drop(&mut self) {
         if let Err(err) = self.remove() {
-            tracing::error!(cache_subdirectory = ?self.wrapping_path, "failed to remove cache sub-directory: {err}");
+            tracing::error!(cache_subdirectory = ?self.mountpoint_cache_path, "failed to remove cache sub-directory: {err}");
         }
     }
 }
