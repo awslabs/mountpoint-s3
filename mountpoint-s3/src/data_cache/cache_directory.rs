@@ -46,7 +46,7 @@ impl ManagedCacheDir {
         let mountpoint_cache_path = parent_path.as_ref().join("mountpoint-cache");
         let managed_cache_path = match cache_key {
             None => mountpoint_cache_path.clone(),
-            Some(cache_key) => mountpoint_cache_path.join(hash_cache_key(cache_key.as_bytes())),
+            Some(ref cache_key) => mountpoint_cache_path.join(hash_cache_key(cache_key.as_bytes())),
         };
         let managed_cache_dir = Self {
             mountpoint_cache_path,
@@ -54,7 +54,10 @@ impl ManagedCacheDir {
         };
 
         managed_cache_dir.remove()?;
-        managed_cache_dir.create_cache_dir()?;
+        Self::create_dir(&managed_cache_dir.mountpoint_cache_path)?;
+        if cache_key.is_some() {
+            Self::create_dir(&managed_cache_dir.managed_cache_path)?;
+        }
         Ok(managed_cache_dir)
     }
 
@@ -68,15 +71,6 @@ impl ManagedCacheDir {
             }
         }
         tracing::trace!(cache_subdirectory = ?self.mountpoint_cache_path, "cache sub-directory removal complete");
-        Ok(())
-    }
-
-    /// Create the cache sub-directory, assumes the parent path exists.
-    fn create_cache_dir(&self) -> Result<(), ManagedCacheDirError> {
-        Self::create_dir(&self.mountpoint_cache_path)?;
-        if self.mountpoint_cache_path != self.managed_cache_path {
-            Self::create_dir(&self.managed_cache_path)?;
-        }
         Ok(())
     }
 
