@@ -111,9 +111,7 @@ impl Drop for ManagedCacheDir {
 
 /// Hash the cache_key to avoid path traversal attacks.
 fn hash_cache_key(cache_key: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(cache_key);
-    let hashed_key: [u8; 32] = hasher.finalize().into();
+    let hashed_key = Sha256::digest(cache_key);
     hex::encode(hashed_key)
 }
 
