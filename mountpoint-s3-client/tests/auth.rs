@@ -4,7 +4,9 @@ pub mod common;
 
 use std::io::Write;
 use std::option::Option::None;
+use std::writeln;
 
+use aws_sdk_s3::config;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 #[cfg(not(feature = "s3express_tests"))]
@@ -240,6 +242,100 @@ async fn test_profile_provider_assume_role_async() {
     check_get_result(result, None, &body[..]).await;
 }
 
+async fn test_credential_process_behind_source_profile_async() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_credential_process_behind_source_profile");
+
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let mut config_file = NamedTempFile::new().unwrap();
+
+    // Firstly, let's configure the credentials to be fetched by the credential process.
+    // Scope down to the `foo` prefix
+    let static_profile = "static-profile";
+    let policy = r#"{"Statement": [
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::__BUCKET__/__PREFIX__/*"},
+        {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__", "Condition": {"StringLike": {"s3:prefix": "__PREFIX__/*"}}}
+    ]}"#;
+    let policy = policy
+        .replace("__BUCKET__", &bucket)
+        .replace("__PREFIX__", &format!("{prefix}foo"));
+    let credentials = get_scoped_down_credentials(policy).await;
+    writeln!(config_file, "[profile {}]", static_profile).unwrap();
+    writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
+    writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
+    if let Some(session_token) = credentials.session_token() {
+        writeln!(config_file, "aws_session_token={session_token}").unwrap();
+    }
+
+    let mut some_other_file = NamedTempFile::new().unwrap();
+    let json_response = r#"{
+        "Version": 1,
+        "AccessKeyId": "__AWS_ACCESS_KEY_ID__",
+        "SecretAccessKey": "__AWS_SECRET_ACCESS_KEY__",
+        "SessionToken": "__AWS_SESSION_TOKEN__",
+        "Expiration": "2099-08-20T00:05:35+00:00"
+    }"#;
+    let json_response = json_response
+        .replace("__AWS_ACCESS_KEY_ID__", &credentials.access_key_id())
+        .replace("__AWS_SECRET_ACCESS_KEY__", &credentials.secret_access_key())
+        .replace("__AWS_SESSION_TOKEN__", &credentials.session_token().unwrap());
+    some_other_file.write_all(json_response.as_bytes()).unwrap();
+
+    let source_profile = "source-profile";
+    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(
+        config_file,
+        "credential_process = cat {}",
+        some_other_file.path().to_string_lossy()
+    )
+    .unwrap();
+
+    let configured_profile = "test-profile";
+    writeln!(config_file, "[profile {}]", configured_profile).unwrap();
+    writeln!(config_file, "source_profile={}", source_profile).unwrap();
+    writeln!(config_file, "region={}", &get_test_region()).unwrap();
+    config_file.flush().unwrap();
+
+    // Set up the environment variables to use this new config file. This is only OK to do because
+    // this test is run in a forked process, so won't affect any other concurrently running tests.
+    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    std::env::remove_var("AWS_ACCESS_KEY_ID");
+    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+    std::env::remove_var("AWS_SESSION_TOKEN");
+
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(configured_profile.to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
+
+    // Inside the prefix, things should be fine
+    let _result = client
+        .list_objects(&bucket, None, "/", 10, &format!("{prefix}foo/"))
+        .await
+        .expect("list_objects should succeed");
+
+    // Outside the prefix, requests should fail with permissions errors
+    let err = client
+        .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
+        .await
+        .expect_err("should fail in different prefix");
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
+    ));
+    drop(config_file);
+}
+
 rusty_fork_test! {
     #[test]
     fn test_profile_provider_static() {
@@ -253,6 +349,13 @@ rusty_fork_test! {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(test_profile_provider_assume_role_async());
+    }
+
+    #[test]
+    fn test_credential_process_behind_source_profile() {
+        // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_credential_process_behind_source_profile_async());
     }
 }
 
