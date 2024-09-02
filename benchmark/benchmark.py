@@ -134,18 +134,19 @@ def _collect_logs() -> None:
 
     Fails if more than one log file is found.
     """
-    dir_entries = os.listdir(MP_LOGS_DIRECTORY)
+    logs_directory = os.path.join(os.getcwd(), MP_LOGS_DIRECTORY)
+    dir_entries = os.listdir(logs_directory)
 
     if not dir_entries:
         return
 
-    assert len(dir_entries) <= 1, f"Expected no more than one log file in {MP_LOGS_DIRECTORY}"
+    assert len(dir_entries) <= 1, f"Expected no more than one log file in {logs_directory}"
 
-    old_log_dir = os.path.join(MP_LOGS_DIRECTORY, dir_entries[0])
+    old_log_dir = os.path.join(logs_directory, dir_entries[0])
     new_log_path = "mountpoint-s3.log"
     log.debug(f"Renaming {old_log_dir} to {new_log_path}")
     os.rename(old_log_dir, new_log_path)
-    os.rmdir(MP_LOGS_DIRECTORY)
+    os.rmdir(logs_directory)
 
 def _write_metadata(metadata: Metadata) -> None:
     with open("metadata.json", "w") as f:
