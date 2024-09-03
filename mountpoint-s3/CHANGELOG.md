@@ -1,3 +1,9 @@
+## Unreleased
+
+### Other changes
+
+* Fix an issue where an interrupt during `readdir` syscall lead to an error. ([#965](https://github.com/awslabs/mountpoint-s3/pull/965))
+
 ## v1.8.0
 
 ### New features
