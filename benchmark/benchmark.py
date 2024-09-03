@@ -77,9 +77,13 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
             subprocess_args.append(f"--bind={network_interface}")
         if network['maximum_throughput_gbps'] is not None:
             subprocess_args.append(f"--maximum-throughput-gbps={network['maximum_throughput_gbps']}")
+    subprocess_env = {
+        "PID_FILE": "mount-s3.pid",
+    }
 
-    log.info(f"Mounting S3 bucket {bucket} using the following command: %s", " ".join(subprocess_args))
-    output = subprocess.check_output(subprocess_args, env={"PID_FILE": "mount-s3.pid"})
+    log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
+    output = subprocess.check_output(subprocess_args, env=subprocess_env)
+
     log.info("From Mountpoint: %s", output.decode("utf-8").strip())
 
     with open("mount-s3.pid") as pid_file:
