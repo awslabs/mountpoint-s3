@@ -3,9 +3,7 @@
 ### Other changes
 
 * Fix an issue where `credential_process` field would not be picked up correctly when using `source_profile`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))
-  <!-- TODO: Write automated test for this. https://github.com/awslabs/mountpoint-s3/issues/927 -->
 * Fix an issue where `credential_process` field would not be picked up correctly when using `--profile <AWS_PROFILE>`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))
-  <!-- TODO: Manually test this. https://github.com/awslabs/mountpoint-s3/issues/389 -->
 
 ## v1.8.0
 
