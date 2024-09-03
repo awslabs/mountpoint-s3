@@ -242,11 +242,8 @@ async fn test_profile_provider_assume_role_async() {
     check_get_result(result, None, &body[..]).await;
 }
 
-// S3 Express One Zone doesn't support scoped credentials
-#[cfg(not(feature = "s3express_tests"))]
-async fn test_credential_process_behind_source_profile_with_scoped_credentials_async() {
-    let (bucket, prefix) =
-        get_test_bucket_and_prefix("test_credential_process_behind_source_profile_with_scoped_credentials");
+async fn test_credential_process_behind_source_profile_async() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_credential_process_behind_source_profile");
 
     // Create a test file in "{prefix}/hello"
     {
@@ -263,21 +260,14 @@ async fn test_credential_process_behind_source_profile_with_scoped_credentials_a
             .unwrap();
     }
 
-    // Generate temporary credentials scoped down to the `foo` prefix.
-    let credentials = {
-        let policy = r#"{"Statement": [
-            {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::__BUCKET__/__PREFIX__/*"},
-            {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__", "Condition": {"StringLike": {"s3:prefix": "__PREFIX__/*"}}}
-        ]}"#;
-        let policy = policy
-            .replace("__BUCKET__", &bucket)
-            .replace("__PREFIX__", &format!("{prefix}foo"));
-        get_scoped_down_credentials(policy).await
-    };
+    // Get some static credentials by just using the SDK's default provider, which we know works.
+    let credentials = get_sdk_default_chain_creds().await;
 
-    // Write temporary credentials to a file to be used in `credential_process`.
-    let credential_file = {
-        let mut credential_file = NamedTempFile::new().unwrap();
+    // Create two credential files to be used in `credential_process`,
+    // one with correct credentials and one with incorrect credentials.
+    let (correct_credential_file, incorrect_credential_file) = {
+        let mut correct = NamedTempFile::new().unwrap();
+        let mut incorrect = NamedTempFile::new().unwrap();
         let json_response = r#"{
             "Version": 1,
             "AccessKeyId": "__AWS_ACCESS_KEY_ID__",
@@ -285,36 +275,66 @@ async fn test_credential_process_behind_source_profile_with_scoped_credentials_a
             "SessionToken": "__AWS_SESSION_TOKEN__",
             "Expiration": "2099-08-20T00:05:35+00:00"
         }"#;
-        let json_response = json_response
-            .replace("__AWS_ACCESS_KEY_ID__", &credentials.access_key_id())
-            .replace("__AWS_SECRET_ACCESS_KEY__", &credentials.secret_access_key())
-            .replace("__AWS_SESSION_TOKEN__", &credentials.session_token().unwrap());
-        credential_file.write_all(json_response.as_bytes()).unwrap();
-        credential_file
+
+        correct
+            .write_all(
+                json_response
+                    .replace("__AWS_ACCESS_KEY_ID__", &credentials.access_key_id())
+                    .replace("__AWS_SECRET_ACCESS_KEY__", &credentials.secret_access_key())
+                    .replace("__AWS_SESSION_TOKEN__", &credentials.session_token().unwrap())
+                    .as_bytes(),
+            )
+            .unwrap();
+
+        incorrect
+            .write_all(
+                json_response
+                    .replace("__AWS_ACCESS_KEY_ID__", &credentials.access_key_id()[..10])
+                    .replace("__AWS_SECRET_ACCESS_KEY__", &credentials.secret_access_key())
+                    .replace("__AWS_SESSION_TOKEN__", &credentials.session_token().unwrap())
+                    .as_bytes(),
+            )
+            .unwrap();
+
+        (correct, incorrect)
     };
 
     let mut config_file = NamedTempFile::new().unwrap();
 
-    // Create a source profile that provides generated temporary credentials using `credential_process`.
-    let source_profile = {
-        let source_profile = "source-profile";
-        writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    // Create two source profiles to provide credentials from previously created files using `credential_process`.
+    let (correct_source_profile, incorrect_source_profile) = {
+        let correct = "correct-source-profile";
+        writeln!(config_file, "[profile {}]", correct).unwrap();
         writeln!(
             config_file,
-            "credential_process = cat {}",
-            credential_file.path().to_string_lossy()
+            "credential_process=cat {}",
+            correct_credential_file.path().to_string_lossy()
         )
         .unwrap();
-        source_profile
+        let incorrect = "incorrect-source-profile";
+        writeln!(config_file, "[profile {}]", incorrect).unwrap();
+        writeln!(
+            config_file,
+            "credential_process=cat {}",
+            incorrect_credential_file.path().to_string_lossy()
+        )
+        .unwrap();
+        (correct, incorrect)
     };
 
-    // Create a test profile that uses `source_profile`.
-    let test_profile = {
-        let test_profile = "test-profile";
-        writeln!(config_file, "[profile {}]", test_profile).unwrap();
-        writeln!(config_file, "source_profile={}", source_profile).unwrap();
+    // Create two profiles to assume our test role with previously created source profiles.
+    let (correct_profile, incorrect_profile) = {
+        let correct = "correct-profile";
+        writeln!(config_file, "[profile {}]", correct).unwrap();
+        writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
+        writeln!(config_file, "source_profile={}", correct_source_profile).unwrap();
         writeln!(config_file, "region={}", &get_test_region()).unwrap();
-        test_profile
+        let incorrect = "incorrect-profile";
+        writeln!(config_file, "[profile {}]", incorrect).unwrap();
+        writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
+        writeln!(config_file, "source_profile={}", incorrect_source_profile).unwrap();
+        writeln!(config_file, "region={}", &get_test_region()).unwrap();
+        (correct, incorrect)
     };
 
     config_file.flush().unwrap();
@@ -323,25 +343,28 @@ async fn test_credential_process_behind_source_profile_with_scoped_credentials_a
     // this test is run in a forked process, so won't affect any other concurrently running tests.
     std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
 
+    // With correct profile, things should be fine
     let config = S3ClientConfig::new()
-        .auth_config(S3ClientAuthConfig::Profile(test_profile.to_owned()))
+        .auth_config(S3ClientAuthConfig::Profile(correct_profile.to_owned()))
         .endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(config).unwrap();
-
-    // Inside the prefix, things should be fine
     let _result = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}foo/"))
         .await
         .expect("list_objects should succeed");
 
-    // Outside the prefix, requests should fail with permissions errors
+    // With incorrect profile, requests should fail with no signing credentials
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(incorrect_profile.to_owned()))
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(config).unwrap();
     let err = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
         .await
         .expect_err("should fail in different prefix");
     assert!(matches!(
-        err,
-        ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
+        dbg!(err),
+        ObjectClientError::ClientError(S3RequestError::NoSigningCredentials)
     ));
     drop(config_file);
 }
@@ -364,10 +387,10 @@ rusty_fork_test! {
     #[test]
     // S3 Express One Zone doesn't support scoped credentials
     #[cfg(not(feature = "s3express_tests"))]
-    fn test_credential_process_behind_source_profile_with_scoped_credentials() {
+    fn test_credential_process_behind_source_profile() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(test_credential_process_behind_source_profile_with_scoped_credentials_async());
+        runtime.block_on(test_credential_process_behind_source_profile_async());
     }
 }
 
