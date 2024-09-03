@@ -384,8 +384,6 @@ rusty_fork_test! {
     }
 
     #[test]
-    // S3 Express One Zone doesn't support scoped credentials
-    #[cfg(not(feature = "s3express_tests"))]
     fn test_credential_process_behind_source_profile() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
