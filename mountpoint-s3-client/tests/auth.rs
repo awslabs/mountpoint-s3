@@ -6,7 +6,6 @@ use std::io::Write;
 use std::option::Option::None;
 use std::writeln;
 
-use aws_sdk_s3::config;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 #[cfg(not(feature = "s3express_tests"))]
