@@ -359,7 +359,7 @@ async fn test_credential_process_behind_source_profile_async() {
     let err = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
         .await
-        .expect_err("should fail in different prefix");
+        .expect_err("should fail when using invalid credentials");
     assert!(matches!(err, ObjectClientError::ClientError(_)));
     drop(config_file);
 }
