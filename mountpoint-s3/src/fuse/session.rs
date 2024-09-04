@@ -128,6 +128,8 @@ trait Work: Send + Sync + 'static {
         FA: FnMut();
 }
 
+/// [WorkerPool] organizes a pool of workers, handling the spawning of new workers and registering the new handles with
+/// the channel [WorkerPool::workers] for tear down.
 #[derive(Debug)]
 struct WorkerPool<W: Work> {
     state: Arc<WorkerPoolState<W>>,
@@ -143,6 +145,10 @@ struct WorkerPoolState<W: Work> {
 }
 
 impl<W: Work> WorkerPool<W> {
+    /// Start a new worker pool.
+    ///
+    /// The worker pool will start with a small number of workers, and may eventually grow up to `max_workers`.
+    /// The `workers` argument consumes the worker thread handles to be joined when the pool is shutting down.
     fn start(work: W, workers: Sender<JoinHandle<W::Result>>, max_workers: usize) -> anyhow::Result<()> {
         assert!(max_workers > 0);
 
@@ -182,7 +188,8 @@ impl<W: Work> WorkerPool<W> {
         else {
             return Ok(false);
         };
-        self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);
+        let idle_worker_count = self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst) + 1;
+        metrics::gauge!("fuse.idle_workers").set(idle_worker_count as f64);
         let clone = (*self).clone();
         let worker = thread::Builder::new()
             .name(format!("fuse-worker-{i}"))
@@ -198,6 +205,7 @@ impl<W: Work> WorkerPool<W> {
         self.state.work.run(
             || {
                 let previous_idle_count = self.state.idle_worker_count.fetch_sub(1, Ordering::SeqCst);
+                metrics::gauge!("fuse.idle_workers").decrement(1);
                 if previous_idle_count == 1 {
                     // This was the only idle thread, try to spawn a new one.
                     if let Err(error) = self.try_add_worker() {
@@ -207,6 +215,7 @@ impl<W: Work> WorkerPool<W> {
             },
             || {
                 self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);
+                metrics::gauge!("fuse.idle_workers").increment(1);
             },
         )
     }
