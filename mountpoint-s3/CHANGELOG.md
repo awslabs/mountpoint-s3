@@ -1,3 +1,10 @@
+## Unreleased
+
+### Other changes
+
+* Fix an issue where `credential_process` field would not be picked up correctly when using `source_profile`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))
+* Fix an issue where `credential_process` field would not be picked up correctly when using `--profile <AWS_PROFILE>`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))
+
 ## v1.8.0
 
 ### New features
