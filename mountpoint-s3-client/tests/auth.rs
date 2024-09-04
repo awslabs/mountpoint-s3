@@ -360,10 +360,7 @@ async fn test_credential_process_behind_source_profile_async() {
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
         .await
         .expect_err("should fail in different prefix");
-    assert!(matches!(
-        err,
-        ObjectClientError::ClientError(_)
-    ));
+    assert!(matches!(err, ObjectClientError::ClientError(_)));
     drop(config_file);
 }
 
