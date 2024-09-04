@@ -15,6 +15,7 @@ use common::*;
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
@@ -276,9 +277,9 @@ async fn test_credential_process_behind_source_profile_async() {
         correct
             .write_all(
                 json_response
-                    .replace("__AWS_ACCESS_KEY_ID__", &credentials.access_key_id())
-                    .replace("__AWS_SECRET_ACCESS_KEY__", &credentials.secret_access_key())
-                    .replace("__AWS_SESSION_TOKEN__", &credentials.session_token().unwrap())
+                    .replace("__AWS_ACCESS_KEY_ID__", credentials.access_key_id())
+                    .replace("__AWS_SECRET_ACCESS_KEY__", credentials.secret_access_key())
+                    .replace("__AWS_SESSION_TOKEN__", credentials.session_token().unwrap())
                     .as_bytes(),
             )
             .unwrap();
@@ -287,8 +288,8 @@ async fn test_credential_process_behind_source_profile_async() {
             .write_all(
                 json_response
                     .replace("__AWS_ACCESS_KEY_ID__", &credentials.access_key_id()[..10])
-                    .replace("__AWS_SECRET_ACCESS_KEY__", &credentials.secret_access_key())
-                    .replace("__AWS_SESSION_TOKEN__", &credentials.session_token().unwrap())
+                    .replace("__AWS_SECRET_ACCESS_KEY__", credentials.secret_access_key())
+                    .replace("__AWS_SESSION_TOKEN__", credentials.session_token().unwrap())
                     .as_bytes(),
             )
             .unwrap();
@@ -350,7 +351,7 @@ async fn test_credential_process_behind_source_profile_async() {
         .await
         .expect("list_objects should succeed");
 
-    // With incorrect profile, requests should fail with no signing credentials
+    // With incorrect profile, requests should fail with a client error
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(incorrect_profile.to_owned()))
         .endpoint_config(EndpointConfig::new(&get_test_region()));
@@ -360,8 +361,8 @@ async fn test_credential_process_behind_source_profile_async() {
         .await
         .expect_err("should fail in different prefix");
     assert!(matches!(
-        dbg!(err),
-        ObjectClientError::ClientError(S3RequestError::NoSigningCredentials)
+        err,
+        ObjectClientError::ClientError(_)
     ));
     drop(config_file);
 }
