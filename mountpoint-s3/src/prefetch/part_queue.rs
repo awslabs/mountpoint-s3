@@ -19,7 +19,7 @@ pub struct PartQueue<E: std::error::Error, Client: ObjectClient> {
     failed: AtomicBool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    _mem_limiter: Arc<MemoryLimiter<Client>>, // todo: remove
 }
 
 /// Producer side of the queue of [Part]s.
@@ -28,7 +28,7 @@ pub struct PartQueueProducer<E: std::error::Error, Client: ObjectClient> {
     sender: Sender<Result<Part, PrefetchReadError<E>>>,
     /// The total number of bytes sent to `self.sender`
     bytes_sent: Arc<AtomicUsize>,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    _mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
@@ -42,12 +42,12 @@ pub fn unbounded_part_queue<E: std::error::Error, Client: ObjectClient>(
         receiver,
         failed: AtomicBool::new(false),
         bytes_received: Arc::clone(&bytes_counter),
-        mem_limiter: mem_limiter.clone(),
+        _mem_limiter: mem_limiter.clone(),
     };
     let part_queue_producer = PartQueueProducer {
         sender,
         bytes_sent: bytes_counter,
-        mem_limiter,
+        _mem_limiter: mem_limiter,
     };
     (part_queue, part_queue_producer)
 }
@@ -97,7 +97,7 @@ impl<E: std::error::Error + Send + Sync, Client: ObjectClient> PartQueue<E, Clie
             let tail = part.split_off(length);
             *current_part = Some(tail);
         }
-        self.mem_limiter.free(part.len() as u64);
+        metrics::gauge!("prefetch.bytes_in_queue").decrement(part.len() as f64);
         Ok(part)
     }
 
@@ -118,7 +118,7 @@ impl<E: std::error::Error + Send + Sync, Client: ObjectClient> PartQueue<E, Clie
         } else {
             *current_part = Some(part);
         }
-        self.mem_limiter.allocate(part_len as u64);
+        metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
         Ok(())
     }
 
@@ -138,7 +138,7 @@ impl<E: std::error::Error + Send + Sync, Client: ObjectClient> PartQueueProducer
             trace!("closed channel");
         } else {
             self.bytes_sent.fetch_add(part_len, Ordering::SeqCst);
-            self.mem_limiter.allocate(part_len as u64);
+            metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
         }
     }
 }
@@ -159,7 +159,7 @@ impl<E: std::error::Error, Client: ObjectClient> Drop for PartQueue<E, Client> {
             }
         }
         let remaining = current_size + queue_size;
-        self.mem_limiter.free(remaining as u64);
+        metrics::gauge!("prefetch.bytes_in_queue").decrement(remaining as f64);
     }
 }
 
