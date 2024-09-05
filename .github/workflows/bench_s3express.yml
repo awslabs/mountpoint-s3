@@ -111,6 +111,14 @@ jobs:
       run: cargo build --release
     - name: Run Benchmark
       run: mountpoint-s3/scripts/fs_latency_bench.sh
+    - name: Save benchmark results in S3
+      if: inputs.s3_bench_results_prefix
+      run: .github/actions/scripts/save-benchmark-results.sh
+      env:
+        S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
+        S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
+        COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -125,11 +133,3 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
-    - name: Save benchmark results in S3
-      if: inputs.s3_bench_results_prefix
-      run: .github/actions/scripts/save-benchmark-results.sh
-      env:
-        S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
-        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
-        S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
-        COMMIT_ID: ${{ inputs.ref }}
