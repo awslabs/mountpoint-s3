@@ -86,10 +86,9 @@ impl Stream for ThroughputGetObjectRequest {
         let this = self.project();
         this.request.poll_next(cx).map(|next| {
             next.map(|item| {
-                item.map(|body_part| {
+                item.inspect(|body_part| {
                     // Acquire enough tokens for the number of bytes we want to deliver
                     block_on(this.rate_limiter.acquire(body_part.1.len() as u32));
-                    body_part
                 })
             })
         })
