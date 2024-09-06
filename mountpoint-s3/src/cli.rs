@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::os::fd::AsRawFd;
-use std::os::unix::prelude::FromRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -497,10 +496,9 @@ where
                 let session = mount(args, client_builder);
 
                 // close unused file descriptor, we only write from this end.
-                nix::unistd::close(read_fd).context("Failed to close unused file descriptor")?;
+                drop(read_fd);
 
-                // SAFETY: `write_fd` is a valid file descriptor.
-                let mut pipe_file = unsafe { File::from_raw_fd(write_fd) };
+                let mut pipe_file = File::from(write_fd);
 
                 let status_success = [b'0'];
                 let status_failure = [b'1'];
@@ -536,11 +534,11 @@ where
                 let args = CliArgs::parse();
 
                 init_logging(args.logging_config()).context("failed to initialize logging")?;
-                // close unused file descriptor, we only read from this end.
-                nix::unistd::close(write_fd).context("Failed to close unused file descriptor")?;
 
-                // SAFETY: `read_fd` is a valid file descriptor.
-                let mut pipe_file = unsafe { File::from_raw_fd(read_fd) };
+                // close unused file descriptor, we only read from this end.
+                drop(write_fd);
+
+                let mut pipe_file = File::from(read_fd);
 
                 let (sender, receiver) = std::sync::mpsc::channel();
 
