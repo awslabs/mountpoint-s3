@@ -6,6 +6,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use linked_hash_map::LinkedHashMap;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
@@ -350,8 +351,9 @@ fn hash_cache_key_raw(cache_key: &ObjectId) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+#[async_trait]
 impl DataCache for DiskDataCache {
-    fn get_block(
+    async fn get_block(
         &self,
         cache_key: &ObjectId,
         block_idx: BlockIndex,
@@ -396,7 +398,7 @@ impl DataCache for DiskDataCache {
         }
     }
 
-    fn put_block(
+    async fn put_block(
         &self,
         cache_key: ObjectId,
         block_idx: BlockIndex,
@@ -531,6 +533,7 @@ mod tests {
 
     use super::*;
 
+    use futures::StreamExt as _;
     use mountpoint_s3_client::types::ETag;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
@@ -622,8 +625,8 @@ mod tests {
         assert_eq!(expected, results);
     }
 
-    #[test]
-    fn test_put_get() {
+    #[tokio::test]
+    async fn test_put_get() {
         let data_1 = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
         let data_3 = ChecksummedBytes::new("Baz".into());
@@ -643,7 +646,10 @@ mod tests {
             ETag::for_tests(),
         );
 
-        let block = cache.get_block(&cache_key_1, 0, 0).expect("cache should be accessible");
+        let block = cache
+            .get_block(&cache_key_1, 0, 0)
+            .await
+            .expect("cache should be accessible");
         assert!(
             block.is_none(),
             "no entry should be available to return but got {:?}",
@@ -653,9 +659,11 @@ mod tests {
         // PUT and GET, OK?
         cache
             .put_block(cache_key_1.clone(), 0, 0, data_1.clone())
+            .await
             .expect("cache should be accessible");
         let entry = cache
             .get_block(&cache_key_1, 0, 0)
+            .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -666,9 +674,11 @@ mod tests {
         // PUT AND GET a second file, OK?
         cache
             .put_block(cache_key_2.clone(), 0, 0, data_2.clone())
+            .await
             .expect("cache should be accessible");
         let entry = cache
             .get_block(&cache_key_2, 0, 0)
+            .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -679,9 +689,11 @@ mod tests {
         // PUT AND GET a second block in a cache entry, OK?
         cache
             .put_block(cache_key_1.clone(), 1, block_size, data_3.clone())
+            .await
             .expect("cache should be accessible");
         let entry = cache
             .get_block(&cache_key_1, 1, block_size)
+            .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -692,6 +704,7 @@ mod tests {
         // Entry 1's first block still intact
         let entry = cache
             .get_block(&cache_key_1, 0, 0)
+            .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -700,8 +713,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_checksummed_bytes_slice() {
+    #[tokio::test]
+    async fn test_checksummed_bytes_slice() {
         let data = ChecksummedBytes::new("0123456789".into());
         let slice = data.slice(1..5);
 
@@ -717,9 +730,11 @@ mod tests {
 
         cache
             .put_block(cache_key.clone(), 0, 0, slice.clone())
+            .await
             .expect("cache should be accessible");
         let entry = cache
             .get_block(&cache_key, 0, 0)
+            .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
         assert_eq!(
@@ -729,8 +744,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_eviction() {
+    #[tokio::test]
+    async fn test_eviction() {
         const BLOCK_SIZE: usize = 100 * 1024;
         const LARGE_OBJECT_SIZE: usize = 1024 * 1024;
         const SMALL_OBJECT_SIZE: usize = LARGE_OBJECT_SIZE / 2;
@@ -744,7 +759,7 @@ mod tests {
             ChecksummedBytes::new(body.into())
         }
 
-        fn is_block_in_cache(
+        async fn is_block_in_cache(
             cache: &DiskDataCache,
             cache_key: &ObjectId,
             block_idx: u64,
@@ -752,6 +767,7 @@ mod tests {
         ) -> bool {
             if let Some(retrieved) = cache
                 .get_block(cache_key, block_idx, block_idx * (BLOCK_SIZE) as u64)
+                .await
                 .expect("cache should be accessible")
             {
                 assert_eq!(
@@ -799,6 +815,7 @@ mod tests {
                     (block_idx * BLOCK_SIZE) as u64,
                     bytes.clone(),
                 )
+                .await
                 .unwrap();
         }
 
@@ -811,25 +828,24 @@ mod tests {
                     (block_idx * BLOCK_SIZE) as u64,
                     bytes.clone(),
                 )
+                .await
                 .unwrap();
         }
 
-        let count_small_object_blocks_in_cache = small_object_blocks
-            .iter()
-            .enumerate()
+        let count_small_object_blocks_in_cache = futures::stream::iter(small_object_blocks.iter().enumerate())
             .filter(|&(block_idx, bytes)| is_block_in_cache(&cache, &small_object_key, block_idx as u64, bytes))
-            .count();
+            .count()
+            .await;
         assert_eq!(
             count_small_object_blocks_in_cache,
             small_object_blocks.len(),
             "All blocks for small object should still be in the cache"
         );
 
-        let count_large_object_blocks_in_cache = large_object_blocks
-            .iter()
-            .enumerate()
+        let count_large_object_blocks_in_cache = futures::stream::iter(large_object_blocks.iter().enumerate())
             .filter(|&(block_idx, bytes)| is_block_in_cache(&cache, &large_object_key, block_idx as u64, bytes))
-            .count();
+            .count()
+            .await;
         assert!(
             count_large_object_blocks_in_cache < large_object_blocks.len(),
             "Some blocks for the large object should have been evicted"

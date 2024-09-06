@@ -128,7 +128,7 @@ where
         // already likely negligible.
         let mut block_offset = block_range.start * block_size;
         for block_index in block_range.clone() {
-            match self.cache.get_block(cache_key, block_index, block_offset) {
+            match self.cache.get_block(cache_key, block_index, block_offset).await {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
@@ -311,7 +311,8 @@ where
                     self.block_index,
                     self.block_offset,
                     &self.cache_key,
-                );
+                )
+                .await;
                 self.block_index += 1;
                 self.block_offset += block_size;
                 self.buffer = ChecksummedBytes::default();
@@ -333,13 +334,14 @@ where
                 self.block_index,
                 self.block_offset,
                 &self.cache_key,
-            );
+            )
+            .await;
         }
         Ok(())
     }
 }
 
-fn update_cache<Cache: DataCache + Send + Sync>(
+async fn update_cache<Cache: DataCache + Send + Sync>(
     cache: &Cache,
     block: &ChecksummedBytes,
     block_index: u64,
@@ -348,12 +350,12 @@ fn update_cache<Cache: DataCache + Send + Sync>(
 ) {
     // TODO: consider updating the cache asynchronously
     let start = Instant::now();
-    match cache.put_block(object_id.clone(), block_index, block_offset, block.clone()) {
-        Ok(()) => {}
-        Err(error) => {
-            warn!(key=?object_id, block_index, ?error, "failed to update cache");
-        }
-    };
+    if let Err(error) = cache
+        .put_block(object_id.clone(), block_index, block_offset, block.clone())
+        .await
+    {
+        warn!(key=?object_id, block_index, ?error, "failed to update cache");
+    }
     metrics::histogram!("prefetch.cache_update_duration_us").record(start.elapsed().as_micros() as f64);
 }
 
@@ -455,12 +457,16 @@ mod tests {
         };
         assert!(first_read_count > 0);
 
+        fn get_block_count(cache: &InMemoryDataCache, id: &ObjectId) -> usize {
+            block_on(async move { cache.block_count(id).await })
+        }
+
         // Wait until all blocks are saved to the cache before spawning a new request
         let expected_block_count = expected_end_block - expected_start_block;
-        while stream.cache.block_count(&id) < expected_block_count {
+        while get_block_count(&stream.cache, &id) < expected_block_count {
             thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(expected_block_count, stream.cache.block_count(&id));
+        assert_eq!(expected_block_count, get_block_count(&stream.cache, &id));
 
         let second_read_count = {
             // Second request (from cache)
