@@ -55,7 +55,10 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
 
         // We read some data out of the part queue so the read window should be moved
         self.backpressure_controller
-            .send_feedback(DataRead(part.offset(), part.len()))
+            .send_feedback(DataRead {
+                offset: part.offset(),
+                length: part.len(),
+            })
             .await?;
 
         let next_offset = part.offset() + part.len() as u64;
