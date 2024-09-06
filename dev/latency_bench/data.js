@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1725638860270,
+  "lastUpdate": 1725643404713,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "58edaafaaf065f5537202394580cf58c05017aa1",
-          "message": "Update PR template to prompt thinking on change log entry (#968)\n\n* Add section on changelog updates to PR template\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Add links to changelogs\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-08-02T12:53:08Z",
-          "tree_id": "49f0fb64e39106ed93d5b10ce74a726231703107",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/58edaafaaf065f5537202394580cf58c05017aa1"
-        },
-        "date": 1722604736494,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.054,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.129,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.9,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.862,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 47.1064384,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 61.849121700000005,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 48.118697299999994,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d498852520ba2f22ca3c76409f7b3faad9e2106",
+          "message": "Update nix dependency from 0.27.1 to 0.29.0 (#1003)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-09-06T17:00:41Z",
+          "tree_id": "1afbc653d279290796a7a6ab38338c500265fe29",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6d498852520ba2f22ca3c76409f7b3faad9e2106"
+        },
+        "date": 1725643404260,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.055,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.124,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.917,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.948,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 43.5398144,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 41.1961568,
             "unit": "milliseconds"
           }
         ]
