@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1725631003691,
+  "lastUpdate": 1725637587371,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "073277047bb412d1f5cf98e4efa5668074dc7626",
-          "message": "Replace custom ResultExt with stable Result::inspect_err (#951)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-08-01T15:33:09Z",
-          "tree_id": "a8c23da91e712e5eb260fa8852cb987496d4abf7",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/073277047bb412d1f5cf98e4efa5668074dc7626"
-        },
-        "date": 1722527962472,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.041,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.184,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.847,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 7.554,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 10.3712959,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 11.1249031,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 10.571363300000002,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "1db78f38c8df2826b449409a54ed1e578c5c6985",
+          "message": "Backwards seek window does not affect the read window (#999)\n\n* Use part's offset to calculate remaining window\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n* Add names to DataRead variant's fields\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n* Make new code more uniform with the rest of it\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n---------\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>",
+          "timestamp": "2024-09-06T13:29:46Z",
+          "tree_id": "a3d64a2c2104c61859c6c321e484952d321585a4",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/1db78f38c8df2826b449409a54ed1e578c5c6985"
+        },
+        "date": 1725637586905,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.039,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.184,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.843,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 7.531,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 10.6003185,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 11.2253504,
             "unit": "milliseconds"
           }
         ]
