@@ -79,7 +79,7 @@ fn main() {
         config = config.part_size(part_size);
     }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
-    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), 512 * 1024 * 1024));
+    let mem_limiter = Arc::new(MemoryLimiter::new(512 * 1024 * 1024));
 
     for i in 0..iterations.unwrap_or(1) {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();

@@ -1,14 +1,38 @@
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::atomic::Ordering;
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
 use tracing::debug;
 
-use mountpoint_s3_client::ObjectClient;
-
+/// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
+/// Currently the only metric which we take into account is the memory reserved by prefetcher instances for the data requested or
+/// fetched from CRT client. Single instance of this struct is shared among all of the prefetchers (file handles).
+///
+/// Each file handle upon creation makes an initial reservation request with a minimal read window size of `1MiB + 128KiB`. This
+/// is accepted unconditionally since we want to allow any file handle to make progress even if that means going over the memory
+/// limit. Additional reservations for a file handle arise when data is being read from fuse **faster** than it arrives from the
+/// client (PartQueueStall). Those reservations may be rejected if there is no available memory.
+///
+/// Release of the reserved memory happens on one of the following events:
+/// 1) prefetcher is destroyed (`PartQueue` holding the data should be dropped and the CRT request cancelled before this release)
+/// 2) prefetcher's read window is scaled down (we wait for the previously requested data to be consumed)
+/// 3) prefetcher is approaching the end of the request, in which case we can be sure that reservation in full won't be needed.
+///
+/// Following is the visualisation of a single prefetcher instance's data stream:
+///
+/// backwards_seek_start  next_read_offset       in_part_queue                 window_end_offset      preferred_window_end_offset
+///  │                    │                           │                               │                            │
+/// ─┼────────────────────┼───────────────────────────┼───────────────────────────────┼────────────────────────────┼───────────-►
+///  │                    ├───────────────────────────┤                               │                            │
+///  └────────────────────┤   certainly used memory   └───────────────────────────────┤                            │
+///  memory not accounted │                         in CRT buffer, or callback queue  └────────────────────────────┤
+///                       │                         (usage may be less than reserved)  will be used after the      │
+///                       │                                                            window increase             │
+///                       └────────────────────────────────────────────────────────────────────────────────────────┘
+///                                          preferred_read_window_size (reserved in MemoryLimiter)
+///
 #[derive(Debug)]
-pub struct MemoryLimiter<Client: ObjectClient> {
-    client: Arc<Client>,
+pub struct MemoryLimiter {
     mem_limit: u64,
     /// Reserved memory for data we had requested via the request task but may not
     /// arrived yet.
@@ -17,8 +41,8 @@ pub struct MemoryLimiter<Client: ObjectClient> {
     additional_mem_reserved: u64,
 }
 
-impl<Client: ObjectClient> MemoryLimiter<Client> {
-    pub fn new(client: Arc<Client>, mem_limit: u64) -> Self {
+impl MemoryLimiter {
+    pub fn new(mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let reserved_mem = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -28,7 +52,6 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
             formatter(reserved_mem)
         );
         Self {
-            client,
             mem_limit,
             prefetcher_mem_reserved: AtomicU64::new(0),
             additional_mem_reserved: reserved_mem,
@@ -82,25 +105,5 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
         self.mem_limit
             .saturating_sub(fs_mem_usage)
             .saturating_sub(self.additional_mem_reserved)
-    }
-
-    pub fn log_total_usage(&self) {
-        let formatter = make_format(humansize::BINARY);
-        let prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
-
-        let mut total_usage = prefetcher_mem_reserved.saturating_add(self.additional_mem_reserved);
-        if let Some(client_stats) = self.client.mem_usage_stats() {
-            let effective_client_mem_usage = client_stats.mem_used.max(client_stats.mem_reserved);
-            total_usage = total_usage.saturating_add(effective_client_mem_usage);
-
-            debug!(
-                total_usage = formatter(total_usage),
-                client_mem_used = formatter(client_stats.mem_used),
-                client_mem_reserved = formatter(client_stats.mem_reserved),
-                prefetcher_mem_reserved = formatter(prefetcher_mem_reserved),
-                additional_mem_reserved = formatter(self.additional_mem_reserved),
-                "total memory usage"
-            );
-        }
     }
 }

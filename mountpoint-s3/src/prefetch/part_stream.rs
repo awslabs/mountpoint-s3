@@ -28,8 +28,8 @@ pub trait ObjectPartStream {
         &self,
         client: Arc<Client>,
         config: RequestTaskConfig,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
-    ) -> RequestTask<Client::ClientError, Client>
+        mem_limiter: Arc<MemoryLimiter>,
+    ) -> RequestTask<Client::ClientError>
     where
         Client: ObjectClient + Send + Sync + 'static;
 }
@@ -185,8 +185,8 @@ where
         &self,
         client: Arc<Client>,
         config: RequestTaskConfig,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
-    ) -> RequestTask<Client::ClientError, Client>
+        mem_limiter: Arc<MemoryLimiter>,
+    ) -> RequestTask<Client::ClientError>
     where
         Client: ObjectClient + Send + Sync + 'static,
     {
@@ -206,7 +206,7 @@ where
         };
         let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
+        let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
         let span = debug_span!("prefetch", ?range);
@@ -239,16 +239,15 @@ where
     }
 }
 
-struct ClientPartComposer<E: std::error::Error, Client: ObjectClient> {
-    part_queue_producer: PartQueueProducer<E, Client>,
+struct ClientPartComposer<E: std::error::Error> {
+    part_queue_producer: PartQueueProducer<E>,
     object_id: ObjectId,
     preferred_part_size: usize,
 }
 
-impl<E, Client> ClientPartComposer<E, Client>
+impl<E> ClientPartComposer<E>
 where
     E: std::error::Error + Send + Sync,
-    Client: ObjectClient + Send + Sync + 'static,
 {
     async fn try_compose_parts(&self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
         if let Err(e) = self.compose_parts(request_stream).await {

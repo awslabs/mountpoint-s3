@@ -1,5 +1,4 @@
 use futures::future::RemoteHandle;
-use mountpoint_s3_client::ObjectClient;
 
 use crate::prefetch::backpressure_controller::BackpressureFeedbackEvent::{DataRead, PartQueueStall};
 use crate::prefetch::part::Part;
@@ -11,22 +10,22 @@ use super::part_stream::RequestRange;
 
 /// A single GetObject request submitted to the S3 client
 #[derive(Debug)]
-pub struct RequestTask<E: std::error::Error, Client: ObjectClient> {
+pub struct RequestTask<E: std::error::Error> {
     /// Handle on the task/future. The future is cancelled when handle is dropped. This is None if
     /// the request is fake (created by seeking backwards in the stream)
     _task_handle: RemoteHandle<()>,
     remaining: usize,
     range: RequestRange,
-    part_queue: PartQueue<E, Client>,
-    backpressure_controller: BackpressureController<Client>,
+    part_queue: PartQueue<E>,
+    backpressure_controller: BackpressureController,
 }
 
-impl<E: std::error::Error + Send + Sync, Client: ObjectClient> RequestTask<E, Client> {
+impl<E: std::error::Error + Send + Sync> RequestTask<E> {
     pub fn from_handle(
         task_handle: RemoteHandle<()>,
         range: RequestRange,
-        part_queue: PartQueue<E, Client>,
-        backpressure_controller: BackpressureController<Client>,
+        part_queue: PartQueue<E>,
+        backpressure_controller: BackpressureController,
     ) -> Self {
         Self {
             _task_handle: task_handle,
