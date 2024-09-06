@@ -92,9 +92,9 @@ impl BackpressureController {
             // Note, that this may come from a backwards seek, so offsets observed by this method are not necessarily ascending
             BackpressureFeedbackEvent::DataRead { offset, length } => {
                 let next_read_offset = offset + length as u64;
-                let remaining_window = self.read_window_end_offset.saturating_sub(next_read_offset);
+                let remaining_window = self.read_window_end_offset.saturating_sub(next_read_offset) as usize;
                 // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
-                if remaining_window < (self.preferred_read_window_size / 2) as u64
+                if remaining_window < (self.preferred_read_window_size / 2)
                     && self.read_window_end_offset < self.request_end_offset
                 {
                     let new_read_window_end_offset = next_read_offset
