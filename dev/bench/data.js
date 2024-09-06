@@ -4,125 +4,6 @@ window.BENCHMARK_DATA = {
       {
         "commit": {
           "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5d6faa94d18983c137b38f27b40c8a61f21252bc",
-          "message": "Update CRT submodules to latest releases (#963)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2024-08-01T09:26:29Z",
-          "tree_id": "b93fb78d804bb889fb0f77474f81e2d1de2f7ff4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5d6faa94d18983c137b38f27b40c8a61f21252bc"
-        },
-        "date": 1722511354617,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 21.41474609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 39.99990234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 15.944921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 50.6931640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 2.59453125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 10.12734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 3.3015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 10.01943359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 5162.2861328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 223.18466796875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 73.6498046875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 72.15234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1637.25947265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 53.33125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1255.8740234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1120.79833984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 53.14599609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1872.81171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 963.30888671875,
-            "unit": "MiB/s"
-          }
-        ]
-      },
-      {
-        "commit": {
-          "author": {
             "email": "ahmarsu@amazon.co.uk",
             "name": "ahmarsuhail",
             "username": "ahmarsuhail"
@@ -2380,9 +2261,128 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c27abd27bbfdb042572896f6e2df7eae1029fab5",
+          "message": "Fix clippy warning in throughput_client.rs (#1001)\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>",
+          "timestamp": "2024-09-06T11:00:39Z",
+          "tree_id": "e79f4d749e07088cdb0e67f11ecf2462f2363627",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/c27abd27bbfdb042572896f6e2df7eae1029fab5"
+        },
+        "date": 1725627483343,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 18.97841796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 43.61298828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 16.37333984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 54.23193359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 3.26904296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 11.340625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 3.32900390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 10.701953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 5800.49189453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 232.9765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1243.18662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 90.41923828125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1490.76884765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 57.22978515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1314.7783203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1315.05859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 59.112890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1368.4236328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 948.071875,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1725476741152,
+  "lastUpdate": 1725627483822,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
