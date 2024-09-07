@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::thread;
 use std::time::Instant;
 
 use clap::{Arg, Command};
@@ -49,6 +50,11 @@ fn main() {
                 .long("iterations")
                 .help("Number of times to download"),
         )
+        .arg(
+            Arg::new("downloads")
+                .long("downloads")
+                .help("Number of concurrent downloads"),
+        )
         .arg(Arg::new("region").long("region").default_value("us-east-1"))
         .get_matches();
 
@@ -67,6 +73,10 @@ fn main() {
     let iterations = matches
         .get_one::<String>("iterations")
         .map(|s| s.parse::<usize>().expect("iterations must be a number"));
+    let downloads = matches
+        .get_one::<String>("downloads")
+        .map(|s| s.parse::<usize>().expect("downloads must be a number"))
+        .unwrap_or(1);
     let region = matches.get_one::<String>("region").unwrap();
 
     let initial_read_window_size = 1024 * 1024 + 128 * 1024;
@@ -87,19 +97,27 @@ fn main() {
     let etag = ETag::from_str(&head_object_result.object.etag).unwrap();
 
     for i in 0..iterations.unwrap_or(1) {
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = ThreadPool::builder().pool_size(downloads).create().unwrap();
         let manager = default_prefetch(runtime, Default::default());
         let received_bytes = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();
 
-        let mut request = manager.prefetch(client.clone(), bucket, key, size, etag.clone());
-        block_on(async {
-            let mut offset = 0;
-            while offset < size {
-                let bytes = request.read(offset, read_size).await.unwrap();
-                offset += bytes.len() as u64;
-                received_bytes.fetch_add(bytes.len() as u64, Ordering::SeqCst);
+        thread::scope(|scope| {
+            for _ in 0..downloads {
+                let received_bytes = received_bytes.clone();
+                let mut request = manager.prefetch(client.clone(), bucket, key, size, etag.clone());
+
+                scope.spawn(|| {
+                    futures::executor::block_on(async move {
+                        let mut offset = 0;
+                        while offset < size {
+                            let bytes = request.read(offset, read_size).await.unwrap();
+                            offset += bytes.len() as u64;
+                            received_bytes.fetch_add(bytes.len() as u64, Ordering::SeqCst);
+                        }
+                    })
+                });
             }
         });
 
