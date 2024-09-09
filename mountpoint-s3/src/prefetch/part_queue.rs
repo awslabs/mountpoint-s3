@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use tracing::trace;
@@ -13,7 +14,11 @@ use crate::sync::{Arc, AsyncMutex};
 #[derive(Debug)]
 pub struct PartQueue<E: std::error::Error> {
     current_part: AsyncMutex<Option<Part>>,
-    receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
+    /// The auxiliary queue that supports pushing parts to the front of the part queue in order to
+    /// allow backward seek.
+    front_queue: VecDeque<Part>,
+    /// The main queue that receives parts from [super::ObjectPartStream]
+    rear_queue: Receiver<Result<Part, PrefetchReadError<E>>>,
     failed: AtomicBool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
@@ -33,7 +38,8 @@ pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueP
     let bytes_counter = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
         current_part: AsyncMutex::new(None),
-        receiver,
+        front_queue: VecDeque::new(),
+        rear_queue: receiver,
         failed: AtomicBool::new(false),
         bytes_received: Arc::clone(&bytes_counter),
     };
@@ -62,12 +68,18 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
         let part = if let Some(current_part) = current_part.take() {
             Ok(current_part)
         } else {
-            // Do `try_recv` first so we can track whether the read is starved or not
-            if let Ok(part) = self.receiver.try_recv() {
+            // Read from the auxiliary queue first if it's not empty
+            if !self.front_queue.is_empty() {
+                Ok(self
+                    .front_queue
+                    .pop_front()
+                    .expect("checked above that the queue is not empty"))
+            // Then do `try_recv` from the main queue so we can track whether the read is starved or not
+            } else if let Ok(part) = self.rear_queue.try_recv() {
                 part
             } else {
                 let start = Instant::now();
-                let part = self.receiver.recv().await;
+                let part = self.rear_queue.recv().await;
                 metrics::histogram!("prefetch.part_queue_starved_us").record(start.elapsed().as_micros() as f64);
                 match part {
                     Err(RecvError) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
@@ -94,23 +106,18 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     }
 
     /// Push a new [Part] onto the front of the queue
-    /// which actually just concatenate it with the current part
-    pub async fn push_front(&self, mut part: Part) -> Result<(), PrefetchReadError<E>> {
-        let part_len = part.len();
+    pub async fn push_front(&mut self, part: Part) -> Result<(), PrefetchReadError<E>> {
         let mut current_part = self.current_part.lock().await;
-
+        if let Some(current_part) = current_part.take() {
+            self.front_queue.push_front(current_part);
+        }
         assert!(
             !self.failed.load(Ordering::SeqCst),
             "cannot use a PartQueue after failure"
         );
 
-        if let Some(current_part) = current_part.as_mut() {
-            part.extend(current_part)?;
-            *current_part = part;
-        } else {
-            *current_part = Some(part);
-        }
-        metrics::gauge!("prefetch.bytes_in_queue").increment(part_len as f64);
+        metrics::gauge!("prefetch.bytes_in_queue").increment(part.len() as f64);
+        self.front_queue.push_front(part);
         Ok(())
     }
 
@@ -142,13 +149,17 @@ impl<E: std::error::Error> Drop for PartQueue<E> {
             Some(part) => part.len(),
             None => 0,
         };
-        // close the channel and drain remaining parts
-        self.receiver.close();
+        // close the channel and drain remaining parts from the main queue
+        self.rear_queue.close();
         let mut queue_size = 0;
-        while let Ok(part) = self.receiver.try_recv() {
+        while let Ok(part) = self.rear_queue.try_recv() {
             if let Ok(part) = part {
                 queue_size += part.len();
             }
+        }
+        // count remaining bytes in the auxiliary queue
+        for part in &self.front_queue {
+            queue_size += part.len()
         }
         let remaining = current_size + queue_size;
         metrics::gauge!("prefetch.bytes_in_queue").decrement(remaining as f64);
