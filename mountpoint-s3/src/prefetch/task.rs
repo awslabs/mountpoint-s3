@@ -38,9 +38,7 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
 
     // Push a given list of parts in front of the part queue
     pub async fn push_front(&mut self, parts: Vec<Part>) -> Result<(), PrefetchReadError<E>> {
-        // Merge all parts into one single part by pushing them to the front of the part queue.
-        // This could result in a really big part, but we normally use this only for backward seek
-        // so its size should not be bigger than the prefetcher's `max_backward_seek_distance`.
+        // Iterate backwards to push each part to the front of the part queue
         for part in parts.into_iter().rev() {
             self.remaining += part.len();
             self.part_queue.push_front(part).await?;
