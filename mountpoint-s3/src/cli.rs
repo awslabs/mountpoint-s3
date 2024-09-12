@@ -468,7 +468,7 @@ impl CliArgs {
 pub fn main<ClientBuilder, Client, Runtime>(client_builder: ClientBuilder) -> anyhow::Result<()>
 where
     ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Runtime: Spawn + Clone + Send + Sync + 'static,
 {
     let args = CliArgs::parse();
@@ -717,7 +717,7 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
 fn mount<ClientBuilder, Client, Runtime>(args: CliArgs, client_builder: ClientBuilder) -> anyhow::Result<FuseSession>
 where
     ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Runtime: Spawn + Clone + Send + Sync + 'static,
 {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
@@ -849,7 +849,7 @@ fn create_filesystem<Client, Prefetcher>(
     bucket_description: &str,
 ) -> anyhow::Result<FuseSession>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
 {
     tracing::trace!(?filesystem_config, "creating file system");

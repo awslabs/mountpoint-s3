@@ -54,7 +54,7 @@ pub fn make_test_filesystem_with_client<Client>(
     config: S3FilesystemConfig,
 ) -> TestS3Filesystem<Client>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
     let prefetcher = default_prefetch(runtime, Default::default());

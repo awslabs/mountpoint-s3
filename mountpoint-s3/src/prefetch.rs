@@ -64,19 +64,19 @@ use crate::sync::Arc;
 
 /// Generic interface to handle reading data from an object.
 pub trait Prefetch {
-    type PrefetchResult<Client: ObjectClient + Send + Sync + 'static>: PrefetchResult<Client>;
+    type PrefetchResult<Client: ObjectClient + Clone + Send + Sync + 'static>: PrefetchResult<Client>;
 
     /// Start a new prefetch request to the specified object.
     fn prefetch<Client>(
         &self,
-        client: Arc<Client>,
+        client: Client,
         bucket: &str,
         key: &str,
         size: u64,
         etag: ETag,
     ) -> Self::PrefetchResult<Client>
     where
-        Client: ObjectClient + Send + Sync + 'static;
+        Client: ObjectClient + Clone + Send + Sync + 'static;
 }
 
 /// Result of a prefetch request. Allows callers to read object data.
@@ -234,28 +234,20 @@ impl<Stream> Prefetch for Prefetcher<Stream>
 where
     Stream: ObjectPartStream + Send + Sync + 'static,
 {
-    type PrefetchResult<Client: ObjectClient + Send + Sync + 'static> = PrefetchGetObject<Stream, Client>;
+    type PrefetchResult<Client: ObjectClient + Clone + Send + Sync + 'static> = PrefetchGetObject<Stream, Client>;
 
     fn prefetch<Client>(
         &self,
-        client: Arc<Client>,
+        client: Client,
         bucket: &str,
         key: &str,
         size: u64,
         etag: ETag,
     ) -> Self::PrefetchResult<Client>
     where
-        Client: ObjectClient + Send + Sync + 'static,
+        Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        PrefetchGetObject::new(
-            client.clone(),
-            self.part_stream.clone(),
-            self.config,
-            bucket,
-            key,
-            size,
-            etag,
-        )
+        PrefetchGetObject::new(client, self.part_stream.clone(), self.config, bucket, key, size, etag)
     }
 }
 
@@ -263,7 +255,7 @@ where
 /// in a way that maximizes throughput from S3.
 #[derive(Debug)]
 pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
-    client: Arc<Client>,
+    client: Client,
     part_stream: Arc<Stream>,
     config: PrefetcherConfig,
     backpressure_task: Option<RequestTask<Client::ClientError>>,
@@ -285,7 +277,7 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
 impl<Stream, Client> PrefetchResult<Client> for PrefetchGetObject<Stream, Client>
 where
     Stream: ObjectPartStream + Send + Sync + 'static,
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     /// Read some bytes from the object. This function will always return exactly `size` bytes,
     /// except at the end of the object where it will return however many bytes are left (including
@@ -312,11 +304,11 @@ where
 impl<Stream, Client> PrefetchGetObject<Stream, Client>
 where
     Stream: ObjectPartStream,
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     /// Create and spawn a new prefetching request for an object
     fn new(
-        client: Arc<Client>,
+        client: Client,
         part_stream: Arc<Stream>,
         config: PrefetcherConfig,
         bucket: &str,

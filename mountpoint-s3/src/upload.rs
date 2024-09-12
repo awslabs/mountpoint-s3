@@ -24,7 +24,7 @@ pub struct Uploader<Client> {
 
 #[derive(Debug)]
 struct UploaderInner<Client> {
-    client: Arc<Client>,
+    client: Client,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
     use_additional_checksums: bool,
@@ -41,7 +41,7 @@ pub enum UploadPutError<S, C> {
 impl<Client: ObjectClient> Uploader<Client> {
     /// Create a new [Uploader] that will make requests to the given client.
     pub fn new(
-        client: Arc<Client>,
+        client: Client,
         storage_class: Option<String>,
         server_side_encryption: ServerSideEncryption,
         use_additional_checksums: bool,
@@ -419,7 +419,7 @@ mod tests {
             ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key_alias".to_string())),
             true,
         );
-        std::sync::Arc::<UploaderInner<MockClient>>::get_mut(&mut uploader.inner)
+        std::sync::Arc::<UploaderInner<Arc<MockClient>>>::get_mut(&mut uploader.inner)
             .unwrap()
             .server_side_encryption
             .corrupt_data(sse_type_corrupted.map(String::from), key_id_corrupted.map(String::from));
