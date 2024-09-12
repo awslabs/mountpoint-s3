@@ -11,6 +11,7 @@
 * Allow querying initial read window size and read window end offset for backpressure GetObject. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
 * Fix an issue where `credential_process` field would not be picked up correctly when using `source_profile` or `--profile <AWS_PROFILE>`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))
 * Update CacheCredentialsProvider Refresh Time to 5 Minutes before Expiry. ([awslabs/aws-c-auth#247](https://github.com/awslabs/aws-c-auth/pull/247))
+* Allow specifying a list of network interfaces to be used by an S3 client. ([#943](https://github.com/awslabs/mountpoint-s3/pull/943))
 
 ## v0.9.0 (June 26, 2024)
 
