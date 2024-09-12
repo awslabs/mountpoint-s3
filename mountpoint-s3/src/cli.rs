@@ -26,7 +26,7 @@ use nix::unistd::ForkResult;
 use regex::Regex;
 
 use crate::build_info;
-use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ManagedCacheDir};
+use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ManagedCacheDir};
 use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
@@ -261,6 +261,7 @@ pub struct CliArgs {
         help = "Enable caching of object content to the given directory and set metadata TTL to 60 seconds",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "DIRECTORY",
+        group = "cache_group",
     )]
     pub cache: Option<PathBuf>,
 
@@ -285,12 +286,23 @@ pub struct CliArgs {
     #[cfg(feature = "block_size")]
     #[clap(
         long,
-        help = "Size of a cache block in KiB [Default: 1024 (1 MiB)]",
+        help = "Size of a cache block in KiB [Default: 1024 (1 MiB) for disk cache, 512 (512 KiB) for S3 Express cache]",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "KiB",
-        requires = "cache"
+        requires = "cache_group"
     )]
     pub cache_block_size: Option<u64>,
+
+    #[cfg(feature = "express_cache")]
+    #[clap(
+        long,
+        help = "Enable caching of object content to the specified bucket on S3 Express One Zone (same region only)",
+        help_heading = CACHING_OPTIONS_HEADER,
+        value_name = "BUCKET",
+        value_parser = parse_bucket_name,
+        group = "cache_group",
+    )]
+    pub cache_express: Option<String>,
 
     #[clap(
         long,
@@ -399,7 +411,18 @@ impl CliArgs {
         if let Some(kib) = self.cache_block_size {
             return kib * 1024;
         }
-        1024 * 1024 // 1 MiB default block size
+        if self.cache_express_bucket_name().is_some() {
+            return 512 * 1024; // 512 KiB block size - default for express cache
+        }
+        1024 * 1024 // 1 MiB block size - default for disk cache
+    }
+
+    fn cache_express_bucket_name(&self) -> Option<&str> {
+        #[cfg(feature = "express_cache")]
+        if let Some(bucket_name) = &self.cache_express {
+            return Some(bucket_name);
+        }
+        None
     }
 
     fn logging_config(&self) -> LoggingConfig {
@@ -765,7 +788,7 @@ where
     let prefetcher_config = Default::default();
 
     let mut metadata_cache_ttl = args.metadata_ttl.unwrap_or_else(|| {
-        if args.cache.is_some() {
+        if args.cache.is_some() || args.cache_express_bucket_name().is_some() {
             // When the data cache is enabled, use 1min as metadata-ttl.
             TimeToLive::Duration(Duration::from_secs(60))
         } else {
@@ -826,6 +849,22 @@ where
             return Ok(fuse_session);
         }
     }
+
+    if let Some(express_bucket_name) = args.cache_express_bucket_name() {
+        let cache = ExpressDataCache::new(express_bucket_name, client.clone(), args.cache_block_size_in_bytes());
+        let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
+        let fuse_session = create_filesystem(
+            client,
+            prefetcher,
+            &args.bucket_name,
+            &args.prefix.unwrap_or_default(),
+            filesystem_config,
+            fuse_config,
+            &bucket_description,
+        )?;
+
+        return Ok(fuse_session);
+    };
 
     let prefetcher = default_prefetch(runtime, prefetcher_config);
     create_filesystem(
