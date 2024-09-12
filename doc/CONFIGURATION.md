@@ -335,6 +335,26 @@ The cache directory is not reusable by other Mountpoint processes and will be cl
 When running multiple Mountpoint processes concurrently on the same host,
 you should use unique cache directories to avoid different processes interfering with the others' cache content.
 
+## Using multiple network cards
+
+By default, Mountpoint will use the network interface associated with the default route on the host (such as that specified by `ip route list`).
+
+You can use the `--bind <INTERFACE_NAME>` command-line argument to specify a different network interface for Mountpoint network requests to be routed over.
+This argument can be specified multiple times to allow requests to be fanned-out over multiple network interfaces.
+
+As an example, this command binds to two network interfaces and Mountpoint traffic will be distributed over them both:
+
+```
+mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --bind ens0 --bind ens1
+```
+
+This feature is a work-in-progress.
+We welcome feedback on how this works for your applications and workloads.
+
+> [!NOTE]
+> This feature requires either Linux 5.7+ or running Mountpoint as the root user.
+> We recommend using a newer Linux kernel version to make use of this feature.
+
 ## Logging
 
 By default, Mountpoint emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. You can change what level of information is logged, and to where it is logged. See [LOGGING.md](LOGGING.md) for more details on configuring logging.

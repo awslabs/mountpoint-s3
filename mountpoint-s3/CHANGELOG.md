@@ -1,5 +1,10 @@
 ## Unreleased
 
+### New features
+
+* Mountpoint now supports specifying one or more network interfaces using `--bind <INTERFACE_NAME>` to be used when making requests to Amazon S3.
+  This feature is work-in-progress and we welcome feedback on it.
+
 ### Other changes
 
 * Fix an issue where `credential_process` field would not be picked up correctly when using `source_profile`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))

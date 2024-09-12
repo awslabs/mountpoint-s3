@@ -315,10 +315,9 @@ pub struct CliArgs {
     )]
     pub upload_checksums: Option<UploadChecksums>,
 
-    #[cfg(feature = "multiple-nw-iface")]
     #[clap(
         long,
-        help = "One or more network interfaces for Mountpoint to use when accessing S3. Requires Linux 5.7+ or running as root.",
+        help = "One or more network interfaces for Mountpoint to use when accessing S3. Requires Linux 5.7+ or running as root. This feature is a work-in-progress.",
         help_heading = CLIENT_OPTIONS_HEADER,
         value_name = "NETWORK_INTERFACE",
     )]
