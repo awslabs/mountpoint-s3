@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.10.0 (September 12, 2024)
+
 ### Breaking changes
 
 * When using GetObject with backpressure enabled, an error will be returned when there is not enough read window instead of blocking. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
@@ -7,6 +9,8 @@
 ### Other changes
 
 * Allow querying initial read window size and read window end offset for backpressure GetObject. ([#971](https://github.com/awslabs/mountpoint-s3/pull/971))
+* Fix an issue where `credential_process` field would not be picked up correctly when using `source_profile` or `--profile <AWS_PROFILE>`. ([awslabs/aws-c-auth#245](https://github.com/awslabs/aws-c-auth/pull/245))
+* Update CacheCredentialsProvider Refresh Time to 5 Minutes before Expiry. ([awslabs/aws-c-auth#247](https://github.com/awslabs/aws-c-auth/pull/247))
 
 ## v0.9.0 (June 26, 2024)
 
@@ -58,7 +62,7 @@
 
 ### Other changes
 
-* Introduced a new `ThroughputMockClient` that simulates a target network throughput from an in-memory mock S3 client. This client requires the `mock` feature flag. ([#723](https://github.com/awslabs/mountpoint-s3/pull/723)) 
+* Introduced a new `ThroughputMockClient` that simulates a target network throughput from an in-memory mock S3 client. This client requires the `mock` feature flag. ([#723](https://github.com/awslabs/mountpoint-s3/pull/723))
 * Updated some of the dependencies that aim to clean up our dependency closure. It includes the update of built dependency which fixes a vulnerability in libgit2-sys. ([#731](https://github.com/awslabs/mountpoint-s3/pull/731))
 
 ## v0.6.2 (January 18, 2024)
