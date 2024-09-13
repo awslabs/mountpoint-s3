@@ -80,6 +80,8 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
     subprocess_env = {
         "PID_FILE": "mount-s3.pid",
     }
+    if cfg['stub_fuse_read']:
+        subprocess_env["STUB_FUSE_READ"] = "1"
 
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
     output = subprocess.check_output(subprocess_args, env=subprocess_env)
