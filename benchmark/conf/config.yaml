@@ -31,6 +31,9 @@ mountpoint_debug_crt: false
 # Adds prompt to continue, to allow time to manually attach profiler.
 wait_for_profiler_attach: false
 
+# Skip out prefetcher and network in MP
+stub_fuse_read: false
+
 # For S3 implementations not supporting additional checksums. Passed as `--upload-checksums` argument.
 upload_checksums: !!null
 

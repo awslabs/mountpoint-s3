@@ -142,12 +142,20 @@ where
     ) {
         let mut bytes_sent = 0;
 
-        match block_on(self.fs.read(ino, fh, offset, size, flags, lock).in_current_span()) {
-            Ok(data) => {
-                bytes_sent = data.len();
-                reply.data(&data);
+        match std::env::var_os("STUB_FUSE_READ") {
+            Some(_val) => {
+                let data = vec![1u8; size as usize].into_boxed_slice();
+                reply.data(data.as_ref())
             }
-            Err(err) => fuse_error!("read", reply, err),
+            None => {
+                match block_on(self.fs.read(ino, fh, offset, size, flags, lock).in_current_span()) {
+                    Ok(data) => {
+                        bytes_sent = data.len();
+                        reply.data(&data);
+                    }
+                    Err(err) => fuse_error!("read", reply, err),
+                }
+            }
         }
 
         metrics::counter!("fuse.total_bytes", "type" => "read").increment(bytes_sent as u64);
