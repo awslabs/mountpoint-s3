@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-import dataclasses
 import json
 import logging
 import os
@@ -21,16 +20,7 @@ log = logging.getLogger(__name__)
 MOUNT_DIRECTORY = "s3"
 MP_LOGS_DIRECTORY = "mp_logs/"
 
-@dataclasses.dataclass
-class Metadata(object):
-    """
-    Metadata for the benchmark run.
-    """
-    start_time: str
-    end_time: str
-    mp_version: Optional[str] = None
-    ec2_instance_id: Optional[str] = None
-    success: bool = False
+type Metadata = dict[str, any]
 
 def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
     """
@@ -158,7 +148,7 @@ def _collect_logs() -> None:
 
 def _write_metadata(metadata: Metadata) -> None:
     with open("metadata.json", "w") as f:
-        json_str = json.dumps(dataclasses.asdict(metadata), default=str)
+        json_str = json.dumps(metadata)
         f.write(json_str)
 
 def _postprocessing(metadata: Metadata) -> None:
@@ -194,24 +184,22 @@ def run_experiment(cfg: DictConfig) -> None:
     log.info("Experiment starting")
     success = False
     start_time = datetime.now(tz=timezone.utc)
-    mp_version = None
+    metadata = {
+        "start_time": start_time,
+    }
 
-    instance_id = _get_ec2_instance_id()
     mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
     try:
         mp_version = _mount_mp(cfg, mount_dir)
+        metadata["mp_version"] = mp_version
         _run_fio(cfg, mount_dir)
         success = True
     except subprocess.SubprocessError as e:
         log.error(f"Error running experiment: {e}")
 
-    metadata = Metadata(
-        start_time=start_time,
-        end_time=datetime.now(tz=timezone.utc),
-        mp_version=mp_version,
-        ec2_instance_id=instance_id,
-        success=success,
-    )
+    metadata["end_time"] = datetime.now(tz=timezone.utc)
+    metadata["ec2_instance_id"] = _get_ec2_instance_id()
+    metadata["success"] = success
 
     try:
         _unmount_mp(mount_dir)
