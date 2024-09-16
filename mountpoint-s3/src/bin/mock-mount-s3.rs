@@ -10,7 +10,9 @@
 //!
 //! This binary is intended only for use in testing and development of Mountpoint.
 
+use anyhow::anyhow;
 use futures::executor::ThreadPool;
+
 use mountpoint_s3::cli::CliArgs;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
@@ -32,7 +34,11 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(ThroughputMockClient, T
 
     tracing::warn!("using mock client");
 
-    let max_throughput_gbps = args.maximum_throughput_gbps.unwrap_or(10) as f64;
+    let Some(max_throughput_gbps) = args.maximum_throughput_gbps else {
+        return Err(anyhow!(
+            "must set --max-throughput-gbps when using mock-mount-s3 binary"
+        ));
+    };
     tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
 
     let config = MockClientConfig {
@@ -41,7 +47,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(ThroughputMockClient, T
         unordered_list_seed: None,
         ..Default::default()
     };
-    let client = ThroughputMockClient::new(config, max_throughput_gbps);
+    let client = ThroughputMockClient::new(config, max_throughput_gbps as f64);
 
     let runtime = ThreadPool::builder().name_prefix("runtime").create()?;
 
