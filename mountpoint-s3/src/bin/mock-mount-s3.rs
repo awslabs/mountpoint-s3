@@ -39,7 +39,8 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(ThroughputMockClient, T
         bucket: args.bucket_name.clone(),
         part_size: args.part_size as usize,
         unordered_list_seed: None,
-        ..Default::default()
+        enable_backpressure: true,
+        initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
     };
     let client = ThroughputMockClient::new(config, max_throughput_gbps);
 
