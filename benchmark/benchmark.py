@@ -22,7 +22,7 @@ MP_LOGS_DIRECTORY = "mp_logs/"
 
 type Metadata = dict[str, any]
 
-def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
+def _mount_mp(cfg: DictConfig, metadata: Metadata, mount_dir :str) -> str:
     """
     Mount an S3 bucket using Mountpoint, using the configuration to apply Mountpoint arguments.
 
@@ -76,6 +76,8 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
         subprocess_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = cfg['mp_prefetcher_window_size']
 
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
+    metadata["mount_s3_command"] = " ".join(subprocess_args)
+    metadata["mount_s3_env"] = subprocess_env
     output = subprocess.check_output(subprocess_args, env=subprocess_env)
 
     log.info("From Mountpoint: %s", output.decode("utf-8").strip())
@@ -190,7 +192,7 @@ def run_experiment(cfg: DictConfig) -> None:
 
     mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
     try:
-        mp_version = _mount_mp(cfg, mount_dir)
+        mp_version = _mount_mp(cfg, metadata, mount_dir)
         metadata["mp_version"] = mp_version
         _run_fio(cfg, mount_dir)
         success = True
