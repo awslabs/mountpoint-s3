@@ -163,7 +163,7 @@ impl Default for PrefetcherConfig {
     #[allow(clippy::identity_op)]
     fn default() -> Self {
         Self {
-            max_read_window_size: 2 * 1024 * 1024 * 1024,
+            max_read_window_size: determine_max_read_size(),
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
             // We want these large enough to tolerate a single out-of-order Linux readahead, which
@@ -174,6 +174,41 @@ impl Default for PrefetcherConfig {
             max_backward_seek_distance: 1 * 1024 * 1024,
         }
     }
+}
+
+
+/// Provide the maximum read size for the prefetcher.
+///
+/// This allows a way to override the prefetch window rather than using the hardcoded default within Mountpoint.
+/// We do not recommend using the override, and it may be removed at any time.
+///
+/// This unstable override is expected to be removed once adaptive prefetching based on available memory is available:
+/// https://github.com/awslabs/mountpoint-s3/issues/987
+fn determine_max_read_size() -> usize {
+    let env_var_key = "UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE";
+    const DEFAULT_READ_WINDOW_SIZE: usize = 2 * 1024 * 1024 * 1024;
+    let max_read_window_size: usize = match std::env::var_os(env_var_key) {
+        Some(val) => {
+            match val.to_string_lossy().parse() {
+                Ok(val) => {
+                    tracing::warn!(
+                        "successfully overridden prefetch read window size with new value {val} bytes from unstable environment config",
+                    );
+                    val
+                },
+                Err(_) => {
+                    tracing::warn!(
+                        "{env_var_key} did not contain a valid positive integer \
+                        for prefetch bytes, using {} bytes instead",
+                        DEFAULT_READ_WINDOW_SIZE,
+                    );
+                    DEFAULT_READ_WINDOW_SIZE
+                }
+            }
+        },
+        None => DEFAULT_READ_WINDOW_SIZE,
+    };
+    max_read_window_size
 }
 
 /// A [Prefetcher] creates and manages prefetching GetObject requests to objects.
