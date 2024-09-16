@@ -192,7 +192,7 @@ impl<W: Work> WorkerPool<W> {
         metrics::gauge!("fuse.idle_workers").set(idle_worker_count as f64);
         let clone = (*self).clone();
         let worker = thread::Builder::new()
-            .name(format!("fuse-worker-{i}"))
+            .name(format!("mp-fuse-worker"))
             .spawn(move || clone.run(i))
             .context("failed to spawn worker threads")?;
         self.workers.send(worker).unwrap();
