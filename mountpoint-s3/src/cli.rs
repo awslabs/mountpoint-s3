@@ -851,7 +851,12 @@ where
     }
 
     if let Some(express_bucket_name) = args.cache_express_bucket_name() {
-        let cache = ExpressDataCache::new(express_bucket_name, client.clone(), args.cache_block_size_in_bytes());
+        let cache = ExpressDataCache::new(
+            express_bucket_name,
+            client.clone(),
+            &bucket_description,
+            args.cache_block_size_in_bytes(),
+        );
         let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
         let fuse_session = create_filesystem(
             client,

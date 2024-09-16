@@ -13,8 +13,9 @@ use tracing::{trace, Instrument};
 const CACHE_VERSION: &str = "V1";
 
 pub struct ExpressDataCache<Client: ObjectClient> {
-    bucket_name: String,
     client: Client,
+    bucket_name: String,
+    prefix: String,
     block_size: u64,
 }
 
@@ -22,10 +23,18 @@ impl<Client> ExpressDataCache<Client>
 where
     Client: ObjectClient + Send + Sync + 'static,
 {
-    pub fn new(bucket_name: &str, client: Client, block_size: u64) -> Self {
+    pub fn new(bucket_name: &str, client: Client, source_description: &str, block_size: u64) -> Self {
+        let prefix = hex::encode(
+            Sha256::new()
+                .chain_update(CACHE_VERSION.as_bytes())
+                .chain_update(block_size.to_be_bytes())
+                .chain_update(source_description.as_bytes())
+                .finalize(),
+        );
         Self {
             client,
             bucket_name: bucket_name.to_owned(),
+            prefix,
             block_size,
         }
     }
@@ -42,7 +51,7 @@ where
         block_idx: BlockIndex,
         _block_offset: u64, // TODO: should we use this?
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        let object_key = object_key(cache_key, block_idx);
+        let object_key = block_key(&self.prefix, cache_key, block_idx);
         let result = match self.client.get_object(&self.bucket_name, &object_key, None, None).await {
             Ok(ok_result) => ok_result,
             Err(_e) => {
@@ -81,7 +90,7 @@ where
         _block_offset: u64,
         bytes: ChecksummedBytes,
     ) -> DataCacheResult<()> {
-        let object_key = object_key(&cache_key, block_idx);
+        let object_key = block_key(&self.prefix, &cache_key, block_idx);
         trace!("ExpressDataCache::put_block {}", object_key);
         // TODO: handle errors in a better way than just expects
         let params = PutObjectParams::new();
@@ -103,19 +112,12 @@ where
     }
 }
 
-/// Hash the cache key using its fields as well as the [CACHE_VERSION].
-fn hash_cache_key_raw(cache_key: &ObjectId) -> [u8; 32] {
-    let s3_key = cache_key.key();
-    let etag = cache_key.etag();
-
-    let mut hasher = Sha256::new();
-    hasher.update(CACHE_VERSION.as_bytes());
-    hasher.update(s3_key);
-    hasher.update(etag.as_str());
-    hasher.finalize().into()
-}
-
-fn object_key(cache_key: &ObjectId, block_idx: BlockIndex) -> String {
-    let hashed_cache_key = hex::encode(hash_cache_key_raw(cache_key));
-    format!("{}/{:010}", hashed_cache_key, block_idx)
+fn block_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
+    let hashed_cache_key = hex::encode(
+        Sha256::new()
+            .chain_update(cache_key.key())
+            .chain_update(cache_key.etag().as_str())
+            .finalize(),
+    );
+    format!("{}/{}/{:010}", prefix, hashed_cache_key, block_idx)
 }
