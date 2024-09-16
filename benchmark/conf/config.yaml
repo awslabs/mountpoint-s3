@@ -21,8 +21,8 @@ available_network_interfaces:
 
 fio_benchmarks:
   - "sequential_read"
-  - "random_read"
-  - "sequential_write"
+  # - "random_read"
+  # - "sequential_write"
 
 mountpoint_binary: "../target/release/mount-s3"
 mountpoint_debug: false
