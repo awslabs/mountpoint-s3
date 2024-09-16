@@ -82,6 +82,8 @@ def _mount_mp(cfg: DictConfig, mount_dir :str) -> str:
     }
     if cfg['stub_fuse_read']:
         subprocess_env["STUB_FUSE_READ"] = "1"
+    if cfg['mp_prefetcher_window_size'] is not None:
+        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = cfg['mp_prefetcher_window_size']
 
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
     output = subprocess.check_output(subprocess_args, env=subprocess_env)
