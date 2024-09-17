@@ -40,7 +40,7 @@ mod seek_window;
 mod task;
 
 use std::fmt::Debug;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::task::Spawn;
@@ -401,12 +401,18 @@ where
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
+            let read_requires_extend_counter = counter!("prefetch.read_requires_extend");
             if response.is_empty() && part_bytes.len() == to_read as usize {
+                read_requires_extend_counter.increment(0);
                 return Ok(part_bytes);
+            } else {
+                read_requires_extend_counter.increment(1);
             }
 
             let part_len = part_bytes.len() as u64;
+            let read_extend_start = Instant::now();
             response.extend(part_bytes)?;
+            histogram!("prefetch.read_extend_us").record(read_extend_start.elapsed().as_micros() as f64);
             to_read -= part_len;
         }
 
