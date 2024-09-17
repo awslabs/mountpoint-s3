@@ -642,7 +642,6 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     if let Some(ttl) = args.metadata_ttl {
         user_agent.key_value("mp-cache-ttl", &ttl.to_string());
     }
-    #[cfg(feature = "multiple-nw-iface")]
     if let Some(interfaces) = &args.bind {
         user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
     }
@@ -667,7 +666,6 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
         .read_backpressure(true)
         .initial_read_window(initial_read_window_size)
         .user_agent(user_agent);
-    #[cfg(feature = "multiple-nw-iface")]
     if let Some(interfaces) = &args.bind {
         client_config = client_config.network_interface_names(interfaces.clone());
     }

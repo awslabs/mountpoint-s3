@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+
+* Fix an issue where `--bind` argument was would not be picked up correctly. ([#1020](https://github.com/awslabs/mountpoint-s3/pull/1020))
+
 ## v1.9.0
 
 ### New features
