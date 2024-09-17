@@ -4,7 +4,7 @@ use futures::executor::block_on;
 use mountpoint_s3_client::ObjectClient;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
 
@@ -141,19 +141,28 @@ where
         reply: ReplyData,
     ) {
         let mut bytes_sent = 0;
+        let fuse_reply_time = metrics::histogram!("fuse.reply_time", "op" => "read");
 
         match std::env::var_os("STUB_FUSE_READ") {
             Some(_val) => {
                 let data = vec![1u8; size as usize].into_boxed_slice();
-                reply.data(data.as_ref())
+                let start = Instant::now();
+                reply.data(data.as_ref());
+                fuse_reply_time.record(start.elapsed());
             }
             None => {
-                match block_on(self.fs.read(ino, fh, offset, size, flags, lock).in_current_span()) {
+                let read_result = block_on(self.fs.read(ino, fh, offset, size, flags, lock).in_current_span());
+                let start = Instant::now();
+                match read_result {
                     Ok(data) => {
                         bytes_sent = data.len();
                         reply.data(&data);
+                        fuse_reply_time.record(start.elapsed());
                     }
-                    Err(err) => fuse_error!("read", reply, err),
+                    Err(err) => {
+                        fuse_error!("read", reply, err);
+                        fuse_reply_time.record(start.elapsed());
+                    }
                 }
             }
         }
