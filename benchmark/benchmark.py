@@ -20,9 +20,7 @@ log = logging.getLogger(__name__)
 MOUNT_DIRECTORY = "s3"
 MP_LOGS_DIRECTORY = "mp_logs/"
 
-type Metadata = dict[str, any]
-
-def _mount_mp(cfg: DictConfig, metadata: Metadata, mount_dir :str) -> str:
+def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
     """
     Mount an S3 bucket using Mountpoint, using the configuration to apply Mountpoint arguments.
 
@@ -148,12 +146,12 @@ def _collect_logs() -> None:
     os.rename(old_log_dir, new_log_path)
     os.rmdir(logs_directory)
 
-def _write_metadata(metadata: Metadata) -> None:
+def _write_metadata(metadata: dict[str, any]) -> None:
     with open("metadata.json", "w") as f:
         json_str = json.dumps(metadata)
         f.write(json_str)
 
-def _postprocessing(metadata: Metadata) -> None:
+def _postprocessing(metadata: dict[str, any]) -> None:
     _collect_logs()
     _write_metadata(metadata)
 
