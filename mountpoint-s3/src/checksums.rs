@@ -1,9 +1,28 @@
+use std::env::VarError;
 use std::ops::{Bound, Range, RangeBounds};
+use std::sync::LazyLock;
 
 use bytes::{Bytes, BytesMut};
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 
 use thiserror::Error;
+
+/// Some stubbing occurs in [mountpoint_s3_crt::checksums::crc32c] too
+static STUB_CRC32C: LazyLock<bool> = LazyLock::new(|| {
+    const VAR_KEY: &str = "STUB_CRC32C";
+    match std::env::var(VAR_KEY) {
+        Ok(env_str_value) => {
+            let disable_checksum = env_str_value != "0" && env_str_value.to_lowercase() != "false";
+            tracing::warn!("overriding crc32c checksums, crc32c stubbed?: {disable_checksum}");
+            disable_checksum
+        },
+        Err(VarError::NotPresent) => false,
+        Err(err) => {
+            tracing::error!("failed to read {VAR_KEY}: {err:?}");
+            panic!("could not figure out if checksums should be stubbed")
+        }
+    }
+});
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that integrity will be validated before the data can be accessed.
@@ -249,6 +268,9 @@ impl TryFrom<ChecksummedBytes> for Bytes {
 /// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
 /// `suffix_crc` is the checksum for `B`, and `suffix_len` is the length of `B`.
 pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
+    if *STUB_CRC32C{
+        return Crc32c::new(0);
+    }
     let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
     Crc32c::new(combined)
 }
