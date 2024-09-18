@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Instant;
 
 use clap::{Arg, Command};
-use futures::executor::{block_on, ThreadPool};
+use futures::executor::block_on;
 use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::ETag;
@@ -97,7 +97,7 @@ fn main() {
     let etag = ETag::from_str(&head_object_result.object.etag).unwrap();
 
     for i in 0..iterations.unwrap_or(1) {
-        let runtime = ThreadPool::builder().pool_size(downloads).create().unwrap();
+        let runtime = client.event_loop_group();
         let manager = default_prefetch(runtime, Default::default());
         let received_bytes = Arc::new(AtomicU64::new(0));
 
