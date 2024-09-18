@@ -8,7 +8,7 @@ default-run = "mount-s3"
 
 [dependencies]
 fuser = { path = "../vendor/fuser", version = "0.15.0", features = ["abi-7-28"] }
-mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.13.1" }
+mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.13.1", features = ["mock"] }
 
 anyhow = { version = "1.0.95", features = ["backtrace"] }
 async-channel = "2.3.1"
@@ -24,7 +24,7 @@ const_format = "0.2.34"
 crc32c = "0.6.8"
 ctrlc = { version = "3.4.5", features = ["termination"] }
 dashmap = "6.1.0"
-futures = "0.3.31"
+futures = { version = "0.3.31", features = ["thread-pool"] }
 hdrhistogram = { version = "7.5.4", default-features = false }
 hex = "0.4.3"
 humansize = "2.1.3"
