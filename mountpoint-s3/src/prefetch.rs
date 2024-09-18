@@ -184,10 +184,10 @@ impl Default for PrefetcherConfig {
 /// This unstable override is expected to be removed once adaptive prefetching based on available memory is available:
 /// https://github.com/awslabs/mountpoint-s3/issues/987
 fn determine_max_read_size() -> usize {
-    let env_var_key = "UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE";
+    const ENV_VAR_KEY: &str = "UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE";
     const DEFAULT_READ_WINDOW_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
-    match std::env::var_os(env_var_key) {
+    match std::env::var_os(ENV_VAR_KEY) {
         Some(val) => match val.to_string_lossy().parse() {
             Ok(val) => {
                 tracing::warn!(
@@ -198,7 +198,7 @@ fn determine_max_read_size() -> usize {
             }
             Err(_) => {
                 tracing::warn!(
-                    "{env_var_key} did not contain a valid positive integer \
+                    "{ENV_VAR_KEY} did not contain a valid positive integer \
                         for prefetch bytes, using {DEFAULT_READ_WINDOW_SIZE} bytes instead",
                 );
                 DEFAULT_READ_WINDOW_SIZE
