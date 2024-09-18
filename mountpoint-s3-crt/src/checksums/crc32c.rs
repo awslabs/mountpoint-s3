@@ -1,4 +1,23 @@
+use std::env::VarError;
+use std::sync::LazyLock;
+
 use mountpoint_s3_crt_sys::aws_checksums_crc32c;
+
+static STUB_CRC32C: LazyLock<bool> = LazyLock::new(|| {
+    const VAR_KEY: &str = "STUB_CRC32C";
+    match std::env::var(VAR_KEY) {
+        Ok(env_str_value) => {
+            let disable_checksum = env_str_value != "0" && env_str_value.to_lowercase() != "false";
+            log::warn!("overriding crc32c checksums, crc32c stubbed?: {disable_checksum}");
+            disable_checksum
+        },
+        Err(VarError::NotPresent) => false,
+        Err(err) => {
+            log::error!("failed to read {VAR_KEY}: {err:?}");
+            panic!("could not figure out if checksums should be stubbed")
+        }
+    }
+});
 
 /// CRC32C checksum
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -53,6 +72,11 @@ impl Hasher {
     /// any buffer that is bigger than `i32::MAX` as an input.
     fn crc32c(buf: &[u8], previous_checksum: u32) -> u32 {
         assert!(buf.len() <= i32::MAX as usize);
+
+        if *STUB_CRC32C {
+            // Placeholder
+            return 0;
+        }
 
         // SAFETY: we pass a valid buffer to the CRT, and trust
         // the CRT function to only read from the buffer's boundary.
