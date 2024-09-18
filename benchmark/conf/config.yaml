@@ -34,6 +34,9 @@ wait_for_profiler_attach: false
 # Skip out prefetcher and network in MP
 stub_fuse_read: false
 
+# Hack that turns off crc32c
+stub_crc32c: false
+
 # Override prefetcher window size
 mp_prefetcher_window_size: !!null
 
