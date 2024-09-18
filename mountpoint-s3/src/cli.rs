@@ -726,6 +726,8 @@ pub fn create_mock_s3_client(args: &CliArgs) -> anyhow::Result<(MockClient, Thre
         tracing::warn!("using mock client, max throughput will be ignored")
     };
 
+    let prefix = args.prefix();
+
     let config = MockClientConfig {
         bucket: args.bucket_name.clone(),
         part_size: args.part_size as usize,
@@ -738,14 +740,14 @@ pub fn create_mock_s3_client(args: &CliArgs) -> anyhow::Result<(MockClient, Thre
     for job_num in 0..512 {
         let size_gib = 1;
         let size_bytes = size_gib * 1024u64.pow(3);
-        let key = format!("j{job_num}_{size_gib}GiB.bin");
+        let key = format!("{prefix}j{job_num}_{size_gib}GiB.bin");
         client.add_object(&key, MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()));
     }
 
     for job_num in 0..512 {
         let size_gib = 100;
         let size_bytes = size_gib * 1024u64.pow(3);
-        let key = format!("j{job_num}_{size_gib}GiB.bin");
+        let key = format!("{prefix}j{job_num}_{size_gib}GiB.bin");
         client.add_object(&key, MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()));
     }
 
