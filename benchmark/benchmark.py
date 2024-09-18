@@ -149,7 +149,7 @@ def _collect_logs() -> None:
 
 def _write_metadata(metadata: dict[str, any]) -> None:
     with open("metadata.json", "w") as f:
-        json_str = json.dumps(metadata)
+        json_str = json.dumps(metadata, default=str)
         f.write(json_str)
 
 def _postprocessing(metadata: dict[str, any]) -> None:
