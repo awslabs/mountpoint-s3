@@ -31,14 +31,10 @@ mountpoint_debug_crt: false
 # Adds prompt to continue, to allow time to manually attach profiler.
 wait_for_profiler_attach: false
 
-# Skip out prefetcher and network in MP
-stub_fuse_read: false
+stub_reading_mode: off # fuse, s3_client
 
 # Hack that turns off crc32c
 stub_crc32c: false
-
-# Use mock S3 client - in main mount-s3 binary!
-use_mock_s3_client: false
 
 # Override prefetcher window size
 mp_prefetcher_window_size: !!null
