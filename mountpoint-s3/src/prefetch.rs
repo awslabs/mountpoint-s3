@@ -163,7 +163,7 @@ impl Default for PrefetcherConfig {
     #[allow(clippy::identity_op)]
     fn default() -> Self {
         Self {
-            max_read_window_size: 2 * 1024 * 1024 * 1024,
+            max_read_window_size: determine_max_read_size(),
             sequential_prefetch_multiplier: 8,
             read_timeout: Duration::from_secs(60),
             // We want these large enough to tolerate a single out-of-order Linux readahead, which
@@ -173,6 +173,42 @@ impl Default for PrefetcherConfig {
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 1 * 1024 * 1024,
         }
+    }
+}
+
+/// Provide the maximum read size for the prefetcher, for which there is one prefetcher per file handle.
+///
+/// This allows a way to override the prefetch window rather than using the hardcoded default within Mountpoint.
+/// We do not recommend using the override, and it may be removed at any time.
+///
+/// This parameter may not be accurately adopted when using small values.
+/// When prefetching starts, it will fetch 1MiB + 128KiB at time of writing.
+/// This parameter will only be used when scaling up the prefetch window.
+///
+/// This unstable override is expected to be removed once adaptive prefetching based on available memory is available:
+/// https://github.com/awslabs/mountpoint-s3/issues/987
+fn determine_max_read_size() -> usize {
+    const ENV_VAR_KEY: &str = "UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE";
+    const DEFAULT_READ_WINDOW_SIZE: usize = 2 * 1024 * 1024 * 1024;
+
+    match std::env::var_os(ENV_VAR_KEY) {
+        Some(val) => match val.to_string_lossy().parse() {
+            Ok(val) => {
+                tracing::warn!(
+                    "successfully overridden prefetch read window size \
+                        with new value {val} bytes from unstable environment config",
+                );
+                val
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "{ENV_VAR_KEY} did not contain a valid positive integer \
+                        for prefetch bytes, using {DEFAULT_READ_WINDOW_SIZE} bytes instead",
+                );
+                DEFAULT_READ_WINDOW_SIZE
+            }
+        },
+        None => DEFAULT_READ_WINDOW_SIZE,
     }
 }
 
