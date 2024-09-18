@@ -181,6 +181,10 @@ impl Default for PrefetcherConfig {
 /// This allows a way to override the prefetch window rather than using the hardcoded default within Mountpoint.
 /// We do not recommend using the override, and it may be removed at any time.
 ///
+/// This parameter may not be accurately adopted when using small values.
+/// When prefetching starts, it will fetch 1MiB + 128KiB at time of writing.
+/// This parameter will only be used when scaling up the prefetch window.
+///
 /// This unstable override is expected to be removed once adaptive prefetching based on available memory is available:
 /// https://github.com/awslabs/mountpoint-s3/issues/987
 fn determine_max_read_size() -> usize {
