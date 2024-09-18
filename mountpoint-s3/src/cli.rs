@@ -10,12 +10,15 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, Parser, ValueEnum};
 use fuser::{MountOption, Session};
+use futures::executor::ThreadPool;
 use futures::task::Spawn;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_crt::auth::signing_config::SigningAlgorithm;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
@@ -712,6 +715,47 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
     let s3_personality = infer_s3_personality(args.bucket_type.clone(), &args.bucket_name, client.endpoint_config());
+
+    Ok((client, runtime, s3_personality))
+}
+
+pub fn create_mock_s3_client(args: &CliArgs) -> anyhow::Result<(MockClient, ThreadPool, S3Personality)> {
+    tracing::warn!("using mock client, some set of objects will be precreated");
+
+    if args.maximum_throughput_gbps.is_some() {
+        tracing::warn!("using mock client, max throughput will be ignored")
+    };
+
+    let config = MockClientConfig {
+        bucket: args.bucket_name.clone(),
+        part_size: args.part_size as usize,
+        enable_backpressure: true,
+        initial_read_window_size: 1024 * 1024 + 128 * 1024, // copies the strange param from real client config
+        ..Default::default()
+    };
+    let client = MockClient::new(config);
+
+    for job_num in 0..512 {
+        let size_gib = 1;
+        let size_bytes = size_gib * 1024u64.pow(3);
+        let key = format!("j{job_num}_{size_gib}GiB.bin");
+        client.add_object(&key, MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()));
+    }
+
+    for job_num in 0..512 {
+        let size_gib = 100;
+        let size_bytes = size_gib * 1024u64.pow(3);
+        let key = format!("j{job_num}_{size_gib}GiB.bin");
+        client.add_object(&key, MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()));
+    }
+
+    let runtime = ThreadPool::builder().name_prefix("runtime").create()?;
+
+    let s3_personality = if let Some(bucket_type) = &args.bucket_type {
+        bucket_type.to_personality()
+    } else {
+        S3Personality::Standard
+    };
 
     Ok((client, runtime, s3_personality))
 }

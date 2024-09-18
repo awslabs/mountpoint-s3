@@ -37,6 +37,9 @@ stub_fuse_read: false
 # Hack that turns off crc32c
 stub_crc32c: false
 
+# Use mock S3 client - in main mount-s3 binary!
+use_mock_s3_client: false
+
 # Override prefetcher window size
 mp_prefetcher_window_size: !!null
 
