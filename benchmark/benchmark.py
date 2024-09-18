@@ -67,8 +67,8 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
             subprocess_args.append(f"--maximum-throughput-gbps={network['maximum_throughput_gbps']}")
     subprocess_env = {
         "PID_FILE": "mount-s3.pid",
-        "STUB_CRC32C": cfg['stub_crc32c'],
-        "USE_MOCK_S3_CLIENT": cfg['use_mock_s3_client'],
+        "STUB_CRC32C": str(cfg['stub_crc32c']),
+        "USE_MOCK_S3_CLIENT": str(cfg['use_mock_s3_client']),
     }
     if cfg['stub_fuse_read']:
         subprocess_env["STUB_FUSE_READ"] = "1"
