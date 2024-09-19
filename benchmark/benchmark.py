@@ -100,6 +100,9 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
 
     return mountpoint_version_output
 
+import subprocess
+from subprocess import Popen, PIPE
+
 def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     """
     Run the FIO workload against the file system.
@@ -112,14 +115,27 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
 
         for iteration in range(cfg["iterations"]):
             fio_output = path.join(job_out_dir, f"{iteration}.json")
-            subprocess_args = [
+
+            subprocess_args = []
+
+            if cfg['with_perf']:
+                subprocess_args.extend([
+                    "perf",
+                    "record",
+                    "-F", "99",
+                    "-a",
+                    "-g",
+                    "--",
+                ])
+
+            subprocess_args.extend([
                 FIO_BINARY,
                 f"--output={fio_output}",
                 "--output-format=json",
                 "--eta=never",
                 f"--directory={mount_dir}",
                 hydra.utils.to_absolute_path(f"fio/{job_name}.fio"),
-            ]
+            ])
             subprocess_env = {
                 "NUMJOBS": str(cfg['application_workers']),
                 "SIZE_GIB": str(100),
@@ -128,7 +144,19 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
                 "IO_ENGINE": str("libaio" if cfg['direct_io'] else "psync"),
             }
             log.info(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
-            subprocess.check_output(subprocess_args, env=subprocess_env)
+
+            # Use Popen instead of check_output, perf doesn't like it for some reason. (Doing weird stuff with stdin/stdout?)
+            with Popen(subprocess_args, env=subprocess_env) as process:
+                process.wait()
+                if process.returncode != 0:
+                    log.error(f"FIO process failed with return code {process.returncode}")
+                    raise subprocess.CalledProcessError(process.returncode, subprocess_args)
+                else:
+                    log.info("FIO process completed successfully")
+
+            if cfg['with_perf']:
+                os.rename("perf.data", path.join(job_out_dir, f"{iteration}.perf.data"))
+
 
 def _unmount_mp(mount_dir: str) -> None:
     """

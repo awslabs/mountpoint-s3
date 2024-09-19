@@ -31,6 +31,9 @@ mountpoint_debug_crt: false
 # Adds prompt to continue, to allow time to manually attach profiler.
 wait_for_profiler_attach: false
 
+# Record perf profiling of all CPUs for the duration of each FIO run
+with_perf: false
+
 stub_reading_mode: off # fuse, s3_client
 
 # Hack that turns off crc32c
