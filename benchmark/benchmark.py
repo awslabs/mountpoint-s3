@@ -107,54 +107,46 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     Run the FIO workload against the file system.
     """
     FIO_BINARY = "/usr/bin/fio"
-    job_names = cfg["fio_benchmarks"]
-    for job_name in job_names:
-        job_out_dir = f"fio_out/{job_name}/"
-        os.makedirs(job_out_dir, exist_ok=True)
+    job_name = cfg["fio_benchmark"]
+    fio_output = f"fio.{job_name}.json"
 
-        for iteration in range(cfg["iterations"]):
-            fio_output = path.join(job_out_dir, f"{iteration}.json")
+    subprocess_args = []
 
-            subprocess_args = []
+    if cfg['with_perf']:
+        subprocess_args.extend([
+            "perf",
+            "record",
+            "-F", "99",
+            "-a",
+            "-g",
+            "--",
+        ])
 
-            if cfg['with_perf']:
-                subprocess_args.extend([
-                    "perf",
-                    "record",
-                    "-F", "99",
-                    "-a",
-                    "-g",
-                    "--",
-                ])
+    subprocess_args.extend([
+        FIO_BINARY,
+        f"--output={fio_output}",
+        "--output-format=json",
+        "--eta=never",
+        f"--directory={mount_dir}",
+        hydra.utils.to_absolute_path(f"fio/{job_name}.fio"),
+    ])
+    subprocess_env = {
+        "NUMJOBS": str(cfg['application_workers']),
+        "SIZE_GIB": str(100),
+        "DIRECT": str(1 if cfg['direct_io'] else 0),
+        "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
+        "IO_ENGINE": str("libaio" if cfg['direct_io'] else "psync"),
+    }
+    log.info(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
 
-            subprocess_args.extend([
-                FIO_BINARY,
-                f"--output={fio_output}",
-                "--output-format=json",
-                "--eta=never",
-                f"--directory={mount_dir}",
-                hydra.utils.to_absolute_path(f"fio/{job_name}.fio"),
-            ])
-            subprocess_env = {
-                "NUMJOBS": str(cfg['application_workers']),
-                "SIZE_GIB": str(100),
-                "DIRECT": str(1 if cfg['direct_io'] else 0),
-                "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
-                "IO_ENGINE": str("libaio" if cfg['direct_io'] else "psync"),
-            }
-            log.info(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
-
-            # Use Popen instead of check_output, perf doesn't like it for some reason. (Doing weird stuff with stdin/stdout?)
-            with Popen(subprocess_args, env=subprocess_env) as process:
-                process.wait()
-                if process.returncode != 0:
-                    log.error(f"FIO process failed with return code {process.returncode}")
-                    raise subprocess.CalledProcessError(process.returncode, subprocess_args)
-                else:
-                    log.info("FIO process completed successfully")
-
-            if cfg['with_perf']:
-                os.rename("perf.data", path.join(job_out_dir, f"{iteration}.perf.data"))
+    # Use Popen instead of check_output, perf doesn't like it for some reason. (Doing weird stuff with stdin/stdout?)
+    with Popen(subprocess_args, env=subprocess_env) as process:
+        process.wait()
+        if process.returncode != 0:
+            log.error(f"FIO process failed with return code {process.returncode}")
+            raise subprocess.CalledProcessError(process.returncode, subprocess_args)
+        else:
+            log.info("FIO process completed successfully")
 
 
 def _unmount_mp(mount_dir: str) -> None:
