@@ -3,6 +3,7 @@
 ### Other changes
 
 * Add AWS ISO partitions to STS credential provider. ([awslabs/aws-c-auth#253](https://github.com/awslabs/aws-c-auth/pull/253))
+* Fix an issue where `--bind` argument would not be picked up correctly. ([#1020](https://github.com/awslabs/mountpoint-s3/pull/1020))
 
 ## v1.9.0
 

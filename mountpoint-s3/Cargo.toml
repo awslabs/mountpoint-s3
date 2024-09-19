@@ -81,7 +81,6 @@ built = { version = "0.7.1", features = ["git2"] }
 [features]
 # Unreleased feature flags
 event_log = []
-multiple-nw-iface = []
 # Features for choosing tests
 fips_tests = []
 fuse_tests = []
