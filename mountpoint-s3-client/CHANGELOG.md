@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+
+* Inaccurate reporting of `s3.client.buffer_pool.primary_allocated` CRT statistic is fixed. ([awslabs/aws-c-s3#453](https://github.com/awslabs/aws-c-s3/pull/453))
+
 ## v0.10.0 (September 12, 2024)
 
 ### Breaking changes
