@@ -76,10 +76,10 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
             subprocess_env["STUB_FUSE_READ"] = "1"
         elif stub_reading_mode == 's3_client':
             subprocess_env["USE_MOCK_S3_CLIENT"] = "1"
-        elif stub_reading_mode == 'off':
+        elif stub_reading_mode == 'off' or stub_reading_mode == 'False':
             pass
         else:
-            raise ValueError(f"Unknown stub_reading_mode: {cfg['stub_reading_mode']}")
+            raise ValueError(f"Unknown stub_reading_mode: {stub_reading_mode}")
 
     if cfg['mp_prefetcher_window_size'] is not None:
         subprocess_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = cfg['mp_prefetcher_window_size']
