@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v1.9.1 (September 19, 2024)
+
 ### Other changes
 
 * Add AWS ISO partitions to STS credential provider. ([awslabs/aws-c-auth#253](https://github.com/awslabs/aws-c-auth/pull/253))
