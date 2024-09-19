@@ -202,6 +202,43 @@ def _get_ec2_instance_id() -> Optional[str]:
 
     return instance_id
 
+class ResourceMonitoring():
+    def __init__(self):
+        self.mpstat_process = None
+        self.output_files = []
+
+    def _start(self) -> None:
+        log.debug("Starting resource monitors...")
+        self.mpstat_process = self._start_mpstat()
+
+    def _close(self) -> None:
+        log.debug("Shutting down resource monitors...")
+        self.mpstat_process.kill()
+        for output_file in self.output_files:
+            output_file.close()
+
+    def _start_mpstat(self) -> any:
+        output_file = open("mpstat.json", "w")
+        self.output_files.append(output_file)
+        process_args = [
+            "/usr/bin/mpstat",
+            "-P", "ALL", # cores
+            "-o", "JSON",
+            "1", # interval
+        ]
+        log.debug(f"Starting mpstat: {' '.join(process_args)}")
+        return subprocess.Popen(process_args, stdout=output_file)
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def managed():
+        resource = ResourceMonitoring()
+        try:
+            resource._start()
+            yield resource
+        finally:
+            resource._close()
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run_experiment(cfg: DictConfig) -> None:
@@ -222,7 +259,8 @@ def run_experiment(cfg: DictConfig) -> None:
     try:
         mp_version = _mount_mp(cfg, metadata, mount_dir)
         metadata["mp_version"] = mp_version
-        _run_fio(cfg, mount_dir)
+        with ResourceMonitoring.managed():
+            _run_fio(cfg, mount_dir)
         success = True
     except subprocess.SubprocessError as e:
         log.error(f"Error running experiment: {e}")
