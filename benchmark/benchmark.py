@@ -4,6 +4,7 @@ import logging
 import os
 from os import path
 import subprocess
+from subprocess import Popen, PIPE
 import tempfile
 from typing import Optional
 import urllib.request
@@ -100,8 +101,6 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
 
     return mountpoint_version_output
 
-import subprocess
-from subprocess import Popen, PIPE
 
 def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     """
