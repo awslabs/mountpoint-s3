@@ -839,6 +839,9 @@ pub struct BufferPoolUsageStats {
 
     /// Secondary mem reserved. Accurate, maps directly to base allocator.
     pub secondary_used: u64,
+
+    /// Bytes used in "forced" buffers (created even if they exceed memory limits).
+    pub forced_used: u64,
 }
 
 impl Client {
@@ -951,6 +954,7 @@ impl Client {
         let primary_num_blocks = inner_stats.primary_num_blocks as u64;
         let secondary_reserved = inner_stats.secondary_reserved as u64;
         let secondary_used = inner_stats.secondary_used as u64;
+        let forced_used = inner_stats.forced_used as u64;
 
         BufferPoolUsageStats {
             mem_limit,
@@ -961,6 +965,7 @@ impl Client {
             primary_num_blocks,
             secondary_reserved,
             secondary_used,
+            forced_used,
         }
     }
 
