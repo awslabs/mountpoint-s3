@@ -454,16 +454,12 @@ mod tests {
         };
         assert!(first_read_count > 0);
 
-        fn get_block_count(cache: &InMemoryDataCache, id: &ObjectId) -> usize {
-            block_on(async move { cache.block_count(id).await })
-        }
-
         // Wait until all blocks are saved to the cache before spawning a new request
         let expected_block_count = expected_end_block - expected_start_block;
-        while get_block_count(&stream.cache, &id) < expected_block_count {
+        while stream.cache.block_count(&id) < expected_block_count {
             thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(expected_block_count, get_block_count(&stream.cache, &id));
+        assert_eq!(expected_block_count, stream.cache.block_count(&id));
 
         let second_read_count = {
             // Second request (from cache)

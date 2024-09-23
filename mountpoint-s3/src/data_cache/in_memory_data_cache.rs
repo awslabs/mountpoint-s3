@@ -7,11 +7,11 @@ use async_trait::async_trait;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 use crate::object::ObjectId;
-use crate::sync::AsyncRwLock;
+use crate::sync::RwLock;
 
 /// Simple in-memory (RAM) implementation of [DataCache]. Recommended for use in testing only.
 pub struct InMemoryDataCache {
-    data: AsyncRwLock<HashMap<ObjectId, HashMap<BlockIndex, ChecksummedBytes>>>,
+    data: RwLock<HashMap<ObjectId, HashMap<BlockIndex, ChecksummedBytes>>>,
     block_size: u64,
 }
 
@@ -25,8 +25,8 @@ impl InMemoryDataCache {
     }
 
     /// Get number of caching blocks for the given cache key.
-    pub async fn block_count(&self, cache_key: &ObjectId) -> usize {
-        let data = self.data.read().await;
+    pub fn block_count(&self, cache_key: &ObjectId) -> usize {
+        let data = self.data.read().unwrap();
         data.get(cache_key).map_or(0, |cache| cache.len())
     }
 }
@@ -42,7 +42,7 @@ impl DataCache for InMemoryDataCache {
         if block_offset != block_idx * self.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
-        let data = self.data.read().await;
+        let data = self.data.read().unwrap();
         let block_data = data.get(cache_key).and_then(|blocks| blocks.get(&block_idx)).cloned();
         Ok(block_data)
     }
@@ -57,7 +57,7 @@ impl DataCache for InMemoryDataCache {
         if block_offset != block_idx * self.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
-        let mut data = self.data.write().await;
+        let mut data = self.data.write().unwrap();
         let blocks = data.entry(cache_key).or_default();
         blocks.insert(block_idx, bytes);
         Ok(())
