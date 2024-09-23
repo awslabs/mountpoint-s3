@@ -9,7 +9,9 @@ use std::{
     path::PathBuf,
 };
 
+use anyhow::anyhow;
 use clap::Parser;
+use regex::Regex;
 use serde_json::json;
 
 #[derive(Parser, Debug)]
@@ -22,17 +24,14 @@ struct CliArgs {
 
     #[clap(help = "Test name to be reported in JSON file")]
     test_name: String,
-
-    #[clap(
-        help = "Log filter string [default: process.memory_usage]",
-        default_value = "process.memory_usage"
-    )]
-    log_filter_str: String,
 }
 
 fn main() -> anyhow::Result<()> {
+    const MEM_USAGE_LOG_PATTERN: &str = "process\\.memory_usage:\\s\\d+$";
+
     let args = CliArgs::parse();
     let paths = fs::read_dir(args.log_dir)?;
+    let log_pattern = Regex::new(MEM_USAGE_LOG_PATTERN)?;
 
     let mut metric_values: Vec<u64> = Vec::new();
 
@@ -49,9 +48,12 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
                 let line = line.unwrap();
-                if line.contains(&args.log_filter_str) {
+                if log_pattern.is_match(&line) {
                     let iter = line.split_whitespace();
-                    if let Some(Ok(value)) = iter.last().map(|last| last.parse::<u64>()) {
+                    if let Some(parsed_result) = iter.last().map(|last| last.parse::<u64>()) {
+                        let Ok(value) = parsed_result else {
+                            return Err(anyhow!("Unable to parse metric value: {}", parsed_result.unwrap_err()));
+                        };
                         metric_values.push(value);
                     }
                 }
