@@ -70,8 +70,24 @@ jobs:
       with:
         tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
+        # This is default value, just make it more explicit
+        benchmark-data-dir-path: dev/bench
         alert-threshold: "200%"
         fail-on-alert: true
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.publish }}
+        comment-on-alert: true
+        max-items-in-chart: 20
+    - name: Check resource utilization
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/peak_mem_usage.json
+        benchmark-data-dir-path: dev/bench/peak_mem_usage
+        alert-threshold: "200%"
+        fail-on-alert: false
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
@@ -182,6 +198,20 @@ jobs:
         benchmark-data-dir-path: dev/cache_bench
         alert-threshold: "200%"
         fail-on-alert: true
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.publish }}
+        comment-on-alert: true
+        max-items-in-chart: 20
+    - name: Check resource utilization
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/peak_mem_usage.json
+        benchmark-data-dir-path: dev/cache_bench/peak_mem_usage
+        alert-threshold: "200%"
+        fail-on-alert: false
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
