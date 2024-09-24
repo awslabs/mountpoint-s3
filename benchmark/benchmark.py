@@ -7,7 +7,7 @@ import signal
 import subprocess
 from subprocess import Popen, PIPE
 import tempfile
-from typing import Optional
+from typing import List, Optional
 import urllib.request
 
 import hydra
@@ -204,38 +204,66 @@ def _get_ec2_instance_id() -> Optional[str]:
     return instance_id
 
 class ResourceMonitoring():
-    def __init__(self):
+    def __init__(self, with_bwm: bool):
+        """Resource monitoring setup.
+
+        with_bwm: Whether to start bandwidth monitor tool `bwm-ng`.  Optional because it's not available
+        in the default AL2023 distro so you have to install it first."""
         self.mpstat_process = None
+        self.bwm_ng_process = None
+        self.with_bwm = with_bwm
         self.output_files = []
 
     def _start(self) -> None:
         log.debug("Starting resource monitors...")
         self.mpstat_process = self._start_mpstat()
+        if self.with_bwm:
+            self.bwm_ng_process = self._start_bwm_ng()
 
     def _close(self) -> None:
         log.debug("Shutting down resource monitors...")
-        self.mpstat_process.send_signal(signal.SIGINT)
-        self.mpstat_process.wait()
+        if self.mpstat_process:
+            self.mpstat_process.send_signal(signal.SIGINT)
+            self.mpstat_process.wait()
+        if self.bwm_ng_process:
+            self.bwm_ng_process.send_signal(signal.SIGINT)
+            self.bwm_ng_process.wait()
         for output_file in self.output_files:
             output_file.close()
 
+    def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
+        """Start process_args with output to output_file.
+
+        Used for starting processes in the background to do monitoring; good for tools that repeat the
+        measurement themselves so only need to be started once, and that can write their output to stdout.
+        """
+        f = open(output_file, 'w')
+        self.output_files.append(f)
+        log.debug(f"Starting monitoring tool {''.join(process_args)}")
+        return subprocess.Popen(process_args, stdout=f)
+
     def _start_mpstat(self) -> any:
-        output_file = open("mpstat.json", "w")
-        self.output_files.append(output_file)
-        process_args = [
-            "/usr/bin/mpstat",
-            "-P", "ALL", # cores
-            "-o", "JSON",
-            "1", # interval
-        ]
-        log.debug(f"Starting mpstat: {' '.join(process_args)}")
-        return subprocess.Popen(process_args, stdout=output_file)
+        return self._start_monitor_with_builtin_repeat([
+                "/usr/bin/mpstat",
+                "-P", "ALL", # cores
+                "-o", "JSON",
+                "1", # interval
+            ], 'mpstat.json')
+
+    def _start_bwm_ng(self) -> any:
+        """Starts bwm-ng, which probably needs to be installed.
+
+        https://www.gropp.org/?id=projects&sub=bwm-ng"""
+        return self._start_monitor_with_builtin_repeat([
+            '/usr/local/bin/bwm-ng',
+            '-o', 'csv'
+            ], 'bwm-ng.csv')
 
     from contextlib import contextmanager
 
     @contextmanager
-    def managed():
-        resource = ResourceMonitoring()
+    def managed(with_bwm=False):
+        resource = ResourceMonitoring(with_bwm)
         try:
             resource._start()
             yield resource
@@ -261,7 +289,7 @@ def run_experiment(cfg: DictConfig) -> None:
     try:
         mp_version = _mount_mp(cfg, metadata, mount_dir)
         metadata["mp_version"] = mp_version
-        with ResourceMonitoring.managed():
+        with ResourceMonitoring.managed(cfg['with_bwm']):
             _run_fio(cfg, mount_dir)
         success = True
     except subprocess.SubprocessError as e:
