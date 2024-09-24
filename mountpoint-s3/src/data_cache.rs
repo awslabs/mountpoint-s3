@@ -8,6 +8,7 @@ mod cache_directory;
 mod disk_data_cache;
 mod in_memory_data_cache;
 
+use async_trait::async_trait;
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
@@ -39,11 +40,12 @@ pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
 ///
 /// TODO: Deletion and eviction of cache entries.
 /// TODO: Some version information (ETag) independent from [ObjectId] to allow smarter eviction?
+#[async_trait]
 pub trait DataCache {
     /// Get block of data from the cache for the given [ObjectId] and [BlockIndex], if available.
     ///
     /// Operation may fail due to errors, or return [None] if the block was not available in the cache.
-    fn get_block(
+    async fn get_block(
         &self,
         cache_key: &ObjectId,
         block_idx: BlockIndex,
@@ -51,7 +53,7 @@ pub trait DataCache {
     ) -> DataCacheResult<Option<ChecksummedBytes>>;
 
     /// Put block of data to the cache for the given [ObjectId] and [BlockIndex].
-    fn put_block(
+    async fn put_block(
         &self,
         cache_key: ObjectId,
         block_idx: BlockIndex,
