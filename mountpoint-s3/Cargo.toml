@@ -98,3 +98,7 @@ path = "src/main.rs"
 name = "mock-mount-s3"
 path = "src/bin/mock-mount-s3.rs"
 required-features = ["mock"]
+
+[[bin]]
+name = "mount-s3-log-analyzer"
+path = "src/bin/mount-s3-log-analyzer.rs"

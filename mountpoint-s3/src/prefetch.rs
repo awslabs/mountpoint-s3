@@ -137,7 +137,7 @@ pub fn caching_prefetch<Cache, Runtime>(
 ) -> CachingPrefetcher<Cache, Runtime>
 where
     Cache: DataCache + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync + 'static,
+    Runtime: Spawn + Clone + Send + Sync + 'static,
 {
     let part_stream = CachingPartStream::new(runtime, cache);
     Prefetcher::new(part_stream, prefetcher_config)

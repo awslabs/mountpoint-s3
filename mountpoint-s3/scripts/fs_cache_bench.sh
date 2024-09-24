@@ -196,6 +196,9 @@ cache_benchmark () {
     # run the benchmark
     run_fio_job $job_file $bench_file $mount_dir $log_dir
 
+    # collect resource utilization metrics (peak memory usage)
+    cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name}
+
     cleanup
   done
 }
@@ -203,4 +206,7 @@ cache_benchmark () {
 cache_benchmark
 
 # combine all bench results into one json file
+echo "Throughput:"
 jq -n '[inputs]' ${results_dir}/*_parsed.json | tee ${results_dir}/output.json
+echo "Peak memory usage:"
+jq -n '[inputs]' ${results_dir}/*_peak_mem.json | tee ${results_dir}/peak_mem_usage.json
