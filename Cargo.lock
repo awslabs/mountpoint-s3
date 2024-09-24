@@ -2793,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2818,6 +2818,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "syscalls",
  "sysinfo",
  "tempfile",
  "test-case",
@@ -2827,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-client"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "async-io",
  "async-lock",
@@ -2866,6 +2867,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "xmltree",
 ]
 
@@ -2905,7 +2907,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-fs"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2956,6 +2958,7 @@ dependencies = [
  "shuttle",
  "signal-hook",
  "supports-color 3.0.2",
+ "syscalls",
  "sysinfo",
  "syslog",
  "tempfile",
@@ -4057,6 +4060,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_repr"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.102",
+]
+
+[[package]]
 name = "serial_test"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4309,6 +4323,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.102",
+]
+
+[[package]]
+name = "syscalls"
+version = "0.6.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43d0e35dc7d73976a53c7e6d7d177ef804a0c0ee774ec77bcc520c2216fd7cbe"
+dependencies = [
+ "serde",
+ "serde_repr",
 ]
 
 [[package]]
@@ -4740,6 +4764,7 @@ version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
 dependencies = [
+ "getrandom 0.3.3",
  "js-sys",
  "wasm-bindgen",
 ]

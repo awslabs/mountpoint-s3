@@ -24,28 +24,28 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use futures::{select_biased, FutureExt};
-use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
+use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, RenameObjectError};
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
-use mountpoint_s3_client::types::{HeadObjectParams, HeadObjectResult};
+use mountpoint_s3_client::types::{HeadObjectParams, HeadObjectResult, RenameObjectParams, RenamePreconditionTypes};
 use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use crate::fs::CacheConfig;
+use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
 #[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
-use crate::sync::{Arc, RwLock};
-
+use crate::sync::{Arc, RwLock, RwLockWriteGuard};
 mod expiry;
 use expiry::Expiry;
 
@@ -68,12 +68,51 @@ pub struct Superblock {
     inner: Arc<SuperblockInner>,
 }
 
+/// A [RenameCache] is used by the superblock to keep track
+/// of whether the S3 backend supports `RenameObject`.
+/// The state can only transition from trying renames to caching
+/// either a success or failure once.
+/// Having cached a failure will turn off all renames in the future.
+#[derive(Debug)]
+struct RenameCache {
+    /// Cached value of if `RenameObject` was supported.
+    rename_supported: std::sync::OnceLock<bool>,
+}
+
+impl RenameCache {
+    fn new() -> Self {
+        RenameCache {
+            rename_supported: OnceLock::new(),
+        }
+    }
+
+    /// Indicates if a `RenameObject` should be attempted.
+    ///
+    /// Returns [false] if we cached a failure.
+    fn should_try_rename(&self) -> bool {
+        self.rename_supported.get().is_none_or(|&cached| cached)
+    }
+
+    /// Caches a failure, if [rename_supported] is uninitialized.
+    fn cache_failure(&self) {
+        if let Ok(()) = self.rename_supported.set(false) {
+            debug!("cached rename failure for the first time, disabling future renames");
+        }
+    }
+
+    /// Caches a success, if [rename_supported] is uninitialized.
+    fn cache_success(&self) {
+        let _ = self.rename_supported.set(true);
+    }
+}
+
 #[derive(Debug)]
 struct SuperblockInner {
     bucket: String,
     prefix: Prefix,
     inodes: RwLock<InodeMap>,
     negative_cache: NegativeCache,
+    cached_rename_support: RenameCache,
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
     config: SuperblockConfig,
@@ -86,6 +125,99 @@ pub struct SuperblockConfig {
     pub s3_personality: S3Personality,
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
+}
+
+/// A manager for automatically setting and removing the `PendingRename` write status on an inode.
+pub struct PendingRenameGuard<'a> {
+    pub inode: Option<&'a Inode>,
+}
+
+impl<'a> PendingRenameGuard<'a> {
+    /// Take an inode and, if (and only if) currently in Remote state, transition into `PendingRename`.
+    fn try_transition(inode: &'a Inode) -> Result<Self, InodeError> {
+        let mut locked = inode.get_mut_inode_state()?;
+        match locked.write_status {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
+                return Err(InodeError::RenameNotPermittedWhileWriting(inode.err()))
+            }
+            WriteStatus::Remote => {} // All OK.
+        }
+
+        locked.write_status = WriteStatus::PendingRename;
+        drop(locked);
+        Ok(PendingRenameGuard { inode: Some(inode) })
+    }
+
+    /// Used to mark that this inode will be replaced by rename and we do not need to reset the write status
+    fn confirm(&mut self) {
+        self.inode = None;
+    }
+}
+
+/// On drop, we make sure to transition back to Remote
+impl Drop for PendingRenameGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(inode) = self.inode {
+            let mut inode_locked = inode.get_mut_inode_state().unwrap();
+            if inode_locked.write_status == WriteStatus::PendingRename {
+                inode_locked.write_status = WriteStatus::Remote;
+            }
+        }
+    }
+}
+/// A manager for automatically locking two inodes in filesysyem locking order.
+pub struct RenameLockGuard<'a> {
+    src_parent_lock: RwLockWriteGuard<'a, InodeState>,
+    dst_parent_lock: Option<RwLockWriteGuard<'a, InodeState>>,
+}
+
+/// A manager for automatically locking two inodes in filesysyem locking order.
+impl<'a> RenameLockGuard<'a> {
+    fn new(
+        source_parent: &'a Inode,
+        dest_parent: &'a Inode,
+        superblock_inner: &'a SuperblockInner,
+    ) -> Result<Self, InodeError> {
+        let src_ino = source_parent.ino();
+        let dst_ino = dest_parent.ino();
+
+        if src_ino == dst_ino {
+            return Ok(RenameLockGuard {
+                src_parent_lock: source_parent.get_mut_inode_state()?,
+                dst_parent_lock: None,
+            });
+        }
+
+        let dst_parent_lock: Option<RwLockWriteGuard<'a, InodeState>>;
+        let src_parent_lock: RwLockWriteGuard<'a, InodeState>;
+        // Take read lock
+        let ancestor_check = Self::dst_is_ancestor(&superblock_inner.inodes.read().unwrap(), source_parent, dst_ino);
+        if ancestor_check || src_ino > dst_ino {
+            dst_parent_lock = Some(dest_parent.get_mut_inode_state()?);
+            src_parent_lock = source_parent.get_mut_inode_state()?;
+        } else {
+            src_parent_lock = source_parent.get_mut_inode_state()?;
+            dst_parent_lock = Some(dest_parent.get_mut_inode_state()?);
+        }
+        Ok(RenameLockGuard {
+            src_parent_lock,
+            dst_parent_lock,
+        })
+    }
+
+    fn dst_is_ancestor(inodes: &InodeMap, start: &Inode, dst: InodeNo) -> bool {
+        std::iter::successors(Some(start), |current| inodes.get(&current.parent()))
+            .take_while(|&current| current.ino() != FUSE_ROOT_INODE)
+            .any(|current| current.ino() == dst)
+    }
+
+    fn source_parent_mut(&mut self) -> &mut InodeState {
+        &mut self.src_parent_lock
+    }
+
+    fn destination_parent_mut(&mut self) -> &mut InodeState {
+        self.dst_parent_lock.as_mut().unwrap_or(&mut self.src_parent_lock)
+    }
 }
 
 impl Superblock {
@@ -110,6 +242,7 @@ impl Superblock {
             next_ino: AtomicU64::new(2),
             mount_time,
             config,
+            cached_rename_support: RenameCache::new(),
         };
         Self { inner: Arc::new(inner) }
     }
@@ -130,7 +263,6 @@ impl Superblock {
                 return;
             }
         };
-
         logging::record_name(inode.name());
         let new_lookup_count = inode.dec_lookup_count(n);
         if new_lookup_count == 0 {
@@ -426,6 +558,7 @@ impl Superblock {
                     *deleted = true;
                 }
             },
+            WriteStatus::PendingRename => unreachable!("Only files can be in PendingRename"),
         }
 
         match &mut parent_state.kind_data {
@@ -484,7 +617,7 @@ impl Superblock {
         };
 
         match write_status {
-            WriteStatus::LocalUnopened | WriteStatus::LocalOpen => {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
                 // In the future, we may permit `unlink` and cancel any in-flight uploads.
                 warn!(
                     parent = parent_ino,
@@ -540,6 +673,204 @@ impl Superblock {
 
     pub fn full_key_for_inode(&self, inode: &Inode) -> String {
         self.inner.full_key_for_inode(inode)
+    }
+    /// Rename inode described by source parent and name to instead be linked under the given destination and name.
+    ///
+    /// Rename is only supported on Amazon S3 directory buckets supporting the RenameObject operation.
+    /// File systems against other buckets will reject `rename` file system operations within the same file system.
+    ///
+    /// As part of this operation, we update the local file system state.
+    pub async fn rename<OC: ObjectClient>(
+        &self,
+        client: &OC,
+        src_parent_ino: InodeNo,
+        src_name: &OsStr,
+        dst_parent_ino: InodeNo,
+        dst_name: &OsStr,
+        allow_overwrite: bool,
+    ) -> Result<(), InodeError> {
+        // If we have cached a failed rename, we will directly fail
+        if !self.inner.cached_rename_support.should_try_rename() {
+            trace!("Cached rename failure, returning NotSupported");
+            return Err(InodeError::RenameNotSupported());
+        }
+        let src_parent = self.inner.get(src_parent_ino)?;
+        let dst_parent = self.inner.get(dst_parent_ino)?;
+        let src_inode = self
+            .inner
+            .lookup_by_name(
+                client,
+                src_parent_ino,
+                src_name,
+                self.inner.config.cache_config.serve_lookup_from_cache,
+            )
+            .await?
+            .inode;
+        if src_inode.kind() == InodeKind::Directory {
+            return Err(InodeError::CannotRenameDirectory(src_inode.err()));
+        }
+        // Check write status from source and set to PendingRename
+        let mut src_status_guard = PendingRenameGuard::try_transition(&src_inode)?;
+
+        let dest_inode = self
+            .inner
+            .lookup_by_name(
+                client,
+                dst_parent_ino,
+                dst_name,
+                self.inner.config.cache_config.serve_lookup_from_cache,
+            )
+            .await
+            .ok()
+            .map(|looked_up| looked_up.inode);
+        // Check if destination exists and transition to `PendingRename` state if possible.
+        let dest_status_guard = dest_inode
+            .as_ref()
+            .map(|inode| {
+                if !allow_overwrite {
+                    return Err(InodeError::RenameDestinationExists {
+                        dest_key: self.full_key_for_inode(inode).to_owned(),
+                        src_inode: src_inode.err(),
+                    });
+                }
+
+                PendingRenameGuard::try_transition(inode)
+            })
+            .transpose()?;
+
+        let src_key = self.full_key_for_inode(&src_inode);
+        let dest_name = ValidName::parse_os_str(dst_name)?;
+        let dest_full_valid_name = dst_parent
+            .valid_key()
+            .new_child(dest_name, InodeKind::File)
+            .map_err(|_| InodeError::NotADirectory(dst_parent.err()))?;
+        let dest_key: String = format!("{}{}", self.inner.prefix, dest_full_valid_name.as_ref());
+        debug!(?src_key, ?dest_key, "rename on remote file will now be actioned");
+        // TODO-RENAME: Consider adding ETag-matching here
+        let rename_params = if allow_overwrite {
+            RenameObjectParams::new()
+        } else {
+            RenameObjectParams::new().if_none_match(Some("*".to_string()))
+        };
+
+        let rename_object_result = client
+            .rename_object(&self.inner.bucket, src_key.as_ref(), &dest_key, &rename_params)
+            .await;
+
+        match rename_object_result {
+            Ok(_res) => {
+                debug!(?src_key, ?dest_key, "RenameObject succeeded");
+            }
+            Err(error) => {
+                debug!(?src_key, ?dest_key, ?error, "RenameObject failed");
+
+                return match error {
+                    ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                        RenamePreconditionTypes::IfNoneMatch,
+                    )) => Err(InodeError::RenameDestinationExists {
+                        dest_key,
+                        src_inode: src_inode.err(),
+                    }),
+                    ObjectClientError::ServiceError(RenameObjectError::KeyNotFound) => {
+                        Err(InodeError::InodeDoesNotExist(src_inode.ino()))
+                    }
+                    ObjectClientError::ServiceError(RenameObjectError::KeyTooLong) => {
+                        Err(InodeError::NameTooLong(dest_key))
+                    }
+                    ObjectClientError::ServiceError(RenameObjectError::NotImplementedError) => {
+                        // We only cache `NotImplemented` responses negatively,
+                        // as other failures do not imply that the bucket does not support rename
+                        self.inner.cached_rename_support.cache_failure();
+                        Err(InodeError::RenameNotSupported())
+                    }
+                    _ => Err(InodeError::client_error(
+                        error,
+                        "RenameObject failed",
+                        &self.inner.bucket,
+                        src_key.as_ref(),
+                    )),
+                };
+            }
+        };
+
+        self.inner.cached_rename_support.cache_success();
+        // Invalidate destination from negative cache, as it is now in S3
+        self.inner.negative_cache.remove(
+            dst_parent.ino(),
+            dst_name
+                .to_str()
+                .ok_or_else(|| InodeError::InvalidFileName(dst_name.to_owned()))?,
+        );
+        // Acquire locks using RenameLockGuard
+        let mut rename_guard = RenameLockGuard::new(&src_parent, &dst_parent, &self.inner)?;
+        // Handle source parent
+        {
+            let source_state = rename_guard.source_parent_mut();
+
+            match &mut source_state.kind_data {
+                InodeKindData::File { .. } => {
+                    debug_assert!(false, "inodes never change kind");
+                    return Err(InodeError::NotADirectory(src_parent.err()));
+                }
+                InodeKindData::Directory { children, .. } => {
+                    if let Some((_name, child)) = children.remove_entry(src_inode.name()) {
+                        // VFS-locking should guarantee that these are identical
+                        debug_assert_eq!(src_inode.ino(), child.ino(), "inode should have stayed identical");
+                    }
+                }
+            }
+        }
+        // Handle destination parent
+        {
+            let dst_state = rename_guard.destination_parent_mut();
+            match &mut dst_state.kind_data {
+                InodeKindData::File { .. } => {
+                    debug_assert!(false, "inodes never change kind");
+                    return Err(InodeError::NotADirectory(src_parent.err()));
+                }
+                InodeKindData::Directory { ref mut children, .. } => {
+                    let dst_name_as_str: Box<str> = dest_name.as_ref().into();
+                    let new_inode = src_inode.try_clone_with_new_key(
+                        dest_full_valid_name,
+                        &self.inner.prefix,
+                        self.inner.config.cache_config.file_ttl,
+                        dst_parent_ino,
+                    )?;
+
+                    // Try to remove the inode from the parent, and notice if it was in an unexpected state.
+                    let concurrent_modification_detected =
+                        if let Some((_name, old_inode)) = children.remove_entry(dst_name_as_str.as_ref()) {
+                            dest_inode
+                                .as_ref()
+                                .map(|inode| inode.ino() != old_inode.ino())
+                                .unwrap_or(true)
+                        } else {
+                            dest_inode.is_some()
+                        };
+
+                    if concurrent_modification_detected {
+                        warn!(
+                            src_ino = src_inode.ino(),
+                            "concurrent modification detected during rename of inode {}, dest parent state changed unexpectedly which may cause unexpected behavior",
+                            src_inode.err(),
+                        );
+                    }
+
+                    children.insert(dst_name_as_str, new_inode.clone());
+                    self.inner
+                        .inodes
+                        .write()
+                        .unwrap()
+                        .insert(src_inode.ino(), new_inode.clone());
+                }
+            }
+        }
+        debug!("Rename completed in superblock");
+        src_status_guard.confirm();
+        if let Some(mut guard) = dest_status_guard {
+            guard.confirm()
+        }
+        Ok(())
     }
 }
 
@@ -1151,6 +1482,19 @@ pub enum InodeError {
     DirectoryNotEmpty(InodeErrorInfo),
     #[error("inode {0} cannot be unlinked while being written")]
     UnlinkNotPermittedWhileWriting(InodeErrorInfo),
+    #[error("inode {0} is a directory and cannot be renamed")]
+    CannotRenameDirectory(InodeErrorInfo),
+    #[error("inode {0} cannot be renamed while being written")]
+    RenameNotPermittedWhileWriting(InodeErrorInfo),
+    #[error("rename destination {dest_key:?} already exists, cannot rename inode {src_inode}")]
+    RenameDestinationExists {
+        dest_key: String,
+        src_inode: InodeErrorInfo,
+    },
+    #[error("rename is not supported on this bucket")]
+    RenameNotSupported(),
+    #[error("S3 key {0:?} was too long")]
+    NameTooLong(String),
     #[error("corrupted metadata for inode {0}")]
     CorruptedMetadata(InodeErrorInfo),
     #[error("inode {0} is a remote inode and its attributes cannot be modified")]
@@ -2223,5 +2567,36 @@ mod tests {
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
         assert_eq!(file_inodestat.mtime, ts);
+    }
+
+    #[test]
+    fn test_rename_cache_positive() {
+        let cache = RenameCache::new();
+        assert!(
+            cache.should_try_rename(),
+            "Without a registered failure, should try a rename"
+        );
+        cache.cache_success();
+        assert!(cache.should_try_rename(), "After a success, should still try renames");
+        // Try to cache a failure. This should be rejected now, since a success has been cached.
+        cache.cache_failure();
+        assert!(cache.should_try_rename(), "Failure should not change cache state");
+    }
+
+    #[test]
+    fn test_rename_cache_negative() {
+        let cache = RenameCache::new();
+        assert!(
+            cache.should_try_rename(),
+            "Without a registered failure, should try a rename"
+        );
+        cache.cache_failure();
+        assert!(!cache.should_try_rename(), "After a failure, should not try renames");
+        // Try to cache a failure. This should be rejected now, since a success has been cached.
+        cache.cache_success();
+        assert!(
+            !cache.should_try_rename(),
+            "Success after failure should not modify cache state"
+        );
     }
 }

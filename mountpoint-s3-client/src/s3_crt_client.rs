@@ -68,6 +68,8 @@ pub(crate) mod get_object_attributes;
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
 
+pub(crate) mod rename_object;
+
 pub(crate) mod head_bucket;
 pub(crate) mod put_object;
 pub use head_bucket::HeadBucketError;
@@ -909,6 +911,61 @@ struct S3Message<'a> {
     signing_config: Option<SigningConfig>,
 }
 
+// This is RFC 3986 but with '/' also considered a safe character for path fragments.
+const URLENCODE_QUERY_FRAGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
+const URLENCODE_PATH_FRAGMENT: &AsciiSet = &URLENCODE_QUERY_FRAGMENT.remove(b'/');
+
+fn write_encoded_fragment(s: &mut OsString, piece: impl AsRef<OsStr>, encoding: &'static AsciiSet) {
+    let iter = percent_encode(piece.as_ref().as_bytes(), encoding);
+    s.extend(iter.map(|s| OsStr::from_bytes(s.as_bytes())));
+}
+
+#[derive(Debug, Default)]
+enum QueryFragment<'a, P: AsRef<OsStr>> {
+    #[default]
+    Empty,
+    Query(&'a [(P, P)]),
+    Action(P),
+}
+
+impl<P: AsRef<OsStr>> QueryFragment<'_, P> {
+    // This estimate is exact if no characters need encoding, otherwise we'll end up
+    // reallocating a couple of times. The '?' for the query is counted in the first key-value
+    // pair.
+    fn size(&self) -> usize {
+        match self {
+            QueryFragment::Empty => 0,
+            QueryFragment::Query(query) => query
+                .iter()
+                .map(|(key, value)| key.as_ref().len() + value.as_ref().len() + 2)
+                .sum::<usize>(),
+            QueryFragment::Action(action) => 1 + action.as_ref().len(),
+        }
+    }
+
+    // Write the fragment to the query string
+    fn write(&self, path: &mut OsString) {
+        match &self {
+            QueryFragment::Query(query) if !query.is_empty() => {
+                path.push("?");
+                for (i, (key, value)) in query.iter().enumerate() {
+                    if i != 0 {
+                        path.push("&");
+                    }
+                    write_encoded_fragment(path, key, URLENCODE_QUERY_FRAGMENT);
+                    path.push("=");
+                    write_encoded_fragment(path, value, URLENCODE_QUERY_FRAGMENT);
+                }
+            }
+            QueryFragment::Action(action) => {
+                path.push("?");
+                path.push(action.as_ref());
+            }
+            _ => {}
+        }
+    }
+}
+
 impl<'a> S3Message<'a> {
     /// Add a header to this message. The header is added if necessary and any existing values for
     /// this header are removed.
@@ -924,28 +981,9 @@ impl<'a> S3Message<'a> {
     fn set_request_path_and_query<P: AsRef<OsStr>>(
         &mut self,
         path: impl AsRef<OsStr>,
-        query: impl AsRef<[(P, P)]>,
+        query_or_action: QueryFragment<P>,
     ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
-        // This is RFC 3986 but with '/' also considered a safe character for path fragments.
-        const URLENCODE_QUERY_FRAGMENT: &AsciiSet =
-            &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
-        const URLENCODE_PATH_FRAGMENT: &AsciiSet = &URLENCODE_QUERY_FRAGMENT.remove(b'/');
-
-        fn write_encoded_fragment(s: &mut OsString, piece: impl AsRef<OsStr>, encoding: &'static AsciiSet) {
-            let iter = percent_encode(piece.as_ref().as_bytes(), encoding);
-            s.extend(iter.map(|s| OsStr::from_bytes(s.as_bytes())));
-        }
-
-        // This estimate is exact if no characters need encoding, otherwise we'll end up
-        // reallocating a couple of times. The '?' for the query is counted in the first key-value
-        // pair.
-        let space_needed = self.path_prefix.len()
-            + path.as_ref().len()
-            + query
-                .as_ref()
-                .iter()
-                .map(|(key, value)| key.as_ref().len() + value.as_ref().len() + 2) // +2 for & and =
-                .sum::<usize>();
+        let space_needed = self.path_prefix.len() + query_or_action.size();
 
         let mut full_path = OsString::with_capacity(space_needed);
 
@@ -953,25 +991,14 @@ impl<'a> S3Message<'a> {
         write_encoded_fragment(&mut full_path, &path, URLENCODE_PATH_FRAGMENT);
 
         // Build the query string
-        if !query.as_ref().is_empty() {
-            full_path.push("?");
-            for (i, (key, value)) in query.as_ref().iter().enumerate() {
-                if i != 0 {
-                    full_path.push("&");
-                }
-                write_encoded_fragment(&mut full_path, key, URLENCODE_QUERY_FRAGMENT);
-                full_path.push("=");
-                write_encoded_fragment(&mut full_path, value, URLENCODE_QUERY_FRAGMENT);
-            }
-        }
-
+        query_or_action.write(&mut full_path);
         self.inner.set_request_path(full_path)
     }
 
     /// Set the request path for this message. The path should not be URL-encoded; this method will
     /// handle that.
     fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), mountpoint_s3_crt::common::error::Error> {
-        self.set_request_path_and_query::<&str>(path, &[])
+        self.set_request_path_and_query::<&str>(path, Default::default())
     }
 
     /// Sets the checksum configuration for this message.
@@ -1467,6 +1494,16 @@ impl ObjectClient for S3CrtClient {
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError> {
         self.get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
+    }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        self.rename_object(bucket, src_key, dst_key, params).await
     }
 }
 

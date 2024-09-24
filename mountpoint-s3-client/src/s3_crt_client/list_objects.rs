@@ -14,7 +14,7 @@ use crate::object_client::{
     RestoreStatus,
 };
 
-use super::{S3CrtClient, S3Operation, S3RequestError};
+use super::{QueryFragment, S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -199,7 +199,7 @@ impl S3CrtClient {
             }
 
             message
-                .set_request_path_and_query("/", query)
+                .set_request_path_and_query("/", QueryFragment::Query(&query))
                 .map_err(S3RequestError::construction_failure)?;
 
             let span = request_span!(

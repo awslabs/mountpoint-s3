@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.16.0)
+
+* Add support for RenameObject API. ([#TODO](https://github.com/awslabs/mountpoint-s3/pull/TODO))
 
 ## v0.15.0 (May 27, 2025)
 

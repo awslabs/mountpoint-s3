@@ -88,7 +88,8 @@ pub mod types {
         DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesParts, GetObjectAttributesResult, GetObjectParams,
         GetObjectResponse, HeadObjectParams, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult,
         ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums,
-        RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+        RenameObjectParams, RenameObjectResult, RenamePreconditionTypes, RestoreStatus, UploadChecksum, UploadReview,
+        UploadReviewPart,
     };
 }
 
@@ -100,7 +101,7 @@ pub mod types {
 pub mod error {
     pub use super::object_client::{
         CopyObjectError, DeleteObjectError, GetObjectAttributesError, GetObjectError, HeadObjectError,
-        ListObjectsError, ObjectClientError, PutObjectError,
+        ListObjectsError, ObjectClientError, PutObjectError, RenameObjectError,
     };
     #[doc(hidden)]
     pub use super::s3_crt_client::CrtError;

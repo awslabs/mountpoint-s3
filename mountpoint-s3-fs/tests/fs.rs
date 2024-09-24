@@ -7,7 +7,7 @@ use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
-use mountpoint_s3_client::types::{ETag, GetObjectParams, RestoreStatus};
+use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
@@ -17,7 +17,7 @@ use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{CacheConfig, OpenFlags, TimeToLive, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3_fs::fs::{CacheConfig, OpenFlags, RenameFlags, TimeToLive, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
@@ -35,12 +35,11 @@ use test_case::test_case;
 mod common;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::creds::get_scoped_down_credentials;
+#[cfg(feature = "s3_tests")]
+use common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
 use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
-
-#[cfg(feature = "s3_tests")]
-use crate::common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1638,4 +1637,55 @@ async fn ls(
         .iter()
         .map(|e| (e.ino, e.name.clone()))
         .collect::<Vec<_>>()
+}
+
+#[tokio::test]
+async fn test_rename_support_is_cached() {
+    const BUCKET_NAME: &str = "test_rename_support_cached_general_purpose";
+    const FILE_NAME: &str = "a.txt";
+
+    let client_config = MockClientConfig {
+        bucket: BUCKET_NAME.to_string(),
+        part_size: 1024 * 1024,
+        enable_backpressure: true,
+        initial_read_window_size: 256 * 1024,
+        enable_rename: false,
+        ..Default::default()
+    };
+
+    let client = Arc::new(MockClient::new(client_config));
+
+    // Put one object into the bucket
+    let params = PutObjectSingleParams::new();
+    client
+        .put_object_single(BUCKET_NAME, FILE_NAME, &params, "content")
+        .await
+        .expect("put object should have succeeded");
+
+    let counter = client.new_counter(Operation::RenameObject);
+    // Try to rename twice
+    let fs = make_test_filesystem_with_client(client.clone(), BUCKET_NAME, &Default::default(), Default::default());
+    let err = fs
+        .rename(
+            FUSE_ROOT_INODE,
+            FILE_NAME.as_ref(),
+            FUSE_ROOT_INODE,
+            "b.txt".as_ref(),
+            RenameFlags::empty(),
+        )
+        .await
+        .expect_err("rename should fail");
+    assert_eq!(err.to_errno(), libc::ENOSYS, "rename should fail with ENOSYS");
+    let err = fs
+        .rename(
+            FUSE_ROOT_INODE,
+            FILE_NAME.as_ref(),
+            FUSE_ROOT_INODE,
+            "b.txt".as_ref(),
+            RenameFlags::empty(),
+        )
+        .await
+        .expect_err("rename should fail");
+    assert_eq!(err.to_errno(), libc::ENOSYS, "rename should again fail with ENOSYS");
+    assert_eq!(counter.count(), 1, "The second failed rename should have been cached");
 }

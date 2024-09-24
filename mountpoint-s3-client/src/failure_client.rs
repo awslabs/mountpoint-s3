@@ -18,7 +18,8 @@ use crate::object_client::{
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError,
-    PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
+    PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, RenameObjectError, RenameObjectParams,
+    RenameObjectResult, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -199,6 +200,17 @@ where
         self.client
             .get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
+    }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        // TODO failure hook for rename_object
+        self.client.rename_object(bucket, src_key, dst_key, params).await
     }
 }
 

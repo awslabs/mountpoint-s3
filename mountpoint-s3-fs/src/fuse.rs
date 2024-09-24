@@ -402,18 +402,25 @@ where
         fuse_unsupported!("symlink", reply, libc::EPERM);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name, newparent=newparent, newname=?newname))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name, newparent=newparent, newname=?newname))]
     fn rename(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         newparent: u64,
         newname: &OsStr,
-        _flags: u32,
+        flags: u32,
         reply: ReplyEmpty,
     ) {
-        fuse_unsupported!("rename", reply);
+        match block_on(
+            self.fs
+                .rename(parent, name, newparent, newname, flags.into())
+                .in_current_span(),
+        ) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("rename", reply, e, self, req),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, newparent=newparent, newname=?newname))]

@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v1.19.0)
+
+* Add support for renaming files using the RenameObject API when mounting directory buckets in S3 Express One Zone. ([#TODO](https://github.com/awslabs/mountpoint-s3/pull/TODO))
 
 ## v1.18.0 (May 30, 2025)
 

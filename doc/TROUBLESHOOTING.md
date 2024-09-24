@@ -107,8 +107,33 @@ For more details on how Mountpoint maps S3 object keys to files and directories,
 
 ## Renaming a file/directory
 
-Renaming a file or a directory inside the mounted directory is not supported by Mountpoint.
-Attempting to rename a file or directory will return an error:
+Mountpoint supports file rename for objects stored in S3 Express One Zone only.
+Renaming a file is not currently supported on Amazon S3 general purpose buckets,
+nor objects stored outside of S3 Express One Zone.
+
+> [!IMPORTANT]
+> File rename support for objects stored in S3 Express One Zone was added in Mountpoint v1.19.0.
+> Please ensure the Mountpoint version you are using is at least as new as this.
+
+### Renaming a directory
+
+Attempting to rename a directory is not supported and will return an error (EPERM):
+
+```
+$ mv directory-a/ directory-b/
+mv: cannot move 'directory-a' to 'directory-b': Operation not permitted
+```
+
+Mountpoint logs should show the following message:
+
+```
+WARN rename{req=982 parent=1 name="directory-a" newparent=1 newname="directory-b"}:
+mountpoint_s3_fs::fuse: rename failed with errno 1: inode error: inode 2 (key "directory-a/") is a directory and cannot be renamed
+```
+
+### Rename rejected where unsupported
+
+Attempting to rename a file where unsupported, such as on general purpose buckets, will return an error (ENOSYS):
 
 ```
 $ mv hello.txt new_hello.txt
@@ -118,8 +143,24 @@ mv: cannot move 'hello.txt' to 'new_hello.txt': Function not implemented
 Mountpoint logs should show the following message:
 
 ```
-rename{req=120 parent=1 name="hello.txt" newparent=1 newname="new_hello.txt"}:
-mountpoint_s3_fs::fuse: rename failed: operation not supported by Mountpoint
+WARN rename{req=764 parent=1 name="hello.txt" newparent=1 newname="new_hello.txt"}:
+mountpoint_s3_fs::fuse: rename failed with errno 38: inode error: rename is not supported on this bucket
+```
+
+### Rename rejected due to existing destination
+
+When not mounted with `--allow-overwrite`, file renames where the destination exists will return an error (EEXIST).
+
+```
+$ mv hello.txt existing.txt
+mv: cannot move 'hello.txt' to 'existing.txt': File exists
+```
+
+Mountpoint logs should show the following message:
+
+```
+WARN rename{req=1020 parent=1 name="hello.txt" newparent=1 newname="existing.txt"}:
+mountpoint_s3_fs::fuse: rename failed with errno 17: inode error: rename destination "existing.txt" already exists, cannot rename inode 4 (key "hello.txt")
 ```
 
 ## Accessing Glacier objects
