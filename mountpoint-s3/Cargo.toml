@@ -87,6 +87,8 @@ fuse_tests = []
 s3_tests = []
 s3express_tests = []
 shuttle = []
+# Other feature flags
+mock = ["mountpoint-s3-client/mock", "futures/thread-pool"]
 
 [[bin]]
 name = "mount-s3"
@@ -95,4 +97,4 @@ path = "src/main.rs"
 [[bin]]
 name = "mock-mount-s3"
 path = "src/bin/mock-mount-s3.rs"
-required-features = ["mountpoint-s3-client/mock"]
+required-features = ["mock"]
