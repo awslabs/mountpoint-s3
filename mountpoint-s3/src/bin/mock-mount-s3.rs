@@ -36,7 +36,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(ThroughputMockClient, T
 
     let Some(max_throughput_gbps) = args.maximum_throughput_gbps else {
         return Err(anyhow!(
-            "must set --max-throughput-gbps when using mock-mount-s3 binary"
+            "must set --maximum-throughput-gbps when using mock-mount-s3 binary"
         ));
     };
     tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
