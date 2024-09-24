@@ -200,6 +200,12 @@ impl DiskBlock {
     }
 }
 
+impl From<std::io::Error> for DataCacheError {
+    fn from(e: std::io::Error) -> Self {
+        DataCacheError::IoFailure(e.into())
+    }
+}
+
 impl DiskDataCache {
     /// Create a new instance of an [DiskDataCache] with the specified configuration.
     pub fn new(cache_directory: PathBuf, config: DiskDataCacheConfig) -> Self {

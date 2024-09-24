@@ -27,7 +27,7 @@ pub type BlockIndex = u64;
 #[derive(Debug, Error)]
 pub enum DataCacheError {
     #[error("IO error when reading or writing from cache: {0}")]
-    IoFailure(#[from] std::io::Error),
+    IoFailure(#[source] anyhow::Error),
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
     #[error("Block offset does not match block index")]
