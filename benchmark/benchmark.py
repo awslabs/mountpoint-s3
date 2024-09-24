@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from os import path
+import signal
 import subprocess
 from subprocess import Popen, PIPE
 import tempfile
@@ -213,7 +214,8 @@ class ResourceMonitoring():
 
     def _close(self) -> None:
         log.debug("Shutting down resource monitors...")
-        self.mpstat_process.kill()
+        self.mpstat_process.send_signal(signal.SIGINT)
+        self.mpstat_process.wait()
         for output_file in self.output_files:
             output_file.close()
 
