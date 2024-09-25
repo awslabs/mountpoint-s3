@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1727204637068,
+  "lastUpdate": 1727287645781,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -356,6 +356,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 147.01171875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "a23665d1cdc982e74f5ba9f579930a85f2d7215f",
+          "message": "Fix resource utilization check in the CI (#1033)\n\nOur CI workflows work by checking out the code from branch `gh-pages` to\nretrieve benchmark results from previous commits and compare them to values\nin the current run. However, the resource utilization check was done\nafter the benchmark result check which already has pulled in the branch\n`gh-pages` resulting in errors because the branch already exists. This\nchange fixes that.\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2024-09-25T14:13:53Z",
+          "tree_id": "1ebd4a233fc844aba04bdb98fac7cb539b994461",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/a23665d1cdc982e74f5ba9f579930a85f2d7215f"
+        },
+        "date": 1727287645746,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 139.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 385.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 188.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 438.15625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 72.546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 316.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 80.73828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 314.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 38698.66015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 389.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 44723.13671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 488.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 12168.7890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 253.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 11140.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 13261.23828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 254.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 210.01171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 141.76171875,
             "unit": "MiB"
           }
         ]
