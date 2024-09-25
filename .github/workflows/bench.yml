@@ -94,6 +94,7 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
+        skip-fetch-gh-pages: true
 
   latency-bench:
     name: Benchmark (Latency)
@@ -218,3 +219,4 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
+        skip-fetch-gh-pages: true
