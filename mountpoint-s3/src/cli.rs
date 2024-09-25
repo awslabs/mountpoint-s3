@@ -851,10 +851,12 @@ where
     }
 
     if let Some(express_bucket_name) = args.cache_express_bucket_name() {
+        // The cache can be shared across instances mounting the same bucket (including with different prefixes)
+        let source_description = &args.bucket_name;
         let cache = ExpressDataCache::new(
             express_bucket_name,
             client.clone(),
-            &bucket_description,
+            source_description,
             args.cache_block_size_in_bytes(),
         );
         let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
