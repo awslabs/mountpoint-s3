@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1727280691350,
+  "lastUpdate": 1727350884305,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -475,6 +475,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 428.890625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e279a3cb11028f9892a5c16cd2b760723f5e339",
+          "message": "Add clarification on behavior tenet for ownership/permissions (#1031)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-09-26T09:42:07Z",
+          "tree_id": "d258d475dc481d2ef6d5dcd457f55e01d98d68e1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7e279a3cb11028f9892a5c16cd2b760723f5e339"
+        },
+        "date": 1727350884271,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 122.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 369.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 114.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 396.44140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 75.328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 318.0546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 77.67578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 327.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 39364.28515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 421.13671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 50230.46484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 518.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 10076.203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 264.83203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12607.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 12803.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 269.95703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 740.79296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 417.01171875,
             "unit": "MiB"
           }
         ]
