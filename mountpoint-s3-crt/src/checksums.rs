@@ -5,3 +5,6 @@ pub mod crc32;
 
 /// CRC32C checksums
 pub mod crc32c;
+
+/// SHA1 checksums
+pub mod sha1;

@@ -49,7 +49,7 @@ impl Hasher {
 
     /// Compute CRC32C checksum of the data in the given bytes slice, append to the previous checksum.
     ///
-    /// The underlying CRT funtion requires the buffer's length to be type `i32`, so this function cannot take
+    /// The underlying CRT function requires the buffer's length to be type `i32`, so this function cannot take
     /// any buffer that is bigger than `i32::MAX` as an input.
     fn crc32c(buf: &[u8], previous_checksum: u32) -> u32 {
         assert!(buf.len() <= i32::MAX as usize);
