@@ -67,7 +67,7 @@ impl DirHandle {
 #[derive(Debug)]
 struct FileHandle<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     inode: Inode,
@@ -77,7 +77,7 @@ where
 
 enum FileHandleState<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     /// The file handle has been assigned as a read handle
@@ -91,7 +91,7 @@ where
 
 impl<Client, Prefetcher> std::fmt::Debug for FileHandleState<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static + std::fmt::Debug,
+    Client: ObjectClient + Clone + Send + Sync + 'static + std::fmt::Debug,
     Prefetcher: Prefetch,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -104,7 +104,7 @@ where
 
 impl<Client, Prefetcher> FileHandleState<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync,
+    Client: ObjectClient + Clone + Send + Sync,
     Prefetcher: Prefetch,
 {
     async fn new_write_handle(
@@ -521,11 +521,11 @@ pub enum SseCorruptedError {
 #[derive(Debug)]
 pub struct S3Filesystem<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     config: S3FilesystemConfig,
-    client: Arc<Client>,
+    client: Client,
     superblock: Superblock,
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
@@ -539,7 +539,7 @@ where
 
 impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     pub fn new(
@@ -556,8 +556,6 @@ where
             s3_personality: config.s3_personality,
         };
         let superblock = Superblock::new(bucket, prefix, superblock_config);
-
-        let client = Arc::new(client);
 
         let uploader = Uploader::new(
             client.clone(),
@@ -627,7 +625,7 @@ pub struct DirectoryEntry {
 
 impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {

@@ -6,6 +6,7 @@
 
 mod cache_directory;
 mod disk_data_cache;
+mod express_data_cache;
 mod in_memory_data_cache;
 
 use async_trait::async_trait;
@@ -14,6 +15,7 @@ use thiserror::Error;
 pub use crate::checksums::ChecksummedBytes;
 pub use crate::data_cache::cache_directory::ManagedCacheDir;
 pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+pub use crate::data_cache::express_data_cache::ExpressDataCache;
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 
 use crate::object::ObjectId;
@@ -25,7 +27,7 @@ pub type BlockIndex = u64;
 #[derive(Debug, Error)]
 pub enum DataCacheError {
     #[error("IO error when reading or writing from cache: {0}")]
-    IoFailure(#[from] std::io::Error),
+    IoFailure(#[source] anyhow::Error),
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
     #[error("Block offset does not match block index")]

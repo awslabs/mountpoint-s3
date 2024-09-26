@@ -65,7 +65,7 @@ macro_rules! fuse_unsupported {
 /// so that we can test our actual filesystem implementation without having actual FUSE in the loop.
 pub struct S3FuseFilesystem<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     fs: S3Filesystem<Client, Prefetcher>,
@@ -73,7 +73,7 @@ where
 
 impl<Client, Prefetcher> S3FuseFilesystem<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     pub fn new(
@@ -91,7 +91,7 @@ where
 
 impl<Client, Prefetcher> Filesystem for S3FuseFilesystem<Client, Prefetcher>
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
     #[instrument(level="warn", skip_all, fields(req=_req.unique()))]

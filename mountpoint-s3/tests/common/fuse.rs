@@ -84,7 +84,7 @@ fn create_fuse_session<Client, Prefetcher>(
     filesystem_config: S3FilesystemConfig,
 ) -> BackgroundSession
 where
-    Client: ObjectClient + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
 {
     let options = vec![
