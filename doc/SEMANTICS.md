@@ -6,7 +6,7 @@ Mountpoint for Amazon S3 allows your applications to access objects stored in Am
 
 While the rest of this document gives details on specific file system behaviors, we can summarize the Mountpoint approach in three high-level tenets:
 1. Mountpoint does not support file behaviors that cannot be implemented efficiently against S3's object APIs. It does not emulate operations like `rename` that would require many API calls to S3 to perform.
-2. Mountpoint presents a common view of S3 object data through both file and object APIs. It does not emulate POSIX file features that have no close analog in S3's object APIs, such as ownership and permissions.
+2. Mountpoint presents a common view of S3 object data through both file and object APIs. It does not emulate POSIX file features that have no close analog in S3's object APIs, such as mutable ownership and permissions.
 3. When these tenets conflict with POSIX requirements, Mountpoint fails early and explicitly. We would rather cause applications to fail with IO errors than silently accept operations that Mountpoint will never successfully persist, such as extended attributes.
 
 ## Reading and writing files
