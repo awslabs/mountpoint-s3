@@ -267,7 +267,7 @@ pub struct PrefetchGetObject<Stream: ObjectPartStream, Client: ObjectClient> {
     part_stream: Arc<Stream>,
     mem_limiter: Arc<MemoryLimiter<Client>>,
     config: PrefetcherConfig,
-    backpressure_task: Option<RequestTask<Client::ClientError, Client>>,
+    backpressure_task: Option<RequestTask<Client>>,
     // Invariant: the offset of the last byte in this window is always
     // self.next_sequential_read_offset - 1.
     backward_seek_window: SeekWindow,
@@ -420,7 +420,7 @@ where
     /// We will be using flow-control window to control how much data we want to download into the prefetcher.
     fn spawn_read_backpressure_request(
         &mut self,
-    ) -> Result<RequestTask<Client::ClientError, Client>, PrefetchReadError<Client::ClientError>> {
+    ) -> Result<RequestTask<Client>, PrefetchReadError<Client::ClientError>> {
         let start = self.next_sequential_read_offset;
         let object_size = self.size as usize;
         let read_part_size = self.client.read_part_size().unwrap_or(8 * 1024 * 1024);
@@ -560,6 +560,7 @@ mod tests {
     #![allow(clippy::identity_op)]
 
     use crate::data_cache::InMemoryDataCache;
+    use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 
     use super::caching_stream::CachingPartStream;
     use super::*;
@@ -619,7 +620,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
@@ -714,7 +715,7 @@ mod tests {
         Stream: ObjectPartStream + Send + Sync + 'static,
     {
         let client = Arc::new(MockClient::new(client_config));
-        let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
         let read_size = 1 * MB;
         let object_size = 8 * MB;
         let object = MockObject::ramp(0xaa, object_size, ETag::for_tests());
@@ -821,7 +822,7 @@ mod tests {
             HashMap::new(),
             HashMap::new(),
         ));
-        let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
 
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
@@ -946,7 +947,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
         let etag = object.etag();
 
@@ -1130,7 +1131,7 @@ mod tests {
             HashMap::new(),
             HashMap::new(),
         ));
-        let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
 
         let prefetcher = Prefetcher::new(default_stream(), Default::default());
         let mem_limiter = Arc::new(mem_limiter);
@@ -1183,7 +1184,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), 512 * 1024 * 1024));
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
@@ -1225,7 +1226,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), 512 * 1024 * 1024));
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
@@ -1287,7 +1288,7 @@ mod tests {
                 ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
-            let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+            let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1353,7 +1354,7 @@ mod tests {
                 ..Default::default()
             };
             let client = Arc::new(MockClient::new(config));
-            let mem_limiter = MemoryLimiter::new(client.clone(), 512 * 1024 * 1024);
+            let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 

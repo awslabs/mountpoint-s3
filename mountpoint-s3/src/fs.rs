@@ -21,7 +21,7 @@ use crate::inode::{
     Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
 };
 use crate::logging;
-use crate::mem_limiter::MemoryLimiter;
+use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
 use crate::object::ObjectId;
 use crate::prefetch::{Prefetch, PrefetchResult};
 use crate::prefix::Prefix;
@@ -422,7 +422,7 @@ impl Default for S3FilesystemConfig {
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
-            mem_limit: 512 * 1024 * 1024,
+            mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
 }

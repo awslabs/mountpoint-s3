@@ -179,7 +179,9 @@ impl<Client: ObjectClient> BackpressureController<Client> {
     // Scaling up fails silently if there is no enough free memory to perform it.
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
-            let new_read_window_size = self.preferred_read_window_size * self.read_window_size_multiplier;
+            let new_read_window_size = (self.preferred_read_window_size * self.read_window_size_multiplier)
+                .max(self.min_read_window_size)
+                .min(self.max_read_window_size);
             // Only scale up when there is enough memory. We don't have to reserve the memory here
             // because only `preferred_read_window_size` is increased but the actual read window will
             // be updated later on `DataRead` event (where we do reserve memory).
@@ -203,7 +205,9 @@ impl<Client: ObjectClient> BackpressureController<Client> {
     fn scale_down(&mut self) {
         if self.preferred_read_window_size > self.min_read_window_size {
             assert!(self.read_window_size_multiplier > 1);
-            let new_read_window_size = self.preferred_read_window_size / self.read_window_size_multiplier;
+            let new_read_window_size = (self.preferred_read_window_size / self.read_window_size_multiplier)
+                .max(self.min_read_window_size)
+                .min(self.max_read_window_size);
             let formatter = make_format(humansize::BINARY);
             debug!(
                 current_size = formatter(self.preferred_read_window_size),
@@ -265,5 +269,90 @@ impl BackpressureLimiter {
             }
         }
         Ok(Some(self.read_window_end_offset))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use test_case::test_case;
+
+    use crate::mem_limiter::MemoryLimiter;
+
+    use super::{new_backpressure_controller, BackpressureConfig, BackpressureController, BackpressureLimiter};
+
+    #[test_case(1024 * 1024 + 128 * 1024, 2)] // real config
+    #[test_case(3 * 1024 * 1024, 4)]
+    #[test_case(8 * 1024 * 1024, 8)]
+    #[test_case(2 * 1024 * 1024 * 1024, 2)]
+    fn test_read_window_scale_up(initial_read_window_size: usize, read_window_size_multiplier: usize) {
+        let request_range = 0..(5 * 1024 * 1024 * 1024);
+        let backpressure_config = BackpressureConfig {
+            initial_read_window_size,
+            min_read_window_size: 8 * 1024 * 1024,
+            max_read_window_size: 2 * 1024 * 1024 * 1024,
+            read_window_size_multiplier,
+            request_range,
+        };
+
+        let (mut backpressure_controller, _backpressure_limiter) =
+            new_backpressure_controller_for_test(backpressure_config);
+        while backpressure_controller.preferred_read_window_size < backpressure_controller.max_read_window_size {
+            backpressure_controller.scale_up();
+            assert!(backpressure_controller.preferred_read_window_size >= backpressure_controller.min_read_window_size);
+            assert!(backpressure_controller.preferred_read_window_size <= backpressure_controller.max_read_window_size);
+        }
+        assert_eq!(
+            backpressure_controller.preferred_read_window_size, backpressure_controller.max_read_window_size,
+            "should have scaled up to max read window size"
+        );
+    }
+
+    #[test_case(2 * 1024 * 1024 * 1024, 2)]
+    #[test_case(15 * 1024 * 1024 * 1024, 2)]
+    #[test_case(2 * 1024 * 1024 * 1024, 8)]
+    #[test_case(8 * 1024 * 1024, 8)]
+    fn test_read_window_scale_down(initial_read_window_size: usize, read_window_size_multiplier: usize) {
+        let request_range = 0..(5 * 1024 * 1024 * 1024);
+        let backpressure_config = BackpressureConfig {
+            initial_read_window_size,
+            min_read_window_size: 8 * 1024 * 1024,
+            max_read_window_size: 2 * 1024 * 1024 * 1024,
+            read_window_size_multiplier,
+            request_range,
+        };
+
+        let (mut backpressure_controller, _backpressure_limiter) =
+            new_backpressure_controller_for_test(backpressure_config);
+        while backpressure_controller.preferred_read_window_size > backpressure_controller.min_read_window_size {
+            backpressure_controller.scale_down();
+            assert!(backpressure_controller.preferred_read_window_size <= backpressure_controller.max_read_window_size);
+            assert!(backpressure_controller.preferred_read_window_size >= backpressure_controller.min_read_window_size);
+        }
+        assert_eq!(
+            backpressure_controller.preferred_read_window_size, backpressure_controller.min_read_window_size,
+            "should have scaled down to min read window size"
+        );
+    }
+
+    fn new_backpressure_controller_for_test(
+        backpressure_config: BackpressureConfig,
+    ) -> (BackpressureController<MockClient>, BackpressureLimiter) {
+        let config = MockClientConfig {
+            bucket: "test-bucket".to_string(),
+            part_size: 8 * 1024 * 1024,
+            enable_backpressure: true,
+            initial_read_window_size: backpressure_config.initial_read_window_size,
+            ..Default::default()
+        };
+
+        let client = MockClient::new(config);
+        let mem_limiter = Arc::new(MemoryLimiter::new(
+            client,
+            backpressure_config.max_read_window_size as u64,
+        ));
+        new_backpressure_controller(backpressure_config, mem_limiter.clone())
     }
 }

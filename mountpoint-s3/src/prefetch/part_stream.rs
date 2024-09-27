@@ -29,7 +29,7 @@ pub trait ObjectPartStream {
         client: &Client,
         config: RequestTaskConfig,
         mem_limiter: Arc<MemoryLimiter<Client>>,
-    ) -> RequestTask<Client::ClientError, Client>
+    ) -> RequestTask<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static;
 }
@@ -186,7 +186,7 @@ where
         client: &Client,
         config: RequestTaskConfig,
         mem_limiter: Arc<MemoryLimiter<Client>>,
-    ) -> RequestTask<Client::ClientError, Client>
+    ) -> RequestTask<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {

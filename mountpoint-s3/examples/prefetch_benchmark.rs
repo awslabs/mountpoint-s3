@@ -13,6 +13,7 @@ use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use sysinfo::{RefreshKind, System};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -42,6 +43,11 @@ fn main() {
                 .help("Desired throughput in Gbps"),
         )
         .arg(
+            Arg::new("max-memory-target")
+                .long("max-memory-target")
+                .help("Maximum memory usage target in MiB"),
+        )
+        .arg(
             Arg::new("part-size")
                 .long("part-size")
                 .help("Part size for multi-part GET and PUT"),
@@ -65,6 +71,9 @@ fn main() {
     let throughput_target_gbps = matches
         .get_one::<String>("throughput-target-gbps")
         .map(|s| s.parse::<f64>().expect("throughput target must be an f64"));
+    let max_memory_target = matches
+        .get_one::<String>("max-memory-target")
+        .map(|s| s.parse::<u64>().expect("throughput target must be a u64"));
     let part_size = matches
         .get_one::<String>("part-size")
         .map(|s| s.parse::<usize>().expect("part size must be a usize"));
@@ -93,7 +102,15 @@ fn main() {
         config = config.part_size(part_size);
     }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
-    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), 512 * 1024 * 1024));
+
+    let max_memory_target = if let Some(target) = max_memory_target {
+        target * 1024 * 1024
+    } else {
+        // Default to 95% of total system memory
+        let sys = System::new_with_specifics(RefreshKind::everything());
+        (sys.total_memory() as f64 * 0.95) as u64
+    };
+    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
 
     let head_object_result = block_on(client.head_object(bucket, key)).expect("HeadObject failed");
     let size = head_object_result.object.size;

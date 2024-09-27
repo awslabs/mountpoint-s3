@@ -32,6 +32,7 @@ use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLiv
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, LoggingConfig};
+use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -787,7 +788,6 @@ where
     filesystem_config.s3_personality = s3_personality;
     filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
 
-    const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
     let sys = System::new_with_specifics(RefreshKind::everything());
     let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
     filesystem_config.mem_limit = default_mem_target.max(MINIMUM_MEM_LIMIT);

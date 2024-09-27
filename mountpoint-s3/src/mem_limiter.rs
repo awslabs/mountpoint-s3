@@ -5,6 +5,8 @@ use metrics::atomics::AtomicU64;
 use mountpoint_s3_client::ObjectClient;
 use tracing::debug;
 
+pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
+
 /// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
 /// Currently, there are two metrics we take into account:
 /// 1) the memory reserved by prefetcher instances for the data requested or fetched from CRT client.

@@ -769,7 +769,7 @@ impl S3CrtClientInner {
         // Buffer pool metrics
         let start = Instant::now();
         let buffer_pool_stats = s3_client.poll_buffer_pool_usage_stats();
-        metrics::histogram!("s3.client.buffer_pool.get_usage_latecy_us").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us").record(start.elapsed().as_micros() as f64);
         metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
         metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
         metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
@@ -1213,7 +1213,7 @@ impl ObjectClient for S3CrtClient {
     fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
         let start = Instant::now();
         let crt_buffer_pool_stats = self.inner.s3_client.poll_buffer_pool_usage_stats();
-        metrics::histogram!("s3.client.buffer_pool.get_usage_latecy_us").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us").record(start.elapsed().as_micros() as f64);
         Some(crt_buffer_pool_stats)
     }
 

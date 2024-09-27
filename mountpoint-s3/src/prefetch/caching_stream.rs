@@ -47,7 +47,7 @@ where
         client: &Client,
         config: RequestTaskConfig,
         mem_limiter: Arc<MemoryLimiter<Client>>,
-    ) -> RequestTask<<Client as ObjectClient>::ClientError, Client>
+    ) -> RequestTask<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
@@ -391,7 +391,11 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{data_cache::InMemoryDataCache, mem_limiter::MemoryLimiter, object::ObjectId};
+    use crate::{
+        data_cache::InMemoryDataCache,
+        mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT},
+        object::ObjectId,
+    };
 
     use super::*;
 
@@ -432,7 +436,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
-        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), 512 * 1024 * 1024));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -513,7 +517,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
-        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), 512 * 1024 * 1024));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -537,11 +541,7 @@ mod tests {
         }
     }
 
-    fn compare_read<E: std::error::Error + Send + Sync, Client: ObjectClient>(
-        id: &ObjectId,
-        object: &MockObject,
-        mut request_task: RequestTask<E, Client>,
-    ) {
+    fn compare_read<Client: ObjectClient>(id: &ObjectId, object: &MockObject, mut request_task: RequestTask<Client>) {
         let mut offset = request_task.start_offset();
         let mut remaining = request_task.total_size();
         while remaining > 0 {
