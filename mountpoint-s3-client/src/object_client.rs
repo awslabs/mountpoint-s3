@@ -63,6 +63,16 @@ impl FromStr for ETag {
     }
 }
 
+/// Memory usage stats for the client
+pub struct MemoryUsageStats {
+    /// Reserved memory for the client. For [S3CrtClient], this value is a sum of primary storage
+    /// and secondary storage reserved memory.
+    pub mem_reserved: u64,
+    /// Actual used memory for the client. For [S3CrtClient], this value is a sum of primanry
+    /// storage and secondary storage used memory.
+    pub mem_used: u64,
+}
+
 /// A generic interface to S3-like object storage services.
 ///
 /// This trait defines the common methods that all object services implement.
@@ -88,6 +98,10 @@ pub trait ObjectClient {
     /// Query the initial read window size this client uses for backpressure GetObject requests.
     /// This can be `None` if backpressure is disabled.
     fn initial_read_window_size(&self) -> Option<usize>;
+
+    /// Query current memory usage stats for the client. This can be `None` if the client
+    /// does not record the stats.
+    fn mem_usage_stats(&self) -> Option<MemoryUsageStats>;
 
     /// Delete a single object from the object store.
     ///
