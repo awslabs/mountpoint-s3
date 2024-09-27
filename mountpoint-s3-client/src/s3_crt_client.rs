@@ -1212,16 +1212,13 @@ impl ObjectClient for S3CrtClient {
         let crt_buffer_pool_stats = self.inner.s3_client.poll_buffer_pool_usage_stats();
         let mem_allocated = crt_buffer_pool_stats
             .primary_allocated
-            .saturating_add(crt_buffer_pool_stats.secondary_reserved)
-            .saturating_add(crt_buffer_pool_stats.secondary_used)
-            .saturating_add(crt_buffer_pool_stats.forced_used);
+            .saturating_add(crt_buffer_pool_stats.secondary_used);
         let mem_reserved = crt_buffer_pool_stats
             .primary_reserved
             .saturating_add(crt_buffer_pool_stats.secondary_reserved);
         let mem_used = crt_buffer_pool_stats
             .primary_used
-            .saturating_add(crt_buffer_pool_stats.secondary_used)
-            .saturating_add(crt_buffer_pool_stats.forced_used);
+            .saturating_add(crt_buffer_pool_stats.secondary_used);
         Some(MemoryUsageStats {
             mem_allocated,
             mem_reserved,
