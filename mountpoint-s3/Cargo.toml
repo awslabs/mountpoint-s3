@@ -84,6 +84,7 @@ built = { version = "0.7.1", features = ["git2"] }
 express_cache = ["block_size"]
 block_size = []
 event_log = []
+mem_limiter = []
 # Features for choosing tests
 fips_tests = []
 fuse_tests = []

@@ -157,6 +157,8 @@ pub struct CliArgs {
     )]
     pub max_threads: u64,
 
+    // This config is still unstable
+    #[cfg(feature = "mem_limiter")]
     #[clap(
         long,
         help = "Maximum memory usage target [default: 95% of total system memory with a minimum of 512 MiB]",
@@ -784,14 +786,16 @@ where
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality = s3_personality;
     filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
-    filesystem_config.mem_limit = if let Some(max_mem_target) = args.max_memory_target {
-        max_mem_target * 1024 * 1024
-    } else {
-        const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
-        let sys = System::new_with_specifics(RefreshKind::everything());
-        let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
-        default_mem_target.max(MINIMUM_MEM_LIMIT)
-    };
+
+    const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
+    let sys = System::new_with_specifics(RefreshKind::everything());
+    let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
+    filesystem_config.mem_limit = default_mem_target.max(MINIMUM_MEM_LIMIT);
+
+    #[cfg(feature = "mem_limiter")]
+    if let Some(max_mem_target) = args.max_memory_target {
+        filesystem_config.mem_limit = max_mem_target * 1024 * 1024;
+    }
 
     // Written in this awkward way to force us to update it if we add new checksum types
     filesystem_config.use_upload_checksums = match args.upload_checksums {
