@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_channel::{unbounded, Receiver, Sender};
 use humansize::make_format;
 use mountpoint_s3_client::ObjectClient;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::mem_limiter::MemoryLimiter;
 
@@ -167,7 +167,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             let to_increase = (new_read_window_size - self.preferred_read_window_size) as u64;
             if to_increase <= self.mem_limiter.available_mem() {
                 let formatter = make_format(humansize::BINARY);
-                tracing::info!(
+                debug!(
                     current_size = formatter(self.preferred_read_window_size),
                     new_size = formatter(new_read_window_size),
                     "scaling up preferred read window"
@@ -187,7 +187,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                 align(new_read_window_size, self.read_part_size, false).max(self.min_read_window_size);
 
             let formatter = make_format(humansize::BINARY);
-            tracing::info!(
+            debug!(
                 current_size = formatter(self.preferred_read_window_size),
                 new_size = formatter(new_read_window_size),
                 "scaling down read window"
