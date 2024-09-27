@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_channel::{unbounded, Receiver, Sender};
 use humansize::make_format;
-use mountpoint_s3_client::ObjectClient;
 use tracing::{debug, trace};
 
 use crate::mem_limiter::MemoryLimiter;
@@ -33,7 +32,7 @@ pub struct BackpressureConfig {
 }
 
 #[derive(Debug)]
-pub struct BackpressureController<Client: ObjectClient> {
+pub struct BackpressureController {
     read_window_updater: Sender<usize>,
     preferred_read_window_size: usize,
     min_read_window_size: usize,
@@ -49,7 +48,7 @@ pub struct BackpressureController<Client: ObjectClient> {
     /// data up to this offset *exclusively*.
     request_end_offset: u64,
     read_part_size: usize,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 #[derive(Debug)]
@@ -75,10 +74,10 @@ pub struct BackpressureLimiter {
 /// [BackpressureController] will be given to the consumer side of the object stream.
 /// It can be used anywhere to set preferred read window size for the stream and tell the
 /// producer when its read window should be increased.
-pub fn new_backpressure_controller<Client: ObjectClient>(
+pub fn new_backpressure_controller(
     config: BackpressureConfig,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
-) -> (BackpressureController<Client>, BackpressureLimiter) {
+    mem_limiter: Arc<MemoryLimiter>,
+) -> (BackpressureController, BackpressureLimiter) {
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
     let (read_window_updater, read_window_incrementing_queue) = unbounded();
     mem_limiter.reserve(config.initial_read_window_size as u64);
@@ -102,7 +101,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
     (controller, limiter)
 }
 
-impl<Client: ObjectClient> BackpressureController<Client> {
+impl BackpressureController {
     pub fn read_window_end_offset(&self) -> u64 {
         self.read_window_end_offset
     }
@@ -283,7 +282,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
     }
 }
 
-impl<Client: ObjectClient> Drop for BackpressureController<Client> {
+impl Drop for BackpressureController {
     fn drop(&mut self) {
         // When approaching request end we have less memory still reserved than `self.preferred_read_window_size`.
         debug_assert!(self.request_end_offset >= self.next_read_offset);

@@ -536,7 +536,7 @@ where
 {
     config: S3FilesystemConfig,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
     superblock: Superblock,
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
@@ -567,7 +567,7 @@ where
             s3_personality: config.s3_personality,
         };
         let superblock = Superblock::new(bucket, prefix, superblock_config);
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let mem_limiter = Arc::new(MemoryLimiter::new(config.mem_limit));
         let uploader = Uploader::new(
             client.clone(),
             config.storage_class.to_owned(),

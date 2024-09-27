@@ -13,7 +13,7 @@ use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObje
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    MemoryUsageStats, ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
+    ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
 };
 use crate::types::ETag;
 
@@ -111,10 +111,6 @@ impl ObjectClient for ThroughputMockClient {
 
     fn initial_read_window_size(&self) -> Option<usize> {
         self.inner.initial_read_window_size()
-    }
-
-    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
-        self.inner.mem_usage_stats()
     }
 
     async fn delete_object(
