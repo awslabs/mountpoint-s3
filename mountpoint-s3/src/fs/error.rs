@@ -4,8 +4,8 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use tracing::Level;
 
 use crate::fs::error_metadata::ErrorMetadata;
-use crate::inode::InodeError;
 use crate::prefetch::PrefetchReadError;
+use crate::superblock::InodeError;
 use crate::upload::UploadWriteError;
 
 /// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.

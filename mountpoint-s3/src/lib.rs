@@ -5,13 +5,13 @@ pub mod cli;
 pub mod data_cache;
 pub mod fs;
 pub mod fuse;
-mod inode;
 pub mod logging;
 pub mod metrics;
 mod object;
 pub mod prefetch;
 pub mod prefix;
 pub mod s3;
+mod superblock;
 mod sync;
 mod upload;
 
