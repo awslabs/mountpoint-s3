@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, time::Instant};
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
@@ -75,6 +75,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
     pub fn try_reserve(&self, size: u64) -> bool {
+        let start = Instant::now();
         let mut prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
         loop {
             let new_prefetcher_mem_reserved = prefetcher_mem_reserved.saturating_add(size);
@@ -84,6 +85,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
                 .saturating_add(self.additional_mem_reserved);
             if new_total_mem_usage > self.mem_limit {
                 debug!(new_total_mem_usage, "not enough memory to reserve");
+                metrics::histogram!("prefetch.mem_reserve_latency_us").record(start.elapsed().as_micros() as f64);
                 return false;
             }
             // Check that the value we have read is still the same before updating it
@@ -95,6 +97,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
             ) {
                 Ok(_) => {
                     metrics::gauge!("prefetch.bytes_reserved").increment(size as f64);
+                    metrics::histogram!("prefetch.mem_reserve_latency_us").record(start.elapsed().as_micros() as f64);
                     return true;
                 }
                 Err(current) => prefetcher_mem_reserved = current, // another thread updated the atomic before us, trying again
@@ -118,7 +121,14 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
             .saturating_sub(self.additional_mem_reserved)
     }
 
+    // Get allocated memory for the client. Currently, only the CRT client is able to report its buffer pool stats.
+    // The CRT allocates memory in two areas. The first one is primary storage where memory is allocated in blocks
+    // and we can get number of allocated bytes from `primary_allocated` stat. Another area is called secondary storage
+    // where memory is allocated exactly equal to the used memory. So total allocated memory for the CRT client would
+    // be `primary_allocated` + `secondary_used`.
     fn client_mem_allocated(&self) -> u64 {
-        self.client.mem_usage_stats().map_or(0, |stats| stats.mem_allocated)
+        self.client
+            .mem_usage_stats()
+            .map_or(0, |stats| stats.primary_allocated.saturating_add(stats.secondary_used))
     }
 }

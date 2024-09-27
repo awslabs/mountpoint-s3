@@ -528,6 +528,10 @@ where
             trace!("seek failed: not enough data in backwards seek window");
             return Ok(false);
         };
+        // This also increase `prefetcher_mem_reserved` value in memory limiter.
+        // At least one subsequent `RequestTask::read` is required for memory tracking to work correctly
+        // because `BackpressureController::drop` needs to know the start offset of the part queue to
+        // release the right amount of memory.
         task.push_front(parts).await?;
         self.next_sequential_read_offset = offset;
         Ok(true)

@@ -29,7 +29,6 @@ pub struct BackpressureConfig {
     pub read_window_size_multiplier: usize,
     /// Request range to apply backpressure
     pub request_range: Range<u64>,
-    pub read_part_size: usize,
 }
 
 #[derive(Debug)]
@@ -48,7 +47,6 @@ pub struct BackpressureController<Client: ObjectClient> {
     /// End offset for the request we want to apply backpressure. The request can return
     /// data up to this offset *exclusively*.
     request_end_offset: u64,
-    read_part_size: usize,
     mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
@@ -93,7 +91,6 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
         read_window_end_offset,
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
-        read_part_size: config.read_part_size,
         mem_limiter,
     };
     let limiter = BackpressureLimiter {
@@ -120,6 +117,8 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                 let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
 
                 // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
+                // When memory is low the `preferred_read_window_size` will be scaled down so we have to keep trying
+                // until we have enough read window.
                 while remaining_window < (self.preferred_read_window_size / 2)
                     && self.read_window_end_offset < self.request_end_offset
                 {
@@ -146,6 +145,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                     // scale down the read window if it fails.
                     if self.mem_limiter.try_reserve(to_increase as u64) {
                         self.increment_read_window(to_increase).await;
+                        break;
                     } else {
                         self.scale_down();
                     }
@@ -180,10 +180,6 @@ impl<Client: ObjectClient> BackpressureController<Client> {
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
             let new_read_window_size = self.preferred_read_window_size * self.read_window_size_multiplier;
-            // Also align the new read window size to the client part size
-            let new_read_window_size =
-                align(new_read_window_size, self.read_part_size, false).min(self.max_read_window_size);
-
             // Only scale up when there is enough memory. We don't have to reserve the memory here
             // because only `preferred_read_window_size` is increased but the actual read window will
             // be updated later on `DataRead` event (where we do reserve memory).
@@ -208,10 +204,6 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         if self.preferred_read_window_size > self.min_read_window_size {
             assert!(self.read_window_size_multiplier > 1);
             let new_read_window_size = self.preferred_read_window_size / self.read_window_size_multiplier;
-            // Also align the new read window size to the client part size
-            let new_read_window_size =
-                align(new_read_window_size, self.read_part_size, false).max(self.min_read_window_size);
-
             let formatter = make_format(humansize::BINARY);
             debug!(
                 current_size = formatter(self.preferred_read_window_size),
@@ -273,20 +265,5 @@ impl BackpressureLimiter {
             }
         }
         Ok(Some(self.read_window_end_offset))
-    }
-}
-
-/// Try to align the given read window size to the part boundaries.
-/// The `trim_only` flags controls whether the range is only trimmed down to
-/// part boundaries or is allowed to grow wider.
-fn align(read_window_size: usize, part_size: usize, trim_only: bool) -> usize {
-    let part_alignment = part_size;
-    let remainder = read_window_size % part_alignment;
-    if trim_only || remainder == 0 {
-        // trim it to the previous part boundary
-        read_window_size - remainder
-    } else {
-        // extend it to the next part boundary
-        read_window_size + (part_alignment - remainder)
     }
 }

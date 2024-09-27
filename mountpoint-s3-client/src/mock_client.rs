@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -26,9 +27,9 @@ use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
     GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, MemoryUsageStats, ObjectAttribute, ObjectClient,
-    ObjectClientError, ObjectClientResult, ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
+    ObjectClientResult, ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -572,7 +573,7 @@ impl ObjectClient for MockClient {
         }
     }
 
-    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
         None
     }
 

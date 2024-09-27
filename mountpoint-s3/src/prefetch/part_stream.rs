@@ -202,7 +202,6 @@ where
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
-            read_part_size: config.read_part_size,
         };
         let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, mem_limiter.clone());
@@ -386,6 +385,13 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             // We are reaching the end so don't have to wait for more read window
             if next_offset == request_range.end {
                 break;
+            }
+
+            // The CRT could return data more than what we have requested in the read window
+            // which means unaccounted memory, so we want to record them here.
+            let excess_bytes = next_offset.saturating_sub(backpressure_limiter.read_window_end_offset());
+            if excess_bytes > 0 {
+                metrics::histogram!("s3.client.read_window_excess_bytes").record(excess_bytes as f64);
             }
             // Blocks if read window increment if it's not enough to read the next offset
             if let Some(next_read_window_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {

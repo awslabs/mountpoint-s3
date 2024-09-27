@@ -2,6 +2,7 @@ use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -63,18 +64,6 @@ impl FromStr for ETag {
     }
 }
 
-/// Memory usage stats for the client
-pub struct MemoryUsageStats {
-    /// Total allocated memory for the client.
-    pub mem_allocated: u64,
-    /// Reserved memory for the client. For [S3CrtClient], this value is a sum of primary storage
-    /// and secondary storage reserved memory.
-    pub mem_reserved: u64,
-    /// Actual used memory for the client. For [S3CrtClient], this value is a sum of primanry
-    /// storage and secondary storage used memory.
-    pub mem_used: u64,
-}
-
 /// A generic interface to S3-like object storage services.
 ///
 /// This trait defines the common methods that all object services implement.
@@ -103,7 +92,7 @@ pub trait ObjectClient {
 
     /// Query current memory usage stats for the client. This can be `None` if the client
     /// does not record the stats.
-    fn mem_usage_stats(&self) -> Option<MemoryUsageStats>;
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats>;
 
     /// Delete a single object from the object store.
     ///

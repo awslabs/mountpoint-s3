@@ -25,8 +25,8 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::client::{
-    init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestMetrics, RequestType,
+    init_signing_config, BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions,
+    MetaRequestResult, MetaRequestType, RequestMetrics, RequestType,
 };
 
 use async_trait::async_trait;
@@ -767,7 +767,9 @@ impl S3CrtClientInner {
             .set(metrics.num_requests_streaming_response as f64);
 
         // Buffer pool metrics
+        let start = Instant::now();
         let buffer_pool_stats = s3_client.poll_buffer_pool_usage_stats();
+        metrics::histogram!("s3.client.buffer_pool.get_usage_latecy_us").record(start.elapsed().as_micros() as f64);
         metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
         metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
         metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
@@ -1208,22 +1210,11 @@ impl ObjectClient for S3CrtClient {
         }
     }
 
-    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
+        let start = Instant::now();
         let crt_buffer_pool_stats = self.inner.s3_client.poll_buffer_pool_usage_stats();
-        let mem_allocated = crt_buffer_pool_stats
-            .primary_allocated
-            .saturating_add(crt_buffer_pool_stats.secondary_used);
-        let mem_reserved = crt_buffer_pool_stats
-            .primary_reserved
-            .saturating_add(crt_buffer_pool_stats.secondary_reserved);
-        let mem_used = crt_buffer_pool_stats
-            .primary_used
-            .saturating_add(crt_buffer_pool_stats.secondary_used);
-        Some(MemoryUsageStats {
-            mem_allocated,
-            mem_reserved,
-            mem_used,
-        })
+        metrics::histogram!("s3.client.buffer_pool.get_usage_latecy_us").record(start.elapsed().as_micros() as f64);
+        Some(crt_buffer_pool_stats)
     }
 
     async fn delete_object(

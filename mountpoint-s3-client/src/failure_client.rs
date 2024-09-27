@@ -11,13 +11,14 @@ use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use futures::Stream;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    MemoryUsageStats, ObjectAttribute, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, UploadReview,
+    ObjectAttribute, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
+    PutObjectResult, UploadReview,
 };
 use crate::ObjectClient;
 
@@ -85,7 +86,7 @@ where
         self.client.initial_read_window_size()
     }
 
-    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
         self.client.mem_usage_stats()
     }
 

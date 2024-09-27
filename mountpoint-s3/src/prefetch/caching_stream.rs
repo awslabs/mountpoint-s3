@@ -59,7 +59,6 @@ where
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
-            read_part_size: config.read_part_size,
         };
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, mem_limiter.clone());

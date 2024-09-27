@@ -6,6 +6,7 @@ use std::time::Duration;
 use async_io::block_on;
 use async_trait::async_trait;
 use futures::Stream;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::mock_client::leaky_bucket::LeakyBucket;
@@ -13,7 +14,7 @@ use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObje
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    MemoryUsageStats, ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
+    ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
 };
 use crate::types::ETag;
 
@@ -113,7 +114,7 @@ impl ObjectClient for ThroughputMockClient {
         self.inner.initial_read_window_size()
     }
 
-    fn mem_usage_stats(&self) -> Option<MemoryUsageStats> {
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
         self.inner.mem_usage_stats()
     }
 
