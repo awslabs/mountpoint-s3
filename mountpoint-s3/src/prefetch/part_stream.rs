@@ -28,8 +28,8 @@ pub trait ObjectPartStream {
         &self,
         client: &Client,
         config: RequestTaskConfig,
-        mem_limiter: Arc<MemoryLimiter>,
-    ) -> RequestTask<Client::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<Client::ClientError, Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static;
 }
@@ -185,8 +185,8 @@ where
         &self,
         client: &Client,
         config: RequestTaskConfig,
-        mem_limiter: Arc<MemoryLimiter>,
-    ) -> RequestTask<Client::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<Client::ClientError, Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
@@ -206,7 +206,7 @@ where
         };
         let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue();
+        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
         trace!(?range, "spawning request");
 
         let span = debug_span!("prefetch", ?range);

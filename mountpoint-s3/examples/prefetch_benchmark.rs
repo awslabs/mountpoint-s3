@@ -93,7 +93,7 @@ fn main() {
         config = config.part_size(part_size);
     }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
-    let mem_limiter = Arc::new(MemoryLimiter::new(512 * 1024 * 1024));
+    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), 512 * 1024 * 1024));
 
     let head_object_result = block_on(client.head_object(bucket, key)).expect("HeadObject failed");
     let size = head_object_result.object.size;

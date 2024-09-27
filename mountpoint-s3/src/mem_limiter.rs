@@ -2,47 +2,54 @@ use std::sync::atomic::Ordering;
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
+use mountpoint_s3_client::ObjectClient;
 use tracing::debug;
 
 /// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
-/// Currently the only metric which we take into account is the memory reserved by prefetcher instances for the data requested or
-/// fetched from CRT client. Single instance of this struct is shared among all of the prefetchers (file handles).
+/// Currently, there are two metrics we take into account:
+/// 1) the memory reserved by prefetcher instances for the data requested or fetched from CRT client.
+/// 2) the memory reserved by S3 client if it can report.
+///
+/// Single instance of this struct is shared among all of the prefetchers (file handles).
 ///
 /// Each file handle upon creation makes an initial reservation request with a minimal read window size of `1MiB + 128KiB`. This
 /// is accepted unconditionally since we want to allow any file handle to make progress even if that means going over the memory
-/// limit. Additional reservations for a file handle arise when data is being read from fuse **faster** than it arrives from the
-/// client (PartQueueStall). Those reservations may be rejected if there is no available memory.
+/// limit. Additional reservations for a file handle arise when the backpressure read window is incremented to fetch more data
+/// from underlying part streams. Those reservations may be rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
-/// 1) prefetcher is destroyed (`PartQueue` holding the data should be dropped and the CRT request cancelled before this release)
-/// 2) prefetcher's read window is scaled down (we wait for the previously requested data to be consumed)
-/// 3) prefetcher is approaching the end of the request, in which case we can be sure that reservation in full won't be needed.
+/// 1) prefetcher is destroyed (`RequestTask` will be dropped and remaining data in the backpressure read window will be released).
+/// 2) data is moved out of the part queue.
 ///
 /// Following is the visualisation of a single prefetcher instance's data stream:
 ///
-/// backwards_seek_start  next_read_offset       in_part_queue                 window_end_offset      preferred_window_end_offset
-///  │                    │                           │                               │                            │
-/// ─┼────────────────────┼───────────────────────────┼───────────────────────────────┼────────────────────────────┼───────────-►
-///  │                    ├───────────────────────────┤                               │                            │
-///  └────────────────────┤   certainly used memory   └───────────────────────────────┤                            │
-///  memory not accounted │                         in CRT buffer, or callback queue  └────────────────────────────┤
-///                       │                         (usage may be less than reserved)  will be used after the      │
-///                       │                                                            window increase             │
-///                       └────────────────────────────────────────────────────────────────────────────────────────┘
-///                                          preferred_read_window_size (reserved in MemoryLimiter)
+/// backwards_seek_start        part_queue_start         in_part_queue                 window_end_offset      preferred_window_end_offset
+///  │                              │                           │                               │                            │
+/// ─┼──────────────────────────────┼───────────────────────────┼───────────────────────────────┼────────────────────────────┼───────────-►
+///  │                              │                                                           │
+///  └──────────────────────────────┤                                                           │
+///  mem reserved by the part queue │                                                           │
+///                                 └───────────────────────────────────────────────────────────┤
+///                                     mem reserved by the backpressure controller
+///                                     (on `BackpressureFeedbackEvent`)
 ///
 #[derive(Debug)]
-pub struct MemoryLimiter {
+pub struct MemoryLimiter<Client: ObjectClient> {
     mem_limit: u64,
     /// Reserved memory for data we had requested via the request task but may not
     /// arrived yet.
     prefetcher_mem_reserved: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
+    // We will also take client's reserved memory into account because even if the
+    // prefetch takes control over the entire read path but we don't record or control
+    // memory usage on the write path today, so we will rely on the client's stats
+    // for "other buffers" and adjust the prefetcher read window accordingly.
+    client: Client,
 }
 
-impl MemoryLimiter {
-    pub fn new(mem_limit: u64) -> Self {
+impl<Client: ObjectClient> MemoryLimiter<Client> {
+    pub fn new(client: Client, mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let reserved_mem = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -52,6 +59,7 @@ impl MemoryLimiter {
             formatter(reserved_mem)
         );
         Self {
+            client,
             mem_limit,
             prefetcher_mem_reserved: AtomicU64::new(0),
             additional_mem_reserved: reserved_mem,
@@ -66,19 +74,19 @@ impl MemoryLimiter {
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub fn try_reserve(&self, size: u64, min_available: u64) -> bool {
+    pub fn try_reserve(&self, size: u64) -> bool {
+        let mut prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
         loop {
-            let prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
             let new_prefetcher_mem_reserved = prefetcher_mem_reserved.saturating_add(size);
-            let total_mem_usage = prefetcher_mem_reserved.saturating_add(self.additional_mem_reserved);
-            let new_total_mem_usage = new_prefetcher_mem_reserved.saturating_add(self.additional_mem_reserved);
-            if new_total_mem_usage > self.mem_limit - min_available {
-                debug!(
-                    "not enough memory to reserve, current usage: {}, new (if scaled up): {}, allowed diff: {}",
-                    total_mem_usage, new_total_mem_usage, min_available,
-                );
+            let client_mem_allocated = self.client_mem_allocated();
+            let new_total_mem_usage = new_prefetcher_mem_reserved
+                .saturating_add(client_mem_allocated)
+                .saturating_add(self.additional_mem_reserved);
+            if new_total_mem_usage > self.mem_limit {
+                debug!(new_total_mem_usage, "not enough memory to reserve");
                 return false;
             }
+            // Check that the value we have read is still the same before updating it
             match self.prefetcher_mem_reserved.compare_exchange_weak(
                 prefetcher_mem_reserved,
                 new_prefetcher_mem_reserved,
@@ -89,7 +97,7 @@ impl MemoryLimiter {
                     metrics::gauge!("prefetch.bytes_reserved").increment(size as f64);
                     return true;
                 }
-                Err(_) => continue, // another thread updated the atomic before us, trying again
+                Err(current) => prefetcher_mem_reserved = current, // another thread updated the atomic before us, trying again
             }
         }
     }
@@ -100,10 +108,17 @@ impl MemoryLimiter {
         metrics::gauge!("prefetch.bytes_reserved").decrement(size as f64);
     }
 
+    /// Query available memory tracked by the memory limiter.
     pub fn available_mem(&self) -> u64 {
-        let fs_mem_usage = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
+        let prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
+        let client_mem_allocated = self.client_mem_allocated();
         self.mem_limit
-            .saturating_sub(fs_mem_usage)
+            .saturating_sub(prefetcher_mem_reserved)
+            .saturating_sub(client_mem_allocated)
             .saturating_sub(self.additional_mem_reserved)
+    }
+
+    fn client_mem_allocated(&self) -> u64 {
+        self.client.mem_usage_stats().map_or(0, |stats| stats.mem_allocated)
     }
 }

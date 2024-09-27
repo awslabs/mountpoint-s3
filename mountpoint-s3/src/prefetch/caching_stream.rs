@@ -46,8 +46,8 @@ where
         &self,
         client: &Client,
         config: RequestTaskConfig,
-        mem_limiter: Arc<MemoryLimiter>,
-    ) -> RequestTask<<Client as ObjectClient>::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<<Client as ObjectClient>::ClientError, Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
@@ -63,7 +63,7 @@ where
         };
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue();
+        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
         trace!(?range, "spawning request");
 
         let request_task = {
@@ -257,7 +257,7 @@ impl<E, Cache, Runtime> CachingPartComposer<E, Cache, Runtime>
 where
     E: std::error::Error + Send + Sync,
     Cache: DataCache + Send + Sync + 'static,
-    Runtime: Spawn
+    Runtime: Spawn,
 {
     async fn try_compose_parts(&mut self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
         if let Err(e) = self.compose_parts(request_stream).await {
@@ -433,7 +433,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
-        let mem_limiter = Arc::new(MemoryLimiter::new(512 * 1024 * 1024));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), 512 * 1024 * 1024));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -514,7 +514,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
-        let mem_limiter = Arc::new(MemoryLimiter::new(512 * 1024 * 1024));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), 512 * 1024 * 1024));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -538,10 +538,10 @@ mod tests {
         }
     }
 
-    fn compare_read<E: std::error::Error + Send + Sync>(
+    fn compare_read<E: std::error::Error + Send + Sync, Client: ObjectClient>(
         id: &ObjectId,
         object: &MockObject,
-        mut request_task: RequestTask<E>,
+        mut request_task: RequestTask<E, Client>,
     ) {
         let mut offset = request_task.start_offset();
         let mut remaining = request_task.total_size();
