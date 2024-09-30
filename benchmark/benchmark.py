@@ -67,6 +67,8 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
             subprocess_args.append(f"--bind={network_interface}")
         if network['maximum_throughput_gbps'] is not None:
             subprocess_args.append(f"--maximum-throughput-gbps={network['maximum_throughput_gbps']}")
+    if cfg['crt_mem_limit_mib'] is not None:
+        subprocess_args.append(f"--crt-mem-limit-mib={cfg['crt_mem_limit_mib']}")
     subprocess_env = {
         "PID_FILE": "mount-s3.pid",
         "STUB_CRC32C": str(cfg['stub_crc32c']),
