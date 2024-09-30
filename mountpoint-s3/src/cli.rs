@@ -325,6 +325,14 @@ pub struct CliArgs {
         value_name = "NETWORK_INTERFACE",
     )]
     pub bind: Option<Vec<String>>,
+
+    #[clap(
+        long,
+        help = "Set memory limit for CRT bufferpool",
+        help_heading = CLIENT_OPTIONS_HEADER,
+        value_name = "MiB",
+    )]
+    pub crt_mem_limit_mib: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -688,6 +696,9 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
         .read_backpressure(true)
         .initial_read_window(initial_read_window_size)
         .user_agent(user_agent);
+    if let Some(limit_mib) = args.crt_mem_limit_mib {
+        client_config = client_config.crt_memory_limit_bytes(limit_mib * 1024 * 1024);
+    }
     #[cfg(feature = "multiple-nw-iface")]
     if let Some(interfaces) = &args.bind {
         client_config = client_config.network_interface_names(interfaces.clone());

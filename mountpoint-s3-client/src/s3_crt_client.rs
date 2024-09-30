@@ -93,6 +93,7 @@ pub struct S3ClientConfig {
     read_backpressure: bool,
     initial_read_window: usize,
     network_interface_names: Vec<String>,
+    crt_memory_limit_bytes: u64,
 }
 
 impl Default for S3ClientConfig {
@@ -111,6 +112,7 @@ impl Default for S3ClientConfig {
             read_backpressure: false,
             initial_read_window: DEFAULT_PART_SIZE,
             network_interface_names: vec![],
+            crt_memory_limit_bytes: 0, // use CRT default
         }
     }
 }
@@ -212,6 +214,12 @@ impl S3ClientConfig {
         self.network_interface_names = network_interface_names;
         self
     }
+
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn crt_memory_limit_bytes(mut self, crt_memory_limit_bytes: u64) -> Self {
+        self.crt_memory_limit_bytes = crt_memory_limit_bytes;
+        self
+    }
 }
 
 /// Authentication configuration for the CRT-based S3 client
@@ -302,6 +310,9 @@ impl S3CrtClientInner {
         let mut client_bootstrap = ClientBootstrap::new(&allocator, &bootstrap_options).unwrap();
 
         let mut client_config = ClientConfig::new();
+
+        trace!("constructing client with CRT memory limit: {} bytes", config.crt_memory_limit_bytes);
+        client_config.memory_limit_in_bytes(config.crt_memory_limit_bytes);
 
         let retry_strategy = {
             let mut retry_strategy_options = StandardRetryOptions::default(&mut event_loop_group);
