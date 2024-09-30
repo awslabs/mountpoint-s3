@@ -767,6 +767,12 @@ where
         #[cfg(target_os = "linux")]
         let direct_io = flags & libc::O_DIRECT != 0;
 
+        // We can't support O_SYNC writes because they require the data to go to stable storage
+        // at `write` time, but we only commit a PUT at `close` time.
+        if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
+            return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
+        }
+
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
         let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
 
@@ -783,12 +789,6 @@ where
         // but we can't support it on existing files and we should explicitly say we don't allow that.
         if remote_file && (flags & libc::O_APPEND != 0) {
             return Err(err!(libc::EINVAL, "O_APPEND is not supported on existing files"));
-        }
-
-        // We can't support O_SYNC writes because they require the data to go to stable storage
-        // at `write` time, but we only commit a PUT at `close` time.
-        if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
-            return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
         let state = if flags & libc::O_RDWR != 0 {

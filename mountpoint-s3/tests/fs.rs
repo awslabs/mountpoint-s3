@@ -700,6 +700,29 @@ async fn test_unordered_write_fails(offset: i64) {
     assert_eq!(err, libc::EINVAL);
 }
 
+#[test_case(libc::O_SYNC; "O_SYNC")]
+#[test_case(libc::O_DSYNC; "O_DSYNC")]
+#[tokio::test]
+async fn test_sync_flags_fail(flag: libc::c_int) {
+    const BUCKET_NAME: &str = "test_sync_flags_fail";
+
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+
+    let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(FUSE_ROOT_INODE, "file2.bin".as_ref(), mode, 0, 0)
+        .await
+        .unwrap();
+    let file_ino = dentry.attr.ino;
+
+    let err = fs
+        .open(file_ino, libc::S_IFREG as i32 | flag, 0)
+        .await
+        .expect_err("open should fail due to use of O_SYNC/O_DSYNC flag")
+        .to_errno();
+    assert_eq!(err, libc::EINVAL);
+}
+
 #[tokio::test]
 async fn test_duplicate_write_fails() {
     const BUCKET_NAME: &str = "test_duplicate_write_fails";
