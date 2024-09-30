@@ -93,22 +93,35 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
     let file_layer = if let Some(path) = &config.log_directory {
-        const LOG_FILE_NAME_FORMAT: &[FormatItem<'static>] =
-            macros::format_description!("mountpoint-s3-[year]-[month]-[day]T[hour]-[minute]-[second]Z.log");
-        let filename = OffsetDateTime::now_utc()
-            .format(LOG_FILE_NAME_FORMAT)
-            .context("couldn't format log file name")?;
-
-        // log directories and files created by Mountpoint should not be accessible by other users
+        // log directories and files created by Mountpoint should not be writable by other users
         let mut dir_builder = DirBuilder::new();
         dir_builder.recursive(true).mode(0o750);
         let mut file_options = OpenOptions::new();
-        file_options.mode(0o640).append(true).create(true);
+        file_options.mode(0o640).append(true).create_new(true);
 
         dir_builder.create(path).context("failed to create log folder")?;
-        let file = file_options
-            .open(path.join(filename))
-            .context("failed to create log file")?;
+
+        let timestamp = {
+            const TIMESTAMP_FORMAT: &[FormatItem<'static>] =
+                macros::format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]Z");
+            OffsetDateTime::now_utc()
+                .format(TIMESTAMP_FORMAT)
+                .context("couldn't format timestamp for log file name")?
+        };
+
+        let filename = format!("mountpoint-s3-{timestamp}.log");
+        let file = match file_options.open(path.join(&filename)) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // If multiple Mountpoint processes start within the same second, stuff in the process ID.
+                // This will prevent multiple Mountpoint processes interleaving unrelated logs.
+                let process_id = std::process::id();
+                let filename = format!("mountpoint-s3-{timestamp}.pid{process_id}.log");
+                let path = path.join(&filename);
+                file_options.open(path).context("failed to create log file")?
+            }
+            err @ Err(_) => err.context("failed to create log file")?,
+        };
 
         let file_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
