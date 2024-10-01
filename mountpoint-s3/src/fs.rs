@@ -17,18 +17,18 @@ use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
-use crate::inode::{
-    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
-};
 use crate::logging;
 use crate::prefetch::{Prefetch, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
+use crate::superblock::{
+    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
+};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{UploadRequest, Uploader};
 
-pub use crate::inode::InodeNo;
+pub use crate::superblock::InodeNo;
 
 #[macro_use]
 mod error;

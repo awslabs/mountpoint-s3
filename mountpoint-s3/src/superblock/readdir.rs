@@ -51,7 +51,8 @@ use tracing::{error, trace, warn};
 use crate::sync::{Arc, AsyncMutex, Mutex};
 
 use super::{
-    valid_inode_name, InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, RemoteLookup, SuperblockInner,
+    inode::valid_inode_name, InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, RemoteLookup,
+    SuperblockInner,
 };
 
 /// Handle for an inflight directory listing
