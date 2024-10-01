@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1727804385293,
+  "lastUpdate": 1727809259571,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -951,6 +951,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 136.921875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e95560b7a1720a7c3bdf51daf670d217ee79e11b",
+          "message": "Remove clone of current span in record_name fn (#1045)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-10-01T17:01:59Z",
+          "tree_id": "b3aedbf9dc1c6160f286c5e2dc3a4fc3bea04994",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e95560b7a1720a7c3bdf51daf670d217ee79e11b"
+        },
+        "date": 1727809259534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 138.484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 398.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 190.6640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 444.27734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 75.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 316.26171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 80.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 321.44921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 37393.03515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 386.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 45129.23046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 490.65625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 11742.21875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 255.12109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13357.4609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 14250.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 254.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 240.984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 135.3203125,
             "unit": "MiB"
           }
         ]
