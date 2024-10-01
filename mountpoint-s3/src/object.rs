@@ -1,12 +1,23 @@
+use std::fmt::Debug;
+
 use mountpoint_s3_client::types::ETag;
 
 use crate::sync::Arc;
 
 /// Identifier for a specific version of an S3 object.
 /// Formed by the object key and etag. Holds its components in an [Arc], so it can be cheaply cloned.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct ObjectId {
     inner: Arc<InnerObjectId>,
+}
+
+impl Debug for ObjectId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObjectId")
+            .field("key", &self.inner.key)
+            .field("etag", &self.inner.etag)
+            .finish()
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
