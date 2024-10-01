@@ -327,7 +327,7 @@ where
     let file_ttl = Duration::from_millis(50); // keep short for fast tests...
     let filesystem_config = S3FilesystemConfig {
         cache_config: CacheConfig {
-            file_ttl: file_ttl.clone(),
+            file_ttl,
             ..Default::default()
         },
         ..Default::default()
@@ -344,7 +344,6 @@ where
 
     let stat = f.metadata().expect("fstat should succeed before writing");
     assert_eq!(stat.len(), 0);
-    let ino = stat.ino();
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
