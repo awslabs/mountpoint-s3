@@ -1,9 +1,10 @@
 use std::fs::{metadata, read, read_dir, File};
 use std::io::{ErrorKind, Read, Seek, Write};
-use std::os::unix::prelude::OpenOptionsExt;
+use std::os::unix::prelude::*;
 use std::path::Path;
 use std::process::Command;
 use std::thread;
+use std::time::Duration;
 
 use fuser::BackgroundSession;
 use rand::{Rng, SeedableRng};
@@ -11,6 +12,7 @@ use rand_chacha::ChaCha20Rng;
 use tempfile::TempDir;
 use test_case::test_case;
 
+use mountpoint_s3::fs::CacheConfig;
 use mountpoint_s3::S3FilesystemConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3::ServerSideEncryption;
@@ -313,6 +315,78 @@ fn fsync_test_s3(write_only: bool) {
 #[test_case(false; "readwrite")]
 fn fsync_test_mock(write_only: bool) {
     fsync_test(fuse::mock_session::new, write_only);
+}
+
+fn fstat_after_writing<F>(creator_fn: F, with_fsync: bool)
+where
+    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
+{
+    const OBJECT_SIZE: usize = 32;
+    const KEY: &str = "new.txt";
+
+    let file_ttl = Duration::from_millis(50); // keep short for fast tests...
+    let filesystem_config = S3FilesystemConfig {
+        cache_config: CacheConfig {
+            file_ttl: file_ttl.clone(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let session_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let (mount_point, _session, _test_client) = creator_fn("fstat_after_writing", session_config);
+
+    let path = mount_point.path().join(KEY);
+
+    let mut f = open_for_write(&path, false, true).unwrap();
+
+    let stat = f.metadata().expect("fstat should succeed before writing");
+    assert_eq!(stat.len(), 0);
+    let ino = stat.ino();
+
+    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut body = vec![0u8; OBJECT_SIZE];
+    rng.fill(&mut body[..]);
+
+    f.write_all(&body).unwrap();
+    let stat = f.metadata().expect("fstat should succeed after writing");
+    assert_eq!(stat.len(), OBJECT_SIZE as u64);
+
+    if with_fsync {
+        f.sync_all().expect("fsync should succeed since it's the first fsync");
+
+        // Wait at least this long in case there's anything bumping the validity that we didn't know of.
+        thread::sleep(file_ttl + Duration::from_millis(100));
+
+        let stat = f.metadata().expect("fstat should succeed after fsync");
+        assert_eq!(stat.len(), OBJECT_SIZE as u64);
+    }
+
+    drop(f);
+
+    // Wait at least this long in case there's anything bumping the validity that we didn't know of.
+    thread::sleep(file_ttl + Duration::from_millis(100));
+
+    let stat = metadata(&path).expect("stat should succeed after closing the file");
+    assert_eq!(stat.len(), OBJECT_SIZE as u64);
+    // Inode could change for all we care, so we don't assert anything here.
+}
+
+#[cfg(feature = "s3_tests")]
+#[ignore = "file upload replaces inode breaking fstat due to returning ESTALE"]
+#[test_case(true; "with fsync")]
+#[test_case(true; "without fsync")]
+fn fstat_after_writing_s3(with_fsync: bool) {
+    fstat_after_writing(fuse::s3_session::new, with_fsync);
+}
+
+#[ignore = "file upload replaces inode breaking fstat due to returning ESTALE"]
+#[test_case(true; "with fsync")]
+#[test_case(true; "without fsync")]
+fn fstat_after_writing_mock(with_fsync: bool) {
+    fstat_after_writing(fuse::mock_session::new, with_fsync);
 }
 
 fn write_too_big_test<F>(creator_fn: F, write_size: usize)
