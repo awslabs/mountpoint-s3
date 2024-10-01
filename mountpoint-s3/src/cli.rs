@@ -30,7 +30,7 @@ use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressD
 use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
-use crate::logging::{init_logging, LoggingConfig};
+use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -425,30 +425,6 @@ impl CliArgs {
         None
     }
 
-    fn logging_config(&self) -> LoggingConfig {
-        let default_filter = if self.no_log {
-            String::from("off")
-        } else {
-            let mut filter = if self.debug {
-                String::from("debug")
-            } else {
-                String::from("warn")
-            };
-            let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
-            filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
-            if self.log_metrics {
-                filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
-            }
-            filter
-        };
-
-        LoggingConfig {
-            log_directory: self.log_directory.clone(),
-            log_to_stdout: self.foreground,
-            default_filter,
-        }
-    }
-
     /// Human-readable description of the bucket being mounted
     fn bucket_description(&self) -> String {
         if let Some(prefix) = self.prefix.as_ref() {
@@ -488,6 +464,36 @@ impl CliArgs {
     }
 }
 
+/// Generates a logging configuration based on the CLI arguments.
+///
+/// This includes random string generation which can change with each invocation,
+/// so once created the [LoggingConfig] should be cloned if another owned copy is required.
+fn logging_config(cli_args: &CliArgs) -> LoggingConfig {
+    let default_filter = if cli_args.no_log {
+        String::from("off")
+    } else {
+        let mut filter = if cli_args.debug {
+            String::from("debug")
+        } else {
+            String::from("warn")
+        };
+        let crt_verbosity = if cli_args.debug_crt { "debug" } else { "off" };
+        filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
+        if cli_args.log_metrics {
+            filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
+        }
+        filter
+    };
+
+    let log_file = cli_args.log_directory.as_ref().map(|dir| prepare_log_file_name(dir));
+
+    LoggingConfig {
+        log_file,
+        log_to_stdout: cli_args.foreground,
+        default_filter,
+    }
+}
+
 pub fn main<ClientBuilder, Client, Runtime>(client_builder: ClientBuilder) -> anyhow::Result<()>
 where
     ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
@@ -502,7 +508,7 @@ where
     );
 
     if args.foreground {
-        init_logging(args.logging_config()).context("failed to initialize logging")?;
+        init_logging(logging_config(&args)).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -519,17 +525,20 @@ where
         // child process will report its status via this pipe.
         let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
 
+        // Prepare logging configuration up front, so the values are shared between the two processes.
+        let logging_config = logging_config(&args);
+
         // Don't share args across the fork. It should just be plain data, so probably fine to be
         // copy-on-write, but just in case we ever add something more fancy to the struct.
         drop(args);
 
         // SAFETY: Child process has full ownership of its resources.
-        // There is no shared data between parent and child processes.
+        // There is no shared data between parent and child processes other than logging configuration.
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -571,9 +580,7 @@ where
                 }
             }
             ForkResult::Parent { child } => {
-                let args = CliArgs::parse();
-
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(logging_config).context("failed to initialize logging")?;
 
                 // close unused file descriptor, we only read from this end.
                 drop(write_fd);

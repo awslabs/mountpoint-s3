@@ -22,8 +22,6 @@ The directory will be created if it doesn't exist.
 A new log file will be created for each execution of `mount-s3`.
 
 Log file names are not considered stable and may change in the future.
-If multiple Mountpoint processes launched simultaneously try to create the same log file,
-all but the first will include the process ID in the log file name.
 
 Both the directory and log files are created with read/write access for the process owner and read access for the process owner's group.
 Log files are not automatically rotated or cleaned up.

@@ -3,12 +3,13 @@ use std::fs::{DirBuilder, OpenOptions};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicInfo};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 use crate::metrics::metrics_tracing_span_layer;
 use anyhow::Context;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use rand::Rng;
 use time::format_description::FormatItem;
 use time::macros;
 use time::OffsetDateTime;
@@ -21,11 +22,13 @@ use tracing_subscriber::{Layer, Registry};
 mod syslog;
 use self::syslog::SyslogLayer;
 
-/// Configuration for Mountpoint logging
+/// Configuration for Mountpoint logging.
+///
+/// This configuration struct is safe to use across forks.
 #[derive(Debug)]
 pub struct LoggingConfig {
-    /// A directory to create log files in. If unspecified, logs will be routed to syslog.
-    pub log_directory: Option<PathBuf>,
+    /// File to write logs into. If unspecified, logs will be routed to syslog.
+    pub log_file: Option<PathBuf>,
     /// Whether to duplicate logs to stdout in addition to syslog or the log directory.
     pub log_to_stdout: bool,
     /// The default filter directive (in the sense of [tracing_subscriber::filter::EnvFilter]) to
@@ -43,6 +46,28 @@ pub fn init_logging(config: LoggingConfig) -> anyhow::Result<()> {
     init_tracing_subscriber(config)?;
     install_panic_hook();
     Ok(())
+}
+
+/// For a given log directory, prepare a file name for this Mountpoint.
+///
+/// This may include a randomly generated component and return different results between invocations.
+pub fn prepare_log_file_name(log_directory: &Path) -> PathBuf {
+    let timestamp = {
+        const TIMESTAMP_FORMAT: &[FormatItem<'static>] =
+            macros::format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]Z");
+        OffsetDateTime::now_utc()
+            .format(TIMESTAMP_FORMAT)
+            .expect("couldn't format timestamp for log file name")
+    };
+
+    let random_suffix: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
+    let file_name = format!("mountpoint-s3-{timestamp}.{random_suffix}.log");
+
+    log_directory.join(file_name)
 }
 
 fn tracing_panic_hook(panic_info: &PanicInfo) {
@@ -92,36 +117,17 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
 
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
 
-    let file_layer = if let Some(path) = &config.log_directory {
+    let file_layer = if let Some(log_file_path) = &config.log_file {
         // log directories and files created by Mountpoint should not be writable by other users
         let mut dir_builder = DirBuilder::new();
         dir_builder.recursive(true).mode(0o750);
         let mut file_options = OpenOptions::new();
-        file_options.mode(0o640).append(true).create_new(true);
+        file_options.mode(0o640).append(true).create(true);
 
-        dir_builder.create(path).context("failed to create log folder")?;
-
-        let timestamp = {
-            const TIMESTAMP_FORMAT: &[FormatItem<'static>] =
-                macros::format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]Z");
-            OffsetDateTime::now_utc()
-                .format(TIMESTAMP_FORMAT)
-                .context("couldn't format timestamp for log file name")?
-        };
-
-        let filename = format!("mountpoint-s3-{timestamp}.log");
-        let file = match file_options.open(path.join(&filename)) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // If multiple Mountpoint processes start within the same second, stuff in the process ID.
-                // This will prevent multiple Mountpoint processes interleaving unrelated logs.
-                let process_id = std::process::id();
-                let filename = format!("mountpoint-s3-{timestamp}.pid{process_id}.log");
-                let path = path.join(&filename);
-                file_options.open(path).context("failed to create log file")?
-            }
-            err @ Err(_) => err.context("failed to create log file")?,
-        };
+        if let Some(parent_dir) = log_file_path.parent() {
+            dir_builder.create(parent_dir).context("failed to create log folder")?;
+        }
+        let file = file_options.open(log_file_path).context("failed to create log file")?;
 
         let file_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
@@ -132,7 +138,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         None
     };
 
-    let syslog_layer: Option<Filtered<_, _, Registry>> = if config.log_directory.is_none() {
+    let syslog_layer: Option<Filtered<_, _, Registry>> = if config.log_file.is_none() {
         // TODO decide how to configure the filter for syslog
         let env_filter = create_env_filter(&config.default_filter);
         // Don't fail if syslog isn't available on the system, since it's a default

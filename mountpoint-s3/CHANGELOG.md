@@ -2,8 +2,7 @@
 
 ### Breaking changes
 
-* If two or more Mountpoint processes try to create the same log file, the first will succeed.
-  The others will now include the process ID in the file name.
+* When configured to log to a directory, Mountpoint now includes a random string following the timestamp in the file name.
   Previously, multiple Mountpoint processes would write to the same log file causing log entries to be interleaved.
   ([#1041](https://github.com/awslabs/mountpoint-s3/pull/1041))
 
