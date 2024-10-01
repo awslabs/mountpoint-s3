@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1727372870888,
+  "lastUpdate": 1727771486278,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9542728630fc61d316cb1772662a98d649848cb4",
-          "message": "Fix mountpoint-s3-crt-sys build (#1011)\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
-          "timestamp": "2024-09-12T16:53:30Z",
-          "tree_id": "19cc4274eef18a10240dd5ffaac764d23afd7193",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/9542728630fc61d316cb1772662a98d649848cb4"
-        },
-        "date": 1726161520136,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.037,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.152,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.866,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.958,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 72.5585879,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 29.3995043,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 53.43934,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "359b8bfb9f9ef508b51f4f8e89c8940a40552bde",
+          "message": "Update O_SYNC/O_DSYNC open flag check to occur ahead of lookup (#1042)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-10-01T08:01:01Z",
+          "tree_id": "ad42f90f993231b2483bc08b4d68c608082b191f",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/359b8bfb9f9ef508b51f4f8e89c8940a40552bde"
+        },
+        "date": 1727771485789,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.05,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.144,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.92,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.879,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 61.705968399999996,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 55.485568799999996,
             "unit": "milliseconds"
           }
         ]
