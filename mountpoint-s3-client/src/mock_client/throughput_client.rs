@@ -15,7 +15,7 @@ use crate::object_client::{
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
     ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
 };
-use crate::types::ETag;
+use crate::types::{ETag, PutObjectResult};
 
 use super::MockGetObjectRequest;
 
@@ -161,6 +161,16 @@ impl ObjectClient for ThroughputMockClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         self.inner.put_object(bucket, key, params).await
+    }
+
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        self.inner.put_object_single(bucket, key, params, contents).await
     }
 
     async fn get_object_attributes(

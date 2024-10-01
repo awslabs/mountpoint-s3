@@ -24,6 +24,7 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{
     init_signing_config, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
     MetaRequestType, RequestMetrics, RequestType,
@@ -794,6 +795,7 @@ enum S3Operation {
     HeadObject,
     ListObjects,
     PutObject,
+    PutObjectSingle,
 }
 
 impl S3Operation {
@@ -816,6 +818,7 @@ impl S3Operation {
             S3Operation::HeadObject => Some("HeadObject"),
             S3Operation::ListObjects => Some("ListObjectsV2"),
             S3Operation::PutObject => None,
+            S3Operation::PutObjectSingle => Some("PutObject"),
         }
     }
 }
@@ -825,15 +828,15 @@ impl S3Operation {
 /// virtual-hosted-style addresses. The `path_prefix` is appended to the front of all paths, and
 /// need not be terminated with a `/`.
 #[derive(Debug)]
-struct S3Message {
-    inner: Message,
+struct S3Message<'a> {
+    inner: Message<'a>,
     uri: Uri,
     path_prefix: String,
     checksum_config: Option<ChecksumConfig>,
     signing_config: Option<SigningConfig>,
 }
 
-impl S3Message {
+impl<'a> S3Message<'a> {
     /// Add a header to this message. The header is added if necessary and any existing values for
     /// this header are removed.
     fn set_header(
@@ -901,6 +904,12 @@ impl S3Message {
     /// Sets the checksum configuration for this message.
     fn set_checksum_config(&mut self, checksum_config: Option<ChecksumConfig>) {
         self.checksum_config = checksum_config;
+    }
+
+    /// Sets the body input stream for this message, and returns any previously set input stream.
+    /// If input_stream is None, unsets the body.
+    fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
+        self.inner.set_body_stream(input_stream)
     }
 }
 
@@ -1054,6 +1063,7 @@ fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
         RequestType::AbortMultipartUpload => "AbortMultipartUpload",
         RequestType::CompleteMultipartUpload => "CompleteMultipartUpload",
         RequestType::UploadPartCopy => "UploadPartCopy",
+        RequestType::PutObject => "PutObject",
     }
 }
 
@@ -1255,6 +1265,16 @@ impl ObjectClient for S3CrtClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         self.put_object(bucket, key, params).await
+    }
+
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        self.put_object_single(bucket, key, params, contents).await
     }
 
     async fn get_object_attributes(

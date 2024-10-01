@@ -340,6 +340,7 @@ pub enum Operation {
     GetObjectAttributes,
     ListObjectsV2,
     PutObject,
+    PutObjectSingle,
 }
 
 /// Counter for a specific client [Operation].
@@ -707,6 +708,29 @@ impl ObjectClient for MockClient {
             &self.in_progress_uploads,
         );
         Ok(put_request)
+    }
+
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        trace!(bucket, key, "PutObject");
+        self.inc_op_count(Operation::PutObjectSingle);
+
+        if bucket != self.config.bucket {
+            return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
+        }
+
+        let mut object: MockObject = contents.into();
+        object.set_storage_class(params.storage_class.clone());
+        add_object(&self.objects, key, object);
+        Ok(PutObjectResult {
+            sse_type: None,
+            sse_kms_key_id: None,
+        })
     }
 
     async fn get_object_attributes(
@@ -1501,6 +1525,31 @@ mod tests {
             next_offset += body.len() as u64;
             assert_eq!(body, obj.read(offset, body.len()));
         }
+    }
+
+    #[tokio::test]
+    async fn test_put_object_single() {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        let content = vec![42u8; 512];
+        let _put_result = client
+            .put_object_single("test_bucket", "key1", &Default::default(), &content)
+            .await
+            .expect("put_object failed");
+
+        let get_request = client
+            .get_object("test_bucket", "key1", None, None)
+            .await
+            .expect("get_object failed");
+
+        // Check that the result of get_object is correct.
+        let actual = get_request.collect().await.expect("failed to collect body");
+        assert_eq!(&content, &*actual);
     }
 
     proptest::proptest! {

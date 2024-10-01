@@ -162,6 +162,17 @@ where
         })
     }
 
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        // TODO failure hook for put_object_single
+        self.client.put_object_single(bucket, key, params, contents).await
+    }
+
     async fn get_object_attributes(
         &self,
         bucket: &str,
