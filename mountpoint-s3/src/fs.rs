@@ -64,53 +64,6 @@ where
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Prefetcher>>>>,
 }
 
-impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
-{
-    pub fn new(
-        client: Client,
-        prefetcher: Prefetcher,
-        bucket: &str,
-        prefix: &Prefix,
-        config: S3FilesystemConfig,
-    ) -> Self {
-        trace!(?bucket, ?prefix, ?config, "new filesystem");
-
-        let superblock_config = SuperblockConfig {
-            cache_config: config.cache_config.clone(),
-            s3_personality: config.s3_personality,
-        };
-        let superblock = Superblock::new(bucket, prefix, superblock_config);
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
-        let uploader = Uploader::new(
-            client.clone(),
-            config.storage_class.to_owned(),
-            config.server_side_encryption.clone(),
-            config.use_upload_checksums,
-        );
-
-        Self {
-            config,
-            client,
-            mem_limiter,
-            superblock,
-            prefetcher,
-            uploader,
-            bucket: bucket.to_string(),
-            prefix: prefix.clone(),
-            next_handle: AtomicU64::new(1),
-            dir_handles: AsyncRwLock::new(HashMap::new()),
-            file_handles: AsyncRwLock::new(HashMap::new()),
-        }
-    }
-
-    fn next_handle(&self) -> u64 {
-        self.next_handle.fetch_add(1, Ordering::SeqCst)
-    }
-}
-
 /// Reply to a `lookup` call
 #[derive(Debug)]
 pub struct Entry {
@@ -156,6 +109,47 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
+    pub fn new(
+        client: Client,
+        prefetcher: Prefetcher,
+        bucket: &str,
+        prefix: &Prefix,
+        config: S3FilesystemConfig,
+    ) -> Self {
+        trace!(?bucket, ?prefix, ?config, "new filesystem");
+
+        let superblock_config = SuperblockConfig {
+            cache_config: config.cache_config.clone(),
+            s3_personality: config.s3_personality,
+        };
+        let superblock = Superblock::new(bucket, prefix, superblock_config);
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let uploader = Uploader::new(
+            client.clone(),
+            config.storage_class.to_owned(),
+            config.server_side_encryption.clone(),
+            config.use_upload_checksums,
+        );
+
+        Self {
+            config,
+            client,
+            mem_limiter,
+            superblock,
+            prefetcher,
+            uploader,
+            bucket: bucket.to_string(),
+            prefix: prefix.clone(),
+            next_handle: AtomicU64::new(1),
+            dir_handles: AsyncRwLock::new(HashMap::new()),
+            file_handles: AsyncRwLock::new(HashMap::new()),
+        }
+    }
+
+    fn next_handle(&self) -> u64 {
+        self.next_handle.fetch_add(1, Ordering::SeqCst)
+    }
+
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
         if self.config.allow_overwrite {
