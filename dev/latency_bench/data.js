@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1727859433798,
+  "lastUpdate": 1727867491901,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "720effa8219edf730fd5dfeacaa7c34dd866373b",
-          "message": "Enable backpressure in mock-mount-s3 binary (#1017)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-09-17T09:50:27Z",
-          "tree_id": "a4320e58ec56f7edd55fd102859901cf215d2369",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/720effa8219edf730fd5dfeacaa7c34dd866373b"
-        },
-        "date": 1726568073916,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.053,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.14,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.838,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.836,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 81.1414813,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 40.8157548,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 48.227071,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b749a3ed8a92dcebd43759f42fd555584cb04e7e",
+          "message": "Tidy up the prefetcher logging (#1048)\n\nWe have changed some log level in #1013. We probably want to push some\nof them down to trace instead of debug.\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2024-10-02T10:48:33Z",
+          "tree_id": "b633f7a8b5e1a539fe2d613c7d09cfbf168bdd04",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/b749a3ed8a92dcebd43759f42fd555584cb04e7e"
+        },
+        "date": 1727867491371,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.055,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.14,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.932,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.591,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 30.9619425,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 53.9883285,
             "unit": "milliseconds"
           }
         ]
