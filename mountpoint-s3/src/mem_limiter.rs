@@ -3,7 +3,7 @@ use std::{sync::atomic::Ordering, time::Instant};
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
 use mountpoint_s3_client::ObjectClient;
-use tracing::debug;
+use tracing::{debug, trace};
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -86,7 +86,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
                 .saturating_add(client_mem_allocated)
                 .saturating_add(self.additional_mem_reserved);
             if new_total_mem_usage > self.mem_limit {
-                debug!(new_total_mem_usage, "not enough memory to reserve");
+                trace!(new_total_mem_usage, "not enough memory to reserve");
                 metrics::histogram!("prefetch.mem_reserve_latency_us").record(start.elapsed().as_micros() as f64);
                 return false;
             }

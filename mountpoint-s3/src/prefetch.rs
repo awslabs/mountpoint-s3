@@ -50,7 +50,7 @@ use mountpoint_s3_client::ObjectClient;
 use part::PartOperationError;
 use part_stream::RequestTaskConfig;
 use thiserror::Error;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
@@ -369,7 +369,7 @@ where
             if self.try_seek(offset).await? {
                 trace!("seek succeeded");
             } else {
-                debug!(
+                trace!(
                     expected = self.next_sequential_read_offset,
                     actual = offset,
                     "out-of-order read, resetting prefetch"
