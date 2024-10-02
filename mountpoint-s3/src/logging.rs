@@ -168,6 +168,6 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn record_name(name: &str) -> Span {
-    Span::current().record("name", name).clone()
+pub fn record_name(name: &str) {
+    Span::current().record("name", name);
 }

@@ -335,10 +335,18 @@ impl DiskDataCache {
             let path_to_remove = self.get_path_for_block_key(&to_remove);
             trace!("evicting block at {}", path_to_remove.display());
             if let Err(remove_err) = fs::remove_file(&path_to_remove) {
-                warn!("unable to remove invalid block: {:?}", remove_err);
+                if remove_err.kind() != ErrorKind::NotFound {
+                    warn!("unable to evict block: {:?}", remove_err);
+                }
             }
         }
         Ok(())
+    }
+
+    fn remove_block_from_usage(&self, block_key: &DiskBlockKey) {
+        if let Some(usage) = &self.usage {
+            usage.lock().unwrap().remove(block_key);
+        }
     }
 }
 
@@ -389,12 +397,15 @@ impl DataCache for DiskDataCache {
                 metrics::counter!("disk_data_cache.block_hit").increment(0);
                 metrics::counter!("disk_data_cache.block_err").increment(1);
                 match fs::remove_file(&path) {
-                    Ok(()) => {
-                        if let Some(usage) = &self.usage {
-                            usage.lock().unwrap().remove(&block_key);
+                    Ok(()) => self.remove_block_from_usage(&block_key),
+                    Err(remove_err) => {
+                        // We failed to delete the block.
+                        if remove_err.kind() == ErrorKind::NotFound {
+                            // No need to report or try again.
+                            self.remove_block_from_usage(&block_key);
                         }
+                        warn!("unable to remove invalid block: {:?}", remove_err);
                     }
-                    Err(remove_err) => warn!("unable to remove invalid block: {:?}", remove_err),
                 }
                 Err(err)
             }

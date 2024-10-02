@@ -9,6 +9,7 @@ use tracing::{debug_span, trace, warn, Instrument};
 
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
+use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
 use crate::prefetch::part::Part;
@@ -45,7 +46,8 @@ where
         &self,
         client: &Client,
         config: RequestTaskConfig,
-    ) -> RequestTask<<Client as ObjectClient>::ClientError>
+        mem_limiter: Arc<MemoryLimiter<Client>>,
+    ) -> RequestTask<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
@@ -53,12 +55,14 @@ where
 
         let backpressure_config = BackpressureConfig {
             initial_read_window_size: config.initial_read_window_size,
+            min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
         };
-        let (backpressure_controller, backpressure_limiter) = new_backpressure_controller(backpressure_config);
-        let (part_queue, part_queue_producer) = unbounded_part_queue();
+        let (backpressure_controller, backpressure_limiter) =
+            new_backpressure_controller(backpressure_config, mem_limiter.clone());
+        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
         trace!(?range, "spawning request");
 
         let request_task = {
@@ -387,7 +391,11 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{data_cache::InMemoryDataCache, object::ObjectId};
+    use crate::{
+        data_cache::InMemoryDataCache,
+        mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT},
+        object::ObjectId,
+    };
 
     use super::*;
 
@@ -428,6 +436,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -443,12 +452,13 @@ mod tests {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
+                read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
                 initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(&mock_client, config);
+            let request_task = stream.spawn_get_object_request(&mock_client, config, mem_limiter.clone());
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -468,12 +478,13 @@ mod tests {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
+                read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
                 initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(&mock_client, config);
+            let request_task = stream.spawn_get_object_request(&mock_client, config, mem_limiter.clone());
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -506,6 +517,7 @@ mod tests {
             ..Default::default()
         };
         let mock_client = Arc::new(MockClient::new(config));
+        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
@@ -517,22 +529,19 @@ mod tests {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
+                    read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
                     initial_read_window_size,
                     max_read_window_size,
                     read_window_size_multiplier,
                 };
-                let request_task = stream.spawn_get_object_request(&mock_client, config);
+                let request_task = stream.spawn_get_object_request(&mock_client, config, mem_limiter.clone());
                 compare_read(&id, &object, request_task);
             }
         }
     }
 
-    fn compare_read<E: std::error::Error + Send + Sync>(
-        id: &ObjectId,
-        object: &MockObject,
-        mut request_task: RequestTask<E>,
-    ) {
+    fn compare_read<Client: ObjectClient>(id: &ObjectId, object: &MockObject, mut request_task: RequestTask<Client>) {
         let mut offset = request_task.start_offset();
         let mut remaining = request_task.total_size();
         while remaining > 0 {

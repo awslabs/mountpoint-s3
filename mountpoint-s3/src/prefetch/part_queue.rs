@@ -1,7 +1,9 @@
 use std::time::Instant;
 
+use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
+use crate::mem_limiter::MemoryLimiter;
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
@@ -11,15 +13,16 @@ use crate::sync::Arc;
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
 #[derive(Debug)]
-pub struct PartQueue<E: std::error::Error> {
+pub struct PartQueue<Client: ObjectClient> {
     /// The auxiliary queue that supports pushing parts to the front of the part queue in order to
     /// allow partial reads and backwards seeks.
     front_queue: Vec<Part>,
     /// The main queue that receives parts from [super::ObjectPartStream]
-    receiver: Receiver<Result<Part, PrefetchReadError<E>>>,
+    receiver: Receiver<Result<Part, PrefetchReadError<Client::ClientError>>>,
     failed: bool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
+    mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -31,7 +34,9 @@ pub struct PartQueueProducer<E: std::error::Error> {
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
-pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueProducer<E>) {
+pub fn unbounded_part_queue<Client: ObjectClient>(
+    mem_limiter: Arc<MemoryLimiter<Client>>,
+) -> (PartQueue<Client>, PartQueueProducer<Client::ClientError>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
@@ -39,6 +44,7 @@ pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueP
         receiver,
         failed: false,
         bytes_received: Arc::clone(&bytes_counter),
+        mem_limiter,
     };
     let part_queue_producer = PartQueueProducer {
         sender,
@@ -47,14 +53,14 @@ pub fn unbounded_part_queue<E: std::error::Error>() -> (PartQueue<E>, PartQueueP
     (part_queue, part_queue_producer)
 }
 
-impl<E: std::error::Error + Send + Sync> PartQueue<E> {
+impl<Client: ObjectClient> PartQueue<Client> {
     /// Read up to `length` bytes from the queue at the current offset. This function always returns
     /// a contiguous [Bytes], and so may return fewer than `length` bytes if it would need to copy
     /// or reallocate to make the return value contiguous. This function blocks only if the queue is
     /// empty.
     ///
     /// If this method returns an Err, the PartQueue must never be accessed again.
-    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<Client::ClientError>> {
         assert!(!self.failed, "cannot use a PartQueue after failure");
 
         // Read from the auxiliary queue first if it's not empty
@@ -92,10 +98,13 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
     }
 
     /// Push a new [Part] onto the front of the queue
-    pub async fn push_front(&mut self, part: Part) -> Result<(), PrefetchReadError<E>> {
+    pub async fn push_front(&mut self, part: Part) -> Result<(), PrefetchReadError<Client::ClientError>> {
         assert!(!self.failed, "cannot use a PartQueue after failure");
 
         metrics::gauge!("prefetch.bytes_in_queue").increment(part.len() as f64);
+        // The backpressure controller is not aware of the parts from backwards seek,
+        // so we have to reserve memory for them here.
+        self.mem_limiter.reserve(part.len() as u64);
         self.front_queue.push(part);
         Ok(())
     }
@@ -121,7 +130,7 @@ impl<E: std::error::Error + Send + Sync> PartQueueProducer<E> {
     }
 }
 
-impl<E: std::error::Error> Drop for PartQueue<E> {
+impl<Client: ObjectClient> Drop for PartQueue<Client> {
     fn drop(&mut self) {
         // close the channel and drain remaining parts from the main queue
         self.receiver.close();
@@ -142,16 +151,17 @@ impl<E: std::error::Error> Drop for PartQueue<E> {
 #[cfg(test)]
 mod tests {
     use crate::checksums::ChecksummedBytes;
+    use crate::mem_limiter::MINIMUM_MEM_LIMIT;
     use crate::object::ObjectId;
 
     use super::*;
 
     use bytes::Bytes;
     use futures::executor::block_on;
+    use mountpoint_s3_client::mock_client::MockClient;
     use mountpoint_s3_client::types::ETag;
     use proptest::proptest;
     use proptest_derive::Arbitrary;
-    use thiserror::Error;
 
     #[derive(Debug, Arbitrary)]
     enum Op {
@@ -160,12 +170,11 @@ mod tests {
         Push(#[proptest(strategy = "1usize..8192")] usize),
     }
 
-    #[derive(Debug, Error)]
-    enum DummyError {}
-
     async fn run_test(ops: Vec<Op>) {
+        let client = MockClient::new(Default::default());
+        let mem_limiter = MemoryLimiter::new(client, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<DummyError>();
+        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());
         let mut current_offset = 0;
         let mut current_length = 0;
         for op in ops {

@@ -17,18 +17,20 @@ use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
-use crate::inode::{
-    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
-};
 use crate::logging;
+use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
+use crate::object::ObjectId;
 use crate::prefetch::{Prefetch, PrefetchResult};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
+use crate::superblock::{
+    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
+};
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{UploadRequest, Uploader};
 
-pub use crate::inode::InodeNo;
+pub use crate::superblock::InodeNo;
 
 #[macro_use]
 mod error;
@@ -151,9 +153,14 @@ where
             None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
-        let request = fs
-            .prefetcher
-            .prefetch(fs.client.clone(), &fs.bucket, &full_key, object_size, etag.clone());
+        let object_id = ObjectId::new(full_key, etag);
+        let request = fs.prefetcher.prefetch(
+            fs.client.clone(),
+            fs.mem_limiter.clone(),
+            fs.bucket.clone(),
+            object_id,
+            object_size,
+        );
         let handle = FileHandleState::Read { handle, request };
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
@@ -393,6 +400,8 @@ pub struct S3FilesystemConfig {
     pub server_side_encryption: ServerSideEncryption,
     /// Use additional checksums for uploads
     pub use_upload_checksums: bool,
+    /// Memory limit
+    pub mem_limit: u64,
 }
 
 impl Default for S3FilesystemConfig {
@@ -413,6 +422,7 @@ impl Default for S3FilesystemConfig {
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
+            mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
 }
@@ -526,6 +536,7 @@ where
 {
     config: S3FilesystemConfig,
     client: Client,
+    mem_limiter: Arc<MemoryLimiter<Client>>,
     superblock: Superblock,
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
@@ -556,7 +567,7 @@ where
             s3_personality: config.s3_personality,
         };
         let superblock = Superblock::new(bucket, prefix, superblock_config);
-
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let uploader = Uploader::new(
             client.clone(),
             config.storage_class.to_owned(),
@@ -567,6 +578,7 @@ where
         Self {
             config,
             client,
+            mem_limiter,
             superblock,
             prefetcher,
             uploader,
@@ -767,6 +779,12 @@ where
         #[cfg(target_os = "linux")]
         let direct_io = flags & libc::O_DIRECT != 0;
 
+        // We can't support O_SYNC writes because they require the data to go to stable storage
+        // at `write` time, but we only commit a PUT at `close` time.
+        if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
+            return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
+        }
+
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
         let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
 
@@ -783,12 +801,6 @@ where
         // but we can't support it on existing files and we should explicitly say we don't allow that.
         if remote_file && (flags & libc::O_APPEND != 0) {
             return Err(err!(libc::EINVAL, "O_APPEND is not supported on existing files"));
-        }
-
-        // We can't support O_SYNC writes because they require the data to go to stable storage
-        // at `write` time, but we only commit a PUT at `close` time.
-        if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
-            return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
         let state = if flags & libc::O_RDWR != 0 {
