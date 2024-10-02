@@ -24,6 +24,7 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 use regex::Regex;
+use sysinfo::{RefreshKind, System};
 
 use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ManagedCacheDir};
@@ -31,6 +32,7 @@ use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLiv
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, LoggingConfig};
+use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -155,6 +157,17 @@ pub struct CliArgs {
         help_heading = CLIENT_OPTIONS_HEADER
     )]
     pub max_threads: u64,
+
+    // This config is still unstable
+    #[cfg(feature = "mem_limiter")]
+    #[clap(
+        long,
+        help = "Maximum memory usage target [default: 95% of total system memory with a minimum of 512 MiB]",
+        value_name = "MiB",
+        value_parser = value_parser!(u64).range(512..),
+        help_heading = CLIENT_OPTIONS_HEADER
+    )]
+    pub max_memory_target: Option<u64>,
 
     #[clap(
         long,
@@ -774,6 +787,15 @@ where
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.s3_personality = s3_personality;
     filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
+
+    let sys = System::new_with_specifics(RefreshKind::everything());
+    let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
+    filesystem_config.mem_limit = default_mem_target.max(MINIMUM_MEM_LIMIT);
+
+    #[cfg(feature = "mem_limiter")]
+    if let Some(max_mem_target) = args.max_memory_target {
+        filesystem_config.mem_limit = max_mem_target * 1024 * 1024;
+    }
 
     // Written in this awkward way to force us to update it if we add new checksum types
     filesystem_config.use_upload_checksums = match args.upload_checksums {

@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
 use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -570,6 +571,10 @@ impl ObjectClient for MockClient {
         } else {
             None
         }
+    }
+
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
+        None
     }
 
     async fn delete_object(

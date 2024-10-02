@@ -2,6 +2,7 @@ use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -88,6 +89,10 @@ pub trait ObjectClient {
     /// Query the initial read window size this client uses for backpressure GetObject requests.
     /// This can be `None` if backpressure is disabled.
     fn initial_read_window_size(&self) -> Option<usize>;
+
+    /// Query current memory usage stats for the client. This can be `None` if the client
+    /// does not record the stats.
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats>;
 
     /// Delete a single object from the object store.
     ///

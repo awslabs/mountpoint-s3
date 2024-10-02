@@ -1,4 +1,5 @@
 use futures::future::RemoteHandle;
+use mountpoint_s3_client::ObjectClient;
 
 use crate::prefetch::backpressure_controller::BackpressureFeedbackEvent::{DataRead, PartQueueStall};
 use crate::prefetch::part::Part;
@@ -10,22 +11,22 @@ use super::part_stream::RequestRange;
 
 /// A single GetObject request submitted to the S3 client
 #[derive(Debug)]
-pub struct RequestTask<E: std::error::Error> {
+pub struct RequestTask<Client: ObjectClient> {
     /// Handle on the task/future. The future is cancelled when handle is dropped. This is None if
     /// the request is fake (created by seeking backwards in the stream)
     _task_handle: RemoteHandle<()>,
     remaining: usize,
     range: RequestRange,
-    part_queue: PartQueue<E>,
-    backpressure_controller: BackpressureController,
+    part_queue: PartQueue<Client>,
+    backpressure_controller: BackpressureController<Client>,
 }
 
-impl<E: std::error::Error + Send + Sync> RequestTask<E> {
+impl<Client: ObjectClient> RequestTask<Client> {
     pub fn from_handle(
         task_handle: RemoteHandle<()>,
         range: RequestRange,
-        part_queue: PartQueue<E>,
-        backpressure_controller: BackpressureController,
+        part_queue: PartQueue<Client>,
+        backpressure_controller: BackpressureController<Client>,
     ) -> Self {
         Self {
             _task_handle: task_handle,
@@ -37,7 +38,7 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
     }
 
     // Push a given list of parts in front of the part queue
-    pub async fn push_front(&mut self, parts: Vec<Part>) -> Result<(), PrefetchReadError<E>> {
+    pub async fn push_front(&mut self, parts: Vec<Part>) -> Result<(), PrefetchReadError<Client::ClientError>> {
         // Iterate backwards to push each part to the front of the part queue
         for part in parts.into_iter().rev() {
             self.remaining += part.len();
@@ -46,7 +47,7 @@ impl<E: std::error::Error + Send + Sync> RequestTask<E> {
         Ok(())
     }
 
-    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<E>> {
+    pub async fn read(&mut self, length: usize) -> Result<Part, PrefetchReadError<Client::ClientError>> {
         let part = self.part_queue.read(length).await?;
         debug_assert!(part.len() <= self.remaining);
         self.remaining -= part.len();

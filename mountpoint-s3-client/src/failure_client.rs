@@ -11,6 +11,7 @@ use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use futures::Stream;
+use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::object_client::{
@@ -83,6 +84,10 @@ where
 
     fn initial_read_window_size(&self) -> Option<usize> {
         self.client.initial_read_window_size()
+    }
+
+    fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
+        self.client.mem_usage_stats()
     }
 
     async fn delete_object(
