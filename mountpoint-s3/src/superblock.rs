@@ -1964,7 +1964,7 @@ mod tests {
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        writehandle.finish().unwrap();
+        writehandle.finish(None).unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -2149,7 +2149,7 @@ mod tests {
         assert_eq!(stat.mtime, mtime);
 
         // Invoke [finish_writing] to make the file remote
-        writehandle.finish().unwrap();
+        writehandle.finish(Some(ETag::for_tests())).unwrap();
 
         // Should get an error back when calling setattr
         let result = superblock

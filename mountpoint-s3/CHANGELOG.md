@@ -1,5 +1,13 @@
 ## Unreleased
 
+### New features
+
+### Breaking changes
+
+### Other changes
+
+* Fix an issue where `fstat` would fail and return `ESTALE` when invoked on a file descriptor after a successful `fsync`. ([#1085](https://github.com/awslabs/mountpoint-s3/pull/1085))
+
 ## v1.10.0 (October 15, 2024)
 
 ### New features

@@ -374,14 +374,12 @@ where
 }
 
 #[cfg(feature = "s3_tests")]
-#[ignore = "file upload replaces inode breaking fstat due to returning ESTALE"]
 #[test_case(true; "with fsync")]
 #[test_case(true; "without fsync")]
 fn fstat_after_writing_s3(with_fsync: bool) {
     fstat_after_writing(fuse::s3_session::new, with_fsync);
 }
 
-#[ignore = "file upload replaces inode breaking fstat due to returning ESTALE"]
 #[test_case(true; "with fsync")]
 #[test_case(true; "without fsync")]
 fn fstat_after_writing_mock(with_fsync: bool) {

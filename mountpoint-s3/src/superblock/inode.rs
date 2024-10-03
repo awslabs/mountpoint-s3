@@ -5,7 +5,7 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::time::{Duration, SystemTime};
 
 use fuser::FileType;
-use mountpoint_s3_client::types::RestoreStatus;
+use mountpoint_s3_client::types::{ETag, RestoreStatus};
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::trace;
@@ -470,7 +470,7 @@ impl WriteHandle {
     }
 
     /// Update status of the inode and of containing "local" directories.
-    pub fn finish(self) -> Result<(), InodeError> {
+    pub fn finish(self, etag: Option<ETag>) -> Result<(), InodeError> {
         // Collect ancestor inodes that may need updating,
         // from parent to first remote ancestor.
         let ancestors = {
@@ -500,6 +500,7 @@ impl WriteHandle {
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
+                state.stat.etag = etag.map(|e| e.into_inner());
 
                 // Invalidate the inode's stats so we refresh them from S3 when next queried
                 state.stat.update_validity(Duration::from_secs(0));
