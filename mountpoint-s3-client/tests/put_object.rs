@@ -39,7 +39,7 @@ async fn test_put_object(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, None)
+        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &contents[..]).await;
@@ -65,7 +65,7 @@ async fn test_put_object_empty(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, None)
+        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &[]).await;
@@ -100,7 +100,7 @@ async fn test_put_object_multi_part(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, None)
+        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -137,7 +137,7 @@ async fn test_put_object_large(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, None)
+        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
