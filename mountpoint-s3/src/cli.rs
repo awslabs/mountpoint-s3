@@ -31,7 +31,7 @@ use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressD
 use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
-use crate::logging::{init_logging, LoggingConfig};
+use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
@@ -438,7 +438,11 @@ impl CliArgs {
         None
     }
 
-    fn logging_config(&self) -> LoggingConfig {
+    /// Generates a logging configuration based on the CLI arguments.
+    ///
+    /// This includes random string generation which can change with each invocation,
+    /// so once created the [LoggingConfig] should be cloned if another owned copy is required.
+    fn make_logging_config(&self) -> LoggingConfig {
         let default_filter = if self.no_log {
             String::from("off")
         } else {
@@ -455,8 +459,10 @@ impl CliArgs {
             filter
         };
 
+        let log_file = self.log_directory.as_ref().map(|dir| prepare_log_file_name(dir));
+
         LoggingConfig {
-            log_directory: self.log_directory.clone(),
+            log_file,
             log_to_stdout: self.foreground,
             default_filter,
         }
@@ -515,7 +521,7 @@ where
     );
 
     if args.foreground {
-        init_logging(args.logging_config()).context("failed to initialize logging")?;
+        init_logging(args.make_logging_config()).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -532,17 +538,20 @@ where
         // child process will report its status via this pipe.
         let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
 
+        // Prepare logging configuration up front, so the values are shared between the two processes.
+        let logging_config = args.make_logging_config();
+
         // Don't share args across the fork. It should just be plain data, so probably fine to be
         // copy-on-write, but just in case we ever add something more fancy to the struct.
         drop(args);
 
         // SAFETY: Child process has full ownership of its resources.
-        // There is no shared data between parent and child processes.
+        // There is no shared data between parent and child processes other than logging configuration.
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -584,9 +593,7 @@ where
                 }
             }
             ForkResult::Parent { child } => {
-                let args = CliArgs::parse();
-
-                init_logging(args.logging_config()).context("failed to initialize logging")?;
+                init_logging(logging_config).context("failed to initialize logging")?;
 
                 // close unused file descriptor, we only read from this end.
                 drop(write_fd);
