@@ -438,6 +438,36 @@ impl CliArgs {
         None
     }
 
+    /// Generates a logging configuration based on the CLI arguments.
+    ///
+    /// This includes random string generation which can change with each invocation,
+    /// so once created the [LoggingConfig] should be cloned if another owned copy is required.
+    fn make_logging_config(&self) -> LoggingConfig {
+        let default_filter = if self.no_log {
+            String::from("off")
+        } else {
+            let mut filter = if self.debug {
+                String::from("debug")
+            } else {
+                String::from("warn")
+            };
+            let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
+            filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
+            if self.log_metrics {
+                filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
+            }
+            filter
+        };
+
+        let log_file = self.log_directory.as_ref().map(|dir| prepare_log_file_name(dir));
+
+        LoggingConfig {
+            log_file,
+            log_to_stdout: self.foreground,
+            default_filter,
+        }
+    }
+
     /// Human-readable description of the bucket being mounted
     fn bucket_description(&self) -> String {
         if let Some(prefix) = self.prefix.as_ref() {
@@ -477,36 +507,6 @@ impl CliArgs {
     }
 }
 
-/// Generates a logging configuration based on the CLI arguments.
-///
-/// This includes random string generation which can change with each invocation,
-/// so once created the [LoggingConfig] should be cloned if another owned copy is required.
-fn make_logging_config(cli_args: &CliArgs) -> LoggingConfig {
-    let default_filter = if cli_args.no_log {
-        String::from("off")
-    } else {
-        let mut filter = if cli_args.debug {
-            String::from("debug")
-        } else {
-            String::from("warn")
-        };
-        let crt_verbosity = if cli_args.debug_crt { "debug" } else { "off" };
-        filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
-        if cli_args.log_metrics {
-            filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
-        }
-        filter
-    };
-
-    let log_file = cli_args.log_directory.as_ref().map(|dir| prepare_log_file_name(dir));
-
-    LoggingConfig {
-        log_file,
-        log_to_stdout: cli_args.foreground,
-        default_filter,
-    }
-}
-
 pub fn main<ClientBuilder, Client, Runtime>(client_builder: ClientBuilder) -> anyhow::Result<()>
 where
     ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
@@ -521,7 +521,7 @@ where
     );
 
     if args.foreground {
-        init_logging(make_logging_config(&args)).context("failed to initialize logging")?;
+        init_logging(args.make_logging_config()).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -539,7 +539,7 @@ where
         let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
 
         // Prepare logging configuration up front, so the values are shared between the two processes.
-        let logging_config = make_logging_config(&args);
+        let logging_config = args.make_logging_config();
 
         // Don't share args across the fork. It should just be plain data, so probably fine to be
         // copy-on-write, but just in case we ever add something more fancy to the struct.
