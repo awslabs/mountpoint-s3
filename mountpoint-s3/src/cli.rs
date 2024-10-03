@@ -481,7 +481,7 @@ impl CliArgs {
 ///
 /// This includes random string generation which can change with each invocation,
 /// so once created the [LoggingConfig] should be cloned if another owned copy is required.
-fn logging_config(cli_args: &CliArgs) -> LoggingConfig {
+fn make_logging_config(cli_args: &CliArgs) -> LoggingConfig {
     let default_filter = if cli_args.no_log {
         String::from("off")
     } else {
@@ -521,7 +521,7 @@ where
     );
 
     if args.foreground {
-        init_logging(logging_config(&args)).context("failed to initialize logging")?;
+        init_logging(make_logging_config(&args)).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -539,7 +539,7 @@ where
         let (read_fd, write_fd) = nix::unistd::pipe().context("Failed to create a pipe")?;
 
         // Prepare logging configuration up front, so the values are shared between the two processes.
-        let logging_config = logging_config(&args);
+        let logging_config = make_logging_config(&args);
 
         // Don't share args across the fork. It should just be plain data, so probably fine to be
         // copy-on-write, but just in case we ever add something more fancy to the struct.
