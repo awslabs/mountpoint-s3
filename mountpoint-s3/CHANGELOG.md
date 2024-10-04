@@ -1,5 +1,9 @@
 ## Unreleased
 
+### New features
+
+* Mountpoint now automatically adjusts its prefetcher read window size based on available memory. This prevents Mountpoint from consuming all memory in the system resulting in out-of-memory issues. ([#1013](https://github.com/awslabs/mountpoint-s3/pull/1013))
+
 ### Breaking changes
 
 * When configured to log to a directory, Mountpoint now includes a random string following the timestamp in the file name.

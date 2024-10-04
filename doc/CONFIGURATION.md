@@ -358,3 +358,14 @@ We welcome feedback on how this works for your applications and workloads.
 ## Logging
 
 By default, Mountpoint emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. You can change what level of information is logged, and to where it is logged. See [LOGGING.md](LOGGING.md) for more details on configuring logging.
+
+## Unstable configurations
+
+Configurations in this section are considered unstable and may be removed at any time. We do not recommend using them unless other options are not available to you.
+
+### Maximum prefetch window size
+
+Mountpoint can download object contents into memory in advance in order to optimize sequential read throughput. The prefetch window size determines how much data Mountpoint would prefetch data into memory and the value can be different for each file handle. These window sizes are adjusted automatically based on available memory in the system and it could go up to 2 GiB per file handle by default. This should work well for most use cases but if you need to use a different value you can set the maximum prefetch window size to an arbitrary number with the `UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE` environment variable at mount time, prividing a value in bytes.
+
+> [!WARNING]
+> Overriding the default maximum prefetch window size may reduce overall read throughput.
