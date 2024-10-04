@@ -28,9 +28,10 @@ exclude = [
     "crt/aws-lc/crypto/fipsmodule/bn/test/*",
     "crt/aws-lc/crypto/fipsmodule/policydocs/*",
     "crt/aws-lc/crypto/fipsmodule/sha/testvectors/*",
-    "crt/aws-lc/crypto/fipsmodule/ml_kem/kat/*",
-    "crt/aws-lc/crypto/kyber/kat/*",
-    "crt/aws-lc/crypto/dilithium/kat/*",
+    # All the text files in crt/aws-lc/crypto/*/kat/ directory are used for tests
+    "crt/aws-lc/crypto/fipsmodule/ml_kem/kat/*.txt",
+    "crt/aws-lc/crypto/kyber/kat/*.txt",
+    "crt/aws-lc/crypto/dilithium/kat/*.txt",
     "crt/aws-lc/crypto/x509/test/*",
     "crt/aws-lc/crypto/ocsp/test/*",
     "crt/aws-lc/crypto/hpke/test-vectors.json",
