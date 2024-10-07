@@ -1,532 +1,48 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
 use bytes::Bytes;
-use mountpoint_s3_crt::checksums::crc32c::{Crc32c, Hasher};
-use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::str::FromStr;
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{debug, error, trace, Level};
+use tracing::{debug, trace, Level};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 
-use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::logging;
-use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
-use crate::object::ObjectId;
+use crate::mem_limiter::MemoryLimiter;
 use crate::prefetch::{Prefetch, PrefetchResult};
 use crate::prefix::Prefix;
-use crate::s3::S3Personality;
-use crate::superblock::{
-    Inode, InodeError, InodeKind, LookedUp, ReadHandle, ReaddirHandle, Superblock, SuperblockConfig, WriteHandle,
-};
-use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
+use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::{UploadRequest, Uploader};
+use crate::upload::Uploader;
 
 pub use crate::superblock::InodeNo;
+
+mod config;
+pub use config::{CacheConfig, S3FilesystemConfig};
 
 #[macro_use]
 mod error;
 pub use error::{Error, ToErrno};
 
+pub mod error_metadata;
+use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
+
+mod handles;
+use handles::{DirHandle, FileHandle, FileHandleState, UploadState};
+
+mod sse;
+pub use sse::{ServerSideEncryption, SseCorruptedError};
+
 mod time_to_live;
 pub use time_to_live::TimeToLive;
 
-pub mod error_metadata;
-
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
-
-#[derive(Debug)]
-struct DirHandle {
-    #[allow(unused)]
-    ino: InodeNo,
-    handle: AsyncMutex<ReaddirHandle>,
-    offset: AtomicI64,
-    last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
-}
-
-impl DirHandle {
-    fn offset(&self) -> i64 {
-        self.offset.load(Ordering::SeqCst)
-    }
-
-    fn next_offset(&self) {
-        self.offset.fetch_add(1, Ordering::SeqCst);
-    }
-
-    fn rewind_offset(&self) {
-        self.offset.store(0, Ordering::SeqCst);
-    }
-}
-
-#[derive(Debug)]
-struct FileHandle<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
-{
-    inode: Inode,
-    full_key: String,
-    state: AsyncMutex<FileHandleState<Client, Prefetcher>>,
-}
-
-enum FileHandleState<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
-{
-    /// The file handle has been assigned as a read handle
-    Read {
-        handle: ReadHandle,
-        request: Prefetcher::PrefetchResult<Client>,
-    },
-    /// The file handle has been assigned as a write handle
-    Write(UploadState<Client>),
-}
-
-impl<Client, Prefetcher> std::fmt::Debug for FileHandleState<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static + std::fmt::Debug,
-    Prefetcher: Prefetch,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FileHandleState::Read { handle, .. } => f.debug_struct("Read").field("handle", handle).finish(),
-            FileHandleState::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
-        }
-    }
-}
-
-impl<Client, Prefetcher> FileHandleState<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync,
-    Prefetcher: Prefetch,
-{
-    async fn new_write_handle(
-        lookup: &LookedUp,
-        ino: InodeNo,
-        flags: i32,
-        pid: u32,
-        fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
-        let is_truncate = flags & libc::O_TRUNC != 0;
-        let handle = fs
-            .superblock
-            .write(&fs.client, ino, fs.config.allow_overwrite, is_truncate)
-            .await?;
-        let key = lookup.inode.full_key();
-        let handle = match fs.uploader.put(&fs.bucket, key).await {
-            Err(e) => {
-                return Err(err!(libc::EIO, source:e, "put failed to start"));
-            }
-            Ok(request) => FileHandleState::Write(UploadState::InProgress {
-                request,
-                handle,
-                open_pid: pid,
-            }),
-        };
-        metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
-        Ok(handle)
-    }
-
-    async fn new_read_handle(
-        lookup: &LookedUp,
-        fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
-        if !lookup.stat.is_readable {
-            return Err(err!(
-                libc::EACCES,
-                "objects in flexible retrieval storage classes are not accessible",
-            ));
-        }
-        let handle = fs.superblock.read(&fs.client, lookup.inode.ino()).await?;
-        let full_key = lookup.inode.full_key().to_owned();
-        let object_size = lookup.stat.size as u64;
-        let etag = match &lookup.stat.etag {
-            None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
-            Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
-        };
-        let object_id = ObjectId::new(full_key, etag);
-        let request = fs.prefetcher.prefetch(
-            fs.client.clone(),
-            fs.mem_limiter.clone(),
-            fs.bucket.clone(),
-            object_id,
-            object_size,
-        );
-        let handle = FileHandleState::Read { handle, request };
-        metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
-        Ok(handle)
-    }
-}
-
-#[derive(Debug)]
-enum UploadState<Client: ObjectClient> {
-    InProgress {
-        request: UploadRequest<Client>,
-        handle: WriteHandle,
-        /// Process that created the upload
-        open_pid: u32,
-    },
-    Completed,
-    // Remember the failure reason to respond to retries
-    Failed(libc::c_int),
-}
-
-impl<Client: ObjectClient> UploadState<Client> {
-    async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, Error> {
-        let (upload, handle) = match self {
-            Self::InProgress { request, handle, .. } => (request, handle),
-            Self::Completed => return Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
-            Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
-        };
-
-        match upload.write(offset, data).await {
-            Ok(len) => {
-                handle.inc_file_size(len);
-                Ok(len as u32)
-            }
-            Err(e) => {
-                // Abort the request.
-                match std::mem::replace(self, Self::Failed(e.to_errno())) {
-                    UploadState::InProgress { handle, .. } => {
-                        if let Err(err) = handle.finish() {
-                            // Log the issue but still return the write error.
-                            error!(?err, ?key, "error updating the inode status");
-                        }
-                    }
-                    Self::Failed(_) | Self::Completed => unreachable!("checked above"),
-                };
-                Err(e.into())
-            }
-        }
-    }
-
-    async fn complete(&mut self, key: &str, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
-        let (request_size, open_pid) = match self {
-            Self::InProgress { request, open_pid, .. } => (request.size(), *open_pid),
-            Self::Completed => return Ok(()),
-            Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
-        };
-
-        if ignore_if_empty && request_size == 0 {
-            trace!(key, "not completing upload because file is empty");
-            return Ok(());
-        }
-        if let Some(pid) = pid {
-            if !are_from_same_process(open_pid, pid) {
-                trace!(
-                    key,
-                    pid,
-                    open_pid,
-                    "not completing upload because current pid differs from pid at open"
-                );
-                return Ok(());
-            }
-        }
-
-        let (upload, handle) = match std::mem::replace(self, Self::Completed) {
-            Self::InProgress { request, handle, .. } => (request, handle),
-            Self::Failed(_) | Self::Completed => unreachable!("checked above"),
-        };
-
-        let result = Self::complete_upload(upload, key, handle).await;
-        if let Err(e) = &result {
-            *self = Self::Failed(e.to_errno());
-        }
-        result
-    }
-
-    async fn complete_if_in_progress(self, key: &str) -> Result<(), Error> {
-        match self {
-            Self::InProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
-            Self::Failed(_) | Self::Completed => Ok(()),
-        }
-    }
-
-    async fn complete_upload(upload: UploadRequest<Client>, key: &str, handle: WriteHandle) -> Result<(), Error> {
-        let size = upload.size();
-        let put_result = match upload.complete().await {
-            Ok(_) => {
-                debug!(key, size, "put succeeded");
-                Ok(())
-            }
-            Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
-        };
-        if let Err(err) = handle.finish() {
-            // Log the issue but still return put_result.
-            error!(?err, ?key, "error updating the inode status");
-        }
-        put_result
-    }
-}
-
-/// Get the thread-group id (tgid) from a process id (pid).
-/// Despite the names, the process id is actually the thread id
-/// and the thread-group id is the parent process id.
-/// Returns `None` if unable to find or parse the task status.
-/// Not supported on macOS.
-fn get_tgid(pid: u32) -> Option<u32> {
-    if cfg!(not(target_os = "macos")) {
-        use std::fs::File;
-        use std::io::{BufRead, BufReader};
-
-        let path = format!("/proc/{}/task/{}/status", pid, pid);
-        let file = File::open(path).ok()?;
-        for line in BufReader::new(file).lines() {
-            let line = line.ok()?;
-            if line.starts_with("Tgid:") {
-                return line["Tgid: ".len()..].trim().parse::<u32>().ok();
-            }
-        }
-    }
-
-    None
-}
-
-/// Check whether two pids correspond to the same process.
-fn are_from_same_process(pid1: u32, pid2: u32) -> bool {
-    if pid1 == pid2 {
-        return true;
-    }
-    let Some(tgid1) = get_tgid(pid1) else {
-        return false;
-    };
-    let Some(tgid2) = get_tgid(pid2) else {
-        return false;
-    };
-    tgid1 == tgid2
-}
-
-#[derive(Debug, Clone)]
-pub struct CacheConfig {
-    /// Should the file system serve lookup requests including open from cached entries,
-    /// or instead check S3 even when a valid cached entry may be available?
-    ///
-    /// Even when disabled, some operations such as `getattr` are allowed to be served from cache
-    /// with a short TTL since Linux filesystems behave badly when the TTL is zero.
-    /// For example, results from `readdir` would expire immediately, and the kernel would
-    /// immediately `getattr` every entry returned from `readdir`.
-    pub serve_lookup_from_cache: bool,
-    /// How long the kernel will cache metadata for files
-    pub file_ttl: Duration,
-    /// How long the kernel will cache metadata for directories
-    pub dir_ttl: Duration,
-    /// Maximum number of negative entries to cache.
-    pub negative_cache_size: usize,
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        // We want to do as little caching as possible by default,
-        // but Linux filesystems behave badly when the TTL is exactly zero.
-        // For example, results from `readdir` will expire immediately, and so
-        // the kernel will immediately re-lookup every entry returned from `readdir`. So we apply
-        // small non-zero TTLs. The goal is to be small enough that the impact on consistency is
-        // minimal, but large enough that a single cache miss doesn't cause a cascading effect where
-        // every other cache entry expires by the time that cache miss is serviced. We also apply a
-        // longer TTL for directories, which are both less likely to change on the S3 side and
-        // checked more often (for directory permissions checks).
-        let file_ttl = Duration::from_millis(100);
-        let dir_ttl = Duration::from_millis(1000);
-
-        // We want the negative cache to be effective but need to limit its memory usage. This value
-        // results in a maximum memory usage of ~20MB (assuming average file name length of 37 bytes)
-        // and should be large enough for many workloads. The metrics in
-        // `metadata_cache.negative_cache`, in particular `entries_evicted_before_expiry`, can be
-        // monitored to verify if this limit needs reviewing.
-        let negative_cache_size = 100_000;
-
-        Self {
-            serve_lookup_from_cache: false,
-            file_ttl,
-            dir_ttl,
-            negative_cache_size,
-        }
-    }
-}
-
-impl CacheConfig {
-    /// Construct cache configuration settings from metadata TTL.
-    pub fn new(metadata_ttl: TimeToLive) -> Self {
-        match metadata_ttl {
-            TimeToLive::Minimal => Default::default(),
-            TimeToLive::Indefinite => Self {
-                serve_lookup_from_cache: true,
-                file_ttl: TimeToLive::INDEFINITE_DURATION,
-                dir_ttl: TimeToLive::INDEFINITE_DURATION,
-                ..Default::default()
-            },
-            TimeToLive::Duration(ttl) => Self {
-                serve_lookup_from_cache: true,
-                file_ttl: ttl,
-                dir_ttl: ttl,
-                ..Default::default()
-            },
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct S3FilesystemConfig {
-    /// Kernel cache config
-    pub cache_config: CacheConfig,
-    /// Readdir page size
-    pub readdir_size: usize,
-    /// User id
-    pub uid: u32,
-    /// Group id
-    pub gid: u32,
-    /// Directory permissions
-    pub dir_mode: u16,
-    /// File permissions
-    pub file_mode: u16,
-    /// Allow delete
-    pub allow_delete: bool,
-    /// Allow overwrite
-    pub allow_overwrite: bool,
-    /// Storage class to be used for new object uploads
-    pub storage_class: Option<String>,
-    /// S3 personality (for different S3 semantics)
-    pub s3_personality: S3Personality,
-    /// Server side encryption configuration to be used when creating new S3 object
-    pub server_side_encryption: ServerSideEncryption,
-    /// Use additional checksums for uploads
-    pub use_upload_checksums: bool,
-    /// Memory limit
-    pub mem_limit: u64,
-}
-
-impl Default for S3FilesystemConfig {
-    fn default() -> Self {
-        let uid = getuid().into();
-        let gid = getgid().into();
-
-        Self {
-            cache_config: Default::default(),
-            readdir_size: 100,
-            uid,
-            gid,
-            dir_mode: 0o755,
-            file_mode: 0o644,
-            allow_delete: false,
-            allow_overwrite: false,
-            storage_class: None,
-            s3_personality: S3Personality::default(),
-            server_side_encryption: Default::default(),
-            use_upload_checksums: true,
-            mem_limit: MINIMUM_MEM_LIMIT,
-        }
-    }
-}
-
-/// Server-side encryption configuration for newly created objects
-#[derive(Debug, Clone)]
-pub struct ServerSideEncryption {
-    sse_type: Option<String>,
-    sse_kms_key_id: Option<String>,
-    checksum: Crc32c,
-}
-
-impl Default for ServerSideEncryption {
-    fn default() -> Self {
-        Self {
-            sse_type: Default::default(),
-            sse_kms_key_id: Default::default(),
-            checksum: Crc32c::new(0),
-        }
-    }
-}
-
-impl ServerSideEncryption {
-    /// Construct SSE settings from raw values provided via CLI
-    pub fn new(sse_type: Option<String>, sse_kms_key_id: Option<String>) -> Self {
-        let checksum = Self::compute_checksum(sse_type.as_deref(), sse_kms_key_id.as_deref());
-        Self {
-            sse_type,
-            sse_kms_key_id,
-            checksum,
-        }
-    }
-
-    /// Computes the checksum of SSE settings by combining two strings containing the type and the key
-    /// Note, that this implementation yields the same result for Some("") and None, but we may safely
-    /// assume that it will never be called with an empty string as one of its parameters.
-    fn compute_checksum(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> Crc32c {
-        let mut hasher: Hasher = Hasher::new();
-        if let Some(maybe_sse_type) = sse_type {
-            hasher.update(maybe_sse_type.as_bytes());
-        }
-        if let Some(maybe_sse_kms_key_id) = sse_kms_key_id {
-            hasher.update(maybe_sse_kms_key_id.as_bytes());
-        }
-        hasher.finalize()
-    }
-
-    fn validate(&self) -> Result<(), SseCorruptedError> {
-        let computed = Self::compute_checksum(self.sse_type.as_deref(), self.sse_kms_key_id.as_deref());
-        if computed == self.checksum {
-            Ok(())
-        } else {
-            Err(SseCorruptedError::ChecksumMismatch(self.checksum, computed))
-        }
-    }
-
-    /// Checks that SSE settings still match the checksum and returns the string representations of:
-    /// 1. the SSE type as it is expected by S3 API;
-    /// 2. and AWS KMS Key ID, if provided.
-    pub fn into_inner(self) -> Result<(Option<String>, Option<String>), SseCorruptedError> {
-        self.validate()?;
-        Ok((self.sse_type, self.sse_kms_key_id))
-    }
-
-    /// Checks that values provided as arguments to this function match the values stored in the object.
-    /// S3 will return some values for sse type and key even if they were not set on our side.
-    /// We want to check only the values which we set.
-    pub fn verify_response(
-        &self,
-        sse_type: Option<&str>,
-        sse_kms_key_id: Option<&str>,
-    ) -> Result<(), SseCorruptedError> {
-        self.validate()?; // validate in-memory values, as we are using them to decide whether to skip the response check or not
-        if self.sse_type.is_some() && self.sse_type.as_deref() != sse_type {
-            return Err(SseCorruptedError::TypeMismatch(
-                self.sse_type.as_ref().unwrap().clone(),
-                sse_type.map(str::to_string),
-            ));
-        }
-        if self.sse_kms_key_id.is_some() && self.sse_kms_key_id.as_deref() != sse_kms_key_id {
-            return Err(SseCorruptedError::KeyMismatch(
-                self.sse_kms_key_id.as_ref().unwrap().clone(),
-                sse_kms_key_id.map(str::to_string),
-            ));
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn corrupt_data(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
-        self.sse_type = sse_type;
-        self.sse_kms_key_id = sse_kms_key_id;
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum SseCorruptedError {
-    #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
-    ChecksumMismatch(Crc32c, Crc32c),
-    #[error("SSE type mismatch. expected: {0:?}, actual: {1:?}")]
-    TypeMismatch(String, Option<String>),
-    #[error("SSE KMS key ID mismatch. expected: {0:?}, actual: {1:?}")]
-    KeyMismatch(String, Option<String>),
-}
 
 #[derive(Debug)]
 pub struct S3Filesystem<Client, Prefetcher>
@@ -546,53 +62,6 @@ where
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Prefetcher>>>>,
-}
-
-impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
-{
-    pub fn new(
-        client: Client,
-        prefetcher: Prefetcher,
-        bucket: &str,
-        prefix: &Prefix,
-        config: S3FilesystemConfig,
-    ) -> Self {
-        trace!(?bucket, ?prefix, ?config, "new filesystem");
-
-        let superblock_config = SuperblockConfig {
-            cache_config: config.cache_config.clone(),
-            s3_personality: config.s3_personality,
-        };
-        let superblock = Superblock::new(bucket, prefix, superblock_config);
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
-        let uploader = Uploader::new(
-            client.clone(),
-            config.storage_class.to_owned(),
-            config.server_side_encryption.clone(),
-            config.use_upload_checksums,
-        );
-
-        Self {
-            config,
-            client,
-            mem_limiter,
-            superblock,
-            prefetcher,
-            uploader,
-            bucket: bucket.to_string(),
-            prefix: prefix.clone(),
-            next_handle: AtomicU64::new(1),
-            dir_handles: AsyncRwLock::new(HashMap::new()),
-            file_handles: AsyncRwLock::new(HashMap::new()),
-        }
-    }
-
-    fn next_handle(&self) -> u64 {
-        self.next_handle.fetch_add(1, Ordering::SeqCst)
-    }
 }
 
 /// Reply to a `lookup` call
@@ -640,6 +109,47 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
+    pub fn new(
+        client: Client,
+        prefetcher: Prefetcher,
+        bucket: &str,
+        prefix: &Prefix,
+        config: S3FilesystemConfig,
+    ) -> Self {
+        trace!(?bucket, ?prefix, ?config, "new filesystem");
+
+        let superblock_config = SuperblockConfig {
+            cache_config: config.cache_config.clone(),
+            s3_personality: config.s3_personality,
+        };
+        let superblock = Superblock::new(bucket, prefix, superblock_config);
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let uploader = Uploader::new(
+            client.clone(),
+            config.storage_class.to_owned(),
+            config.server_side_encryption.clone(),
+            config.use_upload_checksums,
+        );
+
+        Self {
+            config,
+            client,
+            mem_limiter,
+            superblock,
+            prefetcher,
+            uploader,
+            bucket: bucket.to_string(),
+            prefix: prefix.clone(),
+            next_handle: AtomicU64::new(1),
+            dir_handles: AsyncRwLock::new(HashMap::new()),
+            file_handles: AsyncRwLock::new(HashMap::new()),
+        }
+    }
+
+    fn next_handle(&self) -> u64 {
+        self.next_handle.fetch_add(1, Ordering::SeqCst)
+    }
+
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
         if self.config.allow_overwrite {
@@ -963,16 +473,9 @@ where
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
         trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
 
-        let inode_handle = self.readdir_handle(parent).await?;
-
+        let readdir_handle = self.readdir_handle(parent).await?;
+        let handle = DirHandle::new(parent, readdir_handle);
         let fh = self.next_handle();
-        let handle = DirHandle {
-            ino: parent,
-            handle: AsyncMutex::new(inode_handle),
-            offset: AtomicI64::new(0),
-            last_response: AsyncMutex::new(None),
-        };
-
         let mut dir_handles = self.dir_handles.write().await;
         dir_handles.insert(fh, Arc::new(handle));
 
@@ -1288,71 +791,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::prefetch::default_prefetch;
+
     use fuser::FileType;
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
-    use test_case::test_case;
-
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kmr"), Some("some_key_alias"))]
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), Some("some_key_ali`s"))]
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), None, Some("some_key_alias"))]
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), None)]
-    #[test_case(Some("aws:kms"), None, Some("aws:kmr"), None)]
-    #[test_case(None, None, Some("garbage"), None)]
-    fn test_sse_corrupted_on_into_inner(
-        sse_type: Option<&str>,
-        key_id: Option<&str>,
-        sse_type_corrupted: Option<&str>,
-        key_id_corrupted: Option<&str>,
-    ) {
-        let mut sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
-        sse.sse_type = sse_type_corrupted.map(String::from);
-        sse.sse_kms_key_id = key_id_corrupted.map(String::from);
-        sse.into_inner()
-            .expect_err("into_inner() should produce an error when values do no match the checksum");
-    }
-
-    #[test_case(Some("aws:kms"), Some("some_key_alias"))]
-    #[test_case(Some("aws:kms"), None)]
-    #[test_case(None, None)]
-    fn test_sse_into_inner_ok(sse_type: Option<&str>, key_id: Option<&str>) {
-        let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
-        let (returned_sse_type, returned_key_id) = sse
-            .into_inner()
-            .expect("into_inner() should return values when they match the checksum");
-        assert_eq!(sse_type, returned_sse_type.as_deref());
-        assert_eq!(key_id, returned_key_id.as_deref());
-    }
-
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kmr"), Some("some_key_alias"))]
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), Some("some_key_ali`s"))]
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), None, Some("some_key_alias"))]
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), None)]
-    fn test_sse_response_corrupted_on_verify_response(
-        sse_type: Option<&str>,
-        key_id: Option<&str>,
-        sse_type_corrupted: Option<&str>,
-        key_id_corrupted: Option<&str>,
-    ) {
-        let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
-        sse.verify_response(sse_type_corrupted, key_id_corrupted)
-            .expect_err("verify_response() should produce an error when response values do no match the checksum");
-    }
-
-    #[test_case(Some("aws:kms"), Some("some_key_alias"), Some("aws:kms"), Some("some_key_alias"))]
-    #[test_case(Some("aws:kms"), None, Some("aws:kms"), Some("some_key_alias"))]
-    #[test_case(None, None, Some("aws:kms"), Some("some_key_alias"))]
-    fn test_sse_verify_response_ok(
-        sse_type: Option<&str>,
-        key_id: Option<&str>,
-        sse_type_response: Option<&str>,
-        key_id_response: Option<&str>,
-    ) {
-        let sse = ServerSideEncryption::new(sse_type.map(String::from), key_id.map(String::from));
-        sse.verify_response(sse_type_response, key_id_response)
-            .expect("verify_response() should return Ok(()) when values match the checksum")
-    }
+    use mountpoint_s3_client::types::ETag;
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
