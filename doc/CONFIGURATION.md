@@ -361,11 +361,13 @@ By default, Mountpoint emits high-severity log information to [syslog](https://d
 
 ## Unstable configurations
 
-Configurations in this section are considered unstable and may be removed at any time. We do not recommend using them unless other options are not available to you.
+Configurations in this section are considered unstable and may be removed at any time. We do not recommend using them unless otherwise advised.
 
 ### Maximum prefetch window size
 
-Mountpoint can download object contents into memory in advance in order to optimize sequential read throughput. The prefetch window size determines how much data Mountpoint would prefetch data into memory and the value can be different for each file handle. These window sizes are adjusted automatically based on available memory in the system and it could go up to 2 GiB per file handle by default. This should work well for most use cases but if you need to use a different value you can set the maximum prefetch window size to an arbitrary number with the `UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE` environment variable at mount time, prividing a value in bytes.
+Mountpoint downloads object contents into memory ahead of read requests in order to optimize sequential-read throughput. The prefetch window size determines how much data Mountpoint would prefetch data into memory and the value can be different for each file handle. These window sizes are adjusted automatically based on available system memory, scaling up to a maximum of 2 GiB per file handle by default.
+
+This should work well for most use cases but if you need to use a different value, you can set the maximum prefetch window size to an arbitrary number with the `UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE` environment variable at mount time, providing a value in bytes.
 
 > [!WARNING]
 > Overriding the default maximum prefetch window size may reduce overall read throughput.
