@@ -11,7 +11,7 @@ use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::AsyncMutex;
 use crate::upload::UploadRequest;
 
-use super::{DirectoryEntry, Error, InodeNo, S3Filesystem, ToErrno};
+use super::{DirectoryEntry, Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 
 #[derive(Debug)]
 pub struct DirHandle {
@@ -90,11 +90,11 @@ where
     pub async fn new_write_handle(
         lookup: &LookedUp,
         ino: InodeNo,
-        flags: i32,
+        flags: OpenFlags,
         pid: u32,
         fs: &S3Filesystem<Client, Prefetcher>,
     ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
-        let is_truncate = flags & libc::O_TRUNC != 0;
+        let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let handle = fs
             .superblock
             .write(&fs.client, ino, fs.config.allow_overwrite, is_truncate)

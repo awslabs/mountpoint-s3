@@ -1,12 +1,11 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-use libc::S_IFREG;
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3::fs::{CacheConfig, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{CacheConfig, OpenFlags, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
@@ -94,7 +93,7 @@ async fn test_read_dir_root(prefix: &str) {
         assert_eq!(attr.attr.ino, reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, 0x8000, 0).await.unwrap().fh;
+        let fh = fs.open(reply.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
         let bytes_read = fs
             .read(reply.ino, fh, 0, 4096, 0, None)
             .await
@@ -170,7 +169,7 @@ async fn test_read_dir_nested(prefix: &str) {
         assert_eq!(attr.attr.ino, reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, 0x8000, 0).await.unwrap().fh;
+        let fh = fs.open(reply.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
         let bytes_read = fs
             .read(reply.ino, fh, 0, 4096, 0, None)
             .await
@@ -284,12 +283,12 @@ async fn test_lookup_then_open_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(ino, S_IFREG as i32, 0).await.unwrap().fh;
+    let fh = fs.open(ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(entry.attr.ino, S_IFREG as i32, 0).await.unwrap().fh;
+    let fh = fs.open(entry.attr.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
@@ -316,12 +315,12 @@ async fn test_lookup_then_open_no_cache() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(ino, S_IFREG as i32, 0).await.unwrap().fh;
+    let fh = fs.open(ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 2);
     assert_eq!(list_counter.count(), 2);
 
-    let fh = fs.open(entry.attr.ino, S_IFREG as i32, 0).await.unwrap().fh;
+    let fh = fs.open(entry.attr.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 3);
     assert_eq!(list_counter.count(), 3);
@@ -366,7 +365,7 @@ async fn test_readdir_then_open_cached() {
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
 
-        let fh = fs.open(entry.ino, S_IFREG as i32, 0).await.unwrap().fh;
+        let fh = fs.open(entry.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
 
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
@@ -490,7 +489,7 @@ async fn test_random_read(object_size: usize) {
     assert_eq!(reply.entries[2].name, "file");
     let ino = reply.entries[2].ino;
 
-    let fh = fs.open(ino, 0x8000, 0).await.unwrap().fh;
+    let fh = fs.open(ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
     for _ in 0..10 {
@@ -545,7 +544,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     assert_eq!(reply.entries[2].name, "file2.txt");
     assert_eq!(reply.entries[2].attr.kind, FileType::RegularFile);
 
-    let fh = fs.open(reply.entries[2].ino, 0x8000, 0).await.unwrap().fh;
+    let fh = fs.open(reply.entries[2].ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
     let bytes_read = fs
         .read(reply.entries[2].ino, fh, 0, 4096, 0, None)
         .await
@@ -588,11 +587,7 @@ async fn test_sequential_write(write_size: usize) {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     let mut offset = 0;
     for data in body.chunks(write_size) {
@@ -631,18 +626,14 @@ async fn test_sequential_write(write_size: usize) {
 
     // First let's check that we can't write it again
     let result = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .open(file_ino, OpenFlags::O_WRONLY, 0)
         .await
         .expect_err("file should not be overwritable")
         .to_errno();
     assert_eq!(result, libc::EPERM);
 
     // But read-only should work
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_RDONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
 
     let mut offset = 0;
     while offset < size {
@@ -675,11 +666,7 @@ async fn test_unordered_write_fails(offset: i64) {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     let slice = &[0xaa; 27];
     let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();
@@ -700,10 +687,10 @@ async fn test_unordered_write_fails(offset: i64) {
     assert_eq!(err, libc::EINVAL);
 }
 
-#[test_case(libc::O_SYNC; "O_SYNC")]
-#[test_case(libc::O_DSYNC; "O_DSYNC")]
+#[test_case(OpenFlags::O_SYNC; "O_SYNC")]
+#[test_case(OpenFlags::O_DSYNC; "O_DSYNC")]
 #[tokio::test]
-async fn test_sync_flags_fail(flag: libc::c_int) {
+async fn test_sync_flags_fail(flag: OpenFlags) {
     const BUCKET_NAME: &str = "test_sync_flags_fail";
 
     let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
@@ -716,7 +703,7 @@ async fn test_sync_flags_fail(flag: libc::c_int) {
     let file_ino = dentry.attr.ino;
 
     let err = fs
-        .open(file_ino, libc::S_IFREG as i32 | flag, 0)
+        .open(file_ino, flag, 0)
         .await
         .expect_err("open should fail due to use of O_SYNC/O_DSYNC flag")
         .to_errno();
@@ -737,13 +724,10 @@ async fn test_duplicate_write_fails() {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let _opened = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap();
+    let _opened = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap();
 
     let err = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        .open(file_ino, OpenFlags::O_WRONLY, 0)
         .await
         .expect_err("should not be able to write twice")
         .to_errno();
@@ -786,11 +770,7 @@ async fn test_upload_aborted_on_write_failure() {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     let written = fs
         .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
@@ -865,11 +845,7 @@ async fn test_upload_aborted_on_fsync_failure() {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     _ = fs
         .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
@@ -929,11 +905,7 @@ async fn test_upload_aborted_on_release_failure() {
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     _ = fs
         .write(file_ino, fh, 0, &[0xaa; 27], 0, 0, None)
@@ -1053,11 +1025,7 @@ async fn test_local_dir(prefix: &str) {
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let file_entry = fs.mknod(dir_ino, filename.as_ref(), mode, 0, 0).await.unwrap();
     let file_ino = file_entry.attr.ino;
-    let file_handle = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let file_handle = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     fs.release(file_ino, file_handle, 0, None, false).await.unwrap();
 
@@ -1282,7 +1250,7 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(entry.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(entry.ino, libc::O_RDONLY, 0).await;
+        let open = fs.open(entry.ino, OpenFlags::O_RDONLY, 0).await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
@@ -1313,7 +1281,7 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(lookup.attr.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(lookup.attr.ino, libc::O_RDONLY, 0).await;
+        let open = fs.open(lookup.attr.ino, OpenFlags::O_RDONLY, 0).await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
@@ -1600,11 +1568,7 @@ async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) 
     assert_eq!(dentry.attr.size, 0);
     let file_ino = dentry.attr.ino;
 
-    let fh = fs
-        .open(file_ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
-        .await
-        .unwrap()
-        .fh;
+    let fh = fs.open(file_ino, OpenFlags::O_WRONLY, 0).await.unwrap().fh;
 
     let slice = &[0xaa; 27];
     let written = fs.write(file_ino, fh, 0, slice, 0, 0, None).await.unwrap();

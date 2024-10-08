@@ -2477,6 +2477,7 @@ dependencies = [
  "aws-sdk-sts",
  "base16ct",
  "bincode",
+ "bitflags 2.5.0",
  "built",
  "bytes",
  "clap",

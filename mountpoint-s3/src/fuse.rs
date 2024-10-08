@@ -122,7 +122,7 @@ where
 
     #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, pid=req.pid(), name=field::Empty))]
     fn open(&self, req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
-        match block_on(self.fs.open(ino, flags, req.pid()).in_current_span()) {
+        match block_on(self.fs.open(ino, flags.into(), req.pid()).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
             Err(e) => fuse_error!("open", reply, e),
         }
