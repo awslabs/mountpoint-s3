@@ -15,6 +15,7 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::checksums::crc32c;
 use rand::Rng;
+use std::collections::HashMap;
 use test_case::test_case;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
@@ -375,6 +376,66 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     }
 }
 
+#[test_case(HashMap::new(); "Empty")]
+#[test_case(HashMap::from([("foo".to_string(), "bar".to_string()), ("a".to_string(), "b".to_string())]); "ASCII")]
+#[tokio::test]
+async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, String>) {
+    const PART_SIZE: usize = 5 * 1024 * 1024;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_happy");
+    let client_config = S3ClientConfig::new()
+        .part_size(PART_SIZE)
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; PART_SIZE * 2];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectParams::new().object_metadata(object_metadata.clone());
+
+    let mut request = client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect("put_object should succeed");
+
+    request.write(&contents).await.unwrap();
+    request.complete().await.unwrap();
+
+    let sdk_client = get_test_sdk_client().await;
+    let output = sdk_client.head_object().bucket(&bucket).key(key).send().await.unwrap();
+
+    match output.metadata() {
+        Some(returned_object_metadata) => {
+            assert_eq!(&object_metadata, returned_object_metadata);
+        }
+        None => {
+            assert!(object_metadata.is_empty());
+        }
+    }
+}
+
+#[test_case(HashMap::from([("£".to_string(), "£".to_string())]); "UTF-8")]
+#[tokio::test]
+async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<String, String>) {
+    const PART_SIZE: usize = 5 * 1024 * 1024;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_bad_header");
+    let client_config = S3ClientConfig::new()
+        .part_size(PART_SIZE)
+        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; PART_SIZE * 2];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectParams::new().object_metadata(object_metadata.clone());
+
+    let mut request = client.put_object(&bucket, &key, &params).await.unwrap();
+    request.write(&contents).await.expect_err("header parsing should fail");
+}
+
 #[test_case(true; "pass review")]
 #[test_case(false; "fail review")]
 #[tokio::test]
@@ -450,7 +511,7 @@ async fn check_get_object<Client: ObjectClient>(
 // S3 Express One Zone is a distinct storage class and can't be overridden
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_storage_class(storage_class: &str) {
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_abort");
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_storage_class");
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
