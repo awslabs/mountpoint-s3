@@ -42,6 +42,7 @@ use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::*;
 use crate::user_agent::UserAgent;
+use crate::{object_client::*, S3GetObjectRequest, S3PutObjectRequest};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -56,6 +57,7 @@ macro_rules! request_span {
     ($self:expr, $method:expr) => { request_span!($self, $method,) };
 }
 
+pub(crate) mod copy_object;
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
 
@@ -527,7 +529,6 @@ impl S3CrtClientInner {
         let options = Self::new_meta_request_options(message, operation);
         self.make_meta_request_from_options(options, request_span, |_| {}, on_headers, on_body, on_finish)
     }
-
     /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
     /// makes progress. See [make_meta_request] for arguments.
     fn make_meta_request_from_options<T: Send + 'static, E: std::error::Error + Send + 'static>(
@@ -803,6 +804,7 @@ enum S3Operation {
     HeadObject,
     ListObjects,
     PutObject,
+    CopyObject,
     PutObjectSingle,
 }
 
@@ -812,6 +814,7 @@ impl S3Operation {
         match self {
             S3Operation::GetObject => MetaRequestType::GetObject,
             S3Operation::PutObject => MetaRequestType::PutObject,
+            S3Operation::CopyObject => MetaRequestType::CopyObject,
             _ => MetaRequestType::Default,
         }
     }
@@ -827,6 +830,7 @@ impl S3Operation {
             S3Operation::HeadObject => Some("HeadObject"),
             S3Operation::ListObjects => Some("ListObjectsV2"),
             S3Operation::PutObject => None,
+            S3Operation::CopyObject => None,
             S3Operation::PutObjectSingle => Some("PutObject"),
         }
     }
@@ -1092,6 +1096,7 @@ fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
         RequestType::AbortMultipartUpload => "AbortMultipartUpload",
         RequestType::CompleteMultipartUpload => "CompleteMultipartUpload",
         RequestType::UploadPartCopy => "UploadPartCopy",
+        RequestType::CopyObject => "CopyObject",
         RequestType::PutObject => "PutObject",
     }
 }
@@ -1260,6 +1265,18 @@ impl ObjectClient for S3CrtClient {
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
         self.delete_object(bucket, key).await
+    }
+
+    async fn copy_object(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_bucket: &str,
+        destination_key: &str,
+        params: &CopyObjectParams,
+    ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, S3RequestError> {
+        self.copy_object(source_bucket, source_key, destination_bucket, destination_key, params)
+            .await
     }
 
     async fn get_object(

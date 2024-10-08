@@ -14,7 +14,7 @@ use crate::mock_client::{
     MockClient, MockClientConfig, MockClientError, MockGetObjectRequest, MockObject, MockPutObjectRequest,
 };
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
     ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult,
     PutObjectSingleParams,
@@ -124,6 +124,19 @@ impl ObjectClient for ThroughputMockClient {
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
         self.inner.delete_object(bucket, key).await
+    }
+
+    async fn copy_object(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_bucket: &str,
+        destination_key: &str,
+        params: &CopyObjectParams,
+    ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError> {
+        self.inner
+            .copy_object(source_bucket, source_key, destination_bucket, destination_key, params)
+            .await
     }
 
     async fn get_object(

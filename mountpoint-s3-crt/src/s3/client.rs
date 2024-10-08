@@ -1359,6 +1359,8 @@ pub enum RequestType {
     CompleteMultipartUpload,
     /// UploadPartCopy: https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html
     UploadPartCopy,
+    /// CopyObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html
+    CopyObject,
     /// PutObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
     PutObject,
 }
@@ -1375,6 +1377,7 @@ impl From<aws_s3_request_type> for RequestType {
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_ABORT_MULTIPART_UPLOAD => RequestType::AbortMultipartUpload,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_COMPLETE_MULTIPART_UPLOAD => RequestType::CompleteMultipartUpload,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_COPY_OBJECT => RequestType::CopyObject,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_PUT_OBJECT => RequestType::PutObject,
             _ => panic!("unknown request type {:?}", value),
         }
