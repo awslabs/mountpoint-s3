@@ -92,6 +92,9 @@ impl S3CrtClient {
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, S3RequestError> {
         let span = request_span!(self.inner, "put_object_single", bucket, key);
         let start_time = Instant::now();
+
+        // `response_headers` will be populated in the `on_headers` callback (on CRT event loop) and accessed in `extract_result` executing
+        // on a different thread after request completion.
         let response_headers: Arc<Mutex<Option<Headers>>> = Default::default();
         let slice = contents.as_ref();
         let content_length = slice.len();
@@ -116,7 +119,7 @@ impl S3CrtClient {
         body.await?;
 
         let elapsed = start_time.elapsed();
-        emit_throughput_metric(content_length as u64, elapsed, "put_object");
+        emit_throughput_metric(content_length as u64, elapsed, "put_object_single");
 
         Ok(extract_result(&response_headers))
     }
