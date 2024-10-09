@@ -1,7 +1,7 @@
 use std::{env, ops::Range, sync::LazyLock};
 
 use async_channel::{unbounded, Receiver, Sender};
-use tracing::trace;
+use tracing::{trace,info};
 
 use super::PrefetchReadError;
 
@@ -82,7 +82,7 @@ pub fn new_backpressure_controller(config: BackpressureConfig) -> (BackpressureC
 
 static BACKPRESSURE_FIXED_THRESHOLD: LazyLock<bool> = LazyLock::new(|| {
     let v = env::var("UNSTABLE_BACKPRESSURE_FIXED_THRESHOLD").as_ref().map(|v| v == "1").unwrap_or(false);
-    trace!("Using backpressue override {v}");
+    info!("Using backpressue override {v}");
     v
 });
 

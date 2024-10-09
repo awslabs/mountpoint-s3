@@ -377,6 +377,7 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             // Blocks if read window increment if it's not enough to read the next offset
             if let Some(next_read_window_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
                 let diff = next_read_window_offset.saturating_sub(request.as_ref().read_window_end_offset()) as usize;
+                trace!("incrementing CRT read window by {} mb", diff / (1024*1024));
                 request.as_mut().increment_read_window(diff);
             }
         }

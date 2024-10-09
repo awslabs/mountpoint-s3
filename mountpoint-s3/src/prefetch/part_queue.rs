@@ -67,6 +67,7 @@ impl<E: std::error::Error + Send + Sync> PartQueue<E> {
             let start = Instant::now();
             let part = self.receiver.recv().await;
             metrics::histogram!("prefetch.part_queue_starved_us").record(start.elapsed().as_micros() as f64);
+            trace!("part queue starved for {} us", start.elapsed().as_micros());
             match part {
                 Err(RecvError) => Err(PrefetchReadError::GetRequestTerminatedUnexpectedly),
                 Ok(part) => part,
