@@ -83,7 +83,9 @@ struct CrtClientConfig {
     throughput_target_gbps: f64,
     part_size: usize,
     mem_limit_mib: usize,
-    enable_backpressure: bool
+    enable_backpressure: bool,
+    // only relevant if backpressure enabled:
+    initial_read_window_mib: usize
 }
 
 impl CrtClient {
@@ -129,9 +131,8 @@ impl CrtClient {
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.part_size(config.part_size);
         client_config.read_backpressure(config.enable_backpressure);
-        // XXX hardcoding this for now:
         if config.enable_backpressure {
-            client_config.initial_read_window(2 * 1024 * 1024 * 1024);
+            client_config.initial_read_window(config.initial_read_window_mib * 1024 * 1024);
         }
         if config.mem_limit_mib > 0 {
             client_config.memory_limit_in_bytes(config.mem_limit_mib as u64 * 1024 * 1024);
@@ -242,6 +243,8 @@ struct CliArgs {
     iterations: usize,
     #[arg(long, help = "CRT memroy limit", default_value = "0")]
     mem_limit_mib: usize,
+    #[arg(long, help = "Initial read window size in MiB, relevant only if backpressure is enabled.", default_value = "2048")]
+    initial_read_window_mib: usize,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -262,6 +265,7 @@ fn main() -> anyhow::Result<()> {
         part_size: args.part_size,
         enable_backpressure: args.with_backpressure,
         mem_limit_mib: args.mem_limit_mib,
+        initial_read_window_mib: args.initial_read_window_mib,
     };
     let with_backpressure = args.with_backpressure;
     let client = CrtClient::new(config)?;
