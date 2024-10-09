@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{env, ops::Range, sync::LazyLock};
 
 use async_channel::{unbounded, Receiver, Sender};
 use tracing::trace;
@@ -80,7 +80,14 @@ pub fn new_backpressure_controller(config: BackpressureConfig) -> (BackpressureC
     (controller, limiter)
 }
 
+static BACKPRESSURE_FIXED_THRESHOLD: LazyLock<bool> = LazyLock::new(|| {
+    let v = env::var("UNSTABLE_BACKPRESSURE_FIXED_THRESHOLD").as_ref().map(|v| v == "1").unwrap_or(false);
+    trace!("Using backpressue override {v}");
+    v
+});
+
 impl BackpressureController {
+
     pub fn read_window_end_offset(&self) -> u64 {
         self.read_window_end_offset
     }
@@ -94,8 +101,12 @@ impl BackpressureController {
                 let next_read_offset = offset + length as u64;
                 let remaining_window = self.read_window_end_offset.saturating_sub(next_read_offset) as usize;
                 // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
-                if remaining_window < (self.preferred_read_window_size / 2)
-                    && self.read_window_end_offset < self.request_end_offset
+                let threshold_condition = if *BACKPRESSURE_FIXED_THRESHOLD {
+                    remaining_window < (self.preferred_read_window_size / 2).min(1 * 1024 * 1024 * 1024)
+                } else {
+                    remaining_window < (self.preferred_read_window_size / 2)
+                };
+                if threshold_condition && self.read_window_end_offset < self.request_end_offset
                 {
                     let new_read_window_end_offset = next_read_offset
                         .saturating_add(self.preferred_read_window_size as u64)
