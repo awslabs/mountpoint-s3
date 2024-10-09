@@ -6,7 +6,7 @@ use nix::unistd::{getgid, getuid};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::str::FromStr;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, Level};
@@ -842,6 +842,7 @@ where
             size
         );
 
+        let start = Instant::now();
         let handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -849,6 +850,9 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
+
+        let handle_acquisition_time = start.elapsed().as_micros();
+
         logging::record_name(handle.inode.name());
         let mut state = handle.state.lock().await;
         let request = match &mut *state {
@@ -856,11 +860,26 @@ where
             FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
-        request
+        let file_handle_state_acquisition_time = start.elapsed().as_micros();
+
+        let result = request
             .read(offset as u64, size as usize)
-            .await?
-            .into_bytes()
-            .map_err(|e| err!(libc::EIO, source:e, "integrity error"))
+            .await?;
+
+        let checksummed_bytes_arrival_time = start.elapsed().as_micros();
+
+        let into_bytes: Result<Bytes, Error> = result.into_bytes()
+            .map_err(|e| err!(libc::EIO, source:e, "integrity error"));
+        let bytes_conversion_time = start.elapsed().as_micros();
+
+        trace!(
+            handle = handle_acquisition_time,
+            state = file_handle_state_acquisition_time,
+            arrival = checksummed_bytes_arrival_time,
+            conversion = bytes_conversion_time,
+            "timings");
+
+        into_bytes
     }
 
     pub async fn mknod(

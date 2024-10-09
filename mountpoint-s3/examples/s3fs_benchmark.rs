@@ -1,15 +1,13 @@
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use clap::{Arg, Command};
-use futures::executor::{block_on, ThreadPool};
+use futures::executor::block_on;
 use mountpoint_s3::fs::FUSE_ROOT_INODE;
-use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult};
+use mountpoint_s3::prefetch::default_prefetch;
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use tracing_subscriber::fmt::Subscriber;
@@ -84,19 +82,15 @@ fn main() {
     }
     config = config.initial_read_window(8 * 1024 * 1024)
         .read_backpressure(true)
-        .auth_config(mountpoint_s3_client::config::S3ClientAuthConfig::Default)
-        .crt_memory_limit_bytes(64 * 1024 * 1024 * 1024);
-
+        .auth_config(mountpoint_s3_client::config::S3ClientAuthConfig::Default);
 
     for i in 0..iterations.unwrap_or(1) {
         let client = Arc::new(S3CrtClient::new(config.clone()).expect("couldn't create client"));
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-        let prefetcher = default_prefetch(runtime, Default::default());
-        let received_size = Arc::new(AtomicU64::new(0));
+        let prefetcher = default_prefetch(client.event_loop_group(), Default::default());
 
         // set up S3Filesystem:
         let s3fs = S3Filesystem::new(
-            client, prefetcher, bucket, &Prefix::from_str("").unwrap(),
+            client.clone(), prefetcher, bucket, &Prefix::from_str("").unwrap(),
             S3FilesystemConfig::default()
         );
         let entry =
@@ -105,31 +99,30 @@ fn main() {
             block_on(s3fs.open(entry.attr.ino, libc::O_RDONLY, 0)).unwrap();
 
         let start = Instant::now();
-        block_on(async {
-            loop {
-                let offset = received_size.load(Ordering::SeqCst);
-                if offset >= size {
-                    break;
+        let mut offset = 0;
+        while offset < size {
+            let result = block_on( async {s3fs.read(
+                entry.attr.ino, handle.fh, offset as i64, 256 << 10,
+                0 as i32, None).await
+            });
+
+            match result {
+                Ok(bytes) => {
+                    offset = offset + bytes.len() as u64;
                 }
-                let result = s3fs.read(
-                    entry.attr.ino, handle.fh, offset as i64, 256 << 10,
-                    0 as i32, None
-                ).await;
-                match result {
-                    Ok(bytes) => {received_size.fetch_add(bytes.len() as u64, Ordering::SeqCst); }
-                    Err(e) => panic!("error: {}", e),
-                }
+                Err(e) => 
+                    panic!("error: {}", e),
             }
-        });
+        }
 
         let elapsed = start.elapsed();
-        let received_size = received_size.load(Ordering::SeqCst);
+        let received_size = offset;
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2}MiB/s",
+            "{}: received {} bytes in {:.2}s: {:.2}Gbps",
             i,
             received_size,
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024) as f64
+            (8.0 * received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024) as f64
         );
     }
 }
