@@ -49,7 +49,6 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
         "--allow-overwrite",
         "--allow-delete",
         f"--log-directory={MP_LOGS_DIRECTORY}",
-        "--write-part-size=16777216", # 16MiB, to allow upload of 100GiB
     ]
     if cfg['s3_prefix'] is not None:
         subprocess_args.append(f"--prefix={cfg['s3_prefix']}")
@@ -69,6 +68,8 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
             subprocess_args.append(f"--maximum-throughput-gbps={network['maximum_throughput_gbps']}")
     if cfg['crt_mem_limit_mib'] is not None:
         subprocess_args.append(f"--crt-mem-limit-mib={cfg['crt_mem_limit_mib']}")
+    if cfg['write_part_size_bytes'] is not None:
+        subprocess_args.append(f"--write-part-size={cfg['write_part_size_bytes']}")
     subprocess_env = {
         "PID_FILE": "mount-s3.pid",
         "STUB_CRC32C": str(cfg['stub_crc32c']),

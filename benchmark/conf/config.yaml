@@ -44,7 +44,10 @@ stub_crc32c: false
 mp_prefetcher_window_size: !!null
 
 # For S3 implementations not supporting additional checksums. Passed as `--upload-checksums` argument.
-upload_checksums: !!null
+upload_checksums: "off"
+
+# Use w 16MB part size so that 100GB objects work (due to number of parts limit in S3)
+write_part_size_bytes: 16777216
 
 # CRT memory limit: normally passed in megabytes, default is to use the CRT's default value which is
 # based on hardware and max throughput specified.
