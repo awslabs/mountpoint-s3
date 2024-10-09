@@ -66,6 +66,10 @@ libc_flags! {
         O_SYNC,
         O_TRUNC,
         O_DSYNC,
+        O_DIRECT,
+        O_NONBLOCK,
+        O_NOCTTY,
+        O_CREAT,
 
         // Incomplete list. To be integrated if/when required.
     }
@@ -77,7 +81,7 @@ mod tests {
 
     #[test]
     fn conversion_test() {
-        let raw = 0x9;
+        let raw = libc::O_WRONLY | libc::O_APPEND;
         let flags: OpenFlags = raw.into();
         assert_eq!(flags, OpenFlags::O_WRONLY | OpenFlags::O_APPEND);
     }

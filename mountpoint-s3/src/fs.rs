@@ -285,12 +285,12 @@ where
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
-        trace!("fs:open with ino {:?} flags {:#b} pid {:?}", ino, flags, pid);
+        trace!("fs:open with ino {:?} flags {} pid {:?}", ino, flags, pid);
 
         #[cfg(not(target_os = "linux"))]
         let direct_io = false;
         #[cfg(target_os = "linux")]
-        let direct_io = flags & libc::O_DIRECT != 0;
+        let direct_io = flags.contains(OpenFlags::O_DIRECT);
 
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
