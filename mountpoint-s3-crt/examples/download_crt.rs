@@ -1,9 +1,9 @@
 use std::os::unix::ffi::OsStrExt as _;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use clap::Parser;
 use futures::channel::oneshot;
 use futures::executor::block_on;
@@ -17,9 +17,12 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
-use mountpoint_s3_crt::s3::client::{init_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestType};
+use mountpoint_s3_crt::s3::client::{init_signing_config, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestType};
 use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
 use tracing::trace;
+use tracing_subscriber::fmt::Subscriber;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug)]
 struct Endpoint {
@@ -79,6 +82,8 @@ struct CrtClientConfig {
     region: String,
     throughput_target_gbps: f64,
     part_size: usize,
+    mem_limit_mib: usize,
+    enable_backpressure: bool
 }
 
 impl CrtClient {
@@ -123,6 +128,14 @@ impl CrtClient {
             .retry_strategy(retry_strategy);
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.part_size(config.part_size);
+        client_config.read_backpressure(config.enable_backpressure);
+        // XXX hardcoding this for now:
+        if config.enable_backpressure {
+            client_config.initial_read_window(2 * 1024 * 1024 * 1024);
+        }
+        if config.mem_limit_mib > 0 {
+            client_config.memory_limit_in_bytes(config.mem_limit_mib as u64 * 1024 * 1024);
+        }
 
         let client = Client::new(&allocator, client_config)?;
 
@@ -140,7 +153,8 @@ impl CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        body_callback: impl FnMut(u64, &[u8]) + Send + 'static,
+        with_backpressure: bool,
+        mut body_callback: impl FnMut(u64, &[u8]) + Send + 'static,
     ) -> anyhow::Result<()> {
         let endpoint = Endpoint::resolve(&self.config.region, bucket)?;
 
@@ -159,13 +173,29 @@ impl CrtClient {
 
         let (tx, rx) = oneshot::channel::<anyhow::Result<()>>();
 
+        // Create _request before setting up callbacks
+        let _request: Arc<Mutex<Option<MetaRequest>>> = Arc::new(Mutex::new(None));
+
         let mut request_options = MetaRequestOptions::default();
         request_options
             .request_type(MetaRequestType::GetObject)
             .message(message)
             .endpoint(endpoint.uri)
             .signing_config(signing_config)
-            .on_body(body_callback)
+            .on_body({
+                // let request_clone = Arc::clone(&mut _request);
+                let request_clone = Arc::clone(&_request);
+                move |offset, body| {
+                    if let Some(req) = request_clone.lock().unwrap().as_mut() {
+                        if with_backpressure {
+                            //print!("increment read window by {}", body.len());
+                            req.increment_read_window(body.len() as u64);
+                        }
+                    }
+                    trace!(offset=offset, body_len=body.len(), "received data");
+                    body_callback(offset, body)
+                }
+            })
             .on_finish({
                 let bucket = bucket.to_owned();
                 let key = key.to_owned();
@@ -182,7 +212,7 @@ impl CrtClient {
 
         trace!(?bucket, ?key, "start get_object request");
 
-        let _request = self.client.make_meta_request(request_options)?;
+        *_request.lock().unwrap() = Some(self.client.make_meta_request(request_options)?);
 
         rx.await?
     }
@@ -204,15 +234,25 @@ struct CliArgs {
         default_value = "10.0"
     )]
     maximum_throughput_gbps: f64,
+    #[arg(long, help = "implement backpressure?", default_value = "false")]
+    with_backpressure: bool,
     #[arg(long, help = "part size (bytes)", default_value = "8388608")]
     part_size: usize,
     #[arg(long, help = "number of times to download", default_value = "1")]
     iterations: usize,
+    #[arg(long, help = "CRT memroy limit", default_value = "0")]
+    mem_limit_mib: usize,
 }
 
 fn main() -> anyhow::Result<()> {
     RustLogAdapter::try_init().context("failed to inititalize RustLogAdapter")?;
-    tracing_subscriber::fmt::try_init().map_err(|e| anyhow!("failed to initialize tracing subscriber: {:?}", e))?;
+    let subscriber = Subscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .finish();
+
+    subscriber.try_init().expect("unable to install global subscriber");
 
     let args = CliArgs::parse();
 
@@ -220,7 +260,10 @@ fn main() -> anyhow::Result<()> {
         region: args.region,
         throughput_target_gbps: args.maximum_throughput_gbps,
         part_size: args.part_size,
+        enable_backpressure: args.with_backpressure,
+        mem_limit_mib: args.mem_limit_mib,
     };
+    let with_backpressure = args.with_backpressure;
     let client = CrtClient::new(config)?;
 
     for i in 0..args.iterations {
@@ -228,7 +271,7 @@ fn main() -> anyhow::Result<()> {
         let num_bytes = block_on(async {
             let bytes_received = Arc::new(AtomicUsize::new(0));
             client
-                .get_object(&args.bucket, &args.key, {
+                .get_object(&args.bucket, &args.key, with_backpressure, {
                     let bytes_received = bytes_received.clone();
                     move |_, body| {
                         bytes_received.fetch_add(body.len(), Ordering::SeqCst);
@@ -239,11 +282,11 @@ fn main() -> anyhow::Result<()> {
         })?;
         let elapsed = start.elapsed();
         println!(
-            "iteration {}: {}b in {}s = {:.2}MiB/s",
+            "iteration {}: {}b in {}s = {:.2}Gbps",
             i,
             num_bytes,
             elapsed.as_secs_f64(),
-            num_bytes as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0)
+            8.0 * num_bytes as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0 * 1024.0)
         );
     }
 
