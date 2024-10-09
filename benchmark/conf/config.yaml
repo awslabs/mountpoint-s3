@@ -46,6 +46,10 @@ mp_prefetcher_window_size: !!null
 # For S3 implementations not supporting additional checksums. Passed as `--upload-checksums` argument.
 upload_checksums: !!null
 
+# CRT memory limit: normally passed in megabytes, default is to use the CRT's default value which is
+# based on hardware and max throughput specified.
+crt_mem_limit_mib: !!null
+
 iterations: 1
 iteration: 0 # placeholder; use iterations to configure for multirun
 

@@ -206,6 +206,12 @@ impl ClientConfig {
         self.inner.max_active_connections_override = max_active_connections_override;
         self
     }
+
+    /// Set memory limit.  TODO fixme doc.
+    pub fn memory_limit_in_bytes(&mut self, memory_limit_in_bytes: u64) -> &mut Self {
+        self.inner.memory_limit_in_bytes = memory_limit_in_bytes;
+        self
+    }
 }
 
 /// Callback for telemetry received as part of a successful meta request.
