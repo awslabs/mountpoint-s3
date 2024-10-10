@@ -225,12 +225,12 @@ type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
 /// Options for meta requests to S3. This is not a public interface, since clients should always
 /// be using the [MetaRequestOptions] wrapper, which pins this struct behind a pointer.
-struct MetaRequestOptionsInner {
+struct MetaRequestOptionsInner<'a> {
     /// Inner struct to pass to CRT functions.
     inner: aws_s3_meta_request_options,
 
     /// Owned copy of the message, if provided.
-    message: Option<Message>,
+    message: Option<Message<'a>>,
 
     /// Owned copy of the endpoint URI, if provided
     endpoint: Option<Uri>,
@@ -260,7 +260,7 @@ struct MetaRequestOptionsInner {
     _pinned: PhantomPinned,
 }
 
-impl<'a> MetaRequestOptionsInner {
+impl<'a> MetaRequestOptionsInner<'_> {
     /// Convert from user_data in a callback to a reference to this struct.
     ///
     /// ## Safety
@@ -283,7 +283,7 @@ impl<'a> MetaRequestOptionsInner {
     }
 }
 
-impl Debug for MetaRequestOptionsInner {
+impl Debug for MetaRequestOptionsInner<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetaRequestOptionsInner")
             .field("inner", &self.inner)
@@ -296,9 +296,9 @@ impl Debug for MetaRequestOptionsInner {
 /// Options for a meta request to S3.
 // Implementation details: this wraps the inner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
-pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
+pub struct MetaRequestOptions<'a>(Pin<Box<MetaRequestOptionsInner<'a>>>);
 
-impl MetaRequestOptions {
+impl<'a> MetaRequestOptions<'a> {
     /// Create a new default options struct. It follows the builder pattern so clients can use
     /// methods to set various options.
     pub fn new() -> Self {
@@ -352,7 +352,7 @@ impl MetaRequestOptions {
     }
 
     /// Set the message of the request.
-    pub fn message(&mut self, message: Message) -> &mut Self {
+    pub fn message(&mut self, message: Message<'a>) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
@@ -464,7 +464,7 @@ impl MetaRequestOptions {
     }
 }
 
-impl Default for MetaRequestOptions {
+impl Default for MetaRequestOptions<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -1359,6 +1359,8 @@ pub enum RequestType {
     CompleteMultipartUpload,
     /// UploadPartCopy: https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html
     UploadPartCopy,
+    /// PutObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
+    PutObject,
 }
 
 impl From<aws_s3_request_type> for RequestType {
@@ -1373,6 +1375,7 @@ impl From<aws_s3_request_type> for RequestType {
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_ABORT_MULTIPART_UPLOAD => RequestType::AbortMultipartUpload,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_COMPLETE_MULTIPART_UPLOAD => RequestType::CompleteMultipartUpload,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
+            aws_s3_request_type::AWS_S3_REQUEST_TYPE_PUT_OBJECT => RequestType::PutObject,
             _ => panic!("unknown request type {:?}", value),
         }
     }
