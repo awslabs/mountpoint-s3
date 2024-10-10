@@ -12,9 +12,10 @@ use pin_project::pin_project;
 use crate::mock_client::leaky_bucket::LeakyBucket;
 use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, MockPutObjectRequest};
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
+    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientResult,
+    PutObjectError, PutObjectParams,
 };
 use crate::types::ETag;
 
@@ -124,6 +125,19 @@ impl ObjectClient for ThroughputMockClient {
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
         self.inner.delete_object(bucket, key).await
+    }
+
+    async fn copy_object(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_bucket: &str,
+        destination_key: &str,
+        params: &CopyObjectParams,
+    ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError> {
+        self.inner
+            .copy_object(source_bucket, source_key, destination_bucket, destination_key, params)
+            .await
     }
 
     async fn get_object(
