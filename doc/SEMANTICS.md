@@ -13,7 +13,9 @@ While the rest of this document gives details on specific file system behaviors,
 
 Mountpoint supports opening and reading existing objects from your S3 bucket. It is optimized for reading large files sequentially, and will automatically make multiple concurrent requests to S3 to improve throughput when reads are sequential. Mountpoint also supports random reads from an existing object, including seeking in an open file.
 
-Mountpoint supports writing only to new files by default. Writes to existing files are allowed if `--allow-overwrite` flag is set at startup time, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. All writes must start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`.
+Mountpoint supports creating new objects in your S3 bucket by allowing writes to new files. If the `--allow-overwrite` flag is set at startup time, Mountpoint also supports replacing existing objects by allowing writes to existing files, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. In both cases, writes must always start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`. The new (or overwritten) object will be visible to other S3 clients only after closing it (or on `fsync`).
+
+For directory buckets in S3 Express One Zone, Mountpoint also supports appending to existing files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
 
 By default, Mountpoint does not allow deleting existing objects with commands like `rm`. To enable deletion, pass the `--allow-delete` flag to Mountpoint at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. We recommend that you enable [Bucket Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) to help protect against unintentionally deleting objects. You cannot delete a file while it is being written.
 
@@ -64,20 +66,17 @@ Mountpoint has limited support for other file and directory metadata, including 
 ## Consistency and concurrency
 
 Amazon S3 provides [strong read-after-write consistency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel) for PUT and DELETE requests of objects in your S3 bucket.
-By default, Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. Mountpoint also ensures that new file uploads to a single key are atomic. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
+By default, Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
 
-However, Mountpoint may return stale metadata for an existing object within 1 second of the object being modified or deleted in your S3 bucket by another client.
-This occurs only if the object was accessed through Mountpoint immediately before being modified or deleted in your S3 bucket.
-The stale metadata will only be visible through metadata operations such as `stat` on individual files.
-Directory listings will never be stale and always reflect the current metadata.
-These cases do not apply to newly created objects, which are always immediately visible through Mountpoint.
-Stale metadata can be refreshed by either opening the file or listing its parent directory.
+If you modify or delete an existing object in your S3 bucket with another client, however, Mountpoint may return stale metadata for that object for up to 1 second, by default. This occurs only if the object had already been accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
 
 Mountpoint allows multiple readers to access the same object at the same time.
 However, a new file can only be written to sequentially and by one writer at a time.
 New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3.
 If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object.
 Your application should not write to the same object from multiple instances at the same time.
+
+By default, Mountpoint ensures that new file uploads to a single key are atomic. As soon as an upload completes, other clients are able to see the new key and the entire content of the object. If the `--incremental-upload` flag is set, however, Mountpoint may issue multiple separate uploads during file writes to append data to the object. After each upload, the appended object in your S3 bucket will be visible to other clients.
 
 ### Optional metadata and object content caching
 
@@ -173,14 +172,22 @@ Basic read-only operations are fully supported, including both sequential and ra
 Mountpoint supports sequential write operations (through `write`, `writev`, `pwrite`, `pwritev`),
 but with some limitations:
 
-* Writes must start at the beginning of the file and be done sequentially.
-* Modifying an existing file is only allowed with the `--allow-overwrite` flag and only when the file is opened in truncate mode (`O_TRUNC`).
-    * You cannot overwrite files that are currently being read.
-    * The upload to S3 starts as soon as Mountpoint receives the first `write` request and cannot be cancelled.
-* Modifying an existing file without using truncate mode is not supported.
-
-Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow
-further writes.
+* All writes must be sequential: writes after seeking to any offset other than the end of the previous write will fail.
+* Writes to new files are supported and must start at the beginning of the file.
+* If the `--allow-overwrite` flag is set, replacing an existing file is also allowed:
+  * The existing file must be opened in truncate mode (`O_TRUNC`).
+  * You cannot overwrite files that are currently being read.
+  * The upload to S3 starts as soon as Mountpoint receives the first `write` request and cannot be cancelled.
+* Both for new files and overwrites:
+  * Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow further writes.
+  * The data written to the file will be visible to other S3 clients only once the upload completes.
+* If the `--incremental-upload` flag is set, and only when mounting directory buckets in S3 Express One Zone, appending to existing files is allowed:
+  * The existing file must be opened without the `O_TRUNC` flag or any existing content will be truncated.
+  * Only sequential writes at the end of the file are allowed. Setting the `O_APPEND` flag on open will enforce this behavior, but is not required by Mountpoint.
+  * You cannot append to files that are currently being read or overwritten.
+  * The data is uploaded incrementally to S3 in fixed-size parts (controlled by `--write-part-size`).
+  * Synchronization operations (`fsync`, `fdatasync`) trigger the upload of the appended parts and do allow to continue writing.
+  * Parts successfully appended to an object are visible as the whole (appended) object to other S3 clients.
 
 `close` also generally completes the upload of the object and reports an error if not successful. However,
 if the file is empty, or if `close` is invoked by a different process than the one that originally opened it,

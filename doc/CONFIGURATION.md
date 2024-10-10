@@ -204,9 +204,11 @@ Mountpoint automatically configures reasonable defaults for file system settings
 
 By default, Mountpoint allows creating new files but does not allow deleting or overwriting existing objects.
 
-Writes to existing files are allowed if `--allow-overwrite` flag is set at mount time, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. All writes must start from the beginning of the file and must be made sequentially.
-
 If you want to allow file deletion, use the `--allow-delete` flag at mount time. Delete operations immediately delete the object from S3, even if the file is being read from.
+
+If you want to allow overwriting existing files, use the `--allow-overwrite` flag at mount time. The file must be opened with the `O_TRUNC` flag which will truncate the existing file. All writes must start from the beginning of the file and must be made sequentially.
+
+You can also allow appending to existing files in directory buckets in S3 Express One Zone, by setting the `--incremental-upload` flag at mount time. In this mode, writes to existing files opened without the `O_TRUNC` flag are allowed, provided they start at the end of the file and are made sequentially. For more details, see [Reading and writing files](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#reading-and-writing-files).
 
 If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use the `--read-only` command-line flag.
 
