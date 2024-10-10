@@ -344,12 +344,12 @@ impl PutObjectParams {
     }
 }
 
-/// How CRC32c checksums are used for parts of a multi-part PutObject request
+/// How CRC32c checksums are used for single PutObject or parts of a multi-part PutObject request
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PutObjectTrailingChecksums {
-    /// Checksums are computed, passed to upload review, and also sent to S3
+    /// Checksums are computed and sent to S3. Also passed to upload review for multi-part PutObject
     Enabled,
-    /// Checksums are computed, passed to upload review, but not sent to S3
+    /// Only for multi-part PutObject: checksums are computed and passed to upload review, but not sent to S3. Equivalent to [Disabled] for single PutObject
     ReviewOnly,
     /// Checksums are not computed on the client side
     #[default]

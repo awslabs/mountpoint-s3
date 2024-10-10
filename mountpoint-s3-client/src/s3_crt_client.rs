@@ -808,7 +808,8 @@ impl S3Operation {
         }
     }
 
-    /// The operation name to set when configuring a request, if required.
+    /// The operation name to set when configuring a request. Required for operations that
+    /// have MetaRequestType::Default (see [meta_request_type]). `None` otherwise.
     fn operation_name(&self) -> Option<&'static str> {
         match self {
             S3Operation::DeleteObject => Some("DeleteObject"),
