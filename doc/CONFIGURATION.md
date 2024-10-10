@@ -361,7 +361,7 @@ By default, Mountpoint emits high-severity log information to [syslog](https://d
 
 ## Unstable configurations
 
-Configurations in this section are experimental and may be removed or superseded by other configurations at any time.
+Configurations in this section are experimental and may be removed or superseded by other configurations in any future release.
 
 ### Maximum prefetch window size
 
