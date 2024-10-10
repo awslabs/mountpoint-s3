@@ -5,6 +5,8 @@
 CRATES = mountpoint-s3-crt-sys mountpoint-s3-crt mountpoint-s3-client mountpoint-s3
 RUST_FEATURES ?= fuse_tests
 
+IMAGE?=$(REGISTRY)/${IMAGE_NAME}
+
 .PHONY: all
 all:
 	cargo build --all-targets
@@ -67,3 +69,12 @@ DISABLED_LINTS += -A clippy::arc-with-non-send-sync  # https://github.com/propte
 clippy:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	cargo clippy $$packages --no-deps --all-targets --all-features -- -D warnings -D clippy::all $(DISABLED_LINTS)
+
+
+.PHONY: build-image
+build-image:
+	DOCKER_BUILDKIT=1 docker buildx build -t=${IMAGE}:${TAG} --platform=${PLATFORM} -f docker/Dockerfile.source .
+
+.PHONY: push-image
+push-image:
+	docker push ${IMAGE}:${TAG}
