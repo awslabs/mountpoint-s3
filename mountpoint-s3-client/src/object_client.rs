@@ -139,6 +139,15 @@ pub trait ObjectClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError>;
 
+    /// Put an object into the object store.
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectSingleParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
+
     /// Retrieves all the metadata from an object without returning the object contents.
     async fn get_object_attributes(
         &self,
@@ -360,6 +369,68 @@ pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 
 /// A checksum algorithm used by the object client for integrity checks on uploads and downloads.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
+
+/// Parameters to a [`put_object_single`](ObjectClient::put_object_single) request
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct PutObjectSingleParams {
+    /// User-provided checksum of the data to upload.
+    pub checksum: Option<UploadChecksum>,
+    /// Storage class to be used when creating new S3 object
+    pub storage_class: Option<String>,
+    /// The server-side encryption algorithm to be used for this object in Amazon S3 (for example, AES256, aws:kms, aws:kms:dsse)
+    pub server_side_encryption: Option<String>,
+    /// If `server_side_encryption` has a valid value of aws:kms or aws:kms:dsse, this value may be used to specify AWS KMS key ID to be used
+    /// when creating new S3 object
+    pub ssekms_key_id: Option<String>,
+}
+
+impl PutObjectSingleParams {
+    /// Create a default [PutObjectSingleParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set checksum.
+    pub fn checksum(mut self, value: Option<UploadChecksum>) -> Self {
+        self.checksum = value;
+        self
+    }
+
+    /// Set the storage class.
+    pub fn storage_class(mut self, value: String) -> Self {
+        self.storage_class = Some(value);
+        self
+    }
+
+    /// Set server-side encryption type.
+    pub fn server_side_encryption(mut self, value: Option<String>) -> Self {
+        self.server_side_encryption = value;
+        self
+    }
+
+    /// Set KMS key ID to be used for server-side encryption.
+    pub fn ssekms_key_id(mut self, value: Option<String>) -> Self {
+        self.ssekms_key_id = value;
+        self
+    }
+}
+
+/// A checksum used by the object client for integrity checks on uploads.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum UploadChecksum {
+    Crc32c(crate::checksums::Crc32c),
+}
+
+impl UploadChecksum {
+    /// The checksum algorithm used to compute this checksum.
+    pub fn checksum_algorithm(&self) -> ChecksumAlgorithm {
+        match self {
+            UploadChecksum::Crc32c(_) => ChecksumAlgorithm::Crc32c,
+        }
+    }
+}
 
 /// A streaming response to a GetObject request.
 ///

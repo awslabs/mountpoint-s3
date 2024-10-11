@@ -10,15 +10,15 @@ use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::mock_client::leaky_bucket::LeakyBucket;
-use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, MockPutObjectRequest};
-use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams,
+use crate::mock_client::{
+    MockClient, MockClientConfig, MockClientError, MockGetObjectRequest, MockObject, MockPutObjectRequest,
 };
-use crate::types::ETag;
-
-use super::MockGetObjectRequest;
+use crate::object_client::{
+    DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
+    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
+    ObjectAttribute, ObjectClient, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult,
+    PutObjectSingleParams,
+};
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
 /// performance without the jitter or service latency of targeting a real service. Note that while
@@ -166,6 +166,16 @@ impl ObjectClient for ThroughputMockClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         self.inner.put_object(bucket, key, params).await
+    }
+
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectSingleParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        self.inner.put_object_single(bucket, key, params, contents).await
     }
 
     async fn get_object_attributes(

@@ -1,16 +1,20 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
-use crate::s3_crt_client::{
-    emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation,
-    S3RequestError,
+use crate::object_client::{
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
 };
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
+use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, RequestType, UploadReview};
 use tracing::error;
+
+use super::{
+    emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
+    S3Operation, S3RequestError,
+};
 
 const SSE_TYPE_HEADER_NAME: &str = "x-amz-server-side-encryption";
 const SSE_KEY_ID_HEADER_NAME: &str = "x-amz-server-side-encryption-aws-kms-key-id";
@@ -23,15 +27,13 @@ impl S3CrtClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<S3PutObjectRequest, PutObjectError, S3RequestError> {
         let span = request_span!(self.inner, "put_object", bucket, key);
-        let mut message = self
-            .inner
-            .new_request_template("PUT", bucket)
-            .map_err(S3RequestError::construction_failure)?;
-
-        let key = format!("/{}", key);
-        message
-            .set_request_path(&key)
-            .map_err(S3RequestError::construction_failure)?;
+        let mut message = self.new_put_request(
+            bucket,
+            key,
+            params.storage_class.as_deref(),
+            params.server_side_encryption.as_deref(),
+            params.ssekms_key_id.as_deref(),
+        )?;
 
         let checksum_config = match params.trailing_checksums {
             PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
@@ -43,21 +45,6 @@ impl S3CrtClient {
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
 
-        if let Some(storage_class) = params.storage_class.to_owned() {
-            message
-                .set_header(&Header::new("x-amz-storage-class", storage_class))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-        if let Some(sse) = params.server_side_encryption.as_ref() {
-            message
-                .set_header(&Header::new(SSE_TYPE_HEADER_NAME, sse))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-        if let Some(key_id) = params.ssekms_key_id.as_ref() {
-            message
-                .set_header(&Header::new(SSE_KEY_ID_HEADER_NAME, key_id))
-                .map_err(S3RequestError::construction_failure)?;
-        }
         // Variable `response_headers` will be accessed from different threads: from CRT thread which executes `on_headers` callback
         // and from our thread which executes `review_and_complete`. Callback `on_headers` is guaranteed to finish before this
         // variable is accessed in `review_and_complete` (see `S3HttpRequest::poll` implementation).
@@ -108,6 +95,97 @@ impl S3CrtClient {
             response_headers,
             state: S3PutObjectRequestState::CreatingMPU(mpu_created),
         })
+    }
+
+    pub(super) async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectSingleParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, S3RequestError> {
+        let span = request_span!(self.inner, "put_object_single", bucket, key);
+        let start_time = Instant::now();
+
+        // `response_headers` will be populated in the `on_headers` callback (on CRT event loop) and accessed in `extract_result` executing
+        // on a different thread after request completion.
+        let response_headers: Arc<Mutex<Option<Headers>>> = Default::default();
+        let slice = contents.as_ref();
+        let content_length = slice.len();
+        let body = {
+            let mut message = self.new_put_request(
+                bucket,
+                key,
+                params.storage_class.as_deref(),
+                params.server_side_encryption.as_deref(),
+                params.ssekms_key_id.as_deref(),
+            )?;
+            message
+                .set_content_length_header(content_length)
+                .map_err(S3RequestError::construction_failure)?;
+            if let Some(checksum) = &params.checksum {
+                message
+                    .set_checksum_header(checksum)
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
+            let body_input_stream =
+                InputStream::new_from_slice(&self.inner.allocator, slice).map_err(S3RequestError::CrtError)?;
+            message.set_body_stream(Some(body_input_stream));
+
+            let options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObjectSingle);
+            let response_headers_writer = response_headers.clone();
+            let on_headers = move |headers: &Headers, _: i32| {
+                *response_headers_writer.lock().unwrap() = Some(headers.clone());
+            };
+            self.inner
+                .make_simple_http_request_from_options(options, span, |_| {}, |_| None, on_headers)?
+        };
+
+        body.await?;
+
+        let elapsed = start_time.elapsed();
+        emit_throughput_metric(content_length as u64, elapsed, "put_object_single");
+
+        Ok(extract_result(&response_headers))
+    }
+
+    fn new_put_request(
+        &self,
+        bucket: &str,
+        key: &str,
+        storage_class: Option<&str>,
+        server_side_encryption: Option<&str>,
+        ssekms_key_id: Option<&str>,
+    ) -> Result<S3Message<'_>, S3RequestError> {
+        let mut message = self
+            .inner
+            .new_request_template("PUT", bucket)
+            .map_err(S3RequestError::construction_failure)?;
+
+        let key = format!("/{key}");
+        message
+            .set_request_path(&key)
+            .map_err(S3RequestError::construction_failure)?;
+
+        if let Some(storage_class) = storage_class {
+            message
+                .set_header(&Header::new("x-amz-storage-class", storage_class))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
+        if let Some(sse) = server_side_encryption {
+            message
+                .set_header(&Header::new(SSE_TYPE_HEADER_NAME, sse))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+        if let Some(key_id) = ssekms_key_id {
+            message
+                .set_header(&Header::new(SSE_KEY_ID_HEADER_NAME, key_id))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
+        Ok(message)
     }
 }
 
@@ -176,6 +254,18 @@ fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
     headers.get(key).ok()?.value().clone().into_string().ok()
 }
 
+fn extract_result(response_headers: &Mutex<Option<Headers>>) -> PutObjectResult {
+    let response_headers = response_headers
+        .lock()
+        .expect("must be able to acquire headers lock")
+        .take()
+        .expect("PUT response headers must be available at this point");
+    PutObjectResult {
+        sse_type: try_get_header_value(&response_headers, SSE_TYPE_HEADER_NAME),
+        sse_kms_key_id: try_get_header_value(&response_headers, SSE_KEY_ID_HEADER_NAME),
+    }
+}
+
 #[cfg_attr(not(docsrs), async_trait)]
 impl PutObjectRequest for S3PutObjectRequest {
     type ClientError = S3RequestError;
@@ -242,16 +332,7 @@ impl PutObjectRequest for S3PutObjectRequest {
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        let response_headers = self
-            .response_headers
-            .lock()
-            .expect("must be able to acquire headers lock")
-            .take()
-            .expect("PUT response headers must be available at this point");
-        Ok(PutObjectResult {
-            sse_type: try_get_header_value(&response_headers, SSE_TYPE_HEADER_NAME),
-            sse_kms_key_id: try_get_header_value(&response_headers, SSE_KEY_ID_HEADER_NAME),
-        })
+        Ok(extract_result(&self.response_headers))
     }
 }
 

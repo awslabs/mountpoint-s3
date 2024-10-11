@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -24,6 +23,7 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{
     init_signing_config, BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions,
     MetaRequestResult, MetaRequestType, RequestMetrics, RequestType,
@@ -36,10 +36,12 @@ use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
+use crate::checksums::crc32c_to_base64;
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
+use crate::object_client::*;
 use crate::user_agent::UserAgent;
-use crate::{object_client::*, S3GetObjectRequest, S3PutObjectRequest};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -56,10 +58,15 @@ macro_rules! request_span {
 
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
+
+pub(crate) use get_object::S3GetObjectRequest;
 pub(crate) mod get_object_attributes;
+
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
+
 pub(crate) mod put_object;
+pub(crate) use put_object::S3PutObjectRequest;
 
 pub(crate) mod head_bucket;
 pub use head_bucket::HeadBucketError;
@@ -796,6 +803,7 @@ enum S3Operation {
     HeadObject,
     ListObjects,
     PutObject,
+    PutObjectSingle,
 }
 
 impl S3Operation {
@@ -808,7 +816,8 @@ impl S3Operation {
         }
     }
 
-    /// The operation name to set when configuring a request, if required.
+    /// The operation name to set when configuring a request. Required for operations that
+    /// have MetaRequestType::Default (see [meta_request_type]). `None` otherwise.
     fn operation_name(&self) -> Option<&'static str> {
         match self {
             S3Operation::DeleteObject => Some("DeleteObject"),
@@ -818,6 +827,7 @@ impl S3Operation {
             S3Operation::HeadObject => Some("HeadObject"),
             S3Operation::ListObjects => Some("ListObjectsV2"),
             S3Operation::PutObject => None,
+            S3Operation::PutObjectSingle => Some("PutObject"),
         }
     }
 }
@@ -827,15 +837,15 @@ impl S3Operation {
 /// virtual-hosted-style addresses. The `path_prefix` is appended to the front of all paths, and
 /// need not be terminated with a `/`.
 #[derive(Debug)]
-struct S3Message {
-    inner: Message,
+struct S3Message<'a> {
+    inner: Message<'a>,
     uri: Uri,
     path_prefix: String,
     checksum_config: Option<ChecksumConfig>,
     signing_config: Option<SigningConfig>,
 }
 
-impl S3Message {
+impl<'a> S3Message<'a> {
     /// Add a header to this message. The header is added if necessary and any existing values for
     /// this header are removed.
     fn set_header(
@@ -903,6 +913,32 @@ impl S3Message {
     /// Sets the checksum configuration for this message.
     fn set_checksum_config(&mut self, checksum_config: Option<ChecksumConfig>) {
         self.checksum_config = checksum_config;
+    }
+
+    /// Sets the body input stream for this message, and returns any previously set input stream.
+    /// If input_stream is None, unsets the body.
+    fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
+        self.inner.set_body_stream(input_stream)
+    }
+
+    /// Set the content length header.
+    fn set_content_length_header(
+        &mut self,
+        content_length: usize,
+    ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
+        self.inner
+            .set_header(&Header::new("Content-Length", content_length.to_string()))
+    }
+
+    /// Set the checksum header.
+    fn set_checksum_header(
+        &mut self,
+        checksum: &UploadChecksum,
+    ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
+        let header = match checksum {
+            UploadChecksum::Crc32c(crc32c) => Header::new("x-amz-checksum-crc32c", crc32c_to_base64(crc32c)),
+        };
+        self.inner.set_header(&header)
     }
 }
 
@@ -1056,6 +1092,7 @@ fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
         RequestType::AbortMultipartUpload => "AbortMultipartUpload",
         RequestType::CompleteMultipartUpload => "CompleteMultipartUpload",
         RequestType::UploadPartCopy => "UploadPartCopy",
+        RequestType::PutObject => "PutObject",
     }
 }
 
@@ -1264,6 +1301,16 @@ impl ObjectClient for S3CrtClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError> {
         self.put_object(bucket, key, params).await
+    }
+
+    async fn put_object_single<'a>(
+        &self,
+        bucket: &str,
+        key: &str,
+        params: &PutObjectSingleParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
+        self.put_object_single(bucket, key, params, contents).await
     }
 
     async fn get_object_attributes(
