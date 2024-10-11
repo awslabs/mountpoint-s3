@@ -1,7 +1,7 @@
 /// Helper to define type-safe flags from `libc` constants.
 /// Usage:
 ///
-/// ```
+/// ```ignore
 /// struct MyFlags(u32);
 ///
 /// libc_flags! {
