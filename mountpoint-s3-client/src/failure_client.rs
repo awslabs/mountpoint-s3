@@ -16,10 +16,9 @@ use pin_project::pin_project;
 use crate::object_client::{
     DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
     GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, UploadReview,
+    ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
 };
-use crate::ObjectClient;
 
 // Wrapper for injecting failures into a get stream or a put request
 pub struct FailureRequestWrapper<Client: ObjectClient, RequestWrapperState> {
@@ -166,7 +165,7 @@ where
         &self,
         bucket: &str,
         key: &str,
-        params: &PutObjectParams,
+        params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send + 'a,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         // TODO failure hook for put_object_single

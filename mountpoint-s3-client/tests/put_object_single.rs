@@ -3,11 +3,10 @@
 pub mod common;
 
 use common::*;
-use mountpoint_s3_client::checksums::crc32c_to_base64;
+use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::{PutObjectParams, PutObjectResult, PutObjectTrailingChecksums};
+use mountpoint_s3_client::types::{ChecksumAlgorithm, PutObjectResult, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_crt::checksums::crc32c;
 use rand::Rng;
 use test_case::test_case;
 
@@ -17,7 +16,7 @@ async fn test_put_object_single(
     client: &(impl ObjectClient + Sync),
     bucket: &str,
     key: &str,
-    request_params: PutObjectParams,
+    request_params: PutObjectSingleParams,
 ) -> PutObjectResult {
     let mut rng = rand::thread_rng();
 
@@ -46,7 +45,7 @@ async fn test_put_object_single_empty(
     client: &(impl ObjectClient + Sync),
     bucket: &str,
     key: &str,
-    request_params: PutObjectParams,
+    request_params: PutObjectSingleParams,
 ) -> PutObjectResult {
     let put_object_result = client
         .put_object_single(bucket, key, &request_params, [])
@@ -64,11 +63,10 @@ async fn test_put_object_single_empty(
 
 object_client_test!(test_put_object_single_empty);
 
-#[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-#[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
-#[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
+#[test_case(None; "no checksum")]
+#[test_case(Some(ChecksumAlgorithm::Crc32c); "crc32c")]
 #[tokio::test]
-async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
+async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
     const PART_SIZE: usize = 5 * 1024 * 1024;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
     let client_config = S3ClientConfig::new()
@@ -81,7 +79,13 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(trailing_checksums);
+    let checksum = match checksum_algorithm {
+        Some(ChecksumAlgorithm::Crc32c) => Some(UploadChecksum::Crc32c(crc32c::checksum(&contents))),
+        Some(_) => unimplemented!("checksum algorithm not supported"),
+        None => None,
+    };
+
+    let params = PutObjectSingleParams::new().checksum(checksum.clone());
     client
         .put_object_single(&bucket, &key, &params, &contents)
         .await
@@ -97,17 +101,19 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
         .await
         .unwrap();
 
-    if trailing_checksums == PutObjectTrailingChecksums::Enabled {
-        let checksum = output.checksum_crc32_c().unwrap();
-        let expected_checksum = crc32c::checksum(&contents);
-
-        let encoded = crc32c_to_base64(&expected_checksum);
-        assert_eq!(checksum, encoded);
-    } else {
-        assert!(
-            output.checksum_crc32_c().is_none(),
-            "crc32c should not be present when upload checksums are disabled"
-        );
+    match checksum {
+        Some(UploadChecksum::Crc32c(upload_checksum)) => {
+            let checksum = output.checksum_crc32_c().unwrap();
+            let encoded = crc32c_to_base64(&upload_checksum);
+            assert_eq!(checksum, encoded);
+        }
+        Some(_) => unreachable!("unexpected checksum type"),
+        None => {
+            assert!(
+                output.checksum_crc32_c().is_none(),
+                "crc32c should not be present when upload checksums are disabled"
+            );
+        }
     }
 }
 
@@ -125,7 +131,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().storage_class(storage_class.to_owned());
+    let params = PutObjectSingleParams::new().storage_class(storage_class.to_owned());
     client
         .put_object_single(&bucket, &key, &params, &contents)
         .await
@@ -216,7 +222,7 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
     let bucket = get_test_bucket();
     let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let request_params = PutObjectParams::new()
+    let request_params = PutObjectSingleParams::new()
         .server_side_encryption(sse_type.map(|value| value.to_owned()))
         .ssekms_key_id(kms_key_id.to_owned());
 

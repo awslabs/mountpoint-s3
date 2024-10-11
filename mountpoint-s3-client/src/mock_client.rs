@@ -28,7 +28,7 @@ use crate::object_client::{
     GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
     HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
     ObjectClientResult, ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
-    PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
+    PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -714,7 +714,7 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
-        params: &PutObjectParams,
+        params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send + 'a,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         trace!(bucket, key, "PutObject");

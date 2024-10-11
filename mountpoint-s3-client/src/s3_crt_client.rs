@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -37,10 +36,12 @@ use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
+use crate::checksums::crc32c_to_base64;
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
+use crate::object_client::*;
 use crate::user_agent::UserAgent;
-use crate::{object_client::*, S3GetObjectRequest, S3PutObjectRequest};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -57,10 +58,15 @@ macro_rules! request_span {
 
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
+
+pub(crate) use get_object::S3GetObjectRequest;
 pub(crate) mod get_object_attributes;
+
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
+
 pub(crate) mod put_object;
+pub(crate) use put_object::S3PutObjectRequest;
 
 pub(crate) mod head_bucket;
 pub use head_bucket::HeadBucketError;
@@ -912,6 +918,26 @@ impl<'a> S3Message<'a> {
     fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
         self.inner.set_body_stream(input_stream)
     }
+
+    /// Set the content length header.
+    fn set_content_length_header(
+        &mut self,
+        content_length: usize,
+    ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
+        self.inner
+            .set_header(&Header::new("Content-Length", content_length.to_string()))
+    }
+
+    /// Set the checksum header.
+    fn set_checksum_header(
+        &mut self,
+        checksum: &UploadChecksum,
+    ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
+        let header = match checksum {
+            UploadChecksum::Crc32c(crc32c) => Header::new("x-amz-checksum-crc32c", crc32c_to_base64(crc32c)),
+        };
+        self.inner.set_header(&header)
+    }
 }
 
 #[derive(Debug)]
@@ -1272,7 +1298,7 @@ impl ObjectClient for S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        params: &PutObjectParams,
+        params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send + 'a,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.put_object_single(bucket, key, params, contents).await

@@ -1,10 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult};
-use crate::s3_crt_client::{
-    emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation,
-    S3RequestError,
+use crate::object_client::{
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
 };
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -13,7 +11,10 @@ use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, RequestType, UploadReview};
 use tracing::error;
 
-use super::S3Message;
+use super::{
+    emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
+    S3Operation, S3RequestError,
+};
 
 const SSE_TYPE_HEADER_NAME: &str = "x-amz-server-side-encryption";
 const SSE_KEY_ID_HEADER_NAME: &str = "x-amz-server-side-encryption-aws-kms-key-id";
@@ -26,7 +27,20 @@ impl S3CrtClient {
         params: &PutObjectParams,
     ) -> ObjectClientResult<S3PutObjectRequest, PutObjectError, S3RequestError> {
         let span = request_span!(self.inner, "put_object", bucket, key);
-        let message = self.new_put_request(bucket, key, params)?;
+        let mut message = self.new_put_request(
+            bucket,
+            key,
+            params.storage_class.as_deref(),
+            params.server_side_encryption.as_deref(),
+            params.ssekms_key_id.as_deref(),
+        )?;
+
+        let checksum_config = match params.trailing_checksums {
+            PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
+            PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
+            PutObjectTrailingChecksums::Disabled => None,
+        };
+        message.set_checksum_config(checksum_config);
 
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
@@ -87,7 +101,7 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        params: &PutObjectParams,
+        params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send + 'a,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, S3RequestError> {
         let span = request_span!(self.inner, "put_object_single", bucket, key);
@@ -99,10 +113,22 @@ impl S3CrtClient {
         let slice = contents.as_ref();
         let content_length = slice.len();
         let body = {
-            let mut message = self.new_put_request(bucket, key, params)?;
+            let mut message = self.new_put_request(
+                bucket,
+                key,
+                params.storage_class.as_deref(),
+                params.server_side_encryption.as_deref(),
+                params.ssekms_key_id.as_deref(),
+            )?;
             message
-                .set_header(&Header::new("Content-Length", content_length.to_string()))
+                .set_content_length_header(content_length)
                 .map_err(S3RequestError::construction_failure)?;
+            if let Some(checksum) = &params.checksum {
+                message
+                    .set_checksum_header(checksum)
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
             let body_input_stream =
                 InputStream::new_from_slice(&self.inner.allocator, slice).map_err(S3RequestError::CrtError)?;
             message.set_body_stream(Some(body_input_stream));
@@ -128,7 +154,9 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        params: &PutObjectParams,
+        storage_class: Option<&str>,
+        server_side_encryption: Option<&str>,
+        ssekms_key_id: Option<&str>,
     ) -> Result<S3Message<'_>, S3RequestError> {
         let mut message = self
             .inner
@@ -140,25 +168,18 @@ impl S3CrtClient {
             .set_request_path(&key)
             .map_err(S3RequestError::construction_failure)?;
 
-        let checksum_config = match params.trailing_checksums {
-            PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
-            PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
-            PutObjectTrailingChecksums::Disabled => None,
-        };
-        message.set_checksum_config(checksum_config);
-
-        if let Some(storage_class) = params.storage_class.to_owned() {
+        if let Some(storage_class) = storage_class {
             message
                 .set_header(&Header::new("x-amz-storage-class", storage_class))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        if let Some(sse) = params.server_side_encryption.as_ref() {
+        if let Some(sse) = server_side_encryption {
             message
                 .set_header(&Header::new(SSE_TYPE_HEADER_NAME, sse))
                 .map_err(S3RequestError::construction_failure)?;
         }
-        if let Some(key_id) = params.ssekms_key_id.as_ref() {
+        if let Some(key_id) = ssekms_key_id {
             message
                 .set_header(&Header::new(SSE_KEY_ID_HEADER_NAME, key_id))
                 .map_err(S3RequestError::construction_failure)?;

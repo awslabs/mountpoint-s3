@@ -235,7 +235,6 @@ macro_rules! object_client_test {
         mod $test_fn_identifier {
             use super::$test_fn_identifier;
             use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
-            use mountpoint_s3_client::types::PutObjectParams;
             use $crate::{get_test_bucket_and_prefix, get_test_client};
 
             #[tokio::test]
@@ -250,7 +249,7 @@ macro_rules! object_client_test {
                 });
 
                 let key = format!("{prefix}hello");
-                $test_fn_identifier(&client, &bucket, &key, PutObjectParams::new()).await;
+                $test_fn_identifier(&client, &bucket, &key, Default::default()).await;
             }
 
             #[tokio::test]
@@ -260,7 +259,7 @@ macro_rules! object_client_test {
                 let client = get_test_client();
 
                 let key = format!("{prefix}hello");
-                $test_fn_identifier(&client, &bucket, &key, PutObjectParams::new()).await;
+                $test_fn_identifier(&client, &bucket, &key, Default::default()).await;
             }
         }
     };
