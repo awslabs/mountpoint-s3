@@ -18,13 +18,15 @@ macro_rules! libc_flags {
     (
         $struct_name:ident : $raw_type:ty {
         $(
-        $flag_name:ident
+            $(#[$flag_attr:ident $($flag_meta_args:tt)*])*
+            $flag_name:ident
         ),*$(,)+
     }
     ) => {
         bitflags::bitflags! {
             impl $struct_name : $raw_type {
                 $(
+                    $(#[$flag_attr $($flag_meta_args)*])*
                     const $flag_name = libc::$flag_name;
                 )*
 
@@ -66,10 +68,12 @@ libc_flags! {
         O_SYNC,
         O_TRUNC,
         O_DSYNC,
-        O_DIRECT,
         O_NONBLOCK,
         O_NOCTTY,
         O_CREAT,
+
+        #[cfg(target_os = "linux")]
+        O_DIRECT,
 
         // Incomplete list. To be integrated if/when required.
     }
@@ -89,6 +93,10 @@ mod tests {
     #[test]
     fn debug_test() {
         let flags = OpenFlags::O_WRONLY | OpenFlags::O_APPEND;
-        assert_eq!(format!("{:?}", flags), "OpenFlags(0x9 = O_WRONLY | O_APPEND)");
+        let expected = format!(
+            "OpenFlags({:#x} = O_WRONLY | O_APPEND)",
+            libc::O_WRONLY | libc::O_APPEND
+        );
+        assert_eq!(format!("{:?}", flags), expected);
     }
 }
