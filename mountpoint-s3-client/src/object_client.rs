@@ -316,6 +316,8 @@ pub struct PutObjectParams {
     /// If `server_side_encryption` has a valid value of aws:kms or aws:kms:dsse, this value may be used to specify AWS KMS key ID to be used
     /// when creating new S3 object
     pub ssekms_key_id: Option<String>,
+    /// Custom headers to add to the request
+    pub custom_headers: Vec<(String, String)>,
 }
 
 impl PutObjectParams {
@@ -345,6 +347,12 @@ impl PutObjectParams {
     /// Set KMS key ID to be used for server-side encryption.
     pub fn ssekms_key_id(mut self, value: Option<String>) -> Self {
         self.ssekms_key_id = value;
+        self
+    }
+
+    /// Add a custom header to the request.
+    pub fn add_custom_header(mut self, name: String, value: String) -> Self {
+        self.custom_headers.push((name, value));
         self
     }
 }

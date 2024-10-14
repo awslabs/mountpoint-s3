@@ -624,3 +624,30 @@ async fn test_concurrent_put_objects(throughput_target_gbps: f64, max_concurrent
     // Cancel all put_object requests.
     drop(req_vec);
 }
+
+#[tokio::test]
+async fn test_put_object_header() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_header");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let content_type = "application/json";
+    let params = PutObjectParams::new().add_custom_header("Content-Type".to_owned(), content_type.to_owned());
+    let mut request = client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect("put_object should succeed");
+    request
+        .write(b"{ \"key\": \"value\" }")
+        .await
+        .expect("write should succeed");
+    request
+        .complete()
+        .await
+        .expect("the upload should complete successfully");
+
+    let sdk_client = get_test_sdk_client().await;
+    let output = sdk_client.head_object().bucket(bucket).key(key).send().await.unwrap();
+
+    assert_eq!(Some(content_type), output.content_type());
+}
