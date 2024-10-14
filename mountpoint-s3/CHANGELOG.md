@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v1.10.0 (October 15, 2024)
+
 ### New features
 
 * Mountpoint now automatically adjusts its prefetcher read window size based on available system memory. This reduces the risk of Mountpoint potentially consuming all available system memory in cases where a large number of file handles are read from concurrently. ([#1013](https://github.com/awslabs/mountpoint-s3/pull/1013))
@@ -9,6 +11,10 @@
 * When configured to log to a directory, Mountpoint now includes a random string following the timestamp in the file name.
   Previously, multiple Mountpoint processes would write to the same log file causing log entries to be interleaved.
   ([#1041](https://github.com/awslabs/mountpoint-s3/pull/1041))
+
+### Other changes
+
+* When updating the local disk cache, Mountpoint now writes to disk asynchronously, without blocking the read path. The change favours cold cache reads but may result in additional initial cache misses in highly concurrent workloads. ([#1029](https://github.com/awslabs/mountpoint-s3/pull/1029))
 
 ## v1.9.1 (September 19, 2024)
 
