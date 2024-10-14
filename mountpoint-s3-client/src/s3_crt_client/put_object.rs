@@ -128,6 +128,12 @@ impl S3CrtClient {
                     .set_checksum_header(checksum)
                     .map_err(S3RequestError::construction_failure)?;
             }
+            for (name, value) in &params.custom_headers {
+                message
+                    .inner
+                    .add_header(&Header::new(name, value))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
 
             let body_input_stream =
                 InputStream::new_from_slice(&self.inner.allocator, slice).map_err(S3RequestError::CrtError)?;

@@ -236,3 +236,22 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
     let put_object_result = test_put_object_single(&client, &bucket, &key, request_params.clone()).await;
     check_sse(&bucket, &key, sse_type, &kms_key_id, put_object_result).await;
 }
+
+#[tokio::test]
+async fn test_put_object_header() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_header");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let content_type = "application/json";
+    let params = PutObjectSingleParams::new().add_custom_header("Content-Type".to_owned(), content_type.to_owned());
+    client
+        .put_object_single(&bucket, &key, &params, b"{ \"key\": \"value\" }")
+        .await
+        .expect("put_object should succeed");
+
+    let sdk_client = get_test_sdk_client().await;
+    let output = sdk_client.head_object().bucket(bucket).key(key).send().await.unwrap();
+
+    assert_eq!(Some(content_type), output.content_type());
+}
