@@ -677,7 +677,7 @@ impl Harness {
     }
 
     async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
-        let fh = match self.fs.open(fs_file, OpenFlags::O_RDONLY, 0).await {
+        let fh = match self.fs.open(fs_file, OpenFlags::empty(), 0).await {
             Ok(ret) => ret.fh,
             Err(e) => panic!("failed to open {fs_file}: {e:?}"),
         };
@@ -702,7 +702,7 @@ impl Harness {
     /// readable (open should fail).
     async fn check_local_file(&self, inode: InodeNo) {
         let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
-        let open = self.fs.open(inode, OpenFlags::O_RDONLY, 0).await;
+        let open = self.fs.open(inode, OpenFlags::empty(), 0).await;
         assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
     }
 }

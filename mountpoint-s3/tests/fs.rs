@@ -93,7 +93,7 @@ async fn test_read_dir_root(prefix: &str) {
         assert_eq!(attr.attr.ino, reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+        let fh = fs.open(reply.ino, OpenFlags::empty(), 0).await.unwrap().fh;
         let bytes_read = fs
             .read(reply.ino, fh, 0, 4096, 0, None)
             .await
@@ -169,7 +169,7 @@ async fn test_read_dir_nested(prefix: &str) {
         assert_eq!(attr.attr.ino, reply.ino);
         assert_attr(attr.attr, FileType::RegularFile, 15, uid, gid, file_perm);
 
-        let fh = fs.open(reply.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+        let fh = fs.open(reply.ino, OpenFlags::empty(), 0).await.unwrap().fh;
         let bytes_read = fs
             .read(reply.ino, fh, 0, 4096, 0, None)
             .await
@@ -283,12 +283,12 @@ async fn test_lookup_then_open_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(ino, OpenFlags::empty(), 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(entry.attr.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(entry.attr.ino, OpenFlags::empty(), 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
@@ -315,12 +315,12 @@ async fn test_lookup_then_open_no_cache() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    let fh = fs.open(ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(ino, OpenFlags::empty(), 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 2);
     assert_eq!(list_counter.count(), 2);
 
-    let fh = fs.open(entry.attr.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(entry.attr.ino, OpenFlags::empty(), 0).await.unwrap().fh;
     fs.release(ino, fh, 0, None, true).await.unwrap();
     assert_eq!(head_counter.count(), 3);
     assert_eq!(list_counter.count(), 3);
@@ -365,7 +365,7 @@ async fn test_readdir_then_open_cached() {
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
 
-        let fh = fs.open(entry.ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+        let fh = fs.open(entry.ino, OpenFlags::empty(), 0).await.unwrap().fh;
 
         assert_eq!(head_counter.count(), 0);
         assert_eq!(list_counter.count(), 1);
@@ -489,7 +489,7 @@ async fn test_random_read(object_size: usize) {
     assert_eq!(reply.entries[2].name, "file");
     let ino = reply.entries[2].ino;
 
-    let fh = fs.open(ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(ino, OpenFlags::empty(), 0).await.unwrap().fh;
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
     for _ in 0..10 {
@@ -544,7 +544,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
     assert_eq!(reply.entries[2].name, "file2.txt");
     assert_eq!(reply.entries[2].attr.kind, FileType::RegularFile);
 
-    let fh = fs.open(reply.entries[2].ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(reply.entries[2].ino, OpenFlags::empty(), 0).await.unwrap().fh;
     let bytes_read = fs
         .read(reply.entries[2].ino, fh, 0, 4096, 0, None)
         .await
@@ -633,7 +633,7 @@ async fn test_sequential_write(write_size: usize) {
     assert_eq!(result, libc::EPERM);
 
     // But read-only should work
-    let fh = fs.open(file_ino, OpenFlags::O_RDONLY, 0).await.unwrap().fh;
+    let fh = fs.open(file_ino, OpenFlags::empty(), 0).await.unwrap().fh;
 
     let mut offset = 0;
     while offset < size {
@@ -1250,7 +1250,7 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(entry.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(entry.ino, OpenFlags::O_RDONLY, 0).await;
+        let open = fs.open(entry.ino, OpenFlags::empty(), 0).await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);
@@ -1281,7 +1281,7 @@ async fn test_flexible_retrieval_objects() {
         let getattr = fs.getattr(lookup.attr.ino).await.unwrap();
         assert_eq!(flexible_retrieval, getattr.attr.perm == 0);
 
-        let open = fs.open(lookup.attr.ino, OpenFlags::O_RDONLY, 0).await;
+        let open = fs.open(lookup.attr.ino, OpenFlags::empty(), 0).await;
         if flexible_retrieval {
             let err = open.expect_err("can't open flexible retrieval objects");
             assert_eq!(err.to_errno(), libc::EACCES);

@@ -55,15 +55,21 @@ macro_rules! libc_flags {
 }
 
 /// Flags used in [`open`](super::S3Filesystem::open).
+///
+/// Note that the "access mode" constants are not mapped as values because they do not behave
+/// like normal bit flags (and will not be shown in `Debug`/`Display`):
+/// * `libc::O_ACCMODE = 0b11` is a mask for the access mode,
+/// * `libc::O_RDONLY = 0b00` is also the default value.
+///
+/// The other access mode constants, `libc::O_WRONLY = 0b01` and `libc::O_RDWR = 0b10`, are
+/// valid bit flags and mapped respectively to `OpenFlags::O_WRONLY` and `OpenFlags::O_RDWR`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct OpenFlags(i32);
 
 libc_flags! {
     OpenFlags : i32 {
-        O_RDONLY,
         O_WRONLY,
         O_RDWR,
-        O_ACCMODE,
         O_APPEND,
         O_SYNC,
         O_TRUNC,
@@ -88,6 +94,13 @@ mod tests {
         let raw = libc::O_WRONLY | libc::O_APPEND;
         let flags: OpenFlags = raw.into();
         assert_eq!(flags, OpenFlags::O_WRONLY | OpenFlags::O_APPEND);
+    }
+
+    #[test]
+    fn unknown_test() {
+        let raw = libc::O_ACCMODE; // Not defined as a value in `OpenFlags`.
+        let flags: OpenFlags = raw.into();
+        assert_eq!(flags.bits(), raw, "Unknown value should be preserved");
     }
 
     #[test]
