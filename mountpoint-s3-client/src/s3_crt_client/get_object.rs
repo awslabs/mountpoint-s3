@@ -1,3 +1,6 @@
+use async_once_cell::Lazy;
+use async_trait::async_trait;
+use std::collections::HashMap;
 use std::future::Future;
 use std::ops::Deref;
 use std::ops::Range;
@@ -6,6 +9,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::oneshot;
+use futures::channel::oneshot::{Canceled, Receiver};
 use futures::Stream;
 use mountpoint_s3_crt::common::error::Error;
 use mountpoint_s3_crt::http::request_response::Header;
@@ -67,11 +72,33 @@ impl S3CrtClient {
 
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
         options.part_size(self.inner.read_part_size as u64);
+
+        let (object_metadata_sender, object_metadata_receiver) = oneshot::channel::<HashMap<String, String>>();
+        let mut object_metadata_sender_holder = Some(object_metadata_sender);
+        let object_metadata_cb = Lazy::new(object_metadata_receiver);
         let request = self.inner.make_meta_request_from_options(
             options,
             span,
             |_| (),
-            |_, _| (),
+            move |headers, _status| {
+                // Headers can be returned multiple times, but the object metadata doesn't change.
+                // Explicitly ignore the case where we've already set object metadata.
+                if let Some(object_metadata_sender) = object_metadata_sender_holder.take() {
+                    let object_metadata = headers
+                        .iter()
+                        .filter_map(|(key, value)| {
+                            // Headers will always be UTF-8 when received from S3, so this is safe
+                            key.to_string_lossy()
+                                .strip_prefix("x-amz-meta-")
+                                .map(|metadata_header| {
+                                    (metadata_header.to_string(), value.to_string_lossy().to_string())
+                                })
+                        })
+                        .collect();
+                    // Doesn't matter if receiver's gone away. Either way we don't need to do anything.
+                    let _ = object_metadata_sender.send(object_metadata);
+                }
+            },
             move |offset, data| {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
@@ -89,11 +116,14 @@ impl S3CrtClient {
             finish_receiver: receiver,
             finished: false,
             enable_backpressure: self.inner.enable_backpressure,
+            object_metadata_cb,
             next_offset,
             read_window_end_offset,
         })
     }
 }
+
+type ObjectMetadata = HashMap<String, String>;
 
 /// A streaming response to a GetObject request.
 ///
@@ -109,6 +139,7 @@ pub struct S3GetObjectRequest {
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
     enable_backpressure: bool,
+    object_metadata_cb: Lazy<Result<ObjectMetadata, Canceled>, Receiver<ObjectMetadata>>,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
     /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
@@ -116,8 +147,23 @@ pub struct S3GetObjectRequest {
     read_window_end_offset: u64,
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
+
+    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+        let empty_read_window = self.read_window_end_offset <= self.next_offset;
+        let request_required = self.object_metadata_cb.try_get().is_none();
+        if self.enable_backpressure && empty_read_window && request_required {
+            return Err(S3RequestError::EmptyReadWindow);
+        }
+
+        self.object_metadata_cb
+            .get_unpin()
+            .await
+            .clone()
+            .map_err(|_| S3RequestError::RequestCanceled)
+    }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
         self.read_window_end_offset += len as u64;

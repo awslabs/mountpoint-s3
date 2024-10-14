@@ -530,8 +530,13 @@ impl MockGetObjectRequest {
     }
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
+
+    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+        Ok(self.object.object_metadata.clone())
+    }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
         self.read_window_end_offset += len as u64;
@@ -1061,7 +1066,12 @@ mod tests {
         };
     }
 
-    async fn test_get_object(key: &str, size: usize, range: Option<Range<u64>>) {
+    async fn test_get_object(
+        key: &str,
+        size: usize,
+        range: Option<Range<u64>>,
+        object_metadata: HashMap<String, String>,
+    ) {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
         let client = MockClient::new(MockClientConfig {
@@ -1073,7 +1083,10 @@ mod tests {
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
-        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+
+        let mut object = MockObject::from_bytes(&body, ETag::for_tests());
+        object.set_object_metadata(object_metadata.clone());
+        client.add_object(key, object);
 
         let mut get_request = client
             .get_object("test_bucket", key, range.clone(), None)
@@ -1091,13 +1104,22 @@ mod tests {
         let expected_range = range.unwrap_or(0..size as u64);
         let expected_range = expected_range.start as usize..expected_range.end as usize;
         assert_eq!(&accum[..], &body[expected_range], "body does not match");
+
+        assert_eq!(get_request.get_object_metadata().await, Ok(object_metadata));
     }
 
     #[tokio::test]
     async fn get_object() {
-        test_get_object("key1", 2000, None).await;
-        test_get_object("key1", 9000, Some(50..2000)).await;
-        test_get_object("key1", 10, Some(0..10)).await;
+        test_get_object("key1", 2000, None, Default::default()).await;
+        test_get_object("key1", 9000, Some(50..2000), Default::default()).await;
+        test_get_object("key1", 10, Some(0..10), Default::default()).await;
+        test_get_object(
+            "key1",
+            10,
+            None,
+            HashMap::from([("foo".to_string(), "bar".to_string())]),
+        )
+        .await;
     }
 
     async fn test_get_object_backpressure(

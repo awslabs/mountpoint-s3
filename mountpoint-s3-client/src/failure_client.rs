@@ -222,8 +222,13 @@ pub struct FailureGetRequest<Client: ObjectClient, GetWrapperState> {
     request: Client::GetObjectRequest,
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl<Client: ObjectClient, FailState: Send> GetObjectRequest for FailureGetRequest<Client, FailState> {
     type ClientError = Client::ClientError;
+
+    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+        self.request.get_object_metadata().await
+    }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();

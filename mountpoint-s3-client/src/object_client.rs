@@ -529,6 +529,11 @@ pub trait GetObjectRequest:
 {
     type ClientError: std::error::Error + Send + Sync + 'static;
 
+    /// Get the object's user defined metadata.
+    /// If the metadata has already been read, return immediately. Otherwise, resolve the future
+    /// when they're read.
+    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError>;
+
     /// Increment the flow-control window, so that response data continues downloading.
     ///
     /// If the client was created with `enable_read_backpressure` set true,
