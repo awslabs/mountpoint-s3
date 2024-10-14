@@ -699,8 +699,8 @@ impl SuperblockInner {
             select_biased! {
                 result = file_lookup => {
                     match result {
-                        Ok(HeadObjectResult { object, .. }) => {
-                            let stat = InodeStat::for_file(object.size as usize, object.last_modified, Some(object.etag.clone()), object.storage_class, object.restore_status, self.config.cache_config.file_ttl);
+                        Ok(HeadObjectResult { size, last_modified, restore_status ,etag, storage_class, .. }) => {
+                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag), storage_class, restore_status, self.config.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -1276,7 +1276,6 @@ mod tests {
                         .head_object(bucket, file.inode.full_key())
                         .await
                         .expect("object should exist")
-                        .object
                         .last_modified;
                     assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
                     assert_eq!(

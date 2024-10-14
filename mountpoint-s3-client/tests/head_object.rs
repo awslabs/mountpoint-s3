@@ -22,7 +22,7 @@ async fn test_head_object() {
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_head_object");
 
-    let key = format!("{prefix}/hello");
+    let key = format!("{prefix}hello");
     let body = b"hello world!";
     sdk_client
         .put_object()
@@ -36,9 +36,11 @@ async fn test_head_object() {
     let client: S3CrtClient = get_test_client();
     let result = client.head_object(&bucket, &key).await.expect("head_object failed");
 
-    assert_eq!(result.bucket, bucket);
-    assert_eq!(result.object.key, key);
-    assert_eq!(result.object.size as usize, body.len());
+    assert_eq!(
+        result.size as usize,
+        body.len(),
+        "HeadObject reported size should match uploaded body length",
+    );
 }
 
 #[test_case("INTELLIGENT_TIERING")]
@@ -65,11 +67,9 @@ async fn test_head_object_storage_class(storage_class: &str) {
     let client: S3CrtClient = get_test_client();
     let result = client.head_object(&bucket, &key).await.expect("head_object failed");
 
-    assert_eq!(result.bucket, bucket);
-    assert_eq!(result.object.key, key);
-    assert_eq!(result.object.size as usize, body.len());
-    assert_eq!(result.object.storage_class.as_deref(), Some(storage_class));
-    assert!(result.object.restore_status.is_none());
+    assert_eq!(result.size as usize, body.len());
+    assert_eq!(result.storage_class.as_deref(), Some(storage_class));
+    assert!(result.restore_status.is_none());
 }
 
 #[tokio::test]
@@ -140,10 +140,8 @@ async fn test_head_object_restored() {
     let client: S3CrtClient = get_test_client();
     let result = client.head_object(&bucket, &key).await.expect("head_object failed");
 
-    assert_eq!(result.bucket, bucket);
-    assert_eq!(result.object.key, key);
     assert!(
-        result.object.restore_status.is_none(),
+        result.restore_status.is_none(),
         "object should become restored only after restoration"
     );
 
@@ -168,18 +166,14 @@ async fn test_head_object_restored() {
 
     let timeout = Duration::from_secs(300);
     let start = Instant::now();
-    let mut timeouted = true;
+    let mut timeout_exceeded = true;
     while start.elapsed() < timeout {
-        let object = client
-            .head_object(&bucket, &key)
-            .await
-            .expect("head_object failed")
-            .object;
-        if let Some(RestoreStatus::Restored { expiry: _ }) = object.restore_status {
-            timeouted = false;
+        let response = client.head_object(&bucket, &key).await.expect("head_object failed");
+        if let Some(RestoreStatus::Restored { expiry: _ }) = response.restore_status {
+            timeout_exceeded = false;
             break;
         }
         std::thread::sleep(Duration::from_secs(1));
     }
-    assert!(!timeouted, "timeouted while waiting for object become restored");
+    assert!(!timeout_exceeded, "timeouted while waiting for object become restored");
 }

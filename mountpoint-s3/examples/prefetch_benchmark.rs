@@ -113,8 +113,8 @@ fn main() {
     let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
 
     let head_object_result = block_on(client.head_object(bucket, key)).expect("HeadObject failed");
-    let size = head_object_result.object.size;
-    let etag = ETag::from_str(&head_object_result.object.etag).unwrap();
+    let size = head_object_result.size;
+    let etag = ETag::from_str(&head_object_result.etag).unwrap();
 
     for i in 0..iterations.unwrap_or(1) {
         let runtime = client.event_loop_group();
