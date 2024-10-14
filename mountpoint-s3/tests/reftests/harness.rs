@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use fuser::FileType;
 use futures::future::{BoxFuture, FutureExt};
-use mountpoint_s3::fs::{CacheConfig, InodeNo, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{CacheConfig, InodeNo, OpenFlags, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
@@ -347,7 +347,7 @@ impl Harness {
             return;
         };
 
-        let open = self.fs.open(inflight_write.inode, libc::O_WRONLY, 0).await;
+        let open = self.fs.open(inflight_write.inode, OpenFlags::O_WRONLY, 0).await;
         if inflight_write.file_handle.is_some() {
             // Shouldn't be able to reopen a file that's already open for writing
             assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
@@ -677,7 +677,7 @@ impl Harness {
     }
 
     async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
-        let fh = match self.fs.open(fs_file, 0x8000, 0).await {
+        let fh = match self.fs.open(fs_file, OpenFlags::empty(), 0).await {
             Ok(ret) => ret.fh,
             Err(e) => panic!("failed to open {fs_file}: {e:?}"),
         };
@@ -702,7 +702,7 @@ impl Harness {
     /// readable (open should fail).
     async fn check_local_file(&self, inode: InodeNo) {
         let _stat = self.fs.getattr(inode).await.expect("stat should succeed");
-        let open = self.fs.open(inode, libc::O_RDONLY, 0).await;
+        let open = self.fs.open(inode, OpenFlags::empty(), 0).await;
         assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
     }
 }

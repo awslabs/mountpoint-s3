@@ -33,6 +33,9 @@ pub use error::{Error, ToErrno};
 pub mod error_metadata;
 use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 
+mod flags;
+pub use flags::OpenFlags;
+
 mod handles;
 use handles::{DirHandle, FileHandle, FileHandleState, UploadState};
 
@@ -281,17 +284,17 @@ where
         self.superblock.forget(ino, n);
     }
 
-    pub async fn open(&self, ino: InodeNo, flags: i32, pid: u32) -> Result<Opened, Error> {
-        trace!("fs:open with ino {:?} flags {:#b} pid {:?}", ino, flags, pid);
+    pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
+        trace!("fs:open with ino {:?} flags {} pid {:?}", ino, flags, pid);
 
         #[cfg(not(target_os = "linux"))]
         let direct_io = false;
         #[cfg(target_os = "linux")]
-        let direct_io = flags & libc::O_DIRECT != 0;
+        let direct_io = flags.contains(OpenFlags::O_DIRECT);
 
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
-        if flags & (libc::O_SYNC | libc::O_DSYNC) != 0 {
+        if flags.intersects(OpenFlags::O_SYNC | OpenFlags::O_DSYNC) {
             return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
@@ -309,12 +312,12 @@ where
 
         // Open with O_APPEND is ok for new files because it's same as creating a new one.
         // but we can't support it on existing files and we should explicitly say we don't allow that.
-        if remote_file && (flags & libc::O_APPEND != 0) {
+        if remote_file && flags.contains(OpenFlags::O_APPEND) {
             return Err(err!(libc::EINVAL, "O_APPEND is not supported on existing files"));
         }
 
-        let state = if flags & libc::O_RDWR != 0 {
-            let is_truncate = flags & libc::O_TRUNC != 0;
+        let state = if flags.contains(OpenFlags::O_RDWR) {
+            let is_truncate = flags.contains(OpenFlags::O_TRUNC);
             if !remote_file || (self.config.allow_overwrite && is_truncate) {
                 // If the file is new or opened in truncate mode, we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
@@ -324,7 +327,7 @@ where
                 debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
-        } else if flags & libc::O_WRONLY != 0 {
+        } else if flags.contains(OpenFlags::O_WRONLY) {
             FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?
         } else {
             FileHandleState::new_read_handle(&lookup, self).await?
@@ -832,7 +835,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(dentry.attr.size, 0);
-        fs.open(dentry.attr.ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect("open before the corruption should succeed");
 
@@ -845,7 +848,7 @@ mod tests {
             .unwrap();
         assert_eq!(dentry.attr.size, 0);
         let err = fs
-            .open(dentry.attr.ino, libc::S_IFREG as i32 | libc::O_WRONLY, 0)
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
             .await
             .expect_err("open after the corruption should fail");
         assert_eq!(err.errno, libc::EIO);
