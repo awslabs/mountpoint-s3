@@ -655,15 +655,11 @@ impl ObjectClient for MockClient {
         let objects = self.objects.read().unwrap();
         if let Some(object) = objects.get(key) {
             Ok(HeadObjectResult {
-                bucket: bucket.to_string(),
-                object: ObjectInfo {
-                    key: key.to_string(),
-                    size: object.size as u64,
-                    last_modified: object.last_modified,
-                    etag: object.etag.as_str().to_string(),
-                    storage_class: object.storage_class.clone(),
-                    restore_status: object.restore_status,
-                },
+                size: object.size as u64,
+                last_modified: object.last_modified,
+                etag: object.etag.as_str().to_string(),
+                storage_class: object.storage_class.clone(),
+                restore_status: object.restore_status,
             })
         } else {
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))

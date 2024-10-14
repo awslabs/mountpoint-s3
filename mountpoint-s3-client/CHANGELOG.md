@@ -5,6 +5,13 @@
 * Inaccurate reporting of `s3.client.buffer_pool.primary_allocated` CRT statistic is fixed. ([awslabs/aws-c-s3#453](https://github.com/awslabs/aws-c-s3/pull/453))
 * Expose `s3.client.buffer_pool.forced_used` metric which account for buffer allocations that could exceed memory limit in the CRT buffer pool. ([#1025](https://github.com/awslabs/mountpoint-s3/pull/1025))
 
+### Breaking changes
+
+* `HeadObjectResult` no longer contains an `ObjectInfo` struct.
+  Instead, it returns the object attributes as individual fields on the `HeadObjectResult`.
+  `HeadObjectResult` no longer provides the bucket and key used in the original request.
+  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
+
 ## v0.10.0 (September 12, 2024)
 
 ### Breaking changes
