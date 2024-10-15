@@ -361,6 +361,7 @@ impl DataCache for DiskDataCache {
         cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
+        _object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
@@ -407,6 +408,7 @@ impl DataCache for DiskDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
         bytes: ChecksummedBytes,
+        _object_size: usize,
     ) -> DataCacheResult<()> {
         if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
@@ -634,6 +636,9 @@ mod tests {
         let data_2 = ChecksummedBytes::new("Bar".into());
         let data_3 = ChecksummedBytes::new("Baz".into());
 
+        let object_1_size = data_1.len() + data_3.len();
+        let object_2_size = data_2.len();
+
         let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
         let cache = DiskDataCache::new(
@@ -650,7 +655,7 @@ mod tests {
         );
 
         let block = cache
-            .get_block(&cache_key_1, 0, 0)
+            .get_block(&cache_key_1, 0, 0, object_1_size)
             .await
             .expect("cache should be accessible");
         assert!(
@@ -661,11 +666,11 @@ mod tests {
 
         // PUT and GET, OK?
         cache
-            .put_block(cache_key_1.clone(), 0, 0, data_1.clone())
+            .put_block(cache_key_1.clone(), 0, 0, data_1.clone(), object_1_size)
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 0, 0)
+            .get_block(&cache_key_1, 0, 0, object_1_size)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -676,11 +681,11 @@ mod tests {
 
         // PUT AND GET a second file, OK?
         cache
-            .put_block(cache_key_2.clone(), 0, 0, data_2.clone())
+            .put_block(cache_key_2.clone(), 0, 0, data_2.clone(), object_2_size)
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_2, 0, 0)
+            .get_block(&cache_key_2, 0, 0, object_2_size)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -691,11 +696,11 @@ mod tests {
 
         // PUT AND GET a second block in a cache entry, OK?
         cache
-            .put_block(cache_key_1.clone(), 1, block_size, data_3.clone())
+            .put_block(cache_key_1.clone(), 1, block_size, data_3.clone(), object_1_size)
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 1, block_size)
+            .get_block(&cache_key_1, 1, block_size, object_1_size)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -706,7 +711,7 @@ mod tests {
 
         // Entry 1's first block still intact
         let entry = cache
-            .get_block(&cache_key_1, 0, 0)
+            .get_block(&cache_key_1, 0, 0, object_1_size)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -732,11 +737,11 @@ mod tests {
         let cache_key = ObjectId::new("a".into(), ETag::for_tests());
 
         cache
-            .put_block(cache_key.clone(), 0, 0, slice.clone())
+            .put_block(cache_key.clone(), 0, 0, slice.clone(), slice.len())
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key, 0, 0)
+            .get_block(&cache_key, 0, 0, slice.len())
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -767,9 +772,10 @@ mod tests {
             cache_key: &ObjectId,
             block_idx: u64,
             expected_bytes: &ChecksummedBytes,
+            object_size: usize,
         ) -> bool {
             if let Some(retrieved) = cache
-                .get_block(cache_key, block_idx, block_idx * (BLOCK_SIZE) as u64)
+                .get_block(cache_key, block_idx, block_idx * (BLOCK_SIZE) as u64, object_size)
                 .await
                 .expect("cache should be accessible")
             {
@@ -817,6 +823,7 @@ mod tests {
                     block_idx as u64,
                     (block_idx * BLOCK_SIZE) as u64,
                     bytes.clone(),
+                    LARGE_OBJECT_SIZE,
                 )
                 .await
                 .unwrap();
@@ -830,13 +837,16 @@ mod tests {
                     block_idx as u64,
                     (block_idx * BLOCK_SIZE) as u64,
                     bytes.clone(),
+                    SMALL_OBJECT_SIZE,
                 )
                 .await
                 .unwrap();
         }
 
         let count_small_object_blocks_in_cache = futures::stream::iter(small_object_blocks.iter().enumerate())
-            .filter(|&(block_idx, bytes)| is_block_in_cache(&cache, &small_object_key, block_idx as u64, bytes))
+            .filter(|&(block_idx, bytes)| {
+                is_block_in_cache(&cache, &small_object_key, block_idx as u64, bytes, SMALL_OBJECT_SIZE)
+            })
             .count()
             .await;
         assert_eq!(
@@ -846,7 +856,9 @@ mod tests {
         );
 
         let count_large_object_blocks_in_cache = futures::stream::iter(large_object_blocks.iter().enumerate())
-            .filter(|&(block_idx, bytes)| is_block_in_cache(&cache, &large_object_key, block_idx as u64, bytes))
+            .filter(|&(block_idx, bytes)| {
+                is_block_in_cache(&cache, &large_object_key, block_idx as u64, bytes, LARGE_OBJECT_SIZE)
+            })
             .count()
             .await;
         assert!(
