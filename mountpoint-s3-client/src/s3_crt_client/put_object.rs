@@ -225,7 +225,8 @@ pub struct S3PutObjectRequest {
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
-    /// Headers of the CompleteMultipartUpload response, available after the request was finished
+    /// Future for the headers of the CompleteMultipartUpload response.
+    /// Guaranteed to be available after the request finishes successfully.
     response_headers: Receiver<Headers>,
     state: S3PutObjectRequestState,
 }
@@ -280,6 +281,11 @@ fn extract_result(response_headers: Headers) -> Result<PutObjectResult, S3Reques
 /// Creates `on_headers` callback that will send the response headers to the matching `Receiver`.
 fn response_headers_handler() -> (impl FnMut(&Headers, i32), Receiver<Headers>) {
     let (response_headers_sender, response_headers) = oneshot::channel();
+    // The callback signature (`FnMut`) allows for it to be invoked multiple times,
+    // but for PUT requests it will only be called once (on CompleteMultipartUpload
+    // or on PutObject).
+    // Wrapping the `oneshot::Sender` in an `Option` allows it to be consumed
+    // on the first (and only!) invocation.
     let mut response_headers_sender = Some(response_headers_sender);
     let on_headers = move |headers: &Headers, _: i32| {
         if let Some(sender) = response_headers_sender.take() {
