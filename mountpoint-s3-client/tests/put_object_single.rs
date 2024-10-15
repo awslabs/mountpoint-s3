@@ -2,13 +2,14 @@
 
 pub mod common;
 
+use std::collections::HashMap;
+
 use common::*;
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, PutObjectResult, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use rand::Rng;
-use std::collections::HashMap;
 use test_case::test_case;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
@@ -122,21 +123,14 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
 #[test_case(HashMap::from([("foo".to_string(), "bar".to_string()), ("a".to_string(), "b".to_string())]); "ASCII")]
 #[tokio::test]
 async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, String>) {
-    const PART_SIZE: usize = 5 * 1024 * 1024;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_happy");
-    let client_config = S3ClientConfig::new()
-        .part_size(PART_SIZE)
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
-    let mut contents = vec![0u8; PART_SIZE * 2];
-    rng.fill(&mut contents[..]);
-
     let params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
     client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, b"data")
         .await
         .expect("put_object should succeed");
 
@@ -156,21 +150,14 @@ async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, St
 #[test_case(HashMap::from([("£".to_string(), "£".to_string())]); "UTF-8")]
 #[tokio::test]
 async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<String, String>) {
-    const PART_SIZE: usize = 5 * 1024 * 1024;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_bad_header");
-    let client_config = S3ClientConfig::new()
-        .part_size(PART_SIZE)
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
-    let mut contents = vec![0u8; PART_SIZE * 2];
-    rng.fill(&mut contents[..]);
-
     let params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
     client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, b"data")
         .await
         .expect_err("header parsing should fail");
 }

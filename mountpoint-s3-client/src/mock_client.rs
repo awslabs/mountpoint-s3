@@ -964,7 +964,6 @@ mod tests {
     use futures::{pin_mut, StreamExt};
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
-    use std::default::Default;
     use test_case::test_case;
 
     use super::*;

@@ -280,7 +280,7 @@ pub struct PutObjectParams {
     pub ssekms_key_id: Option<String>,
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
-    /// Object metadata to be uploaded with objects.
+    /// User-defined object metadata
     pub object_metadata: HashMap<String, String>,
 }
 
@@ -363,7 +363,7 @@ pub struct PutObjectSingleParams {
     pub ssekms_key_id: Option<String>,
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
-    /// Object metadata to be uploaded with objects.
+    /// User-defined object metadata
     pub object_metadata: HashMap<String, String>,
 }
 
