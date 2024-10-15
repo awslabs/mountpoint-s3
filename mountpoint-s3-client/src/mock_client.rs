@@ -25,11 +25,12 @@ use tracing::trace;
 use crate::checksums::crc32c_to_base64;
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
-    CopyObjectError, CopyObjectParams, CopyObjectResult, Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
-    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
-    ObjectClientResult, ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
-    PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
+    Checksum, ChecksumAlgorithm, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
+    DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
+    GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError,
+    ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectPart,
+    PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;

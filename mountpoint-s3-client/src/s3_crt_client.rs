@@ -42,7 +42,7 @@ use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::*;
 use crate::user_agent::UserAgent;
-use crate::{object_client::*, S3GetObjectRequest, S3PutObjectRequest};
+use crate::{S3GetObjectRequest, S3PutObjectRequest};
 
 macro_rules! request_span {
     ($self:expr, $method:expr, $($field:tt)*) => {{
@@ -60,17 +60,13 @@ macro_rules! request_span {
 pub(crate) mod copy_object;
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
-
-pub(crate) use get_object::S3GetObjectRequest;
 pub(crate) mod get_object_attributes;
 
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
 
-pub(crate) mod put_object;
-pub(crate) use put_object::S3PutObjectRequest;
-
 pub(crate) mod head_bucket;
+pub(crate) mod put_object;
 pub use head_bucket::HeadBucketError;
 
 /// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for

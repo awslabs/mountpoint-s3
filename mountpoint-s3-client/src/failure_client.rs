@@ -15,10 +15,11 @@ use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
+    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
