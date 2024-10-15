@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729010954908,
+  "lastUpdate": 1729014915687,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "a23665d1cdc982e74f5ba9f579930a85f2d7215f",
-          "message": "Fix resource utilization check in the CI (#1033)\n\nOur CI workflows work by checking out the code from branch `gh-pages` to\nretrieve benchmark results from previous commits and compare them to values\nin the current run. However, the resource utilization check was done\nafter the benchmark result check which already has pulled in the branch\n`gh-pages` resulting in errors because the branch already exists. This\nchange fixes that.\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
-          "timestamp": "2024-09-25T14:13:53Z",
-          "tree_id": "1ebd4a233fc844aba04bdb98fac7cb539b994461",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a23665d1cdc982e74f5ba9f579930a85f2d7215f"
-        },
-        "date": 1727280972104,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3293.12890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 320.171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3198.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 327.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3215.76953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 249.1015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3309.35546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 196.63671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 50357.87890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 342.8359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 6709.5234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 363.0859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 32804.21484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 198.07421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 38039.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 22510.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 202.640625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 201.5703125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e98a5c2271e2370e2380e25b055ff4f437e923df",
+          "message": "Return the new object ETag in PutObjectResult (#1057)\n\n* Return the ETag in PutObjectResult\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Simplify handling of response headers\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Move ETag to a separate module\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add comments\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-10-15T15:53:03Z",
+          "tree_id": "e4cc93f8fa298728674031afda3192564852e862",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e98a5c2271e2370e2380e25b055ff4f437e923df"
+        },
+        "date": 1729014915659,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3602.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 328.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3515.4140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 341.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3442.5390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 259.62890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3334.46484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 205.05078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 30981.375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 338.578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3443.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 360.11328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3477.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 214.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3590.33984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3278.53515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 221.0859375,
             "unit": "MiB"
           }
         ]
