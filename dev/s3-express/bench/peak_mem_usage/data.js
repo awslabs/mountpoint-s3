@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1728933560468,
+  "lastUpdate": 1728994859708,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -2141,6 +2141,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 168.6015625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5954f539c9e07e565ee1519e6f73e64dc42eea77",
+          "message": "Add support for custom headers in PUT requests (#1059)\n\n* Add custom headers to put_object_single\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add custom headers to put_object\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-10-15T10:20:36Z",
+          "tree_id": "ae843188149e0b169bf57b86b7767b5098459a8a",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5954f539c9e07e565ee1519e6f73e64dc42eea77"
+        },
+        "date": 1728994859671,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 156.828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 394.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 223.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 430.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 85.56640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 326.1328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 87.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 321.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 36285.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 391.9609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 35315.88671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 499.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 11831.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 263.08984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 11750.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 8869.5703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 261.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 197.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 160.3203125,
             "unit": "MiB"
           }
         ]
