@@ -42,6 +42,13 @@ impl S3CrtClient {
         };
         message.set_checksum_config(checksum_config);
 
+        for (name, value) in &params.custom_headers {
+            message
+                .inner
+                .add_header(&Header::new(name, value))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
 
@@ -126,6 +133,12 @@ impl S3CrtClient {
             if let Some(checksum) = &params.checksum {
                 message
                     .set_checksum_header(checksum)
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+            for (name, value) in &params.custom_headers {
+                message
+                    .inner
+                    .add_header(&Header::new(name, value))
                     .map_err(S3RequestError::construction_failure)?;
             }
 
