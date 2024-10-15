@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1728989200717,
+  "lastUpdate": 1728999705487,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ed4735d71af0432491a361912da747ccaf39a21b",
-          "message": "Add new 'mock' feature for 'mock-mount-s3' binary (#1030)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-09-24T14:52:05Z",
-          "tree_id": "7e4a503beeb71640c42ae14d2533df831830337a",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/ed4735d71af0432491a361912da747ccaf39a21b"
-        },
-        "date": 1727191035673,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.054,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.132,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.861,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.628,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 67.5086401,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 48.3392248,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 49.750389799999994,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "monthonk@amazon.com",
+            "name": "Monthon Klongklaew",
+            "username": "monthonk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "2b0161600400c7ab7ccb1d6811abb9774facef5d",
+          "message": "Release v1.10.0 (#1060)\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2024-10-15T13:16:36Z",
+          "tree_id": "f50831bf5cefbec38e30e8b5ffabe04b56bc2e30",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/2b0161600400c7ab7ccb1d6811abb9774facef5d"
+        },
+        "date": 1728999704987,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.063,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.137,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.958,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.657,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 88.58092520000001,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 46.842305100000004,
             "unit": "milliseconds"
           }
         ]
