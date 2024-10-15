@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1728999705487,
+  "lastUpdate": 1729005091073,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f92bf6c41e8b75f7e51770dc69afcc8332e33569",
-          "message": "Add support for concurrent downloads to prefetch_benchmark example (#1022)\n\n* Fix prefetch_benchmark example\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add support for concurrent downloads to prefetch_benchmark example\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Use CRT runtime\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-09-24T17:05:39Z",
-          "tree_id": "f06430ab3fac7981589aacd6abaabcb9473e3d2d",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/f92bf6c41e8b75f7e51770dc69afcc8332e33569"
-        },
-        "date": 1727198998325,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.053,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.133,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.92,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.063,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 54.1997158,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 49.996383200000004,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1079,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 46.842305100000004,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "burakvar@amazon.co.uk",
+            "name": "Burak",
+            "username": "unexge"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "6acbd206f246d2f89c68711951c9ecd1b70e0c16",
+          "message": "Update benchmark CI configuration (#1063)\n\n* Update benchmark CI configuration\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>\n\n* Enable comments for throughput benchmarks\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>\n\n---------\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>",
+          "timestamp": "2024-10-15T14:45:19Z",
+          "tree_id": "7d169ae610d77b9a2e68103920abb7b5ea8754e8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6acbd206f246d2f89c68711951c9ecd1b70e0c16"
+        },
+        "date": 1729005090563,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.045,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.151,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.915,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 9.275,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 41.2713639,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 49.123650600000005,
             "unit": "milliseconds"
           }
         ]
