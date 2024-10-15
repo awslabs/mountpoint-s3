@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729010703363,
+  "lastUpdate": 1729014776476,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ed4735d71af0432491a361912da747ccaf39a21b",
-          "message": "Add new 'mock' feature for 'mock-mount-s3' binary (#1030)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-09-24T14:52:05Z",
-          "tree_id": "7e4a503beeb71640c42ae14d2533df831830337a",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/ed4735d71af0432491a361912da747ccaf39a21b"
-        },
-        "date": 1727196696886,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 143.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 393.7890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 182.265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 419.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 79.16015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 310.63671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 81.40234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 315,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 36464.8515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 384.23828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 44262.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 485.35546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 11675.85546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 258.23046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 12719.1484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 15513.640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 254.7890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 181.43359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 141.01171875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2379,6 +2260,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 153.60546875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e98a5c2271e2370e2380e25b055ff4f437e923df",
+          "message": "Return the new object ETag in PutObjectResult (#1057)\n\n* Return the ETag in PutObjectResult\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Simplify handling of response headers\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Move ETag to a separate module\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add comments\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-10-15T15:53:03Z",
+          "tree_id": "e4cc93f8fa298728674031afda3192564852e862",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e98a5c2271e2370e2380e25b055ff4f437e923df"
+        },
+        "date": 1729014776439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 153.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 400.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 210.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 427.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 81.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 323.8203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 81.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 323.35546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 39432.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 387.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 31107.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 494.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 11286.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 262.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12387.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 9573.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 260.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 249.84765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 151.5,
             "unit": "MiB"
           }
         ]
