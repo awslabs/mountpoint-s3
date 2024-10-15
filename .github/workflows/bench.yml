@@ -78,7 +78,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
         auto-push: ${{ inputs.publish }}
-        comment-on-alert: true
+        comment-on-alert: false
         max-items-in-chart: 20
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
@@ -92,7 +92,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
         auto-push: ${{ inputs.publish }}
-        comment-on-alert: true
+        comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
 
@@ -147,7 +147,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
         auto-push: ${{ inputs.publish }}
-        comment-on-alert: true
+        comment-on-alert: false
         max-items-in-chart: 20
 
   cache-bench:
@@ -203,7 +203,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
         auto-push: ${{ inputs.publish }}
-        comment-on-alert: true
+        comment-on-alert: false
         max-items-in-chart: 20
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
@@ -217,6 +217,6 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Store the results and deploy GitHub pages automatically if the results are from main branch
         auto-push: ${{ inputs.publish }}
-        comment-on-alert: true
+        comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
