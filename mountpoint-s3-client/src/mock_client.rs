@@ -731,8 +731,10 @@ impl ObjectClient for MockClient {
 
         let mut object: MockObject = contents.into();
         object.set_storage_class(params.storage_class.clone());
+        let etag = object.etag.clone();
         add_object(&self.objects, key, object);
         Ok(PutObjectResult {
+            etag,
             sse_type: None,
             sse_kms_key_id: None,
         })
@@ -874,8 +876,10 @@ impl MockPutObjectRequest {
         } else {
             object.parts = Some(MockObjectParts::Count(parts.len()));
         }
+        let etag = object.etag.clone();
         add_object(&self.objects, &self.key, object);
         Ok(PutObjectResult {
+            etag,
             sse_type: None,
             sse_kms_key_id: None,
         })

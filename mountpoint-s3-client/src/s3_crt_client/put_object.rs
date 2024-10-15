@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -5,17 +6,19 @@ use crate::object_client::{
     ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
 };
 use async_trait::async_trait;
-use futures::channel::oneshot;
-use mountpoint_s3_crt::http::request_response::{Header, Headers};
+use futures::channel::oneshot::{self, Receiver};
+use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, RequestType, UploadReview};
+use thiserror::Error;
 use tracing::error;
 
 use super::{
-    emit_throughput_metric, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
+    emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
     S3Operation, S3RequestError,
 };
 
+const ETAG_HEADER_NAME: &str = "ETag";
 const SSE_TYPE_HEADER_NAME: &str = "x-amz-server-side-encryption";
 const SSE_KEY_ID_HEADER_NAME: &str = "x-amz-server-side-encryption-aws-kms-key-id";
 
@@ -52,14 +55,8 @@ impl S3CrtClient {
         let review_callback = ReviewCallbackBox::default();
         let callback = review_callback.clone();
 
-        // Variable `response_headers` will be accessed from different threads: from CRT thread which executes `on_headers` callback
-        // and from our thread which executes `review_and_complete`. Callback `on_headers` is guaranteed to finish before this
-        // variable is accessed in `review_and_complete` (see `S3HttpRequest::poll` implementation).
-        let response_headers: Arc<Mutex<Option<Headers>>> = Default::default();
-        let response_headers_writer = response_headers.clone();
-        let on_headers = move |headers: &Headers, _: i32| {
-            *response_headers_writer.lock().unwrap() = Some(headers.clone());
-        };
+        let (on_headers, response_headers) = response_headers_handler();
+
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
         options.send_using_async_writes(true);
         options.on_upload_review(move |review| callback.invoke(review));
@@ -114,9 +111,7 @@ impl S3CrtClient {
         let span = request_span!(self.inner, "put_object_single", bucket, key);
         let start_time = Instant::now();
 
-        // `response_headers` will be populated in the `on_headers` callback (on CRT event loop) and accessed in `extract_result` executing
-        // on a different thread after request completion.
-        let response_headers: Arc<Mutex<Option<Headers>>> = Default::default();
+        let (on_headers, response_headers) = response_headers_handler();
         let slice = contents.as_ref();
         let content_length = slice.len();
         let body = {
@@ -147,10 +142,6 @@ impl S3CrtClient {
             message.set_body_stream(Some(body_input_stream));
 
             let options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObjectSingle);
-            let response_headers_writer = response_headers.clone();
-            let on_headers = move |headers: &Headers, _: i32| {
-                *response_headers_writer.lock().unwrap() = Some(headers.clone());
-            };
             self.inner
                 .make_simple_http_request_from_options(options, span, |_| {}, |_| None, on_headers)?
         };
@@ -160,7 +151,9 @@ impl S3CrtClient {
         let elapsed = start_time.elapsed();
         emit_throughput_metric(content_length as u64, elapsed, "put_object_single");
 
-        Ok(extract_result(&response_headers))
+        Ok(extract_result(response_headers.await.expect(
+            "headers should be available since the request completed successfully",
+        ))?)
     }
 
     fn new_put_request(
@@ -245,8 +238,9 @@ pub struct S3PutObjectRequest {
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
-    /// Headers of the CompleteMultipartUpload response, available after the request was finished
-    response_headers: Arc<Mutex<Option<Headers>>>,
+    /// Future for the headers of the CompleteMultipartUpload response.
+    /// Guaranteed to be available after the request finishes successfully.
+    response_headers: Receiver<Headers>,
     state: S3PutObjectRequestState,
 }
 
@@ -267,16 +261,51 @@ fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
     headers.get(key).ok()?.value().clone().into_string().ok()
 }
 
-fn extract_result(response_headers: &Mutex<Option<Headers>>) -> PutObjectResult {
-    let response_headers = response_headers
-        .lock()
-        .expect("must be able to acquire headers lock")
-        .take()
-        .expect("PUT response headers must be available at this point");
-    PutObjectResult {
+fn get_etag(response_headers: &Headers) -> Result<ETag, ParseError> {
+    Ok(response_headers
+        .get(ETAG_HEADER_NAME)?
+        .value()
+        .clone()
+        .into_string()
+        .map_err(ParseError::Invalid)?
+        .into())
+}
+
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum ParseError {
+    #[error("Header response error: {0}")]
+    Header(#[from] HeadersError),
+
+    #[error("Header string was not valid: {0:?}")]
+    Invalid(OsString),
+}
+
+fn extract_result(response_headers: Headers) -> Result<PutObjectResult, S3RequestError> {
+    let etag = get_etag(&response_headers).map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
+
+    Ok(PutObjectResult {
+        etag,
         sse_type: try_get_header_value(&response_headers, SSE_TYPE_HEADER_NAME),
         sse_kms_key_id: try_get_header_value(&response_headers, SSE_KEY_ID_HEADER_NAME),
-    }
+    })
+}
+
+/// Creates `on_headers` callback that will send the response headers to the matching `Receiver`.
+fn response_headers_handler() -> (impl FnMut(&Headers, i32), Receiver<Headers>) {
+    let (response_headers_sender, response_headers) = oneshot::channel();
+    // The callback signature (`FnMut`) allows for it to be invoked multiple times,
+    // but for PUT requests it will only be called once (on CompleteMultipartUpload
+    // or on PutObject).
+    // Wrapping the `oneshot::Sender` in an `Option` allows it to be consumed
+    // on the first (and only!) invocation.
+    let mut response_headers_sender = Some(response_headers_sender);
+    let on_headers = move |headers: &Headers, _: i32| {
+        if let Some(sender) = response_headers_sender.take() {
+            let _ = sender.send(headers.clone());
+        }
+    };
+    (on_headers, response_headers)
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
@@ -345,7 +374,9 @@ impl PutObjectRequest for S3PutObjectRequest {
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
 
-        Ok(extract_result(&self.response_headers))
+        Ok(extract_result(self.response_headers.await.expect(
+            "headers should be available since the request completed successfully",
+        ))?)
     }
 }
 

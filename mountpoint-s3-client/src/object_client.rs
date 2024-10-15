@@ -1,68 +1,20 @@
-use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
+use std::fmt::{self, Debug};
+use std::ops::Range;
+use std::pin::Pin;
+use std::time::SystemTime;
+
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
-use std::pin::Pin;
-use std::str::FromStr;
-use std::time::SystemTime;
-use std::{
-    fmt::{self, Debug},
-    ops::Range,
-    string::ParseError,
-};
 use thiserror::Error;
 use time::OffsetDateTime;
 
-/// A single element of a [`get_object`](ObjectClient::get_object) response stream is a pair of
-/// offset within the object and the bytes starting at that offset.
-pub type GetBodyPart = (u64, Box<[u8]>);
+use crate::checksums;
+use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 
-/// An ETag (entity tag) is a unique identifier for a HTTP object.
-///
-/// New ETags can be created with the [`FromStr`] implementation.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ETag(String);
-
-impl ETag {
-    /// Get the ETag as a string
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Unpack the [String] contained by the [ETag] wrapper
-    pub fn into_inner(self) -> String {
-        self.0
-    }
-
-    /// Creating default etag for tests
-    #[doc(hidden)]
-    pub fn for_tests() -> Self {
-        Self("test_etag".to_string())
-    }
-
-    /// Creating unique etag from bytes
-    #[doc(hidden)]
-    #[cfg(feature = "mock")]
-    pub fn from_object_bytes(data: &[u8]) -> Self {
-        use md5::Digest as _;
-
-        let mut hasher = md5::Md5::new();
-        hasher.update(data);
-
-        let hash = hasher.finalize();
-        let result = format!("{:x}", hash);
-        Self(result)
-    }
-}
-
-impl FromStr for ETag {
-    type Err = ParseError;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let etag = value.to_string();
-        Ok(ETag(etag))
-    }
-}
+mod etag;
+pub use etag::ETag;
 
 /// A generic interface to S3-like object storage services.
 ///
@@ -436,7 +388,7 @@ impl PutObjectSingleParams {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum UploadChecksum {
-    Crc32c(crate::checksums::Crc32c),
+    Crc32c(checksums::Crc32c),
 }
 
 impl UploadChecksum {
@@ -480,6 +432,10 @@ pub trait GetObjectRequest:
     fn read_window_end_offset(self: Pin<&Self>) -> u64;
 }
 
+/// A single element of a [`get_object`](ObjectClient::get_object) response stream is a pair of
+/// offset within the object and the bytes starting at that offset.
+pub type GetBodyPart = (u64, Box<[u8]>);
+
 /// A streaming put request which allows callers to asynchronously write the body of the request.
 ///
 /// You can call the [`write`](Self::write) method to write data to the object, and then call
@@ -508,10 +464,11 @@ pub trait PutObjectRequest: Send {
 }
 
 /// Result of a [ObjectClient::put_object] request
-// TODO: Populate this struct with return fields from the S3 API, e.g., etag.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct PutObjectResult {
+    /// ETag of the uploaded object
+    pub etag: ETag,
     /// Server-side encryption type that was used to store new object (reported by S3)
     pub sse_type: Option<String>,
     /// Server-side encryption KMS key ID that was used to store new object (reported by S3)
