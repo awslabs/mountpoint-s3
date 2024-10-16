@@ -8,15 +8,6 @@ use auto_impl::auto_impl;
 use futures::Stream;
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use std::collections::HashMap;
-use std::hash::Hash;
-use std::pin::Pin;
-use std::str::FromStr;
-use std::time::SystemTime;
-use std::{
-    fmt::{self, Debug},
-    ops::Range,
-    string::ParseError,
-};
 use thiserror::Error;
 use time::OffsetDateTime;
 
