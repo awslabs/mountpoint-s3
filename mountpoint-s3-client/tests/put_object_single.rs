@@ -2,6 +2,8 @@
 
 pub mod common;
 
+use std::collections::HashMap;
+
 use common::*;
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
@@ -115,6 +117,49 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
             );
         }
     }
+}
+
+#[test_case(HashMap::new(); "Empty")]
+#[test_case(HashMap::from([("foo".to_string(), "bar".to_string()), ("a".to_string(), "b".to_string())]); "ASCII")]
+#[tokio::test]
+async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, String>) {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_happy");
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
+    client
+        .put_object_single(&bucket, &key, &params, b"data")
+        .await
+        .expect("put_object should succeed");
+
+    let sdk_client = get_test_sdk_client().await;
+    let output = sdk_client.head_object().bucket(&bucket).key(key).send().await.unwrap();
+
+    match output.metadata() {
+        Some(returned_object_metadata) => {
+            assert_eq!(&object_metadata, returned_object_metadata);
+        }
+        None => {
+            assert!(object_metadata.is_empty());
+        }
+    }
+}
+
+#[test_case(HashMap::from([("£".to_string(), "£".to_string())]); "UTF-8")]
+#[tokio::test]
+async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<String, String>) {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_bad_header");
+    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
+    client
+        .put_object_single(&bucket, &key, &params, b"data")
+        .await
+        .expect_err("header parsing should fail");
 }
 
 #[test_case("INTELLIGENT_TIERING")]

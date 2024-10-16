@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use futures::Stream;
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
+use std::collections::HashMap;
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -270,6 +271,8 @@ pub struct PutObjectParams {
     pub ssekms_key_id: Option<String>,
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
+    /// User-defined object metadata
+    pub object_metadata: HashMap<String, String>,
 }
 
 impl PutObjectParams {
@@ -305,6 +308,12 @@ impl PutObjectParams {
     /// Add a custom header to the request.
     pub fn add_custom_header(mut self, name: String, value: String) -> Self {
         self.custom_headers.push((name, value));
+        self
+    }
+
+    /// Set user defined object metadata.
+    pub fn object_metadata(mut self, value: HashMap<String, String>) -> Self {
+        self.object_metadata = value;
         self
     }
 }
@@ -345,6 +354,8 @@ pub struct PutObjectSingleParams {
     pub ssekms_key_id: Option<String>,
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
+    /// User-defined object metadata
+    pub object_metadata: HashMap<String, String>,
 }
 
 impl PutObjectSingleParams {
@@ -380,6 +391,12 @@ impl PutObjectSingleParams {
     /// Add a custom header to the request.
     pub fn add_custom_header(mut self, name: String, value: String) -> Self {
         self.custom_headers.push((name, value));
+        self
+    }
+
+    /// Set user defined object metadata.
+    pub fn object_metadata(mut self, value: HashMap<String, String>) -> Self {
+        self.object_metadata = value;
         self
     }
 }

@@ -373,6 +373,7 @@ pub struct MockObject {
     last_modified: OffsetDateTime,
     etag: ETag,
     parts: Option<MockObjectParts>,
+    object_metadata: HashMap<String, String>,
 }
 
 impl MockObject {
@@ -391,6 +392,7 @@ impl MockObject {
             last_modified: OffsetDateTime::now_utc(),
             etag,
             parts: None,
+            object_metadata: HashMap::new(),
         }
     }
 
@@ -403,6 +405,7 @@ impl MockObject {
             last_modified: OffsetDateTime::now_utc(),
             etag,
             parts: None,
+            object_metadata: HashMap::new(),
         }
     }
 
@@ -425,6 +428,7 @@ impl MockObject {
             last_modified: OffsetDateTime::now_utc(),
             etag,
             parts: None,
+            object_metadata: HashMap::new(),
         }
     }
 
@@ -434,6 +438,10 @@ impl MockObject {
 
     pub fn set_storage_class(&mut self, storage_class: Option<String>) {
         self.storage_class = storage_class;
+    }
+
+    pub fn set_object_metadata(&mut self, object_metadata: HashMap<String, String>) {
+        self.object_metadata = object_metadata;
     }
 
     pub fn set_restored(&mut self, restore_status: Option<RestoreStatus>) {
@@ -731,6 +739,7 @@ impl ObjectClient for MockClient {
 
         let mut object: MockObject = contents.into();
         object.set_storage_class(params.storage_class.clone());
+        object.set_object_metadata(params.object_metadata.clone());
         let etag = object.etag.clone();
         add_object(&self.objects, key, object);
         Ok(PutObjectResult {
@@ -870,6 +879,7 @@ impl MockPutObjectRequest {
         let buffer = std::mem::take(&mut self.buffer);
         let mut object: MockObject = buffer.into();
         object.set_storage_class(self.params.storage_class.clone());
+        object.set_object_metadata(self.params.object_metadata.clone());
         // For S3 Standard, part attributes are only available when additional checksums are used
         if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
             object.parts = Some(MockObjectParts::Parts(parts));
@@ -1505,8 +1515,10 @@ mod tests {
             ..Default::default()
         });
 
+        let object_metadata = HashMap::from([("foo".to_string(), "bar".to_string())]);
+        let put_object_params = PutObjectParams::new().object_metadata(object_metadata.clone());
         let mut put_request = client
-            .put_object("test_bucket", "key1", &Default::default())
+            .put_object("test_bucket", "key1", &put_object_params)
             .await
             .expect("put_object failed");
 
@@ -1534,6 +1546,7 @@ mod tests {
             next_offset += body.len() as u64;
             assert_eq!(body, obj.read(offset, body.len()));
         }
+        assert_eq!(object_metadata, get_request.object.object_metadata);
     }
 
     #[tokio::test]
@@ -1546,8 +1559,10 @@ mod tests {
         });
 
         let content = vec![42u8; 512];
+        let object_metadata = HashMap::from([("foo".to_string(), "bar".to_string())]);
+        let put_object_params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
         let _put_result = client
-            .put_object_single("test_bucket", "key1", &Default::default(), &content)
+            .put_object_single("test_bucket", "key1", &put_object_params, &content)
             .await
             .expect("put_object failed");
 
@@ -1556,6 +1571,7 @@ mod tests {
             .await
             .expect("get_object failed");
 
+        assert_eq!(object_metadata, get_request.object.object_metadata);
         // Check that the result of get_object is correct.
         let actual = get_request.collect().await.expect("failed to collect body");
         assert_eq!(&content, &*actual);
