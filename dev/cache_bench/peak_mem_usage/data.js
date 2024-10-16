@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729014915687,
+  "lastUpdate": 1729080147240,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e279a3cb11028f9892a5c16cd2b760723f5e339",
-          "message": "Add clarification on behavior tenet for ownership/permissions (#1031)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-09-26T09:42:07Z",
-          "tree_id": "d258d475dc481d2ef6d5dcd457f55e01d98d68e1",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7e279a3cb11028f9892a5c16cd2b760723f5e339"
-        },
-        "date": 1727351167215,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3264.6171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 312.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3315.9921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 321.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3756.8671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 250.68359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3341.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 203.41015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 46520.23828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 337.23046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 12133.08984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 360.3984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 37862.90234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 201.71484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 32888.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 18253.78125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 205.984375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 221.0859375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a8a483ad5e54cf321fe62d10925189daec18075",
+          "message": "Add support for writing object metadata with PutObject (#1062)\n\n* Add support for writing object metadata with PutObject\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>\n\n* Make changes from code review\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>\n\n* Fix merge conflicts\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>\n\n---------\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2024-10-16T09:59:04Z",
+          "tree_id": "dc8021087652f81bb6bf3697c52ab6794d647fd7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6a8a483ad5e54cf321fe62d10925189daec18075"
+        },
+        "date": 1729080147202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3307.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 320.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3374.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 338.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3299.62109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 261.36328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3347.06640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 198.875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 29470.37890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 336.36328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3715.92578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 367.95703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3536.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 217.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13974.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3279.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 226.6328125,
             "unit": "MiB"
           }
         ]
