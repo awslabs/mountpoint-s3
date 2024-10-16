@@ -2,7 +2,7 @@
 
 ### Other changes
 
-* CRT fix to resolve a null pointer exception in s2n that occurred when a thread which initialized s2n was terminated before other threads had finished using it. ([aws/s2n-tls#4584](https://github.com/aws/s2n-tls/pull/4584))
+* Address a threading issue in the s2n-tls library that could result in premature cleanup and `NULL pointer` errors. ([aws/s2n-tls#4584](https://github.com/aws/s2n-tls/pull/4584))
 * Inaccurate reporting of `s3.client.buffer_pool.primary_allocated` CRT statistic is fixed. ([awslabs/aws-c-s3#453](https://github.com/awslabs/aws-c-s3/pull/453))
 * Expose `s3.client.buffer_pool.forced_used` metric which account for buffer allocations that could exceed memory limit in the CRT buffer pool. ([#1025](https://github.com/awslabs/mountpoint-s3/pull/1025))
 
