@@ -25,11 +25,12 @@ use tracing::trace;
 use crate::checksums::crc32c_to_base64;
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
-    Checksum, ChecksumAlgorithm, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
-    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
-    ObjectClientResult, ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
-    PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
+    Checksum, ChecksumAlgorithm, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
+    DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
+    GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError,
+    ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectPart,
+    PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -341,6 +342,7 @@ pub enum Operation {
     GetObjectAttributes,
     ListObjectsV2,
     PutObject,
+    CopyObject,
     PutObjectSingle,
 }
 
@@ -601,6 +603,28 @@ impl ObjectClient for MockClient {
         self.remove_object(key);
 
         Ok(DeleteObjectResult {})
+    }
+
+    async fn copy_object(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_bucket: &str,
+        destination_key: &str,
+        _params: &CopyObjectParams,
+    ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError> {
+        if destination_bucket != self.config.bucket && source_bucket != self.config.bucket {
+            return Err(ObjectClientError::ServiceError(CopyObjectError::NotFound));
+        }
+
+        let mut objects = self.objects.write().unwrap();
+        if let Some(object) = objects.get(source_key) {
+            let cloned_object = object.clone();
+            objects.insert(destination_key.to_owned(), cloned_object);
+            Ok(CopyObjectResult {})
+        } else {
+            Err(ObjectClientError::ServiceError(CopyObjectError::NotFound))
+        }
     }
 
     async fn get_object(
@@ -1158,6 +1182,50 @@ mod tests {
         // This await should return an error because current window is not enough to get the next part
         let next = get_request.next().await.expect("result should not be empty");
         assert_client_error!(next, "empty read window");
+    }
+    #[tokio::test]
+    async fn test_copy_object() {
+        let bucket = "test_bucket";
+        let src_key = "src_copy_key";
+        let dst_key = "dst_copy_key";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        client.add_object(src_key, "test_body".into());
+
+        client
+            .copy_object(bucket, src_key, bucket, dst_key, &Default::default())
+            .await
+            .expect("Should not fail");
+
+        client
+            .get_object(bucket, dst_key, None, None)
+            .await
+            .expect("get_object should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_copy_object_non_existing_key() {
+        let bucket = "test_bucket";
+        let src_key = "src_copy_key";
+        let dst_key = "dst_copy_key";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        assert!(matches!(
+            client
+                .copy_object(bucket, src_key, bucket, dst_key, &Default::default())
+                .await,
+            Err(ObjectClientError::ServiceError(CopyObjectError::NotFound))
+        ));
     }
 
     #[tokio::test]

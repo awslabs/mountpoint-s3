@@ -56,6 +56,22 @@ pub trait ObjectClient {
         key: &str,
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError>;
 
+    /// Create a copy of an existing object. Currently, this functionality has the following limitations:
+    /// - Supported only for copying between matching bucket types:
+    ///     - Standard S3 to Standard S3 buckets.
+    ///     - S3 Express to S3 Express buckets.
+    /// - Host header must use virtual host addressing style (path style is not supported) and both source and dest buckets must have dns compliant name.
+    /// - Only {bucket}/{key} format is supported for source and passing arn as source will not work.
+    /// - Source bucket is assumed to be in the same region as destination bucket.
+    async fn copy_object(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_bucket: &str,
+        destination_key: &str,
+        params: &CopyObjectParams,
+    ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError>;
+
     /// Get an object from the object store. Returns a stream of body parts of the object. Parts are
     /// guaranteed to be returned by the stream in order and contiguously.
     async fn get_object(
@@ -224,6 +240,39 @@ pub struct DeleteObjectResult {}
 pub enum DeleteObjectError {
     #[error("The bucket does not exist")]
     NoSuchBucket,
+}
+
+/// Result of a [`copy_object`](ObjectClient::copy_object) request
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct CopyObjectResult {
+    // TODO: Populate this struct with return fields from the S3 API, e.g., etag.
+}
+
+/// Errors returned by a [`copy_object`](ObjectClient::copy_object) request
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CopyObjectError {
+    /// Note that CopyObject cannot distinguish between NoSuchBucket and NoSuchKey errors
+    #[error("The object was not found")]
+    NotFound,
+
+    #[error("The source object of the COPY action is not in the active tier and is only stored in Amazon S3 Glacier.")]
+    ObjectNotInActiveTierError,
+}
+
+/// Parameters to a [`copy_object`](ObjectClient::copy_object) request
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct CopyObjectParams {
+    // TODO: Populate this struct with fields as and when required to satisfy various use cases.
+}
+
+impl CopyObjectParams {
+    /// Create a default [CopyObjectParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Result of a [`get_object_attributes`](ObjectClient::get_object_attributes) request

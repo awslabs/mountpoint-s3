@@ -15,10 +15,11 @@ use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesResult,
-    GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError, ListObjectsResult,
-    ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
+    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -96,6 +97,19 @@ where
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError> {
         // TODO failure hook for delete_object
         self.client.delete_object(bucket, key).await
+    }
+
+    async fn copy_object(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        destination_bucket: &str,
+        destination_key: &str,
+        params: &CopyObjectParams,
+    ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError> {
+        self.client
+            .copy_object(source_bucket, source_key, destination_bucket, destination_key, params)
+            .await
     }
 
     async fn get_object(
