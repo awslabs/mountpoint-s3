@@ -105,6 +105,8 @@ impl MockClient {
     pub fn remove_object(&self, key: &str) {
         self.objects.write().unwrap().remove(key);
     }
+
+    /// Creates a copy of an already existing object in the mock client's bucket.
     pub fn copy_key_value(&self, src_key: &str, dest_key: &str) -> Result<(), MockClientError> {
         let mut objects = self.objects.write().unwrap();
         if let Some(object) = objects.get(src_key) {
@@ -1200,19 +1202,18 @@ mod tests {
             unordered_list_seed: None,
             ..Default::default()
         });
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
-        let bucket = "test_bucket";
-        let mut body = vec![0u8; 10];
-        rng.fill_bytes(&mut body);
 
-        {
-            client.add_object(src_key, MockObject::from_bytes(&body, ETag::for_tests()));
-        }
+        client.add_object(src_key, "test_body".into());
 
         client
             .copy_object(bucket, src_key, bucket, dst_key, &Default::default())
             .await
             .expect("Should not fail");
+
+        client
+            .get_object(bucket, dst_key, None, None)
+            .await
+            .expect("get_object should succeed");
     }
 
     #[tokio::test]

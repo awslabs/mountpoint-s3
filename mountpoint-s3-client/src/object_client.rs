@@ -57,10 +57,12 @@ pub trait ObjectClient {
     ) -> ObjectClientResult<DeleteObjectResult, DeleteObjectError, Self::ClientError>;
 
     /// Create a copy of an existing object. Currently, this functionality has the following limitations:
-    /// - supported only for standard s3 buckets.
-    /// - host header must use virtual host addressing style (path style is not supported) and both source and dest buckets must have dns compliant name.
-    /// - only {bucket}/{key} format is supported for source and passing arn as source will not work.
-    /// - source bucket is assumed to be in the same region as destination bucket.
+    /// - Supported only for copying between matching bucket types:
+    ///     - Standard S3 to Standard S3 buckets.
+    ///     - S3 Express to S3 Express buckets.
+    /// - Host header must use virtual host addressing style (path style is not supported) and both source and dest buckets must have dns compliant name.
+    /// - Only {bucket}/{key} format is supported for source and passing arn as source will not work.
+    /// - Source bucket is assumed to be in the same region as destination bucket.
     async fn copy_object(
         &self,
         source_bucket: &str,

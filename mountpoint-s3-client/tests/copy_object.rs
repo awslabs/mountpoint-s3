@@ -4,9 +4,10 @@ pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::error::{CopyObjectError, ObjectClientError};
 use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+
 #[tokio::test]
 async fn test_copy_objects() {
     let sdk_client = get_test_sdk_client().await;
@@ -39,6 +40,7 @@ async fn test_copy_objects() {
         .await
         .expect("copied object should exist");
 }
+
 #[tokio::test]
 async fn test_copy_object_no_permission() {
     let (_bucket, prefix) = get_test_bucket_and_prefix("test_copy_object_no_permission");
@@ -54,6 +56,23 @@ async fn test_copy_object_no_permission() {
     assert!(matches!(
         result,
         Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)))
+    ));
+}
+
+#[tokio::test]
+async fn test_copy_object_non_existing_key() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_copy_objects");
+    let key = format!("{prefix}/hello");
+    let copy_key = format!("{prefix}/hello2");
+
+    let client: S3CrtClient = get_test_client();
+    let result = client
+        .copy_object(&bucket, &key, &bucket, &copy_key, &Default::default())
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(CopyObjectError::NotFound))
     ));
 }
 
