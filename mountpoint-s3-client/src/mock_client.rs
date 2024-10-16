@@ -106,18 +106,6 @@ impl MockClient {
         self.objects.write().unwrap().remove(key);
     }
 
-    /// Creates a copy of an already existing object in the mock client's bucket.
-    pub fn copy_key_value(&self, src_key: &str, dest_key: &str) -> Result<(), MockClientError> {
-        let mut objects = self.objects.write().unwrap();
-        if let Some(object) = objects.get(src_key) {
-            let cloned_object = object.clone();
-            objects.insert(dest_key.to_owned(), cloned_object);
-            Ok(())
-        } else {
-            Err(MockClientError("Source key not found".into()))
-        }
-    }
-
     /// Returns `true` if this mock client's bucket contains the specified key
     pub fn contains_key(&self, key: &str) -> bool {
         self.objects.read().unwrap().contains_key(key)
@@ -629,9 +617,13 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(CopyObjectError::NotFound));
         }
 
-        match self.copy_key_value(source_key, destination_key) {
-            Ok(()) => Ok(CopyObjectResult {}),
-            Err(err) => Err(ObjectClientError::ClientError(err)),
+        let mut objects = self.objects.write().unwrap();
+        if let Some(object) = objects.get(source_key) {
+            let cloned_object = object.clone();
+            objects.insert(destination_key.to_owned(), cloned_object);
+            Ok(CopyObjectResult {})
+        } else {
+            Err(ObjectClientError::ServiceError(CopyObjectError::NotFound))
         }
     }
 
@@ -1214,6 +1206,26 @@ mod tests {
             .get_object(bucket, dst_key, None, None)
             .await
             .expect("get_object should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_copy_object_non_existing_key() {
+        let bucket = "test_bucket";
+        let src_key = "src_copy_key";
+        let dst_key = "dst_copy_key";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        assert!(matches!(
+            client
+                .copy_object(bucket, src_key, bucket, dst_key, &Default::default())
+                .await,
+            Err(ObjectClientError::ServiceError(CopyObjectError::NotFound))
+        ));
     }
 
     #[tokio::test]
