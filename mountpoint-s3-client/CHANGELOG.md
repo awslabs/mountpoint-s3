@@ -1,5 +1,13 @@
 ## Unreleased
 
+## v0.11.0 (October 17, 2024)
+
+### Breaking changes
+
+* No breaking changes.
+
+### Other changes
+
 * Add support for copy object operation. ([#1052](https://github.com/awslabs/mountpoint-s3/pull/1052))
 * Introduce a new API (`put_object_single`) to perform single PutObject requests rather than multi-part uploads. ([#1046](https://github.com/awslabs/mountpoint-s3/pull/1046))
 * Return the new object ETag after a successful PUT request. ([#1057](https://github.com/awslabs/mountpoint-s3/pull/1057))
