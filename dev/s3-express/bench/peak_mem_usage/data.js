@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729103837541,
+  "lastUpdate": 1729181787253,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "359b8bfb9f9ef508b51f4f8e89c8940a40552bde",
-          "message": "Update O_SYNC/O_DSYNC open flag check to occur ahead of lookup (#1042)\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-10-01T08:01:01Z",
-          "tree_id": "ad42f90f993231b2483bc08b4d68c608082b191f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/359b8bfb9f9ef508b51f4f8e89c8940a40552bde"
-        },
-        "date": 1727777151938,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 140.93359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 393.74609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 172.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 422.59375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 74.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 324.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 78.3125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 323.80078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 37436.1484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 377.03515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 50886.87890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 485.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 10271.55859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 253.76171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 11999.734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 13693.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 255.5546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 223.28515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 147.01171875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2379,6 +2260,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 156.3671875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "unexge@gmail.com",
+            "name": "Burak",
+            "username": "unexge"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "587df3b1988441acf3cf86983aa096f7b50d151f",
+          "message": "Update CRT submodules to latest releases (#1069)\n\n* Update CRT submodules to latest releases\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>\n\n* Update non-existent network interface initialization test\n\nCRT was returning error during first operation before if it provided\nwith a non-existent network interface name. But with\nhttps://github.com/awslabs/aws-c-s3/pull/456, it started failing\nduring the client creation phase. Our tests were written for the\nprevious behaviour and was expecting client creation to succeed even\nwith an invalid network interface. The test is updated to expect\nerrors during client creation.\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>\n\n* Update CHANGELOG\n\nCo-authored-by: Monthon Klongklaew <monthonk@amazon.com>\nSigned-off-by: Burak <unexge@gmail.com>\n\n---------\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>\nSigned-off-by: Burak <unexge@gmail.com>\nCo-authored-by: Monthon Klongklaew <monthonk@amazon.com>",
+          "timestamp": "2024-10-17T14:16:47Z",
+          "tree_id": "094a67417e5b700769c6dbc2b2b1f4f90ffe5b7e",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/587df3b1988441acf3cf86983aa096f7b50d151f"
+        },
+        "date": 1729181787216,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 151.9921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 392.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 154.98046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 451.84375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 86.56640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 327.6484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 85.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 324.72265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 37272.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 384.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 36370.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 518.18359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 12493.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 262.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 10635.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10723.5234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 264.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 201.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 152.30859375,
             "unit": "MiB"
           }
         ]
