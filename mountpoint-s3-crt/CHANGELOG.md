@@ -4,6 +4,9 @@
 
 ## v0.10.0 (October 17, 2024)
 
+* Add `RequestType::CopyObject` for copy object operation. ([#1052](https://github.com/awslabs/mountpoint-s3/pull/1052))
+* Add `RequestType::PutObject` for put object operation. ([#1046](https://github.com/awslabs/mountpoint-s3/pull/1046))
+* Add `InputStream` as an option for the `Message` body. ([#1046](https://github.com/awslabs/mountpoint-s3/pull/1046))
 * Update to latest CRT dependencies
 
 ## v0.9.0 (September 12, 2024)
