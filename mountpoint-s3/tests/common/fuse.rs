@@ -279,7 +279,7 @@ pub mod s3_session {
     use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
     use mountpoint_s3_client::S3CrtClient;
 
-    use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
+    use crate::common::s3::{get_standard_bucket, get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
@@ -343,6 +343,47 @@ pub mod s3_session {
 
             (mount_dir, session, test_client)
         }
+    }
+
+    /// Create a FUSE mount backed by a real S3 client with a cache.
+    /// Note, that the mount uses S3 Standard as a source bucket.
+    pub fn new_with_cache_factory<Cache, CacheFactory>(
+        prefix: String,
+        cache_factory: CacheFactory,
+        test_config: TestSessionConfig,
+        block_size: u64,
+    ) -> (TempDir, BackgroundSession, TestClientBox)
+    where
+        Cache: DataCache + Send + Sync + 'static,
+        CacheFactory: FnOnce(S3CrtClient, u64) -> Cache,
+    {
+        let mount_dir = tempfile::tempdir().unwrap();
+
+        let bucket = get_standard_bucket();
+        let region = get_test_region();
+
+        let client_config = S3ClientConfig::default()
+            .part_size(test_config.part_size)
+            .endpoint_config(EndpointConfig::new(&region))
+            .read_backpressure(true)
+            .initial_read_window(test_config.initial_read_window_size);
+        let client = S3CrtClient::new(client_config).unwrap();
+
+        let cache = cache_factory(client.clone(), block_size);
+
+        let runtime = client.event_loop_group();
+        let prefetcher = caching_prefetch(cache, runtime, test_config.prefetcher_config);
+        let session = create_fuse_session(
+            client,
+            prefetcher,
+            &bucket,
+            &prefix,
+            mount_dir.path(),
+            test_config.filesystem_config,
+        );
+        let test_client = create_test_client(&region, &bucket, &prefix);
+
+        (mount_dir, session, test_client)
     }
 
     fn create_test_client(region: &str, bucket: &str, prefix: &str) -> TestClientBox {

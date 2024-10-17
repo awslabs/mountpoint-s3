@@ -25,6 +25,16 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     (bucket, prefix)
 }
 
+#[cfg(feature = "s3express_tests")]
+pub fn get_express_cache_bucket() -> String {
+    std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
+        .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
+}
+
+pub fn get_standard_bucket() -> String {
+    std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
+}
+
 pub fn get_test_bucket_forbidden() -> String {
     std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
 }
