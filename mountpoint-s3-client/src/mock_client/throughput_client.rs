@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Range;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -66,8 +67,13 @@ pub struct ThroughputGetObjectRequest {
     rate_limiter: LeakyBucket,
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
+
+    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+        Ok(self.request.object.object_metadata.clone())
+    }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();
