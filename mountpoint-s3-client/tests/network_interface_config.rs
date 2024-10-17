@@ -6,7 +6,7 @@ use test_case::test_case;
 
 use common::*;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError::ClientError, ObjectClientError::ServiceError};
+use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError::ServiceError};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
 #[tokio::test]
@@ -52,17 +52,11 @@ async fn test_one_interface_ok() {
     );
 }
 
-/// This test demonstrates how the S3 client will fail today when configured with bad network interfaces.
-/// The behavior isn't great, but this documents what happens.
-///
-/// TODO: How can we get to a point where S3 client creation fails when invalid interface names are provided?
+/// This test demonstrates how the S3 client creation will fail today when configured with bad network interfaces.
 #[test_case(true; "with one valid interface")]
 #[test_case(false; "without any valid interface")]
 #[tokio::test]
 async fn test_nonexistent(with_valid_interface: bool) {
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_empty_list");
-    let key = format!("{prefix}/no-such-key");
-
     let primary_interface = get_primary_interface_name();
     let non_existent_interface = String::from("none0");
     let interface_names = if with_valid_interface {
@@ -73,24 +67,9 @@ async fn test_nonexistent(with_valid_interface: bool) {
     let config = S3ClientConfig::new()
         .endpoint_config(EndpointConfig::new(&get_test_region()))
         .network_interface_names(interface_names);
-    let client = S3CrtClient::new(config).expect("client should create OK");
-
-    let mut socket_creation_failure = None;
-    for _ in 0..10 {
-        // It probably should only need two requests (round robin), but let's just do up to 10 if needed.
-        let err = client
-            .head_object(&bucket, &key)
-            .await
-            .expect_err("head_object should always fail as the object or the network interface didn't exist");
-        if let ClientError(_) = &err {
-            let error_message = format!("{err:?}");
-            if error_message.contains("AWS_IO_SOCKET_INVALID_OPTIONS") {
-                socket_creation_failure = Some(err);
-                break;
-            }
-        }
-    }
-    socket_creation_failure.expect("crt should return error on socket creation for non-existent interface");
+    S3CrtClient::new(config).expect_err(
+        "CRT should return an error during client creation if provided with non-existent network interface",
+    );
 }
 
 /// Retrieve the primary interface name used to route internet traffic.
