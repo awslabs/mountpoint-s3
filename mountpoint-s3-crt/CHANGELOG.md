@@ -2,6 +2,10 @@
 
 * Update to latest CRT dependencies
 
+## v0.10.0 (October 17, 2024)
+
+* Update to latest CRT dependencies
+
 ## v0.9.0 (September 12, 2024)
 
 * Allow specifying a list of network interfaces to be used by an S3 client. ([#943](https://github.com/awslabs/mountpoint-s3/pull/943))
