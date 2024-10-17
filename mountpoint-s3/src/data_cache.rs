@@ -30,6 +30,8 @@ pub type BlockIndex = u64;
 pub enum DataCacheError {
     #[error("IO error when reading or writing from cache: {0}")]
     IoFailure(#[source] anyhow::Error),
+    #[error("Block header was not valid: {0}")]
+    InvalidBlockHeader(String),
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
     #[error("Block offset does not match block index")]
