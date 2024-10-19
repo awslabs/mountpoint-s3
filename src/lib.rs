@@ -28,7 +28,7 @@ use crate::session::MAX_WRITE_SIZE;
 pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
 #[cfg(feature = "abi-7-11")]
-pub use notify::Notifier;
+pub use notify::{Notifier, PollHandle};
 #[cfg(feature = "abi-7-11")]
 pub use reply::ReplyPoll;
 #[cfg(target_os = "macos")]
@@ -884,14 +884,14 @@ pub trait Filesystem {
         _req: &Request<'_>,
         ino: u64,
         fh: u64,
-        kh: u64,
+        ph: PollHandle,
         events: u32,
         flags: u32,
         reply: ReplyPoll,
     ) {
         debug!(
-            "[Not Implemented] poll(ino: {:#x?}, fh: {}, kh: {}, events: {}, flags: {})",
-            ino, fh, kh, events, flags
+            "[Not Implemented] poll(ino: {:#x?}, fh: {}, ph: {:?}, events: {}, flags: {})",
+            ino, fh, ph, events, flags
         );
         reply.error(ENOSYS);
     }

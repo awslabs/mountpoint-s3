@@ -23,7 +23,7 @@ use libc::{EACCES, EBADF, EBUSY, EINVAL, ENOENT, ENOTDIR};
 
 use fuser::{
     consts::{FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE, FUSE_POLL_SCHEDULE_NOTIFY},
-    FileAttr, FileType, MountOption, Request, FUSE_ROOT_ID,
+    FileAttr, FileType, MountOption, PollHandle, Request, FUSE_ROOT_ID,
 };
 
 const NUMFILES: u8 = 16;
@@ -251,7 +251,7 @@ impl fuser::Filesystem for FSelFS {
         _req: &Request,
         _ino: u64,
         fh: u64,
-        kh: u64,
+        ph: PollHandle,
         _events: u32,
         flags: u32,
         reply: fuser::ReplyPoll,
@@ -271,7 +271,7 @@ impl fuser::Filesystem for FSelFS {
 
             if flags & FUSE_POLL_SCHEDULE_NOTIFY != 0 {
                 d.notify_mask |= 1 << idx;
-                d.poll_handles[idx as usize] = kh;
+                d.poll_handles[idx as usize] = ph.into();
             }
 
             let nbytes = d.bytecnt[idx as usize];

@@ -44,7 +44,7 @@ pub struct Session<FS: Filesystem> {
     /// Filesystem operation implementations
     pub(crate) filesystem: FS,
     /// Communication channel to the kernel driver
-    ch: Channel,
+    pub(crate) ch: Channel,
     /// Handle to the mount.  Dropping this unmounts.
     mount: Arc<Mutex<Option<Mount>>>,
     /// Mount point
