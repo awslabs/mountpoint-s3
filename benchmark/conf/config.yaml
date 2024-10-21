@@ -53,6 +53,8 @@ write_part_size_bytes: 16777216
 # based on hardware and max throughput specified.
 crt_mem_limit_mib: !!null
 
+mp_backpressure_fixed_threshold: !!null
+
 iterations: 1
 iteration: 0 # placeholder; use iterations to configure for multirun
 

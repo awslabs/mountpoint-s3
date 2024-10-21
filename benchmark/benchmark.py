@@ -87,7 +87,9 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
             raise ValueError(f"Unknown stub_reading_mode: {stub_reading_mode}")
 
     if cfg['mp_prefetcher_window_size'] is not None:
-        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = cfg['mp_prefetcher_window_size']
+        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = str(cfg['mp_prefetcher_window_size'])
+    if cfg['mp_backpressure_fixed_threshold'] is not None:
+        subprocess_env["UNSTABLE_MOUNTPOINT_BACKPRESSURE_FIXED_THRESHOLD"] = str(cfg['mp_backpressure_fixed_threshold'])
 
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
     metadata["mount_s3_command"] = " ".join(subprocess_args)
