@@ -18,6 +18,7 @@ on:
 
 env:
   RUST_BACKTRACE: 1
+  RUST_TOOLCHAIN: "1.81.0"
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: ${{ vars.S3_EXPRESS_ONE_ZONE_BENCH_BUCKET_NAME }}
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
@@ -51,8 +52,10 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_TOOLCHAIN }}
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -120,8 +123,10 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_TOOLCHAIN }}
     - name: Build
       run: cargo build --release
     - name: Run Benchmark

@@ -1,5 +1,8 @@
 name: Crate checks
 
+env:
+  RUST_TOOLCHAIN: "1.81.0"
+
 on:
   push:
     branches: [ "main" ]
@@ -23,8 +26,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Set up stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - name: Package ${{ matrix.crate }} crate
         # `--no-verify` avoids building using crates.io dependencies, which for local packages may not be updated yet
         run: cargo package -p ${{ matrix.crate }} --no-verify
