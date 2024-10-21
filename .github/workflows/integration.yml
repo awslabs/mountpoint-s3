@@ -13,7 +13,6 @@ on:
 
 env:
   RUST_BACKTRACE: 1
-  RUST_TOOLCHAIN: "1.81.0"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
@@ -72,10 +71,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -122,10 +119,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -161,10 +156,9 @@ jobs:
       with:
         ref: ${{ inputs.ref }}
         submodules: true
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
         components: rust-src
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies

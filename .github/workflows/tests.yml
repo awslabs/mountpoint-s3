@@ -9,7 +9,6 @@ on:
 
 env:
   RUST_BACKTRACE: 1
-  RUST_TOOLCHAIN: "1.81.0"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_FEATURES: fuse_tests
@@ -32,10 +31,8 @@ jobs:
       uses: ./.github/actions/install-dependencies
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -66,10 +63,8 @@ jobs:
     - name: Install fuse
       run: |
         brew install --cask macfuse
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -98,10 +93,8 @@ jobs:
       uses: ./.github/actions/install-dependencies
       with:
         fuseVersion: 2
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -128,10 +121,8 @@ jobs:
       uses: ./.github/actions/install-dependencies
       with:
         fuseVersion: 2
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -154,10 +145,8 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: true
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -182,10 +171,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
           components: rustfmt
       - name: Check format
         run: make fmt-check
@@ -203,10 +191,9 @@ jobs:
         uses: ./.github/actions/install-dependencies
         with:
           fuseVersion: 2
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy
       - name: Cargo cache
         uses: actions/cache@v3
@@ -230,10 +217,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rust-docs
       - name: Cargo cache
         uses: actions/cache@v3
@@ -255,9 +241,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Run cargo deny
         uses: EmbarkStudios/cargo-deny-action@v1
