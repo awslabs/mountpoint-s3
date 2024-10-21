@@ -51,8 +51,8 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -120,8 +120,8 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Build
       run: cargo build --release
     - name: Run Benchmark

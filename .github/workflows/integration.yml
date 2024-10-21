@@ -71,8 +71,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -119,8 +119,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -156,8 +156,8 @@ jobs:
       with:
         ref: ${{ inputs.ref }}
         submodules: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         components: rust-src
     - name: Install operating system dependencies
