@@ -73,6 +73,10 @@ jobs:
         persist-credentials: false
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -121,6 +125,10 @@ jobs:
         persist-credentials: false
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -159,6 +167,9 @@ jobs:
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
         components: rust-src
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies

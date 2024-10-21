@@ -33,6 +33,10 @@ jobs:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -65,6 +69,10 @@ jobs:
         brew install --cask macfuse
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -95,6 +103,10 @@ jobs:
         fuseVersion: 2
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -123,6 +135,10 @@ jobs:
         fuseVersion: 2
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -147,6 +163,10 @@ jobs:
         submodules: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -174,6 +194,9 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+          # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+          rustflags: ""
           components: rustfmt
       - name: Check format
         run: make fmt-check
@@ -194,6 +217,9 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+          # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+          rustflags: ""
           components: clippy
       - name: Cargo cache
         uses: actions/cache@v3
@@ -220,6 +246,9 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+          # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+          rustflags: ""
           components: rust-docs
       - name: Cargo cache
         uses: actions/cache@v3
@@ -243,5 +272,9 @@ jobs:
         uses: actions/checkout@v4
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+          # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+          rustflags: ""
       - name: Run cargo deny
         uses: EmbarkStudios/cargo-deny-action@v1
