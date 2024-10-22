@@ -277,4 +277,4 @@ jobs:
           # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
           rustflags: ""
       - name: Run cargo deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@v2
