@@ -16,8 +16,8 @@ use crate::mock_client::{
 use crate::object_client::{
     CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientResult,
-    PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
+    HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
 };
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
@@ -168,8 +168,9 @@ impl ObjectClient for ThroughputMockClient {
         &self,
         bucket: &str,
         key: &str,
+        params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
-        self.inner.head_object(bucket, key).await
+        self.inner.head_object(bucket, key, params).await
     }
 
     async fn put_object(

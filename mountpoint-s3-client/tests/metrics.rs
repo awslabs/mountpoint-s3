@@ -20,6 +20,7 @@ use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use regex::Regex;
 use rusty_fork::rusty_fork_test;
@@ -233,7 +234,7 @@ async fn test_head_object_403() {
 
     let client: S3CrtClient = get_test_client();
     let err = client
-        .head_object(&bucket, "some-key")
+        .head_object(&bucket, "some-key", &HeadObjectParams::new())
         .await
         .expect_err("head to no-permissions bucket should fail");
     assert!(matches!(

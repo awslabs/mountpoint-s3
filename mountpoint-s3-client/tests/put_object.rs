@@ -11,7 +11,8 @@ use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
-    ChecksumAlgorithm, ObjectClientResult, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums,
+    ChecksumAlgorithm, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
+    PutObjectTrailingChecksums,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::checksums::crc32c;
@@ -660,7 +661,7 @@ async fn test_concurrent_put_objects(throughput_target_gbps: f64, max_concurrent
         // Also try to issue an unrelated request (head_object).
         tokio::time::timeout(TIMEOUT, async {
             client
-                .head_object(&bucket, &not_existing_key)
+                .head_object(&bucket, &not_existing_key, &HeadObjectParams::new())
                 .await
                 .expect_err("head object should fail")
         })
