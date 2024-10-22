@@ -286,7 +286,11 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
 
     // Statically link all the compiled CRT libraries
     for lib in libraries.iter() {
-        println!("cargo:rustc-link-lib=static={}", lib.library_name);
+        println!(
+            "cargo:rustc-link-lib={}={}",
+            static_link_modifiers_for_lib(&lib.library_name),
+            lib.library_name
+        );
     }
 
     target_dir
@@ -299,6 +303,25 @@ fn compile_logging_shim(crt_include_dir: impl AsRef<Path>) {
         .include(crt_include_dir)
         .compile("logging_shim");
     println!("cargo:rerun-if-changed=src/logging_shim.c");
+}
+
+/// Returns kind and modifiers to use while statically linking the given library.
+/// Should be used in `cargo:rustc-link-lib`.
+fn static_link_modifiers_for_lib(library_name: &str) -> &'static str {
+    // Up until v1.82, Rust was passing `+whole-archive` linker flag while building the tests.
+    // That's no longer the case with v1.82 and our tests started to fail with undefined references.
+    // To preserve this behaviour, we're passing `+whole-archive` explicitly for `aws-c-common`
+    // if we're doing a debug build.
+    // See https://github.com/rust-lang/rust/pull/128400.
+    // A debug build does not necessarily mean we're building the tests, but there is no way to
+    // detect if we're building the tests in `build.rs` at the moment, and this is the best approximation.
+    // See https://github.com/rust-lang/cargo/issues/1581.
+    let is_debug = get_env("PROFILE").unwrap_or_default() == "debug";
+    if is_debug && library_name == "aws-c-common" {
+        "static:+whole-archive"
+    } else {
+        "static"
+    }
 }
 
 /// Build or link to the CRT.
@@ -324,13 +347,13 @@ fn main() {
     let include_dir = if let Some(path) = get_env("MOUNTPOINT_CRT_LIB_DIR") {
         println!("cargo:rustc-link-search=native={path}");
 
-        let link_type = match get_env("MOUNTPOINT_CRT_LIB_LINK_STATIC") {
-            Some(_) => "static",
-            None => "dylib",
-        };
-
         let libraries = get_required_libraries(&target_os());
         for lib in libraries {
+            let link_type = match get_env("MOUNTPOINT_CRT_LIB_LINK_STATIC") {
+                Some(_) => static_link_modifiers_for_lib(&lib.library_name),
+                None => "dylib",
+            };
+
             println!("cargo:rustc-link-lib={}={}", link_type, lib.library_name);
         }
 
