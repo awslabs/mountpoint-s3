@@ -71,8 +71,12 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -119,8 +123,12 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -156,9 +164,12 @@ jobs:
       with:
         ref: ${{ inputs.ref }}
         submodules: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
         components: rust-src
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies

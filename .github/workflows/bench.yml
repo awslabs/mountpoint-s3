@@ -51,8 +51,12 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -121,8 +125,12 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
@@ -175,8 +183,12 @@ jobs:
         fuseVersion: 2
         libunwind: true
         fio: true
-    - name: Set up stable Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
+        rustflags: ""
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
