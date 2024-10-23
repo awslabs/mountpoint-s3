@@ -219,7 +219,7 @@ pub struct HeadObjectResult {
     pub last_modified: OffsetDateTime,
 
     /// Entity tag of this object.
-    pub etag: String,
+    pub etag: ETag,
 
     /// Storage class for this object.
     ///

@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -10,7 +9,6 @@ use mountpoint_s3::mem_limiter::MemoryLimiter;
 use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use sysinfo::{RefreshKind, System};
@@ -114,7 +112,7 @@ fn main() {
 
     let head_object_result = block_on(client.head_object(bucket, key)).expect("HeadObject failed");
     let size = head_object_result.size;
-    let etag = ETag::from_str(&head_object_result.etag).unwrap();
+    let etag = head_object_result.etag;
 
     for i in 0..iterations.unwrap_or(1) {
         let runtime = client.event_loop_group();

@@ -700,7 +700,7 @@ impl SuperblockInner {
                 result = file_lookup => {
                     match result {
                         Ok(HeadObjectResult { size, last_modified, restore_status ,etag, storage_class, .. }) => {
-                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag), storage_class, restore_status, self.config.cache_config.file_ttl);
+                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.as_str().to_string()), storage_class, restore_status, self.config.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going

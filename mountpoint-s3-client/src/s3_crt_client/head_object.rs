@@ -97,7 +97,7 @@ impl HeadObjectResult {
             last_modified,
             storage_class,
             restore_status,
-            etag,
+            etag: etag.into(),
         };
         Ok(result)
     }

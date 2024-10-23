@@ -689,7 +689,7 @@ impl ObjectClient for MockClient {
             Ok(HeadObjectResult {
                 size: object.size as u64,
                 last_modified: object.last_modified,
-                etag: object.etag.as_str().to_string(),
+                etag: object.etag.clone(),
                 storage_class: object.storage_class.clone(),
                 restore_status: object.restore_status,
             })
