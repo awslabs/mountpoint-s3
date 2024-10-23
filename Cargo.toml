@@ -38,6 +38,7 @@ pkg-config = { version = "0.3.14", optional = true }
 default = ["libfuse"]
 libfuse = ["pkg-config"]
 serializable = ["serde"]
+macfuse-4-compat = []
 abi-7-9 = []
 abi-7-10 = ["abi-7-9"]
 abi-7-11 = ["abi-7-10"]
