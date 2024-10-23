@@ -2,7 +2,7 @@ use std::backtrace::Backtrace;
 use std::fs::{DirBuilder, OpenOptions};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
-use std::panic::{self, PanicInfo};
+use std::panic::{self, PanicHookInfo};
 use std::path::{Path, PathBuf};
 use std::thread;
 
@@ -70,7 +70,7 @@ pub fn prepare_log_file_name(log_directory: &Path) -> PathBuf {
     log_directory.join(file_name)
 }
 
-fn tracing_panic_hook(panic_info: &PanicInfo) {
+fn tracing_panic_hook(panic_info: &PanicHookInfo) {
     let location = panic_info
         .location()
         .map(|l| format!("{}", l))
