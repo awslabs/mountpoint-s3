@@ -256,6 +256,7 @@ impl MockClient {
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
                     restore_status: object.restore_status,
+                    checksum_algorithm: object.checksum_algorithm(),
                 });
             }
         }
@@ -317,6 +318,7 @@ impl MockClient {
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
                     restore_status: object.restore_status,
+                    checksum_algorithm: object.checksum_algorithm(),
                 });
             }
             next_continuation_token += 1;
@@ -471,6 +473,24 @@ impl MockObject {
 
     pub fn etag(&self) -> ETag {
         self.etag.clone()
+    }
+
+    pub fn checksum_algorithm(&self) -> Option<ChecksumAlgorithm> {
+        let Checksum {
+            checksum_crc32,
+            checksum_crc32c,
+            checksum_sha1,
+            checksum_sha256,
+        } = &self.checksum;
+
+        match (checksum_crc32, checksum_crc32c, checksum_sha1, checksum_sha256) {
+            (Some(_), None, None, None) => Some(ChecksumAlgorithm::Crc32),
+            (None, Some(_), None, None) => Some(ChecksumAlgorithm::Crc32c),
+            (None, None, Some(_), None) => Some(ChecksumAlgorithm::Sha1),
+            (None, None, None, Some(_)) => Some(ChecksumAlgorithm::Sha256),
+            (None, None, None, None) => None,
+            _ => unreachable!("should not have more than one checksum"),
+        }
     }
 }
 
@@ -1583,6 +1603,31 @@ mod tests {
                 .map(|i| format!("{prefix}key{i}/")),
         );
         assert_eq!(objects, expected_objects);
+    }
+
+    #[tokio::test]
+    async fn list_objects_checksum() {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            ..Default::default()
+        });
+
+        client.add_object("a.txt", MockObject::constant(0u8, 5, ETag::for_tests()));
+        let mut object_b = MockObject::constant(1u8, 5, ETag::for_tests());
+        object_b.set_checksum(Checksum {
+            checksum_crc32: None,
+            checksum_crc32c: None,
+            checksum_sha1: Some(String::from("QwzjTQIHJO11oZbfwq1nx3dy0Wk=")),
+            checksum_sha256: None,
+        });
+        client.add_object("b.txt", object_b);
+
+        let result = client
+            .list_objects("test_bucket", None, "/", 1000, "")
+            .await
+            .expect("should not fail");
+        assert_eq!(result.objects[0].checksum_algorithm, None);
+        assert_eq!(result.objects[1].checksum_algorithm, Some(ChecksumAlgorithm::Sha1));
     }
 
     #[tokio::test]

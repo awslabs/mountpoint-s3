@@ -622,6 +622,7 @@ pub enum RestoreStatus {
 /// See [Object](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html) in the *Amazon S3
 /// API Reference* for more details.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ObjectInfo {
     /// Key for this object.
     pub key: String,
@@ -643,6 +644,9 @@ pub struct ObjectInfo {
 
     /// Entity tag of this object.
     pub etag: String,
+
+    /// The algorithm that was used to create a checksum of the object.
+    pub checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 /// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].

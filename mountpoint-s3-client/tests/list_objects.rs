@@ -1,5 +1,10 @@
 #![cfg(feature = "s3_tests")]
 
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::ChecksumAlgorithm;
+use bytes::Bytes;
+use test_case::test_case;
+
 pub mod common;
 
 use common::*;
@@ -165,4 +170,53 @@ async fn test_interesting_keys() {
     assert_eq!(result.objects[1].key, format!("{prefix}{}", keys[3]));
     assert_eq!(result.objects.len(), 2);
     assert!(result.next_continuation_token.is_none());
+}
+
+#[test_case(ChecksumAlgorithm::Crc32)]
+#[test_case(ChecksumAlgorithm::Crc32C)]
+#[test_case(ChecksumAlgorithm::Sha1)]
+#[test_case(ChecksumAlgorithm::Sha256)]
+#[tokio::test]
+async fn test_checksum_attribute(upload_checksum_algorithm: ChecksumAlgorithm) {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_checksum_attribute");
+
+    let key = format!("{prefix}hello.txt");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .checksum_algorithm(upload_checksum_algorithm.clone())
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .list_objects(&bucket, None, "/", 1000, &prefix)
+        .await
+        .expect("ListObjectsV2 should succeed");
+
+    assert!(
+        result.next_continuation_token.is_none(),
+        "there should be no continuation token",
+    );
+    assert_eq!(result.objects.len(), 1, "there should be exactly one object");
+    assert_eq!(result.common_prefixes.len(), 0, "there should be no common prefixes");
+
+    let object = &result.objects[0];
+    assert_eq!(object.key, format!("{}{}", prefix, "hello.txt"));
+
+    let expected_checksum_algorithm = match upload_checksum_algorithm {
+        ChecksumAlgorithm::Crc32 => mountpoint_s3_client::types::ChecksumAlgorithm::Crc32,
+        ChecksumAlgorithm::Crc32C => mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c,
+        ChecksumAlgorithm::Sha1 => mountpoint_s3_client::types::ChecksumAlgorithm::Sha1,
+        ChecksumAlgorithm::Sha256 => mountpoint_s3_client::types::ChecksumAlgorithm::Sha256,
+        _ => todo!("update with new checksum algorithm should one come available"),
+    };
+
+    assert_eq!(Some(expected_checksum_algorithm), object.checksum_algorithm);
 }
