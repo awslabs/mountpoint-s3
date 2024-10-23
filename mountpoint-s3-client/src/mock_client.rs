@@ -543,7 +543,7 @@ impl Stream for MockGetObjectRequest {
     }
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Default, Error, PartialEq, Eq)]
 pub struct MockClientError(pub Cow<'static, str>);
 
 impl std::fmt::Display for MockClientError {

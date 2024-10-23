@@ -566,7 +566,7 @@ mod tests {
     use super::*;
     use futures::executor::{block_on, ThreadPool};
     use mountpoint_s3_client::error::GetObjectError;
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, RequestFailureMap};
+    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig, RequestFailureMap};
     use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use mountpoint_s3_client::types::ETag;
     use proptest::proptest;
@@ -800,7 +800,7 @@ mod tests {
         size: u64,
         read_size: usize,
         test_config: TestConfig,
-        get_failures: RequestFailureMap<MockClient, GetObjectError>,
+        get_failures: RequestFailureMap<MockClientError, GetObjectError>,
     ) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -817,10 +817,10 @@ mod tests {
 
         let client = Arc::new(countdown_failure_client(
             client,
-            get_failures,
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
+            CountdownFailureConfig {
+                get_failures,
+                ..Default::default()
+            },
         ));
         let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
 
@@ -1126,10 +1126,10 @@ mod tests {
 
         let client = Arc::new(countdown_failure_client(
             client,
-            get_failures,
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
+            CountdownFailureConfig {
+                get_failures,
+                ..Default::default()
+            },
         ));
         let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
 

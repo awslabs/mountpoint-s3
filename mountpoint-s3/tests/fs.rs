@@ -13,7 +13,7 @@ use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
-use mountpoint_s3_client::failure_client::countdown_failure_client;
+use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
@@ -753,10 +753,10 @@ async fn test_upload_aborted_on_write_failure() {
 
     let failure_client = countdown_failure_client(
         client.clone(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        put_failures,
+        CountdownFailureConfig {
+            put_failures,
+            ..Default::default()
+        },
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
@@ -828,10 +828,10 @@ async fn test_upload_aborted_on_fsync_failure() {
 
     let failure_client = countdown_failure_client(
         client.clone(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        put_failures,
+        CountdownFailureConfig {
+            put_failures,
+            ..Default::default()
+        },
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
@@ -888,10 +888,10 @@ async fn test_upload_aborted_on_release_failure() {
 
     let failure_client = countdown_failure_client(
         client.clone(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        put_failures,
+        CountdownFailureConfig {
+            put_failures,
+            ..Default::default()
+        },
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),

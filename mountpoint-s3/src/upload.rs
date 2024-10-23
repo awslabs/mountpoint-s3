@@ -249,7 +249,7 @@ mod tests {
 
     use super::*;
     use mountpoint_s3_client::{
-        failure_client::countdown_failure_client,
+        failure_client::{countdown_failure_client, CountdownFailureConfig},
         mock_client::{MockClient, MockClientConfig, MockClientError},
     };
     use test_case::test_case;
@@ -337,10 +337,10 @@ mod tests {
 
         let failure_client = Arc::new(countdown_failure_client(
             client.clone(),
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-            put_failures,
+            CountdownFailureConfig {
+                put_failures,
+                ..Default::default()
+            },
         ));
 
         let uploader = Uploader::new(failure_client.clone(), None, ServerSideEncryption::default(), true);
