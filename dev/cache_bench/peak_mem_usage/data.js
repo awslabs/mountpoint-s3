@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729684343435,
+  "lastUpdate": 1729689670827,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "burakvar@amazon.co.uk",
-            "name": "Burak",
-            "username": "unexge"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2fa3a8f1cd06f6fb48a36137f05e9d936b951f6a",
-          "message": "Update CRT submodules to latest releases (#1027)\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>",
-          "timestamp": "2024-10-04T12:33:12Z",
-          "tree_id": "d8fcc77fb4d2f91dda2481013d14462d16a28b9e",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/2fa3a8f1cd06f6fb48a36137f05e9d936b951f6a"
-        },
-        "date": 1728052462172,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3423.21484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 316.53125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3264.07421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 343.01953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3200.65234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 245.2265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3317.88671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 195,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 23116.20703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 349.53515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3649.58203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 372.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3550.625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 208.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3533.31640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 3244.0625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 201.2109375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 225.65625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "burakvar@amazon.co.uk",
+            "name": "Burak Varlı",
+            "username": "unexge"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4a31ee13abb4cce71e42a70a1eab4fd7da11ddc",
+          "message": "Bump to stable Rust (1.82) (#1075)\n\n* Use `stable` Rust channel\n\nSigned-off-by: Burak Varli <burakvar@amazon.co.uk>\n\n* Pass `+whole-archive` linker flag for `aws-c-common` in debug build\n\nSigned-off-by: Burak Varli <burakvar@amazon.co.uk>\n\n* Replace deprecated PanicInfo type alias\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\n(cherry picked from commit bbaead293880eaa84cc12f0136b8c50de368afd4)\n\n* Always pass `+whole-archive` modifier for `aws-c-common`\n\nSigned-off-by: Burak Varli <burakvar@amazon.co.uk>\n\n---------\n\nSigned-off-by: Burak Varli <burakvar@amazon.co.uk>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2024-10-23T11:20:48Z",
+          "tree_id": "0e4dd1480fbe470006167e4082bc362a70f272cd",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d4a31ee13abb4cce71e42a70a1eab4fd7da11ddc"
+        },
+        "date": 1729689670789,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3288.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 327.32421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3307.359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 337.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3339.57421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 248.48046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3246.1640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 206.36328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 22877.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 345.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3578.2109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 363.16015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3559.32421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 205.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 10271.19921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3422.6640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 205.08984375,
             "unit": "MiB"
           }
         ]
