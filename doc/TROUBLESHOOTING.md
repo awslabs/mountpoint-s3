@@ -29,6 +29,9 @@ WARN write{req=52 ino=49 fh=3 offset=512 length=512 name="out"}:
 mountpoint_s3::fuse: write failed: upload error: out of order write NOT supported by Mountpoint, aborting the upload; expected offset 0 but got 512
 ```
 
+To work around this, write your file to a temporary location such as `/tmp/`, and copy or move to the mounted directory
+after the file is written.
+
 ## Writing to an existing file
 
 Trying to open an existing file for writing using Mountpoint without the `--allow-overwrite` flag will fail with the error: `Operation not permitted`.
