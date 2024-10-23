@@ -1,3 +1,4 @@
+mod cache_test;
 mod consistency_test;
 mod fork_test;
 mod lookup_test;
