@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729607183313,
+  "lastUpdate": 1729681247805,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "monthonk@amazon.com",
-            "name": "Monthon Klongklaew",
-            "username": "monthonk"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fda51030b360e1f63f7cab24a2ae2798a8d80410",
-          "message": "Adjust read window based on used memory (#1013)\n\n* Mem limiter prototype\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n* Clean up development logging\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\n\n* Scale up atomically, scale down after data was consumed\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n* Remove Client from MemoryLimiter, document this structure\n\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\n\n* Simplify the logic and include client metrics\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n* Correct client mem usage stats\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n* PR comments\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n* Put the cli argument behind a feature flag\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n* Fix scaling logic and address comments\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\n\n---------\n\nSigned-off-by: Monthon Klongklaew <monthonk@amazon.com>\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nSigned-off-by: Vladislav Volodkin <vladvolodkin@gmail.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vladislav Volodkin <vladvolodkin@gmail.com>",
-          "timestamp": "2024-10-02T08:34:40Z",
-          "tree_id": "cf541368e17bada06e3d3397b340a61301bebba2",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fda51030b360e1f63f7cab24a2ae2798a8d80410"
-        },
-        "date": 1727865109438,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 154.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 409.859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 185.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 443.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 81.34375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 328.68359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 85.8515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 320.74609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 39770.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 393.2890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 35663.6875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 508.3203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 11784.2890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 260.609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 15202.41015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11732.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 260.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 245.32421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 161.76171875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2379,6 +2260,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 152.14453125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "6d3488b7a5b9802fba3d16949f6471aa29f6996a",
+          "message": "Suggest a workaround to random write errors in our troubleshooting guide (#1074)\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2024-10-23T09:04:13Z",
+          "tree_id": "981b50223c175f374d6dfa03af2e9c601b126c59",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/6d3488b7a5b9802fba3d16949f6471aa29f6996a"
+        },
+        "date": 1729681247768,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 146.91796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 398.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 179.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 436.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 78.5546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 331.4140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 85.7109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 319.62890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 38512.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 399.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 40267.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 500.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 11875.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 262.421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 11111.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11926.58203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 263.51171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 188.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 141.375,
             "unit": "MiB"
           }
         ]
