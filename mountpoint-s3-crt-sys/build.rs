@@ -309,15 +309,11 @@ fn compile_logging_shim(crt_include_dir: impl AsRef<Path>) {
 /// Should be used in `cargo:rustc-link-lib`.
 fn static_link_modifiers_for_lib(library_name: &str) -> &'static str {
     // Up until v1.82, Rust was passing `+whole-archive` linker flag while building the tests.
-    // That's no longer the case with v1.82 and our tests started to fail with undefined references.
-    // To preserve this behaviour, we're passing `+whole-archive` explicitly for `aws-c-common`
-    // if we're doing a debug build.
-    // See https://github.com/rust-lang/rust/pull/128400.
-    // A debug build does not necessarily mean we're building the tests, but there is no way to
-    // detect if we're building the tests in `build.rs` at the moment, and this is the best approximation.
-    // See https://github.com/rust-lang/cargo/issues/1581.
-    let is_debug = get_env("PROFILE").unwrap_or_default() == "debug";
-    if is_debug && library_name == "aws-c-common" {
+    // That's no longer the case with v1.82 and our tests started to fail with undefined references from `aws-c-common`.
+    // To preserve this behaviour, we're passing `+whole-archive` explicitly for `aws-c-common`,
+    // unfortunately we're passing this flag for all builds as there is no way to detect if we're
+    // building the tests currently, see https://github.com/rust-lang/cargo/issues/1581.
+    if library_name == "aws-c-common" {
         "static:+whole-archive"
     } else {
         "static"
