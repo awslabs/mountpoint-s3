@@ -30,10 +30,21 @@ if [[ -n "${S3_JOB_NAME_FILTER}" ]]; then
   echo "Will only run fio jobs which match $S3_JOB_NAME_FILTER"
 fi
 
-optional_args=""
+optional_compile_args=""
+optional_mount_args=""
+
+if [[ -n "${OPTIONAL_COMPILE_ARGS}" ]]; then
+  echo "Will compile mountpoint with optional arguments ${OPTIONAL_COMPILE_ARGS}"
+  optional_compile_args+="${OPTIONAL_COMPILE_ARGS}"
+fi
+
+if [[ -n "${OPTIONAL_MOUNT_ARGS}" ]]; then
+  echo "Will run mountpoint with optional arguments ${OPTIONAL_MOUNT_ARGS}"
+  optional_mount_args+="${OPTIONAL_MOUNT_ARGS}"
+fi
 
 if [[ -n "${S3_ENDPOINT_URL}" ]]; then
-  optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
+  optional_mount_args+="--endpoint-url=${S3_ENDPOINT_URL}"
 fi
 
 base_dir=$(dirname "$0")
@@ -137,14 +148,14 @@ read_benchmark () {
 
     # mount file system
     set +e
-    cargo run --quiet --release -- \
+    cargo run --quiet --release ${optional_compile_args} -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --debug \
       --allow-delete \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --part-size=16777216 \
-      ${optional_args}
+      ${optional_mount_args}
     mount_status=$?
     set -e
     if [ $mount_status -ne 0 ]; then
@@ -203,13 +214,13 @@ write_benchmark () {
     # mount file system
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
     set +e
-    cargo run --quiet --release -- \
+    cargo run --quiet --release ${optional_compile_args} -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --debug \
       --allow-delete \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
-      ${optional_args}
+      ${optional_mount_args}
     mount_status=$?
     set -e
     if [ $mount_status -ne 0 ]; then
