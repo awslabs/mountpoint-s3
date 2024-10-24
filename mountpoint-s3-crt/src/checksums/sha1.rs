@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn sha1_simple() {
         let buf: &[u8] = b"123456789";
-        let sha1 = checksum(buf).expect("sha1 checksum failed");
+        let sha1 = checksum(buf).expect("checksum failed");
         assert_eq!(
             sha1,
             Sha1([247, 195, 188, 29, 128, 142, 4, 115, 42, 223, 103, 153, 101, 204, 195, 76, 167, 174, 52, 65])
@@ -103,10 +103,10 @@ mod tests {
     #[test]
     fn sha1_append() {
         let allocator = Allocator::default();
-        let mut hasher = Sha1Hasher::new(&allocator).expect("sha1 hasher creation failed");
-        hasher.update(b"1234").expect("sha1 hasher updated failed");
-        hasher.update(b"56789").expect("sha1 hasher updated failed");
-        let sha1 = hasher.finalize(&allocator).expect("sha1 hasher finalization failed");
+        let mut hasher = Sha1Hasher::new(&allocator).expect("hasher creation failed");
+        hasher.update(b"1234").expect("hasher updated failed");
+        hasher.update(b"56789").expect("hasher updated failed");
+        let sha1 = hasher.finalize(&allocator).expect("hasher finalization failed");
         assert_eq!(
             sha1,
             Sha1([247, 195, 188, 29, 128, 142, 4, 115, 42, 223, 103, 153, 101, 204, 195, 76, 167, 174, 52, 65])
