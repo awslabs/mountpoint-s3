@@ -66,16 +66,6 @@ impl Default for Hasher {
     }
 }
 
-impl std::hash::Hasher for Hasher {
-    fn finish(&self) -> u64 {
-        self.clone().finalize().0.into()
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        self.update(bytes);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::checksums::crc32c::{self, Crc32c};

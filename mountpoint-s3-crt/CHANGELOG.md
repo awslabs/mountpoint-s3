@@ -1,6 +1,7 @@
 ## Unreleased
 
-* Update to latest CRT dependencies
+* Update to latest CRT dependencies.
+* Checksum hashers no longer implement `std::hash::Hasher`.
 
 ## v0.10.0 (October 17, 2024)
 
