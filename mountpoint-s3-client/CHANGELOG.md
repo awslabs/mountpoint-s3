@@ -2,7 +2,9 @@
 
 ### Other changes
 
-* No other changes.
+* Add parameter to request checksum information as part of a `HeadObject` request.
+  If specified, the result should contain the checksum for the object if available in the S3 response.
+  ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
 
 ### Breaking changes
 
@@ -12,6 +14,9 @@
   ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
 * `HeadObjectResult` no longer provides the bucket and key used in the original request.
   ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
+* `head_object` method now requires a `HeadObjectParams` parameter.
+  The structure itself is not required to specify anything to achieve the existing behavior.
+  ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
 
 ## v0.11.0 (October 17, 2024)
 

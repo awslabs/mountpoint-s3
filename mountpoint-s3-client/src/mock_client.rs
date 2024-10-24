@@ -376,6 +376,9 @@ pub struct MockObject {
     etag: ETag,
     parts: Option<MockObjectParts>,
     object_metadata: HashMap<String, String>,
+    /// S3 checksums associated with the object.
+    ///
+    /// Typically, at most one of the checksums should be set.
     checksum: Checksum,
 }
 
