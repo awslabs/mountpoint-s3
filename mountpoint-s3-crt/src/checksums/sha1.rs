@@ -30,7 +30,7 @@ impl Sha1 {
 
 /// Computes the SHA1 checksum of a byte slice.
 ///
-/// Use [`Hasher`] for more advanced use-cases.
+/// Use [Sha1Hasher] for more advanced use-cases.
 pub fn checksum(buf: &[u8]) -> Result<Sha1, Error> {
     let allocator = Allocator::default();
     let mut hasher = Sha1Hasher::new(&allocator)?;
@@ -45,7 +45,7 @@ pub struct Sha1Hasher {
 }
 
 impl Sha1Hasher {
-    /// Create a new SHA1 [`Hasher`].
+    /// Create a new [Sha1Hasher].
     pub fn new(allocator: &Allocator) -> Result<Self, Error> {
         // SAFETY: allocator is a valid aws_allocator, and we check the return is non-null.
         let inner = unsafe { aws_sha1_new(allocator.inner.as_ptr()).ok_or_last_error()? };
