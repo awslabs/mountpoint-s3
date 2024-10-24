@@ -3,7 +3,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use lazy_static::lazy_static;
-use mountpoint_s3_crt::http::request_response::{Headers, HeadersError};
+use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use regex::Regex;
 use thiserror::Error;
@@ -11,8 +11,12 @@ use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus};
+use crate::object_client::{
+    Checksum, HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
+};
 use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+
+use super::ChecksumMode;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -83,6 +87,20 @@ impl HeadObjectResult {
         Ok(Some(RestoreStatus::Restored { expiry: expiry.into() }))
     }
 
+    fn parse_checksum(headers: &Headers) -> Result<Checksum, ParseError> {
+        let checksum_crc32 = get_optional_field(headers, "x-amz-checksum-crc32")?;
+        let checksum_crc32c = get_optional_field(headers, "x-amz-checksum-crc32c")?;
+        let checksum_sha1 = get_optional_field(headers, "x-amz-checksum-sha1")?;
+        let checksum_sha256 = get_optional_field(headers, "x-amz-checksum-sha256")?;
+
+        Ok(Checksum {
+            checksum_crc32,
+            checksum_crc32c,
+            checksum_sha1,
+            checksum_sha256,
+        })
+    }
+
     /// Parse from HeadObject headers
     fn parse_from_hdr(headers: &Headers) -> Result<Self, ParseError> {
         let last_modified = OffsetDateTime::parse(&get_field(headers, "Last-Modified")?, &Rfc2822)
@@ -92,12 +110,14 @@ impl HeadObjectResult {
         let etag = get_field(headers, "Etag")?;
         let storage_class = get_optional_field(headers, "x-amz-storage-class")?;
         let restore_status = Self::parse_restore_status(headers)?;
+        let checksum = Self::parse_checksum(headers)?;
         let result = HeadObjectResult {
             size,
             last_modified,
             storage_class,
             restore_status,
             etag: etag.into(),
+            checksum,
         };
         Ok(result)
     }
@@ -108,6 +128,7 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
+        params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
         // Stash the response from the head_object in this lock during the on_headers
         // callback, and pull them out once the request is done.
@@ -126,6 +147,17 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             let bucket = bucket.to_owned();
+
+            match params.checksum_mode {
+                Some(ChecksumMode::Enabled) => {
+                    message
+                        .set_header(&Header::new("x-amz-checksum-mode", "ENABLED"))
+                        .map_err(S3RequestError::construction_failure)?;
+                }
+                None => {
+                    // No-op. Leaving this branch so new variants will cause compilation to fail.
+                }
+            }
 
             let span = request_span!(self.inner, "head_object", bucket, key);
 
@@ -222,6 +254,24 @@ mod tests {
         let Some(RestoreStatus::InProgress) = restore_status else {
             panic!("unexpected restore_status");
         };
+    }
+
+    #[test]
+    fn test_checksum_sha256() {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let value = "QwzjTQIHJO11oZbfwq1nx3dy0Wk=";
+        let header = Header::new("x-amz-checksum-sha256", value.to_owned());
+        headers.add_header(&header).unwrap();
+
+        let checksum = HeadObjectResult::parse_checksum(&headers).expect("failed to parse headers");
+        assert_eq!(checksum.checksum_crc32, None, "other checksums shouldn't be set");
+        assert_eq!(checksum.checksum_crc32c, None, "other checksums shouldn't be set");
+        assert_eq!(checksum.checksum_sha1, None, "other checksums shouldn't be set");
+        assert_eq!(
+            checksum.checksum_sha256,
+            Some(value.to_owned()),
+            "sha256 header should match"
+        );
     }
 
     #[test]

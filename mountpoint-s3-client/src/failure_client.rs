@@ -17,9 +17,9 @@ use pin_project::pin_project;
 use crate::object_client::{
     CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-    UploadReview,
+    HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
+    ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    PutObjectSingleParams, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -167,9 +167,10 @@ where
         &self,
         bucket: &str,
         key: &str,
+        params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         (self.head_object_cb)(&mut *self.state.lock().unwrap(), bucket, key)?;
-        self.client.head_object(bucket, key).await
+        self.client.head_object(bucket, key, params).await
     }
 
     async fn put_object(

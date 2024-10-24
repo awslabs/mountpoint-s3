@@ -7,6 +7,7 @@ use test_case::test_case;
 use common::*;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError::ServiceError};
+use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
 #[tokio::test]
@@ -21,7 +22,7 @@ async fn test_empty_list() {
     let client = S3CrtClient::new(config).expect("client should create OK");
 
     let err = client
-        .head_object(&bucket, &key)
+        .head_object(&bucket, &key, &HeadObjectParams::new())
         .await
         .expect_err("head_object should fail as the key doesn't exist");
     assert!(
@@ -43,7 +44,7 @@ async fn test_one_interface_ok() {
     let client = S3CrtClient::new(config).expect("client should create OK");
 
     let err = client
-        .head_object(&bucket, &key)
+        .head_object(&bucket, &key, &HeadObjectParams::new())
         .await
         .expect_err("head_object should fail as the key doesn't exist");
     assert!(

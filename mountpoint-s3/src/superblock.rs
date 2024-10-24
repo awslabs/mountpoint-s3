@@ -30,7 +30,7 @@ use anyhow::anyhow;
 use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
-use mountpoint_s3_client::types::HeadObjectResult;
+use mountpoint_s3_client::types::{HeadObjectParams, HeadObjectResult};
 use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -688,7 +688,8 @@ impl SuperblockInner {
         //       "/" to the prefix in the request, the first common prefix we'll get back will be
         //       "dir-1/", because that precedes "dir/" in lexicographic order. Doing the
         //       ListObjects with "/" appended makes sure we always observe the correct prefix.
-        let mut file_lookup = client.head_object(&self.bucket, &full_path).fuse();
+        let head_object_params = HeadObjectParams::new();
+        let mut file_lookup = client.head_object(&self.bucket, &full_path, &head_object_params).fuse();
         let mut dir_lookup = client
             .list_objects(&self.bucket, None, "/", 1, &full_path_suffixed)
             .fuse();
@@ -1273,7 +1274,7 @@ mod tests {
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
                     let modified_time = client
-                        .head_object(bucket, file.inode.full_key())
+                        .head_object(bucket, file.inode.full_key(), &HeadObjectParams::new())
                         .await
                         .expect("object should exist")
                         .last_modified;

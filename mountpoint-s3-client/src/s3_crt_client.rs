@@ -1305,8 +1305,9 @@ impl ObjectClient for S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
+        params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
-        self.head_object(bucket, key).await
+        self.head_object(bucket, key, params).await
     }
 
     async fn put_object(
