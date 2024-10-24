@@ -142,7 +142,11 @@ where
         // already likely negligible.
         let mut block_offset = block_range.start * block_size;
         for block_index in block_range.clone() {
-            match self.cache.get_block(cache_key, block_index, block_offset).await {
+            match self
+                .cache
+                .get_block(cache_key, block_index, block_offset, range.object_size())
+                .await
+            {
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
@@ -227,7 +231,7 @@ where
             cache: self.cache.clone(),
             runtime: self.runtime.clone(),
         };
-        part_composer.try_compose_parts(request_stream).await;
+        part_composer.try_compose_parts(request_stream, range).await;
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -258,8 +262,12 @@ where
     Cache: DataCache + Send + Sync + 'static,
     Runtime: Spawn,
 {
-    async fn try_compose_parts(&mut self, request_stream: impl Stream<Item = RequestReaderOutput<E>>) {
-        if let Err(e) = self.compose_parts(request_stream).await {
+    async fn try_compose_parts(
+        &mut self,
+        request_stream: impl Stream<Item = RequestReaderOutput<E>>,
+        range: RequestRange,
+    ) {
+        if let Err(e) = self.compose_parts(request_stream, range).await {
             trace!(error=?e, "part stream task failed");
             self.part_queue_producer.push(Err(e));
         }
@@ -269,6 +277,7 @@ where
     async fn compose_parts(
         &mut self,
         request_stream: impl Stream<Item = RequestReaderOutput<E>>,
+        range: RequestRange,
     ) -> Result<(), PrefetchReadError<E>> {
         let key = self.cache_key.key();
         let block_size = self.cache.block_size();
@@ -321,7 +330,7 @@ where
                 }
 
                 // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key);
+                self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key, range);
                 self.block_index += 1;
                 self.block_offset += block_size;
                 buffer = ChecksummedBytes::default();
@@ -337,19 +346,26 @@ where
                 "a partial block is only allowed at the end of the object"
             );
             // Write the last block to the cache.
-            self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key);
+            self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key, range);
         }
         Ok(())
     }
 
-    fn update_cache(&self, block: ChecksummedBytes, block_index: u64, block_offset: u64, object_id: &ObjectId) {
+    fn update_cache(
+        &self,
+        block: ChecksummedBytes,
+        block_index: u64,
+        block_offset: u64,
+        object_id: &ObjectId,
+        range: RequestRange,
+    ) {
         let object_id = object_id.clone();
         let cache = self.cache.clone();
         self.runtime
             .spawn(async move {
                 let start = Instant::now();
                 if let Err(error) = cache
-                    .put_block(object_id.clone(), block_index, block_offset, block)
+                    .put_block(object_id.clone(), block_index, block_offset, block, range.object_size())
                     .await
                 {
                     warn!(key=?object_id, block_index, ?error, "failed to update cache");
