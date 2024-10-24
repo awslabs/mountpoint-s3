@@ -2,6 +2,7 @@
 
 * Update to latest CRT dependencies.
 * Checksum hashers no longer implement `std::hash::Hasher`.
+* Add bindings to remaining checksum types CRC64, SHA1, and SHA256.
 
 ## v0.10.0 (October 17, 2024)
 
