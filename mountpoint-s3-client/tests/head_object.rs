@@ -16,7 +16,6 @@ use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
 use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::types::{ChecksumMode, HeadObjectParams};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
-#[cfg(not(feature = "s3express_tests"))]
 use test_case::test_case;
 
 #[tokio::test]
