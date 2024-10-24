@@ -1,6 +1,7 @@
 //! Provides base64 encoding/decoding for various checksum algorithms.
-use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
-use mountpoint_s3_crt::checksums::sha1::Sha1;
+
+pub use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
+pub use mountpoint_s3_crt::checksums::sha1::{self, Sha1};
 
 use base64ct::Base64;
 use base64ct::Encoding;
