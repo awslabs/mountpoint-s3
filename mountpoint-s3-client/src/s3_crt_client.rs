@@ -100,6 +100,7 @@ pub struct S3ClientConfig {
     read_backpressure: bool,
     initial_read_window: usize,
     network_interface_names: Vec<String>,
+    telemetry_callback: Option<Arc<dyn OnTelemetry>>,
 }
 
 impl Default for S3ClientConfig {
@@ -118,6 +119,7 @@ impl Default for S3ClientConfig {
             read_backpressure: false,
             initial_read_window: DEFAULT_PART_SIZE,
             network_interface_names: vec![],
+            telemetry_callback: None,
         }
     }
 }
@@ -219,6 +221,13 @@ impl S3ClientConfig {
         self.network_interface_names = network_interface_names;
         self
     }
+
+    /// Set a custom callback to handle telemetry events
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn telemetry_callback(mut self, telemetry_callback: Arc<dyn OnTelemetry>) -> Self {
+        self.telemetry_callback = Some(telemetry_callback);
+        self
+    }
 }
 
 /// Authentication configuration for the CRT-based S3 client
@@ -286,6 +295,7 @@ struct S3CrtClientInner {
     bucket_owner: Option<String>,
     credentials_provider: Option<CredentialsProvider>,
     host_resolver: HostResolver,
+    telemetry_callback: Option<Arc<dyn OnTelemetry>>,
 }
 
 impl S3CrtClientInner {
@@ -420,6 +430,7 @@ impl S3CrtClientInner {
             bucket_owner: config.bucket_owner,
             credentials_provider: Some(credentials_provider),
             host_resolver,
+            telemetry_callback: config.telemetry_callback,
         })
     }
 
@@ -556,6 +567,8 @@ impl S3CrtClientInner {
         let total_bytes = Arc::new(AtomicU64::new(0));
         let total_bytes_clone = Arc::clone(&total_bytes);
 
+        let telemetry_callback = self.telemetry_callback.clone();
+
         options
             .on_telemetry(move |metrics| {
                 let _guard = span_telemetry.enter();
@@ -592,6 +605,10 @@ impl S3CrtClientInner {
                     metrics::counter!("s3.requests.failures", "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string()).increment(1);
                 } else if request_canceled {
                     metrics::counter!("s3.requests.canceled", "op" => op, "type" => request_type).increment(1);
+                }
+
+                if let Some(telemetry_callback) = &telemetry_callback {
+                    telemetry_callback.on_telemetry(metrics, op);
                 }
             })
             .on_headers(move |headers, response_status| {
@@ -1339,6 +1356,10 @@ impl ObjectClient for S3CrtClient {
         self.get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
     }
+}
+
+pub trait OnTelemetry: std::fmt::Debug + Send + Sync {
+    fn on_telemetry(&self, request_metrics: &RequestMetrics, operation: &str);
 }
 
 #[cfg(test)]

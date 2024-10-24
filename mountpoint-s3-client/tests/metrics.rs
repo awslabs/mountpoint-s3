@@ -20,7 +20,8 @@ use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient, S3RequestError};
+use mountpoint_s3_crt::s3::client::RequestMetrics;
 use regex::Regex;
 use rusty_fork::rusty_fork_test;
 use tracing::Level;
@@ -277,5 +278,80 @@ rusty_fork_test! {
     fn head_object_403() {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(test_head_object_403());
+    }
+}
+
+async fn test_custom_telemetry_callback() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_custom_telemetry_callback");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; 100];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let recorder = TestRecorder::default();
+    metrics::set_global_recorder(recorder.clone()).unwrap();
+
+    #[derive(Debug)]
+    struct CustomOnTelemetry {
+        metric_name: String,
+        metric_value: u64,
+    }
+
+    impl OnTelemetry for CustomOnTelemetry {
+        fn on_telemetry(&self, _request_metrics: &RequestMetrics, _operation: &str) {
+            metrics::counter!(self.metric_name.clone()).absolute(self.metric_value);
+        }
+    }
+
+    let custom_metric_name = "custom_metric";
+    let custom_metric_value = 1;
+
+    let custom_telemetry_callback = CustomOnTelemetry {
+        metric_name: String::from(custom_metric_name),
+        metric_value: custom_metric_value,
+    };
+
+    let client = get_test_client_with_custom_telemetry(Arc::new(custom_telemetry_callback));
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
+    let result = result
+        .map_ok(|(_offset, bytes)| bytes.len())
+        .try_fold(0, |a, b| async move { Ok(a + b) })
+        .await
+        .expect("get_object should succeed");
+    assert_eq!(result, body.len());
+
+    let metrics = recorder.metrics.lock().unwrap().clone();
+
+    // Host count metric is emitted for a host that ends in amazonaws.com
+    let (_, metric) = metrics
+        .get(custom_metric_name, None, None)
+        .expect("The custom metric should be emitted");
+
+    let Metric::Counter(count) = metric else {
+        panic!("Expected a counter metric")
+    };
+    assert_eq!(
+        *count.lock().unwrap(),
+        custom_metric_value,
+        "The custom metric should have been emitted with the correct value"
+    );
+}
+
+rusty_fork_test! {
+    #[test]
+    fn custom_telemetry_callbacks_are_called() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_custom_telemetry_callback());
     }
 }
