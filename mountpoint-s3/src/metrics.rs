@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use metrics::{Key, Metadata, Recorder};
-use sysinfo::{get_current_pid, MemoryRefreshKind, ProcessRefreshKind, System};
+use sysinfo::{get_current_pid, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, System};
 
 use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::Arc;
@@ -72,7 +72,11 @@ fn poll_process_metrics(sys: &mut System) {
     if let Ok(pid) = get_current_pid() {
         let last_mem = sys.process(pid).map_or(0, |process| process.memory());
         sys.refresh_memory_specifics(MemoryRefreshKind::new().with_ram());
-        sys.refresh_process_specifics(pid, ProcessRefreshKind::new().with_memory());
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            false,
+            ProcessRefreshKind::new().with_memory(),
+        );
         if let Some(process) = sys.process(pid) {
             // update the metrics only when there is some change, otherwise it will be too spammy.
             if last_mem != process.memory() {
