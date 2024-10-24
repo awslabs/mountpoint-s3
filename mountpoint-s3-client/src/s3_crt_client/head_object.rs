@@ -11,9 +11,7 @@ use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::object_client::{
-    HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, ObjectInfo, RestoreStatus,
-};
+use crate::object_client::{HeadObjectError, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus};
 use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
@@ -85,7 +83,8 @@ impl HeadObjectResult {
         Ok(Some(RestoreStatus::Restored { expiry: expiry.into() }))
     }
 
-    fn parse_from_hdr(bucket: String, key: String, headers: &Headers) -> Result<Self, ParseError> {
+    /// Parse from HeadObject headers
+    fn parse_from_hdr(headers: &Headers) -> Result<Self, ParseError> {
         let last_modified = OffsetDateTime::parse(&get_field(headers, "Last-Modified")?, &Rfc2822)
             .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".into()))?;
         let size = u64::from_str(&get_field(headers, "Content-Length")?)
@@ -93,15 +92,14 @@ impl HeadObjectResult {
         let etag = get_field(headers, "Etag")?;
         let storage_class = get_optional_field(headers, "x-amz-storage-class")?;
         let restore_status = Self::parse_restore_status(headers)?;
-        let object = ObjectInfo {
-            key,
+        let result = HeadObjectResult {
             size,
             last_modified,
             storage_class,
             restore_status,
-            etag,
+            etag: etag.into(),
         };
-        Ok(HeadObjectResult { bucket, object })
+        Ok(result)
     }
 }
 
@@ -137,11 +135,7 @@ impl S3CrtClient {
                 span,
                 move |headers, _status| {
                     let mut header = header1.lock().unwrap();
-                    *header = Some(HeadObjectResult::parse_from_hdr(
-                        bucket.to_string(),
-                        key.to_string(),
-                        headers,
-                    ));
+                    *header = Some(HeadObjectResult::parse_from_hdr(headers));
                 },
                 |_, _| (),
                 move |result| {

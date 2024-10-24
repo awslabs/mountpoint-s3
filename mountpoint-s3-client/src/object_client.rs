@@ -210,11 +210,28 @@ pub enum ListObjectsError {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct HeadObjectResult {
-    /// The name of the bcuket
-    pub bucket: String,
+    /// Size of the object in bytes.
+    ///
+    /// Refers to the `Content-Length` HTTP header for HeadObject.
+    pub size: u64,
 
-    /// Object metadata
-    pub object: ObjectInfo,
+    /// The time this object was last modified.
+    pub last_modified: OffsetDateTime,
+
+    /// Entity tag of this object.
+    pub etag: ETag,
+
+    /// Storage class for this object.
+    ///
+    /// The value is optional because HeadObject does not return the storage class in its response
+    /// for objects in the S3 Standard storage class.
+    /// See examples in the
+    /// [Amazon S3 API Reference](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_Examples).
+    pub storage_class: Option<String>,
+
+    /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
+    /// accessible after restoration
+    pub restore_status: Option<RestoreStatus>,
 }
 
 /// Errors returned by a [`head_object`](ObjectClient::head_object) request

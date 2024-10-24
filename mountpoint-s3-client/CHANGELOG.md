@@ -1,5 +1,18 @@
 ## Unreleased
 
+### Other changes
+
+* No other changes.
+
+### Breaking changes
+
+* `HeadObjectResult` no longer contains an `ObjectInfo` struct.
+  Instead, it returns the object attributes as individual fields on the `HeadObjectResult`.
+  The entity tag field has also changed and is now of type `ETag` rather than `String`.
+  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
+* `HeadObjectResult` no longer provides the bucket and key used in the original request.
+  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
+
 ## v0.11.0 (October 17, 2024)
 
 ### Breaking changes
