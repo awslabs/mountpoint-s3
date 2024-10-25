@@ -1,11 +1,11 @@
-use std::{mem::MaybeUninit, ptr::NonNull};
+use std::ptr::NonNull;
 
 use mountpoint_s3_crt_sys::{
-    aws_byte_buf, aws_byte_buf_init, aws_hash, aws_hash_destroy, aws_hash_finalize, aws_hash_update, aws_sha1_new,
-    AWS_SHA1_LEN,
+    aws_hash, aws_hash_destroy, aws_hash_finalize, aws_hash_update, aws_sha1_new, AWS_SHA1_LEN,
 };
 
 use crate::common::allocator::Allocator;
+use crate::common::byte_buf::ByteBuf;
 use crate::common::error::Error;
 use crate::{CrtError as _, ToAwsByteCursor};
 
@@ -60,20 +60,13 @@ impl Sha1Hasher {
 
     /// Finalize the hash state and return the computed SHA1 checksum value.
     pub fn finalize(self, allocator: &Allocator) -> Result<Sha1, Error> {
-        // SAFETY: allocator is a valid aws_allocator, and `aws_byte_buf_init` initializes the buffer on success.
-        let mut buffer = unsafe {
-            let mut buffer: MaybeUninit<aws_byte_buf> = MaybeUninit::uninit();
-            aws_byte_buf_init(buffer.as_mut_ptr(), allocator.inner.as_ptr(), Sha1::LENGTH).ok_or_last_error()?;
-            buffer.assume_init()
-        };
+        let mut buffer = ByteBuf::new(allocator, Sha1::LENGTH)?;
 
         // SAFETY: `self.inner` is a valid `aws_hash` and `buffer` was initialized above.
-        unsafe { aws_hash_finalize(self.inner.as_ptr(), &mut buffer, 0).ok_or_last_error()? };
+        unsafe { aws_hash_finalize(self.inner.as_ptr(), buffer.as_mut_ptr(), 0).ok_or_last_error()? };
 
-        // SAFETY: `buffer` holds a valid buffer.
-        let output = unsafe { std::slice::from_raw_parts(buffer.buffer, buffer.len) };
-
-        Ok(Sha1(output.try_into().unwrap()))
+        // Slice will be copied into the struct.
+        Ok(Sha1(buffer.as_slice().try_into().unwrap()))
     }
 }
 

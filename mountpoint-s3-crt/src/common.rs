@@ -7,6 +7,7 @@ use mountpoint_s3_crt_sys::*;
 use crate::common::allocator::Allocator;
 
 pub mod allocator;
+pub mod byte_buf;
 pub mod error;
 pub mod logging;
 pub mod ref_count;
