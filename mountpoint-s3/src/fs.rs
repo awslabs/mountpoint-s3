@@ -632,6 +632,24 @@ where
 {
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
+        if let Some(user_max_background) = std::env::var_os("UNSTABLE_MAX_BACKGROUND") {
+            let max_background = user_max_background
+                .into_string()
+                .ok()
+                .and_then(|v| v.parse::<u16>().ok())
+                .expect("invalid env var max background");
+            let old = config.set_max_background(max_background).expect("unable to set max background");
+            tracing::warn!("set max background to {} from {}", max_background, old)
+        }
+        if let Some(user_congestion_threshold) = std::env::var_os("UNSTABLE_CONGESTION_THRESHOLD") {
+            let congestion_threshold = user_congestion_threshold
+                .into_string()
+                .ok()
+                .and_then(|v| v.parse::<u16>().ok())
+                .expect("invalid env var congestion threshold");
+            let old = config.set_congestion_threshold(congestion_threshold).expect("unable to set congestion threshold");
+            tracing::warn!("set congestion threshold to {} from {}", congestion_threshold, old);
+        }
         if self.config.allow_overwrite {
             // Overwrites require FUSE_ATOMIC_O_TRUNC capability on the host, so we will panic if the
             // host doesn't support it.

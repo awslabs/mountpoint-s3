@@ -90,6 +90,10 @@ def _mount_mp(cfg: DictConfig, metadata: dict[str, any], mount_dir :str) -> str:
         subprocess_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = str(cfg['mp_prefetcher_window_size'])
     if cfg['mp_backpressure_fixed_threshold'] is not None:
         subprocess_env["UNSTABLE_MOUNTPOINT_BACKPRESSURE_FIXED_THRESHOLD"] = str(cfg['mp_backpressure_fixed_threshold'])
+    if cfg['mp_max_background'] is not None:
+        subprocess_env["UNSTABLE_MAX_BACKGROUND"] = str(cfg['mp_max_background'])
+    if cfg['mp_congestion_threshold'] is not None:
+        subprocess_env['UNSTABLE_CONGESTION_THRESHOLD'] = str(cfg['mp_congestion_threshold'])
 
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
     metadata["mount_s3_command"] = " ".join(subprocess_args)
