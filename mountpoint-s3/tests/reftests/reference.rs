@@ -8,7 +8,7 @@ use tracing::trace;
 #[derive(Debug)]
 pub enum File {
     Local,
-    Remote(MockObject),
+    Remote(Box<MockObject>),
 }
 
 #[derive(Debug)]
@@ -306,7 +306,7 @@ fn build_reference<'a>(flat: impl Iterator<Item = (&'a String, &'a MockObject)>)
     #[derive(Debug)]
     enum RefNode {
         Directory(Rc<RefCell<BTreeMap<String, RefNode>>>),
-        File(MockObject),
+        File(Box<MockObject>),
     }
 
     impl RefNode {
@@ -356,7 +356,7 @@ fn build_reference<'a>(flat: impl Iterator<Item = (&'a String, &'a MockObject)>)
         if valid_inode_name(file_name) && should_create {
             leaf_dir
                 .borrow_mut()
-                .insert(file_name.to_string(), RefNode::File(file.clone()));
+                .insert(file_name.to_string(), RefNode::File(Box::new(file.clone())));
         }
     }
 
