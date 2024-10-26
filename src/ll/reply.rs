@@ -12,7 +12,7 @@ use crate::FileType;
 use super::{fuse_abi as abi, Errno, FileHandle, Generation, INodeNo};
 use super::{Lock, RequestId};
 use smallvec::{smallvec, SmallVec};
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
 pub(crate) type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
@@ -249,7 +249,7 @@ impl<'a> Response<'a> {
         Self::from_struct(&r)
     }
 
-    fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
+    fn from_struct<T: IntoBytes + Immutable + ?Sized>(data: &T) -> Self {
         Self::Data(SmallVec::from_slice(data.as_bytes()))
     }
 }

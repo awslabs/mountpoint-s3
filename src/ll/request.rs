@@ -282,7 +282,7 @@ mod op {
         path::Path,
         time::{Duration, SystemTime},
     };
-    use zerocopy::AsBytes;
+    use zerocopy::IntoBytes;
 
     /// Look up a directory entry by name and get its attributes.
     ///
