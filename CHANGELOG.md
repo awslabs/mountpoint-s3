@@ -1,5 +1,12 @@
 # FUSE for Rust - Changelog
 
+## 0.15.0 - 2024-10-25
+* Add file handle argument to `getattr()`
+* Change `poll()` to take a `PollHandle` instead of a `u64`
+* Add low level API for manually mounting or wrapping a fuse file descriptor into a `Session`
+* Fix compatibility with MacFUSE 4.x
+* Performance optimizations
+
 ## 0.14.0 - 2023-11-04
 * Add support for poll
 * Add support for notifications
