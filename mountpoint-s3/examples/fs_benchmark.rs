@@ -9,6 +9,7 @@ use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::{
     fs::{File, OpenOptions},
     io::{self, BufRead, BufReader},
+    path::Path,
     time::Instant,
 };
 use tempfile::tempdir;
@@ -83,8 +84,9 @@ fn main() -> io::Result<()> {
         .map(|s| s.parse::<usize>().expect("iterations must be a number"));
     let region = matches.get_one::<String>("region").unwrap();
 
-    let session = mount_file_system(bucket_name, region, throughput_target_gbps);
-    let mountpoint = &session.mountpoint;
+    let temp_dir = tempdir().expect("Should be able to create temp directory");
+    let mountpoint = temp_dir.path();
+    let session = mount_file_system(mountpoint, bucket_name, region, throughput_target_gbps);
 
     #[cfg(not(target_os = "linux"))]
     if direct {
@@ -143,10 +145,12 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn mount_file_system(bucket_name: &str, region: &str, throughput_target_gbps: Option<f64>) -> BackgroundSession {
-    let temp_dir = tempdir().expect("Should be able to create temp directory");
-    let mountpoint = temp_dir.path();
-
+fn mount_file_system(
+    mountpoint: &Path,
+    bucket_name: &str,
+    region: &str,
+    throughput_target_gbps: Option<f64>,
+) -> BackgroundSession {
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
     if let Some(throughput_target_gbps) = throughput_target_gbps {
         config = config.throughput_target_gbps(throughput_target_gbps);
