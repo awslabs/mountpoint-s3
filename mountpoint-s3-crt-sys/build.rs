@@ -29,6 +29,7 @@ const CRT_LIBRARIES: &[&str] = &[
 const CRT_HEADERS: &[&str] = &[
     "auth/credentials.h",
     "auth/aws_imds_client.h",
+    "cal/hash.h",
     "checksums/crc.h",
     "common/atomics.h",
     "common/log_channel.h",
