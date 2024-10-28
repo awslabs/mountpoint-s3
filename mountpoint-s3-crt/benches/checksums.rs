@@ -5,6 +5,12 @@ use mountpoint_s3_crt::checksums::{crc32, crc32c, crc64, sha1, sha256};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
+#[ctor::ctor]
+fn init_crt() {
+    // TODO: If we add additional benchmarks needing CRT initialization, move to a benchmark harness script.
+    mountpoint_s3_crt::io::io_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
+}
+
 fn benchmark_hasher<F, R>(c: &mut Criterion, hash_fn: F, name: &str)
 where
     F: Fn(&[u8]) -> R,
