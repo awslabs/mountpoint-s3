@@ -1458,7 +1458,7 @@ pub enum ChecksumAlgorithm {
     Sha256,
     /// Checksum of a type unknown to this S3 client.
     ///
-    /// This type will be used if Mountpoint ever encounters a checksum algorithm it doesn't recognise.
+    /// This type will be used if Mountpoint ever encounters a checksum algorithm it doesn't recognize.
     /// This should allow Mountpoint to continue with most file operations which don't depend on the checksum algorithm.
     Unknown(String),
 }

@@ -20,6 +20,7 @@
   The structure itself is not required to specify anything to achieve the existing behavior.
   ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
 * Both `ObjectInfo` and `ChecksumAlgorithm` structs are now marked `non_exhaustive`, to indicate that new fields may be added in the future.
+  `ChecksumAlgorithm` no longer implements `Copy`.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
 
 ## v0.11.0 (October 17, 2024)
