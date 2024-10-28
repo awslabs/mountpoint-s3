@@ -25,11 +25,11 @@ use tracing::trace;
 use crate::checksums::crc32c_to_base64;
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
-    Checksum, ChecksumAlgorithm, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
+    Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
     DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
-    GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectResult, ListObjectsError,
-    ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectPart,
-    PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectParams, HeadObjectResult,
+    ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult,
+    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
     PutObjectTrailingChecksums, RestoreStatus, UploadReview, UploadReviewPart,
 };
 
@@ -376,6 +376,10 @@ pub struct MockObject {
     etag: ETag,
     parts: Option<MockObjectParts>,
     object_metadata: HashMap<String, String>,
+    /// S3 checksums associated with the object.
+    ///
+    /// Typically, at most one of the checksums should be set.
+    checksum: Checksum,
 }
 
 impl MockObject {
@@ -395,6 +399,7 @@ impl MockObject {
             etag,
             parts: None,
             object_metadata: HashMap::new(),
+            checksum: Checksum::empty(),
         }
     }
 
@@ -408,6 +413,7 @@ impl MockObject {
             etag,
             parts: None,
             object_metadata: HashMap::new(),
+            checksum: Checksum::empty(),
         }
     }
 
@@ -431,6 +437,7 @@ impl MockObject {
             etag,
             parts: None,
             object_metadata: HashMap::new(),
+            checksum: Checksum::empty(),
         }
     }
 
@@ -448,6 +455,10 @@ impl MockObject {
 
     pub fn set_restored(&mut self, restore_status: Option<RestoreStatus>) {
         self.restore_status = restore_status;
+    }
+
+    pub fn set_checksum(&mut self, checksum: Checksum) {
+        self.checksum = checksum;
     }
 
     pub fn len(&self) -> usize {
@@ -676,6 +687,7 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
+        params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         trace!(bucket, key, "HeadObject");
         self.inc_op_count(Operation::HeadObject);
@@ -686,12 +698,19 @@ impl ObjectClient for MockClient {
 
         let objects = self.objects.read().unwrap();
         if let Some(object) = objects.get(key) {
+            // Checksum information is opt-in
+            let checksum = match params.checksum_mode {
+                Some(ChecksumMode::Enabled) => object.checksum.clone(),
+                None => Checksum::empty(),
+            };
+
             Ok(HeadObjectResult {
                 size: object.size as u64,
                 last_modified: object.last_modified,
                 etag: object.etag.clone(),
                 storage_class: object.storage_class.clone(),
                 restore_status: object.restore_status,
+                checksum,
             })
         } else {
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
@@ -1676,7 +1695,7 @@ mod tests {
         put_request.complete().await.unwrap();
 
         // head_object returns storage class
-        let head_result = client.head_object(bucket, key).await.unwrap();
+        let head_result = client.head_object(bucket, key, &HeadObjectParams::new()).await.unwrap();
         assert_eq!(head_result.storage_class.as_deref(), storage_class);
 
         // list_objects returns storage class
@@ -1699,14 +1718,14 @@ mod tests {
         let head_counter_1 = client.new_counter(Operation::HeadObject);
         let delete_counter_1 = client.new_counter(Operation::DeleteObject);
 
-        let _result = client.head_object(bucket, "key").await;
+        let _result = client.head_object(bucket, "key", &HeadObjectParams::new()).await;
         assert_eq!(1, head_counter_1.count());
         assert_eq!(0, delete_counter_1.count());
 
         let head_counter_2 = client.new_counter(Operation::HeadObject);
         assert_eq!(0, head_counter_2.count());
 
-        let _result = client.head_object(bucket, "key").await;
+        let _result = client.head_object(bucket, "key", &HeadObjectParams::new()).await;
         let _result = client.delete_object(bucket, "key").await;
         let _result = client.delete_object(bucket, "key").await;
         let _result = client.delete_object(bucket, "key").await;

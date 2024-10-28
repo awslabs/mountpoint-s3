@@ -97,6 +97,7 @@ pub trait ObjectClient {
         &self,
         bucket: &str,
         key: &str,
+        params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError>;
 
     /// Put an object into the object store. Returns a [PutObjectRequest] for callers
@@ -206,6 +207,35 @@ pub enum ListObjectsError {
     NoSuchBucket,
 }
 
+/// Parameters to a [`head_object`](ObjectClient::head_object) request
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct HeadObjectParams {
+    /// Enable to retrieve checksum as part of the HeadObject request
+    pub checksum_mode: Option<ChecksumMode>,
+}
+
+impl HeadObjectParams {
+    /// Create a default [HeadObjectParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set option to retrieve checksum as part of the HeadObject request
+    pub fn checksum_mode(mut self, value: Option<ChecksumMode>) -> Self {
+        self.checksum_mode = value;
+        self
+    }
+}
+
+/// Enable [ChecksumMode] to retrieve object checksums
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum ChecksumMode {
+    /// Retrieve checksums
+    Enabled,
+}
+
 /// Result of a [`head_object`](ObjectClient::head_object) request
 #[derive(Debug)]
 #[non_exhaustive]
@@ -232,6 +262,11 @@ pub struct HeadObjectResult {
     /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
     /// accessible after restoration
     pub restore_status: Option<RestoreStatus>,
+    /// Checksum of the object.
+    ///
+    /// HeadObject must explicitly request for this field to be included,
+    /// otherwise the values will be empty.
+    pub checksum: Checksum,
 }
 
 /// Errors returned by a [`head_object`](ObjectClient::head_object) request
@@ -647,7 +682,7 @@ impl fmt::Display for ObjectAttribute {
 ///
 /// See [Checksum](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Checksum.html) in the *Amazon
 /// S3 API Reference* for more details.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Checksum {
     /// Base64-encoded, 32-bit CRC32 checksum of the object
     pub checksum_crc32: Option<String>,
@@ -660,6 +695,18 @@ pub struct Checksum {
 
     /// Base64-encoded, 256-bit SHA-256 digest of the object
     pub checksum_sha256: Option<String>,
+}
+
+impl Checksum {
+    /// Construct an empty [Checksum]
+    pub fn empty() -> Self {
+        Self {
+            checksum_crc32: None,
+            checksum_crc32c: None,
+            checksum_sha1: None,
+            checksum_sha256: None,
+        }
+    }
 }
 
 /// Metadata about object parts from GetObjectAttributes API.

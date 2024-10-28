@@ -9,6 +9,7 @@ use mountpoint_s3::mem_limiter::MemoryLimiter;
 use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::{default_prefetch, Prefetch, PrefetchResult};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use sysinfo::{RefreshKind, System};
@@ -110,7 +111,8 @@ fn main() {
     };
     let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
 
-    let head_object_result = block_on(client.head_object(bucket, key)).expect("HeadObject failed");
+    let head_object_result =
+        block_on(client.head_object(bucket, key, &HeadObjectParams::new())).expect("HeadObject failed");
     let size = head_object_result.size;
     let etag = head_object_result.etag;
 
