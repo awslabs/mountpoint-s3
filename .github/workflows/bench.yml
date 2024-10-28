@@ -232,3 +232,69 @@ jobs:
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
+
+  mem-limiter-bench:
+    name: Benchmark (Memory limiter)
+    runs-on: [self-hosted, linux, x64, nvme-high-performance]
+
+    environment: ${{ inputs.environment }}
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
+        aws-region: ${{ vars.S3_BENCH_REGION }}
+        role-duration-seconds: 21600
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
+    - name: Set up stable Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build
+      # TODO: remove feature flag once stable
+      run: cargo build --release --features mem_limiter
+    - name: Run Benchmark
+      run: mountpoint-s3/scripts/fs_bench.sh
+      env:
+        OPTIONAL_COMPILE_ARGS: "--features mem_limiter"
+        # Set memory usage target for Mountpoint to 2GiB
+        OPTIONAL_MOUNT_ARGS: "--max-memory-target=2048"
+    - name: Check benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customBiggerIsBetter'
+        output-file-path: results/output.json
+        benchmark-data-dir-path: dev/mem_limiter_bench
+        alert-threshold: "200%"
+        fail-on-alert: false
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.publish }}
+        comment-on-alert: false
+        max-items-in-chart: 20
+    - name: Check resource utilization
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/peak_mem_usage.json
+        benchmark-data-dir-path: dev/mem_limiter_bench/peak_mem_usage
+        alert-threshold: "200%"
+        fail-on-alert: false
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Store the results and deploy GitHub pages automatically if the results are from main branch
+        auto-push: ${{ inputs.publish }}
+        comment-on-alert: false
+        max-items-in-chart: 20
+        skip-fetch-gh-pages: true

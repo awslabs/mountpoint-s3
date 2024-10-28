@@ -25,10 +25,21 @@ if [[ -z "${S3_BUCKET_SMALL_BENCH_FILE}" ]]; then
   exit 1
 fi
 
-optional_args=""
+optional_compile_args=""
+optional_mount_args=""
+
+if [[ -n "${OPTIONAL_COMPILE_ARGS}" ]]; then
+  echo "Will compile mountpoint with optional arguments ${OPTIONAL_COMPILE_ARGS}"
+  optional_compile_args+="${OPTIONAL_COMPILE_ARGS}"
+fi
+
+if [[ -n "${OPTIONAL_MOUNT_ARGS}" ]]; then
+  echo "Will run mountpoint with optional arguments ${OPTIONAL_MOUNT_ARGS}"
+  optional_mount_args+="${OPTIONAL_MOUNT_ARGS}"
+fi
 
 if [[ -n "${S3_ENDPOINT_URL}" ]]; then
-  optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
+  optional_mount_args+="--endpoint-url=${S3_ENDPOINT_URL}"
 fi
 
 base_dir=$(dirname "$0")
@@ -59,12 +70,13 @@ do
     echo "Running ${job_name}"
 
     # mount file system
-    cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+    cargo run --release ${optional_compile_args} -- \
+        ${S3_BUCKET_NAME} ${mount_dir} \
         --debug \
         --allow-delete \
         --log-directory=$log_dir \
         --prefix=${S3_BUCKET_TEST_PREFIX} \
-        ${optional_args}
+        ${optional_mount_args}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
         echo "Failed to mount file system"
@@ -135,12 +147,13 @@ for job_file in "${jobs_dir}"/*.fio; do
   echo "Running ${job_name}"
 
   # mount file system
-  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+  cargo run --release ${optional_compile_args} \
+    ${S3_BUCKET_NAME} ${mount_dir} \
     --debug \
     --allow-delete \
     --log-directory=$log_dir \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
-    ${optional_args}
+    ${optional_mount_args}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then
     echo "Failed to mount file system"
