@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1729795989900,
+  "lastUpdate": 1730130807618,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5abbce51cb47b4db9176992308cf037c2729e7be",
-          "message": "Tidy up the fs module (#1051)\n\n* Refactor fs into submodules\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Reorder types in fs module\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-10-07T08:47:24Z",
-          "tree_id": "60b95595d6b1f9df7d227e1a603d4eddc3be50b5",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5abbce51cb47b4db9176992308cf037c2729e7be"
-        },
-        "date": 1728297982454,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 135.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 378.41015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 128.66015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 397.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 82.47265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 317.60546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 79.05859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 326.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 41225.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 414.859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 47145.296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 540.94921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 9189.7265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 269.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 9915.28515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 12742.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 282.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 506.56640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 398.1015625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2379,6 +2260,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 430.1171875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "8f2770b32389f415626c249e46282b9995b428e7",
+          "message": "Add ability to request checksum in an S3 HeadObject request (#1083)\n\n* Add option to retrieve additional checksums with HeadObject\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Add changelog entry and comment\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Remove import condition for s3express_tests\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Appease clippy\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Appease clippy\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-10-28T13:55:13Z",
+          "tree_id": "3e7e43ffee37c0d772a529c2798e112f107cddd4",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8f2770b32389f415626c249e46282b9995b428e7"
+        },
+        "date": 1730130807580,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 122.4375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 364.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 130.41015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 397.17578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 83.87109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 316.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 87.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 305.2421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 34303.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 441.046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 40790.83203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 542.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 10362.828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 268.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12305.046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11727.88671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 272.3671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 745.140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 445.99609375,
             "unit": "MiB"
           }
         ]
