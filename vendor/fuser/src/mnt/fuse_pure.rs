@@ -173,7 +173,14 @@ fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
         message.msg_controllen = cmsg_buffer.len() as u32;
         message.msg_flags = 0;
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "bitrig",
+        target_os = "netbsd"
+    ))]
     {
         message = libc::msghdr {
             msg_name: ptr::null_mut(),
@@ -343,8 +350,8 @@ fn fuse_mount_sys(mountpoint: &OsStr, options: &[MountOption]) -> Result<Option<
         "fd={},rootmode={:o},user_id={},group_id={}",
         file.as_raw_fd(),
         mountpoint_mode,
-        unsafe { libc::getuid() },
-        unsafe { libc::getgid() }
+        nix::unistd::getuid(),
+        nix::unistd::getgid()
     );
 
     for option in options

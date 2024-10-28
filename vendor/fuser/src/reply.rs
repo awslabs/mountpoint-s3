@@ -669,9 +669,9 @@ mod test {
     use std::sync::mpsc::{sync_channel, SyncSender};
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
-    use zerocopy::AsBytes;
+    use zerocopy::{Immutable, IntoBytes};
 
-    #[derive(Debug, AsBytes)]
+    #[derive(Debug, IntoBytes, Immutable)]
     #[repr(C)]
     struct Data {
         a: u8,

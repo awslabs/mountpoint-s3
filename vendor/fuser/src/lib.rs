@@ -28,7 +28,7 @@ use crate::session::MAX_WRITE_SIZE;
 pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
 #[cfg(feature = "abi-7-11")]
-pub use notify::Notifier;
+pub use notify::{Notifier, PollHandle};
 #[cfg(feature = "abi-7-11")]
 pub use reply::ReplyPoll;
 #[cfg(target_os = "macos")]
@@ -40,7 +40,7 @@ pub use reply::{
     ReplyStatfs, ReplyWrite,
 };
 pub use request::Request;
-pub use session::{BackgroundSession, Session, SessionUnmounter};
+pub use session::{BackgroundSession, Session, SessionACL, SessionUnmounter};
 #[cfg(feature = "abi-7-28")]
 use std::cmp::max;
 #[cfg(feature = "abi-7-13")]
@@ -331,8 +331,11 @@ pub trait Filesystem {
     }
 
     /// Get file attributes.
-    fn getattr(&self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
-        warn!("[Not Implemented] getattr(ino: {:#x?})", ino);
+    fn getattr(&self, _req: &Request<'_>, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
+        warn!(
+            "[Not Implemented] getattr(ino: {:#x?}, fh: {:#x?})",
+            ino, fh
+        );
         reply.error(ENOSYS);
     }
 
@@ -881,14 +884,14 @@ pub trait Filesystem {
         _req: &Request<'_>,
         ino: u64,
         fh: u64,
-        kh: u64,
+        ph: PollHandle,
         events: u32,
         flags: u32,
         reply: ReplyPoll,
     ) {
         debug!(
-            "[Not Implemented] poll(ino: {:#x?}, fh: {}, kh: {}, events: {}, flags: {})",
-            ino, fh, kh, events, flags
+            "[Not Implemented] poll(ino: {:#x?}, fh: {}, ph: {:?}, events: {}, flags: {})",
+            ino, fh, ph, events, flags
         );
         reply.error(ENOSYS);
     }

@@ -7,7 +7,9 @@
 
 use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use log::{info, warn};
+use nix::unistd::geteuid;
 use std::fmt;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -31,10 +33,15 @@ pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
 /// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
 const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
 
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) enum SessionACL {
+#[derive(Default, Debug, Eq, PartialEq)]
+/// How requests should be filtered based on the calling UID.
+pub enum SessionACL {
+    /// Allow requests from any user. Corresponds to the `allow_other` mount option.
     All,
+    /// Allow requests from root. Corresponds to the `allow_root` mount option.
     RootAndOwner,
+    /// Allow requests from the owning UID. This is FUSE's default mode of operation.
+    #[default]
     Owner,
 }
 
@@ -44,11 +51,9 @@ pub struct Session<FS: Filesystem> {
     /// Filesystem operation implementations
     pub(crate) filesystem: FS,
     /// Communication channel to the kernel driver
-    ch: Channel,
+    pub(crate) ch: Channel,
     /// Handle to the mount.  Dropping this unmounts.
-    mount: Arc<Mutex<Option<Mount>>>,
-    /// Mount point
-    mountpoint: PathBuf,
+    mount: Arc<Mutex<Option<(PathBuf, Mount)>>>,
     /// Whether to restrict access to owner, root + owner, or unrestricted
     /// Used to implement allow_root and auto_unmount
     pub(crate) allowed: SessionACL,
@@ -64,13 +69,20 @@ pub struct Session<FS: Filesystem> {
     pub(crate) destroyed: AtomicBool,
 }
 
+impl<FS: Filesystem> AsFd for Session<FS> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.ch.as_fd()
+    }
+}
+
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
-    pub fn new(
+    pub fn new<P: AsRef<Path>>(
         filesystem: FS,
-        mountpoint: &Path,
+        mountpoint: P,
         options: &[MountOption],
     ) -> io::Result<Session<FS>> {
+        let mountpoint = mountpoint.as_ref();
         info!("Mounting {}", mountpoint.display());
         // If AutoUnmount is requested, but not AllowRoot or AllowOther we enforce the ACL
         // ourself and implicitly set AllowOther because fusermount needs allow_root or allow_other
@@ -99,10 +111,9 @@ impl<FS: Filesystem> Session<FS> {
         Ok(Session {
             filesystem,
             ch,
-            mount: Arc::new(Mutex::new(Some(mount))),
-            mountpoint: mountpoint.to_owned(),
+            mount: Arc::new(Mutex::new(Some((mountpoint.to_owned(), mount)))),
             allowed,
-            session_owner: unsafe { libc::geteuid() },
+            session_owner: geteuid().as_raw(),
             proto_major: AtomicU32::new(0),
             proto_minor: AtomicU32::new(0),
             initialized: AtomicBool::new(false),
@@ -110,9 +121,21 @@ impl<FS: Filesystem> Session<FS> {
         })
     }
 
-    /// Return path of the mounted filesystem
-    pub fn mountpoint(&self) -> &Path {
-        &self.mountpoint
+    /// Wrap an existing /dev/fuse file descriptor. This doesn't mount the
+    /// filesystem anywhere; that must be done separately.
+    pub fn from_fd(filesystem: FS, fd: OwnedFd, acl: SessionACL) -> Self {
+        let ch = Channel::new(Arc::new(fd.into()));
+        Session {
+            filesystem,
+            ch,
+            mount: Arc::new(Mutex::new(None)),
+            allowed: acl,
+            session_owner: geteuid().as_raw(),
+            proto_major: AtomicU32::new(0),
+            proto_minor: AtomicU32::new(0),
+            initialized: AtomicBool::new(false),
+            destroyed: AtomicBool::new(false),
+        }
     }
 
     /// Run the session loop that receives kernel requests and dispatches them to method
@@ -190,7 +213,7 @@ impl<FS: Filesystem> Session<FS> {
 #[derive(Debug)]
 /// A thread-safe object that can be used to unmount a Filesystem
 pub struct SessionUnmounter {
-    mount: Arc<Mutex<Option<Mount>>>,
+    mount: Arc<Mutex<Option<(PathBuf, Mount)>>>,
 }
 
 impl SessionUnmounter {
@@ -222,21 +245,22 @@ impl<FS: Filesystem> Drop for Session<FS> {
         if !self.destroyed.swap(true, Ordering::SeqCst) {
             self.filesystem.destroy();
         }
-        info!("Unmounted {}", self.mountpoint().display());
+
+        if let Some((mountpoint, _mount)) = std::mem::take(&mut *self.mount.lock().unwrap()) {
+            info!("unmounting session at {}", mountpoint.display());
+        }
     }
 }
 
 /// The background session data structure
 pub struct BackgroundSession {
-    /// Path of the mounted filesystem
-    pub mountpoint: PathBuf,
     /// Thread guard of the background session
     pub guard: JoinHandle<io::Result<()>>,
     /// Object for creating Notifiers for client use
     #[cfg(feature = "abi-7-11")]
     sender: ChannelSender,
     /// Ensures the filesystem is unmounted when the session ends
-    _mount: Mount,
+    _mount: Option<Mount>,
 }
 
 impl BackgroundSession {
@@ -244,17 +268,14 @@ impl BackgroundSession {
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
     pub fn new<FS: Filesystem + Send + 'static>(se: Session<FS>) -> io::Result<BackgroundSession> {
-        let mountpoint = se.mountpoint().to_path_buf();
         #[cfg(feature = "abi-7-11")]
         let sender = se.ch.sender();
         // Take the fuse_session, so that we can unmount it
-        let mount = std::mem::take(&mut *se.mount.lock().unwrap());
-        let mount = mount.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODEV))?;
+        let mount = std::mem::take(&mut *se.mount.lock().unwrap()).map(|(_, mount)| mount);
         let guard = thread::spawn(move || {
             se.run()
         });
         Ok(BackgroundSession {
-            mountpoint,
             guard,
             #[cfg(feature = "abi-7-11")]
             sender,
@@ -264,7 +285,6 @@ impl BackgroundSession {
     /// Unmount the filesystem and join the background thread.
     pub fn join(self) {
         let Self {
-            mountpoint: _,
             guard,
             #[cfg(feature = "abi-7-11")]
                 sender: _,
@@ -285,10 +305,6 @@ impl BackgroundSession {
 // thread_scoped::JoinGuard
 impl fmt::Debug for BackgroundSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "BackgroundSession {{ mountpoint: {:?}, guard: JoinGuard<()> }}",
-            self.mountpoint
-        )
+        write!(f, "BackgroundSession {{ guard: JoinGuard<()> }}",)
     }
 }

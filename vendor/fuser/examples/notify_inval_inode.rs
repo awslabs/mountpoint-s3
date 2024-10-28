@@ -86,7 +86,7 @@ impl<'a> Filesystem for ClockFS<'a> {
         }
     }
 
-    fn getattr(&self, _req: &Request, ino: u64, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match self.stat(ino) {
             Some(a) => reply.attr(&Duration::MAX, &a),
             None => reply.error(ENOENT),
@@ -200,7 +200,7 @@ fn main() {
         lookup_cnt,
     };
 
-    let session = fuser::Session::new(fs, opts.mount_point.as_ref(), &options).unwrap();
+    let session = fuser::Session::new(fs, opts.mount_point, &options).unwrap();
     let notifier = session.notifier();
     let _bg = session.spawn().unwrap();
 

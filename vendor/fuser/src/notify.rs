@@ -13,8 +13,42 @@ use crate::{
     reply::ReplySender,
 };
 
+/// A handle to a pending poll() request. Can be saved and used to notify the
+/// kernel when a poll is ready.
+#[derive(Clone)]
+pub struct PollHandle {
+    handle: u64,
+    notifier: Notifier,
+}
+
+impl PollHandle {
+    pub(crate) fn new(cs: ChannelSender, kh: u64) -> Self {
+        Self {
+            handle: kh,
+            notifier: Notifier::new(cs),
+        }
+    }
+
+    /// Notify the kernel that the associated file handle is ready to be polled.
+    pub fn notify(self) -> io::Result<()> {
+        self.notifier.poll(self.handle)
+    }
+}
+
+impl From<PollHandle> for u64 {
+    fn from(value: PollHandle) -> Self {
+        value.handle
+    }
+}
+
+impl std::fmt::Debug for PollHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PollHandle").field(&self.handle).finish()
+    }
+}
+
 /// A handle by which the application can send notifications to the server
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Notifier(ChannelSender);
 
 impl Notifier {

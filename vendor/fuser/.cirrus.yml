@@ -1,8 +1,8 @@
 freebsd_instance:
-  image_family: freebsd-12-2
+  image_family: freebsd-14-0
 
 task:
-  name: FreeBSD 12.2
+  name: FreeBSD
   setup_script:
     - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust
   build_script:

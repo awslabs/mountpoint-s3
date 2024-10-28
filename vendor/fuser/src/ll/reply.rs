@@ -12,7 +12,7 @@ use crate::FileType;
 use super::{fuse_abi as abi, Errno, FileHandle, Generation, INodeNo};
 use super::{Lock, RequestId};
 use smallvec::{smallvec, SmallVec};
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
 pub(crate) type ResponseBuf = SmallVec<[u8; INLINE_DATA_THRESHOLD]>;
@@ -66,9 +66,9 @@ impl<'a> Response<'a> {
 
     pub(crate) fn new_data<T: AsRef<[u8]> + Into<Vec<u8>>>(data: T) -> Self {
         Self::Data(if data.as_ref().len() <= INLINE_DATA_THRESHOLD {
-            data.as_ref().into()
+            ResponseBuf::from_slice(data.as_ref())
         } else {
-            data.into().into()
+            ResponseBuf::from_vec(data.into())
         })
     }
 
@@ -218,7 +218,7 @@ impl<'a> Response<'a> {
             out_iovs: if !data.is_empty() { 1 } else { 0 },
         };
         // TODO: Don't copy this data
-        let mut v: ResponseBuf = r.as_bytes().into();
+        let mut v: ResponseBuf = ResponseBuf::from_slice(r.as_bytes());
         for x in data {
             v.extend_from_slice(x)
         }
@@ -249,8 +249,8 @@ impl<'a> Response<'a> {
         Self::from_struct(&r)
     }
 
-    fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
-        Self::Data(data.as_bytes().into())
+    fn from_struct<T: IntoBytes + Immutable + ?Sized>(data: &T) -> Self {
+        Self::Data(SmallVec::from_slice(data.as_bytes()))
     }
 }
 
