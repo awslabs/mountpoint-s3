@@ -9,8 +9,6 @@ description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazo
 
 [dependencies]
 mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.10.0" }
-
-async-channel = "2.3.1"
 futures = "0.3.31"
 libc = "0.2.161"
 log = "0.4.22"
@@ -23,10 +21,8 @@ anyhow = { version = "1.0.91", features = ["backtrace"] }
 clap = { version = "4.5.20", features = ["derive"] }
 criterion = "0.5.1"
 ctor = "0.2.8"
-futures-timer = "3.0.3"
 rand = { version = "0.8.5", features = ["small_rng"] }
 serde_json = "1.0.132"
-tempfile = "3.13.0"
 test-case = "3.3.1"
 tracing = { version = "0.1.40", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
