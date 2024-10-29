@@ -42,7 +42,7 @@ impl Uri {
         }
     }
 
-    /// Return the authority portion of the URI (host[:port]). If no authority was present, returns
+    /// Return the authority portion of the URI (`host[:port]`). If no authority was present, returns
     /// an empty string.
     pub fn authority(&self) -> &OsStr {
         // SAFETY: `inner` is a valid `aws_uri` since it's owned by this struct, and the lifetime of

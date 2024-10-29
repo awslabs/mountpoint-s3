@@ -100,7 +100,7 @@ unsafe impl Send for EventLoopGroup {}
 unsafe impl Sync for EventLoopGroup {}
 
 impl EventLoopGroup {
-    /// Create a new default EventLoopGroup.
+    /// Create a new default [EventLoopGroup].
     /// max_threads: use None for the CRT default
     /// on_shutdown will be called when the event loop group shuts down.
     pub fn new_default(

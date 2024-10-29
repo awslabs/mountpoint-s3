@@ -42,7 +42,7 @@ where
     /// after this until the next time that it gets woken up (probably by some CRT callback deep
     /// down, but it could be anything that calls wake).
     ///
-    /// However, this _does_ synchronously drop the [Future] provided to [EventLoopGroup::spawn_future].
+    /// However, this _does_ synchronously drop the [Future] provided to `EventLoopGroup::spawn_future`.
     /// This frees any resources associated with that Future before cancel returns.
     pub fn cancel(self) {
         let mut locked = self.inner.lock().unwrap();
@@ -77,9 +77,9 @@ impl<T: Debug + Send + 'static> Debug for FutureTaskInner<T> {
 
 /// Implements [ArcWake] for Futures spawned on an event loop group.
 struct FutureTaskWaker<S: TaskScheduler, T: Send + 'static> {
-    /// Inner information about the task if it hasn't completed yet. Held behind a mutex (since wake
-    /// can be called from different threads). If the future is not None, then it is still busy
-    /// and we should call poll again when woken. If it is None, the future has already
+    /// Inner information about the task if it hasn't completed yet. Held behind a [Mutex] (since wake
+    /// can be called from different threads). If the future is not [None], then it is still busy
+    /// and we should call poll again when woken. If it is [None], the future has already
     /// finished executing.
     inner: Arc<Mutex<Option<FutureTaskInner<T>>>>,
 
@@ -102,7 +102,7 @@ impl<S: TaskScheduler, T: Send + 'static> FutureTaskWaker<S, T> {
     }
 
     /// Poll the future associated with this FutureTask. If the future has already completed,
-    /// this does nothing. If it hasn't, then it calls Future::poll. If the future is ready, write
+    /// this does nothing. If it hasn't, then it calls [Future::poll]. If the future is ready, write
     /// the result back to the synchronous channel. Otherwise wait for someone to poll again.
     fn poll(arc_self: &Arc<Self>) {
         // Lock to read the future and call poll on it. Note this will block other tasks if wake was
@@ -164,15 +164,16 @@ pub trait FutureSpawner: crate::private::Sealed {
     /// determining how to run [Task]s in the CRT. This returns a [FutureJoinHandle] that can be
     /// used to cancel, block on, or await the result.
     ///
-    /// - If the scheduler is an [EventLoopGroup], then every time the Future is polled, the CRT
-    ///   will determine the best [EventLoop] to run on.
+    /// - If the scheduler is an [crate::io::event_loop::EventLoopGroup], then every time the Future is polled, the CRT
+    ///   will determine the best [crate::io::event_loop::EventLoop] to run on.
     ///
-    /// - If the scheduler is an [EventLoop], the Future will be pinned to the core that [EventLoop]
-    ///   runs on.
+    /// - If the scheduler is an [crate::io::event_loop::EventLoop],
+    ///   the Future will be pinned to the core that [crate::io::event_loop::EventLoop] runs on.
     ///
-    /// - If the scheduler is [BlockingTaskScheduler], then the thread that calls wake will block on
-    ///   [Future::poll]. (This is undesirable except in tests, and could cause deadlocks or other
-    ///   issues when combined with other CRT functionality.)
+    /// - If the scheduler is [crate::common::task_scheduler::BlockingTaskScheduler],
+    ///   then the thread that calls wake will block on [Future::poll].
+    ///   (This is undesirable except in tests,
+    ///   and could cause deadlocks or other issues when combined with other CRT functionality.)
     fn spawn_future<T>(&self, future: impl Future<Output = T> + Send + 'static) -> FutureJoinHandle<T>
     where
         T: Send + 'static;

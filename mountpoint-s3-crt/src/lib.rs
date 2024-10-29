@@ -1,4 +1,10 @@
-#![deny(missing_debug_implementations, missing_docs, clippy::undocumented_unsafe_blocks)]
+#![deny(
+    missing_debug_implementations,
+    missing_docs,
+    clippy::undocumented_unsafe_blocks,
+    rustdoc::bare_urls,
+    rustdoc::broken_intra_doc_links
+)]
 
 //! Rust bindings for the AWS Common Runtime.
 
