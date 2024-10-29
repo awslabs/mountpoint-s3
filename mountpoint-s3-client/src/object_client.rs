@@ -715,8 +715,6 @@ impl Checksum {
     /// Provide [ChecksumAlgorithm] for the [Checksum], if set and recognized.
     ///
     /// This method assumes that at most one checksum will be set and will return the first matched.
-    /// This method cannot account for any new checksum algorithms that may be introduced in the future,
-    /// returning [None] when no algorithm is recognized.
     pub fn algorithm(&self) -> Option<ChecksumAlgorithm> {
         let Self {
             checksum_crc32,
