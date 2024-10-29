@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1730204714383,
+  "lastUpdate": 1730204819452,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9ea9c7ed421b4fa0878b9f680da5d2b5b96c77eb",
-          "message": "Add support for single PutObject in mountpoint-s3-client (#1046)\n\n* Reintroduce the CRT InputStream as an option for the Message body\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Implement put_object\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Address PR feedback\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Tidy up comments and tests on InputStream\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Add comments to PutObjectTrailingChecksums and S3Operation\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n* Introduce separate params type\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-10-11T21:40:18Z",
-          "tree_id": "36ba1fef659d9a9b638854ce10fc9e95e08ab5f9",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/9ea9c7ed421b4fa0878b9f680da5d2b5b96c77eb"
-        },
-        "date": 1728689949678,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 136.25390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 381.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 141.22265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 405.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 82.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 311.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 85.4375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 324.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 39460.39453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 445.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 43946.6796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 549.5625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 11465.41015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 280.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 10743,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11324.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 275.296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 632.2265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 374.953125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2379,6 +2260,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 428.7421875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "3608046cebeb6689ce3ffb1bfc5a7dfb1a0b98aa",
+          "message": "Remove unused dependencies (#1087)\n\n* Remove unused dependencies\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n* Restore whitespace in Cargo.toml for mountpoint-s3-* crate dependencies\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-10-29T10:29:55Z",
+          "tree_id": "9cfbfd42a4e4c19113377f1623b014c49767c009",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/3608046cebeb6689ce3ffb1bfc5a7dfb1a0b98aa"
+        },
+        "date": 1730204819413,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 139.09765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 384.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 142.140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 389.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 82.69921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 304.2109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 85.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 313.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 41199.76953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 434.64453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 44201.39453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 531.66015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 14316.4921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 278.9140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13017.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 13850.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 275.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 724.234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 456.5,
             "unit": "MiB"
           }
         ]
