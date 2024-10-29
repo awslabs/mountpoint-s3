@@ -175,7 +175,7 @@ impl<Client: ObjectClient> UploadState<Client> {
                 // Abort the request.
                 match std::mem::replace(self, Self::Failed(e.to_errno())) {
                     UploadState::InProgress { handle, .. } => {
-                        if let Err(err) = handle.finish() {
+                        if let Err(err) = handle.finish(None) {
                             // Log the issue but still return the write error.
                             error!(?err, ?key, "error updating the inode status");
                         }
@@ -231,14 +231,14 @@ impl<Client: ObjectClient> UploadState<Client> {
 
     async fn complete_upload(upload: UploadRequest<Client>, key: &str, handle: WriteHandle) -> Result<(), Error> {
         let size = upload.size();
-        let put_result = match upload.complete().await {
-            Ok(_) => {
+        let (put_result, etag) = match upload.complete().await {
+            Ok(result) => {
                 debug!(key, size, "put succeeded");
-                Ok(())
+                (Ok(()), Some(result.etag))
             }
-            Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
+            Err(e) => (Err(err!(libc::EIO, source:e, "put failed")), None),
         };
-        if let Err(err) = handle.finish() {
+        if let Err(err) = handle.finish(etag) {
             // Log the issue but still return put_result.
             error!(?err, ?key, "error updating the inode status");
         }
