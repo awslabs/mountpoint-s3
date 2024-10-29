@@ -1343,25 +1343,25 @@ impl Debug for RequestMetrics {
 pub enum RequestType {
     /// When the request type is unknown to the CRT. Operation name may have been attached to non-meta CRT requests.
     Unknown,
-    /// HeadObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html
+    /// HeadObject: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html>
     HeadObject,
-    /// GetObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
+    /// GetObject: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html>
     GetObject,
-    /// ListParts: https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListParts.html
+    /// ListParts: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListParts.html>
     ListParts,
-    /// CreateMultipartUpload: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html
+    /// CreateMultipartUpload: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html>
     CreateMultipartUpload,
-    /// UploadPart: https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html
+    /// UploadPart: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html>
     UploadPart,
-    /// AbortMultipartUpload: https://docs.aws.amazon.com/AmazonS3/latest/API/API_AbortMultipartUpload.html
+    /// AbortMultipartUpload: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_AbortMultipartUpload.html>
     AbortMultipartUpload,
-    /// CompleteMultipartUpload: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html
+    /// CompleteMultipartUpload: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html>
     CompleteMultipartUpload,
-    /// UploadPartCopy: https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html
+    /// UploadPartCopy: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPartCopy.html>
     UploadPartCopy,
-    /// CopyObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html
+    /// CopyObject: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html>
     CopyObject,
-    /// PutObject: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
+    /// PutObject: <https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html>
     PutObject,
 }
 

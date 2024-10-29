@@ -275,7 +275,7 @@ impl<'a> Message<'a> {
     }
 
     /// Add a header to this message. If the header already exists in the message, this will add a
-    /// another header instead of overwriting the existing one. Use [set_header] to overwrite
+    /// another header instead of overwriting the existing one. Use [Self::set_header] to overwrite
     /// potentially existing headers.
     pub fn add_header(&mut self, header: &Header<impl AsRef<OsStr>, impl AsRef<OsStr>>) -> Result<(), Error> {
         // SAFETY: `aws_http_message_add_header` makes a copy of the values in `header`.
