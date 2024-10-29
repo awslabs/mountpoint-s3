@@ -7,6 +7,9 @@
   ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
 * Expose checksum algorithm in `ListObjectsResult`'s `ObjectInfo` struct.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
+* `ChecksumAlgorithm` has a new variant `Unknown(String)`,
+  to accomodate algorithms not recognized by the client should they be added in future.
+  ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
 
 ### Breaking changes
 
