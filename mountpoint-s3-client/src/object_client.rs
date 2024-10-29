@@ -717,7 +717,7 @@ impl Checksum {
     /// This method assumes that at most one checksum will be set and will return the first matched.
     /// This method cannot account for any new checksum algorithms that may be introduced in the future,
     /// returning [None] when no algorithm is recognized.
-    pub fn checksum_algorithm(&self) -> Option<ChecksumAlgorithm> {
+    pub fn algorithm(&self) -> Option<ChecksumAlgorithm> {
         let Self {
             checksum_crc32,
             checksum_crc32c,
@@ -788,7 +788,7 @@ mod tests {
             checksum_sha1: Some("checksum_sha1".to_string()),
             checksum_sha256: None,
         };
-        assert_eq!(checksum.checksum_algorithm(), Some(ChecksumAlgorithm::Sha1));
+        assert_eq!(checksum.algorithm(), Some(ChecksumAlgorithm::Sha1));
     }
 
     #[test]
@@ -799,7 +799,7 @@ mod tests {
             checksum_sha1: None,
             checksum_sha256: None,
         };
-        assert_eq!(checksum.checksum_algorithm(), None);
+        assert_eq!(checksum.algorithm(), None);
     }
 
     #[test]
@@ -811,7 +811,7 @@ mod tests {
             checksum_sha1: Some("checksum_sha1".to_string()),
             checksum_sha256: None,
         };
-        let algorithm = checksum.checksum_algorithm().expect("checksum algorithm must be present");
+        let algorithm = checksum.algorithm().expect("checksum algorithm must be present");
         assert!([ChecksumAlgorithm::Crc32c, ChecksumAlgorithm::Sha1].contains(&algorithm), "algorithm should match one of the algorithms present in the struct");
     }
 }

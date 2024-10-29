@@ -256,7 +256,7 @@ impl MockClient {
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
                     restore_status: object.restore_status,
-                    checksum_algorithm: object.checksum.checksum_algorithm(),
+                    checksum_algorithm: object.checksum.algorithm(),
                 });
             }
         }
@@ -318,7 +318,7 @@ impl MockClient {
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
                     restore_status: object.restore_status,
-                    checksum_algorithm: object.checksum.checksum_algorithm(),
+                    checksum_algorithm: object.checksum.algorithm(),
                 });
             }
             next_continuation_token += 1;
