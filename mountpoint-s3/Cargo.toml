@@ -26,7 +26,6 @@ dashmap = "6.1.0"
 futures = "0.3.31"
 hdrhistogram = { version = "7.5.4", default-features = false }
 hex = "0.4.3"
-lazy_static = "1.5.0"
 libc = "0.2.161"
 linked-hash-map = "0.5.6"
 metrics = "0.24.0"
@@ -59,8 +58,6 @@ assert_fs = "1.1.2"
 aws-config = "1.5.8"
 aws-credential-types = "1.2.1"
 aws-sdk-s3 = "1.57.0"
-aws-sdk-sts = "1.46.0"
-base16ct = { version = "0.2.0", features = ["alloc"] }
 ctor = "0.2.8"
 filetime = "0.2.25"
 futures = { version = "*", features = ["thread-pool"] }
