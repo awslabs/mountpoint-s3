@@ -2,26 +2,28 @@ name: CI
 
 on:
   pull_request:
+  push: # required for actions/cache to work
+    branches:
+      - master
 
 jobs:
   compile:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         libfuse: [libfuse-dev, libfuse3-dev]
         features: [ '', 'abi-7-19' ]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install packages
         run: |
           sudo apt update
           sudo apt install -y ${{ matrix.libfuse }} build-essential
 
-      - uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: x86_64-unknown-linux-musl
-          default: true
 
       - name: Run tests
         run: |
@@ -31,41 +33,33 @@ jobs:
           cargo test --all --features=${{ matrix.features }}
           cargo doc --all --no-deps --features=${{ matrix.features }}
   ci:
-    runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        test_group: [pre, mount_tests, pjdfs_tests, xfstests]
-
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install packages
         run: |
           sudo apt update
           sudo apt install -y libfuse-dev libfuse3-dev build-essential
 
-      - uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-          default: true
 
-      - name: Cache cargo registry
-        uses: actions/cache@v1
+      - uses: taiki-e/install-action@v2
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache cargo index
-        uses: actions/cache@v1
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache cargo build
-        uses: actions/cache@v1
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          tool: cargo-deny@0.14
 
-      - name: Install cargo-deny
-        run: cargo install --force --version 0.12.2 cargo-deny --locked
+      - name: Run tests
+        run: INTERACTIVE="" make pre
+
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        test_group: [mount_tests, pjdfs_tests, xfstests]
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Run tests
         run: INTERACTIVE="" make ${{ matrix.test_group }}

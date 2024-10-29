@@ -4,7 +4,7 @@ use std::{convert::TryInto, io::IoSlice, mem::size_of, num::TryFromIntError};
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 use smallvec::{smallvec, SmallVec};
-use zerocopy::AsBytes;
+use zerocopy::{Immutable, IntoBytes};
 
 use super::fuse_abi as abi;
 
@@ -113,16 +113,16 @@ impl<'a> Notification<'a> {
         Self::from_struct(&r)
     }
 
-    fn from_struct<T: AsBytes + ?Sized>(data: &T) -> Self {
+    fn from_struct<T: IntoBytes + Immutable + ?Sized>(data: &T) -> Self {
         Self::Bare(data.as_bytes().into())
     }
 
     #[allow(unused)]
-    fn from_struct_with_name<T: AsBytes + ?Sized>(buf: &T, name: &'a [u8]) -> Self {
+    fn from_struct_with_name<T: IntoBytes + Immutable + ?Sized>(buf: &T, name: &'a [u8]) -> Self {
         Self::WithName(buf.as_bytes().into(), name)
     }
 
-    fn from_struct_with_data<T: AsBytes + ?Sized>(buf: &T, data: &'a [u8]) -> Self {
+    fn from_struct_with_data<T: IntoBytes + Immutable + ?Sized>(buf: &T, data: &'a [u8]) -> Self {
         Self::WithData(buf.as_bytes().into(), data)
     }
 }

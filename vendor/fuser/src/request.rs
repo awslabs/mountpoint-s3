@@ -20,6 +20,8 @@ use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplySender};
 use crate::session::{Session, SessionACL};
 use crate::Filesystem;
+#[cfg(feature = "abi-7-11")]
+use crate::PollHandle;
 use crate::{ll, KernelConfig};
 
 /// Request data structure
@@ -207,9 +209,19 @@ impl<'a> Request<'a> {
                 se.filesystem
                     .forget(self, self.request.nodeid().into(), x.nlookup()); // no reply
             }
-            ll::Operation::GetAttr(_) => {
+            ll::Operation::GetAttr(_attr) => {
+                #[cfg(feature = "abi-7-9")]
+                se.filesystem.getattr(
+                    self,
+                    self.request.nodeid().into(),
+                    _attr.file_handle().map(|fh| fh.into()),
+                    self.reply(),
+                );
+
+                // Pre-abi-7-9 does not support providing a file handle.
+                #[cfg(not(feature = "abi-7-9"))]
                 se.filesystem
-                    .getattr(self, self.request.nodeid().into(), self.reply());
+                    .getattr(self, self.request.nodeid().into(), None, self.reply());
             }
             ll::Operation::SetAttr(x) => {
                 se.filesystem.setattr(
@@ -514,11 +526,13 @@ impl<'a> Request<'a> {
             }
             #[cfg(feature = "abi-7-11")]
             ll::Operation::Poll(x) => {
+                let ph = PollHandle::new(se.ch.sender(), x.kernel_handle());
+
                 se.filesystem.poll(
                     self,
                     self.request.nodeid().into(),
                     x.file_handle().into(),
-                    x.kernel_handle(),
+                    ph,
                     x.events(),
                     x.flags(),
                     self.reply(),

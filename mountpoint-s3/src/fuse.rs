@@ -108,7 +108,7 @@ where
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, name=field::Empty))]
-    fn getattr(&self, _req: &Request<'_>, ino: InodeNo, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request<'_>, ino: InodeNo, _fh: Option<u64>, reply: ReplyAttr) {
         match block_on(self.fs.getattr(ino).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => fuse_error!("getattr", reply, e),

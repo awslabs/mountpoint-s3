@@ -87,7 +87,7 @@ impl<'a> Filesystem for ClockFS<'a> {
         }
     }
 
-    fn getattr(&self, _req: &Request, ino: u64, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match ClockFS::stat(ino) {
             Some(a) => reply.attr(&self.timeout, &a),
             None => reply.error(ENOENT),
@@ -162,7 +162,7 @@ fn main() {
         timeout: Duration::from_secs_f32(opts.timeout),
     };
 
-    let session = fuser::Session::new(fs, opts.mount_point.as_ref(), &options).unwrap();
+    let session = fuser::Session::new(fs, opts.mount_point, &options).unwrap();
     let notifier = session.notifier();
     let _bg = session.spawn().unwrap();
 
