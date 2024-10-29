@@ -1445,7 +1445,8 @@ impl ChecksumConfig {
 }
 
 /// Checksum algorithm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum ChecksumAlgorithm {
     /// Crc32c checksum.
     Crc32c,
@@ -1455,6 +1456,11 @@ pub enum ChecksumAlgorithm {
     Sha1,
     /// Sha256 checksum.
     Sha256,
+    /// Checksum of a type unknown to this S3 client.
+    ///
+    /// This type will be used if Mountpoint ever encounters a checksum algorithm it doesn't recognize.
+    /// This should allow Mountpoint to continue with most file operations which don't depend on the checksum algorithm.
+    Unknown(String),
 }
 
 impl ChecksumAlgorithm {

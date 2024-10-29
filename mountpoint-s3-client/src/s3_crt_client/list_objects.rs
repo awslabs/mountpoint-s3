@@ -10,7 +10,8 @@ use time::OffsetDateTime;
 use tracing::error;
 
 use crate::object_client::{
-    ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo, RestoreStatus,
+    ChecksumAlgorithm, ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo,
+    RestoreStatus,
 };
 use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
 
@@ -114,6 +115,22 @@ fn parse_restore_status(element: &xmltree::Element) -> Result<Option<RestoreStat
     }))
 }
 
+fn parse_checksum_algorithm(element: &xmltree::Element) -> Result<Option<ChecksumAlgorithm>, ParseError> {
+    let Some(checksum_algorithm) = get_field(element, "ChecksumAlgorithm").ok() else {
+        return Ok(None);
+    };
+
+    let checksum_algorithm = match checksum_algorithm.as_str() {
+        "CRC32" => ChecksumAlgorithm::Crc32,
+        "CRC32C" => ChecksumAlgorithm::Crc32c,
+        "SHA1" => ChecksumAlgorithm::Sha1,
+        "SHA256" => ChecksumAlgorithm::Sha256,
+        _ => ChecksumAlgorithm::Unknown(checksum_algorithm.clone()),
+    };
+
+    Ok(Some(checksum_algorithm))
+}
+
 fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, ParseError> {
     let key = get_field(element, "Key")?;
 
@@ -134,6 +151,8 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
 
     let etag = get_field(element, "ETag")?;
 
+    let checksum_algorithm = parse_checksum_algorithm(element)?;
+
     Ok(ObjectInfo {
         key,
         size,
@@ -141,6 +160,7 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
         storage_class,
         restore_status,
         etag,
+        checksum_algorithm,
     })
 }
 

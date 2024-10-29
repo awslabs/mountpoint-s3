@@ -622,6 +622,7 @@ pub enum RestoreStatus {
 /// See [Object](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html) in the *Amazon S3
 /// API Reference* for more details.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ObjectInfo {
     /// Key for this object.
     pub key: String,
@@ -643,6 +644,9 @@ pub struct ObjectInfo {
 
     /// Entity tag of this object.
     pub etag: String,
+
+    /// The algorithm that was used to create a checksum of the object.
+    pub checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 /// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].
@@ -707,6 +711,26 @@ impl Checksum {
             checksum_sha256: None,
         }
     }
+
+    /// Provide [ChecksumAlgorithm] for the [Checksum], if set and recognized.
+    ///
+    /// This method assumes that at most one checksum will be set and will return the first matched.
+    pub fn algorithm(&self) -> Option<ChecksumAlgorithm> {
+        let Self {
+            checksum_crc32,
+            checksum_crc32c,
+            checksum_sha1,
+            checksum_sha256,
+        } = &self;
+
+        match (checksum_crc32, checksum_crc32c, checksum_sha1, checksum_sha256) {
+            (Some(_), _, _, _) => Some(ChecksumAlgorithm::Crc32),
+            (_, Some(_), _, _) => Some(ChecksumAlgorithm::Crc32c),
+            (_, _, Some(_), _) => Some(ChecksumAlgorithm::Sha1),
+            (_, _, _, Some(_)) => Some(ChecksumAlgorithm::Sha256),
+            (None, None, None, None) => None,
+        }
+    }
 }
 
 /// Metadata about object parts from GetObjectAttributes API.
@@ -748,4 +772,47 @@ pub struct ObjectPart {
 
     /// Size of the part in bytes
     pub size: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_checksum_algorithm_one_set() {
+        let checksum = Checksum {
+            checksum_crc32: None,
+            checksum_crc32c: None,
+            checksum_sha1: Some("checksum_sha1".to_string()),
+            checksum_sha256: None,
+        };
+        assert_eq!(checksum.algorithm(), Some(ChecksumAlgorithm::Sha1));
+    }
+
+    #[test]
+    fn test_checksum_algorithm_none_set() {
+        let checksum = Checksum {
+            checksum_crc32: None,
+            checksum_crc32c: None,
+            checksum_sha1: None,
+            checksum_sha256: None,
+        };
+        assert_eq!(checksum.algorithm(), None);
+    }
+
+    #[test]
+    fn test_checksum_algorithm_many_set() {
+        // Amazon S3 doesn't support more than one algorithm, but just in case... let's show we don't panic.
+        let checksum = Checksum {
+            checksum_crc32: None,
+            checksum_crc32c: Some("checksum_crc32c".to_string()),
+            checksum_sha1: Some("checksum_sha1".to_string()),
+            checksum_sha256: None,
+        };
+        let algorithm = checksum.algorithm().expect("checksum algorithm must be present");
+        assert!(
+            [ChecksumAlgorithm::Crc32c, ChecksumAlgorithm::Sha1].contains(&algorithm),
+            "algorithm should match one of the algorithms present in the struct",
+        );
+    }
 }
