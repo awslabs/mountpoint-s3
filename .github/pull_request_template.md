@@ -1,6 +1,14 @@
+<!--
+    The title and description of pull requests will be used when creating a squash commit to the base branch (usually `main`).
+    Please keep them both up-to-date as the code change evolves, to ensure that the commit message is useful for future readers.
+-->
+
 ## Description of change
 
-<!-- Please describe your contribution here. What and why? -->
+<!--
+    Please describe your contribution here.
+    What is the change and why are you making it?
+-->
 
 Relevant issues: <!-- Please add issue numbers. -->
 
