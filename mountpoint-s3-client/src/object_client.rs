@@ -812,6 +812,9 @@ mod tests {
             checksum_sha256: None,
         };
         let algorithm = checksum.algorithm().expect("checksum algorithm must be present");
-        assert!([ChecksumAlgorithm::Crc32c, ChecksumAlgorithm::Sha1].contains(&algorithm), "algorithm should match one of the algorithms present in the struct");
+        assert!(
+            [ChecksumAlgorithm::Crc32c, ChecksumAlgorithm::Sha1].contains(&algorithm),
+            "algorithm should match one of the algorithms present in the struct",
+        );
     }
 }
