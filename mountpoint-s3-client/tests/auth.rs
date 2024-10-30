@@ -13,7 +13,7 @@ use common::creds::get_scoped_down_credentials;
 use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use common::*;
 use futures::StreamExt;
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 #[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::S3RequestError;
@@ -52,7 +52,7 @@ async fn test_static_provider() {
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     let result = client
@@ -72,7 +72,7 @@ async fn test_static_provider() {
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
@@ -134,7 +134,7 @@ async fn test_profile_provider_static_async() {
     // Build a S3CrtClient that uses the config file
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     let result = client
@@ -150,7 +150,7 @@ async fn test_profile_provider_static_async() {
 
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
@@ -169,7 +169,7 @@ async fn test_profile_provider_static_async() {
     // be constructed.
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile("not-the-right-profile-name".to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
 }
 
@@ -215,7 +215,7 @@ async fn test_profile_provider_assume_role_async() {
     // we did not configure which arn to assume yet.
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
@@ -230,7 +230,7 @@ async fn test_profile_provider_assume_role_async() {
     writeln!(config_file, "source_profile = {}", source_profile).unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     let result = client
@@ -344,7 +344,7 @@ async fn test_credential_process_behind_source_profile_async() {
     // With correct profile, things should be fine
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(correct_profile.to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
     let _result = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}foo/"))
@@ -354,7 +354,7 @@ async fn test_credential_process_behind_source_profile_async() {
     // With incorrect profile, requests should fail with a client error
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(incorrect_profile.to_owned()))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
     let err = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
@@ -425,7 +425,7 @@ async fn test_scoped_credentials() {
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
     // Inside the prefix, things should be fine
