@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Range;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -18,7 +17,7 @@ use crate::object_client::{
     CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
     HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
+    ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
 };
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
@@ -71,7 +70,7 @@ pub struct ThroughputGetObjectRequest {
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+    async fn get_object_metadata(self: Pin<&Self>) -> Result<ObjectMetadata, Self::ClientError> {
         Ok(self.request.object.object_metadata.clone())
     }
 

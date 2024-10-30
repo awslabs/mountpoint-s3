@@ -17,7 +17,7 @@ use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
 
-use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
+use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult, ObjectMetadata};
 use crate::s3_crt_client::{
     GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
 };
@@ -123,8 +123,6 @@ impl S3CrtClient {
     }
 }
 
-type ObjectMetadata = HashMap<String, String>;
-
 /// A streaming response to a GetObject request.
 ///
 /// This struct implements [`futures::Stream`], which you can use to read the body of the object.
@@ -151,7 +149,7 @@ pub struct S3GetObjectRequest {
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
-    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+    async fn get_object_metadata(self: Pin<&Self>) -> Result<ObjectMetadata, Self::ClientError> {
         let empty_read_window = self.read_window_end_offset <= self.next_offset;
         let request_required = self.object_metadata_cb.try_get().is_none();
         if self.enable_backpressure && empty_read_window && request_required {

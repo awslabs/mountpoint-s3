@@ -362,12 +362,18 @@ async fn test_get_object_user_metadata(size: usize, metadata: HashMap<String, St
 
     let client: S3CrtClient = get_test_client();
 
-    let mut result = client
+    let result = client
         .get_object(&bucket, &key, None, None)
         .await
         .expect("get_object should succeed");
-    let actual_metadata = result.get_object_metadata().await.expect("should return metadata");
+    pin_mut!(result);
+    let actual_metadata = result
+        .as_ref()
+        .get_object_metadata()
+        .await
+        .expect("should return metadata");
     let actual_metadata_2 = result
+        .as_ref()
         .get_object_metadata()
         .await
         .expect("should return metadata multiple times");
@@ -398,9 +404,14 @@ async fn test_get_object_user_metadata_with_zero_backpressure(size: usize, metad
 
     let client: S3CrtClient = get_test_backpressure_client(0, None);
 
-    let mut result = client
+    let result = client
         .get_object(&bucket, &key, Some(1..5), None)
         .await
         .expect("get_object should succeed");
-    result.get_object_metadata().await.expect_err("should not return metadata for empty read window");
+    pin_mut!(result);
+    result
+        .as_ref()
+        .get_object_metadata()
+        .await
+        .expect_err("should not return metadata for empty read window");
 }

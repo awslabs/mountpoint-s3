@@ -30,8 +30,8 @@ use crate::object_client::{
     DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
     GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectParams, HeadObjectResult,
     ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult,
-    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-    PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+    ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -534,7 +534,7 @@ impl MockGetObjectRequest {
 impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&mut self) -> Result<HashMap<String, String>, Self::ClientError> {
+    async fn get_object_metadata(self: Pin<&Self>) -> Result<ObjectMetadata, Self::ClientError> {
         Ok(self.object.object_metadata.clone())
     }
 
@@ -1105,7 +1105,8 @@ mod tests {
         let expected_range = expected_range.start as usize..expected_range.end as usize;
         assert_eq!(&accum[..], &body[expected_range], "body does not match");
 
-        assert_eq!(get_request.get_object_metadata().await, Ok(object_metadata));
+        pin_mut!(get_request);
+        assert_eq!(get_request.as_ref().get_object_metadata().await, Ok(object_metadata));
     }
 
     #[tokio::test]
