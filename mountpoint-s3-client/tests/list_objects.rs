@@ -218,5 +218,5 @@ async fn test_checksum_attribute(upload_checksum_algorithm: ChecksumAlgorithm) {
         _ => todo!("update with new checksum algorithm should one come available"),
     };
 
-    assert_eq!(Some(expected_checksum_algorithm), object.checksum_algorithm);
+    assert_eq!(vec![expected_checksum_algorithm], object.checksum_algorithms);
 }

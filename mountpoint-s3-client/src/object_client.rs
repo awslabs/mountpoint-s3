@@ -646,7 +646,13 @@ pub struct ObjectInfo {
     pub etag: String,
 
     /// The algorithm that was used to create a checksum of the object.
-    pub checksum_algorithm: Option<ChecksumAlgorithm>,
+    ///
+    /// The [Amazon S3 API Reference] specifies this field as a list of strings,
+    /// so we return here a [Vec] of [ChecksumAlgorithm].
+    ///
+    /// [Amazon S3 API Reference]:
+    ///     https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html#AmazonS3-Type-Object-ChecksumAlgorithm
+    pub checksum_algorithms: Vec<ChecksumAlgorithm>,
 }
 
 /// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].
@@ -712,10 +718,12 @@ impl Checksum {
         }
     }
 
-    /// Provide [ChecksumAlgorithm] for the [Checksum], if set and recognized.
-    ///
-    /// This method assumes that at most one checksum will be set and will return the first matched.
-    pub fn algorithm(&self) -> Option<ChecksumAlgorithm> {
+    /// Provide [ChecksumAlgorithm]s for the [Checksum], if set and recognized.
+    pub fn algorithms(&self) -> Vec<ChecksumAlgorithm> {
+        // We assume that at most one checksum will be set.
+        let mut algorithms = Vec::with_capacity(1);
+
+        // Pattern match forces us to accomodate any new fields when added.
         let Self {
             checksum_crc32,
             checksum_crc32c,
@@ -723,13 +731,20 @@ impl Checksum {
             checksum_sha256,
         } = &self;
 
-        match (checksum_crc32, checksum_crc32c, checksum_sha1, checksum_sha256) {
-            (Some(_), _, _, _) => Some(ChecksumAlgorithm::Crc32),
-            (_, Some(_), _, _) => Some(ChecksumAlgorithm::Crc32c),
-            (_, _, Some(_), _) => Some(ChecksumAlgorithm::Sha1),
-            (_, _, _, Some(_)) => Some(ChecksumAlgorithm::Sha256),
-            (None, None, None, None) => None,
+        if checksum_crc32.is_some() {
+            algorithms.push(ChecksumAlgorithm::Crc32);
         }
+        if checksum_crc32c.is_some() {
+            algorithms.push(ChecksumAlgorithm::Crc32c);
+        }
+        if checksum_sha1.is_some() {
+            algorithms.push(ChecksumAlgorithm::Sha1);
+        }
+        if checksum_sha256.is_some() {
+            algorithms.push(ChecksumAlgorithm::Sha256);
+        }
+
+        algorithms
     }
 }
 
@@ -786,7 +801,7 @@ mod tests {
             checksum_sha1: Some("checksum_sha1".to_string()),
             checksum_sha256: None,
         };
-        assert_eq!(checksum.algorithm(), Some(ChecksumAlgorithm::Sha1));
+        assert_eq!(checksum.algorithms(), vec![ChecksumAlgorithm::Sha1]);
     }
 
     #[test]
@@ -797,22 +812,21 @@ mod tests {
             checksum_sha1: None,
             checksum_sha256: None,
         };
-        assert_eq!(checksum.algorithm(), None);
+        assert_eq!(checksum.algorithms(), vec![]);
     }
 
     #[test]
     fn test_checksum_algorithm_many_set() {
-        // Amazon S3 doesn't support more than one algorithm, but just in case... let's show we don't panic.
+        // Amazon S3 doesn't support more than one algorithm today, but just in case... let's show we don't panic.
         let checksum = Checksum {
             checksum_crc32: None,
             checksum_crc32c: Some("checksum_crc32c".to_string()),
             checksum_sha1: Some("checksum_sha1".to_string()),
             checksum_sha256: None,
         };
-        let algorithm = checksum.algorithm().expect("checksum algorithm must be present");
-        assert!(
-            [ChecksumAlgorithm::Crc32c, ChecksumAlgorithm::Sha1].contains(&algorithm),
-            "algorithm should match one of the algorithms present in the struct",
+        assert_eq!(
+            checksum.algorithms(),
+            vec![ChecksumAlgorithm::Crc32c, ChecksumAlgorithm::Sha1],
         );
     }
 }
