@@ -4,10 +4,21 @@ This directory shows a simple example of how to use Mountpoint for Amazon S3 as 
 It trains a ResNet-50 model for a few epochs using [PyTorch Lightning](https://www.pytorchlightning.ai/index.html), with synthetic ImageNet-style training data, stored in S3 as shards in WebDataset format.
 The idea is that because Mountpoint exposes your S3 bucket as a local file system, you can just use standard file-oriented loaders rather than writing S3-specific code, and get great performance.
 
+## Getting started
+
 To get started, launch an EC2 instance with a GPU (we used a [g5.2xlarge](https://aws.amazon.com/ec2/instance-types/g5/)),
 choosing the [AWS Deep Learning AMI GPU PyTorch 2.0.1 (Amazon Linux 2)](https://aws.amazon.com/releasenotes/aws-deep-learning-ami-gpu-pytorch-2-0-amazon-linux-2/) as your AMI.
-On the instance, you'll need to run `source activate pytorch` to enter the PyTorch environment.
-Then from this directory, install the dependencies for the example code:
+
+When using the AWS Deep Learning AMI, you'll need to activate the preconfigured virtual environment for PyTorch:
+
+    source activate pytorch
+
+Perform a simple clone of this repository if you don't already have it available on the instance.
+
+    git clone https://github.com/awslabs/mountpoint-s3.git
+
+With this repository cloned,
+change to this directory (`examples/pytorch`) and install the dependencies for the example code:
 
     python -m pip install -r requirements.txt
 
@@ -16,15 +27,18 @@ Now install Mountpoint if you don't already have it:
     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
     sudo yum install ./mount-s3.rpm
 
-To generate and upload the training shards to an S3 bucket, run:
+To generate and upload the training shards to an S3 bucket (in this example, _amzn-s3-demo-bucket_), run:
 
-    python resnet.py make s3://DOC-EXAMPLE-BUCKET/shard-data/ --num-images 50000
+    python resnet.py make s3://amzn-s3-demo-bucket/shard-data/ --num-images 50000
 
 This will upload about 5GB worth of shards to your bucket.
+With this prepared, you're ready to start running training iterations.
+
+## Running training iterations
 
 Now to run the training loop:
 
-    python resnet.py train s3://DOC-EXAMPLE-BUCKET/shard-data/ --source-kind mountpoint --batch-size 256 --max-epochs 3
+    python resnet.py train s3://amzn-s3-demo-bucket/shard-data/ --source-kind mountpoint --batch-size 256 --max-epochs 3
 
 The `--source-kind` argument controls how the data is loaded from S3:
 * `mountpoint` spawns a Mountpoint instance and accesses it as a local file system with the [`FileOpener`](https://pytorch.org/data/beta/generated/torchdata.datapipes.iter.FileOpener.html#torchdata.datapipes.iter.FileOpener) datapipe from torchdata
