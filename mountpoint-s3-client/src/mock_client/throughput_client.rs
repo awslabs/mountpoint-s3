@@ -66,7 +66,7 @@ pub struct ThroughputGetObjectRequest {
     rate_limiter: LeakyBucket,
 }
 
-#[cfg_attr(not(docsrs), async_trait)]
+#[async_trait]
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 

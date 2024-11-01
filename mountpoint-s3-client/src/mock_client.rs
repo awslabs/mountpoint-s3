@@ -530,7 +530,7 @@ impl MockGetObjectRequest {
     }
 }
 
-#[cfg_attr(not(docsrs), async_trait)]
+#[async_trait]
 impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
 

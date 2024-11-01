@@ -222,7 +222,7 @@ pub struct FailureGetRequest<Client: ObjectClient, GetWrapperState> {
     request: Client::GetObjectRequest,
 }
 
-#[cfg_attr(not(docsrs), async_trait)]
+#[async_trait]
 impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRequest
     for FailureGetRequest<Client, FailState>
 {

@@ -525,7 +525,7 @@ impl UploadChecksum {
 /// This struct implements [`futures::Stream`], which you can use to read the body of the object.
 /// Each item of the stream is a part of the object body together with the part's offset within the
 /// object.
-#[cfg_attr(not(docsrs), async_trait)]
+#[async_trait]
 pub trait GetObjectRequest:
     Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {

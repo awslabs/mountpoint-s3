@@ -145,7 +145,7 @@ pub struct S3GetObjectRequest {
     read_window_end_offset: u64,
 }
 
-#[cfg_attr(not(docsrs), async_trait)]
+#[async_trait]
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
