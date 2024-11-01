@@ -256,7 +256,7 @@ impl MockClient {
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
                     restore_status: object.restore_status,
-                    checksum_algorithm: object.checksum.algorithm(),
+                    checksum_algorithms: object.checksum.algorithms(),
                 });
             }
         }
@@ -318,7 +318,7 @@ impl MockClient {
                     etag: object.etag.as_str().to_string(),
                     storage_class: object.storage_class.clone(),
                     restore_status: object.restore_status,
-                    checksum_algorithm: object.checksum.algorithm(),
+                    checksum_algorithms: object.checksum.algorithms(),
                 });
             }
             next_continuation_token += 1;
@@ -1608,8 +1608,8 @@ mod tests {
             .list_objects("test_bucket", None, "/", 1000, "")
             .await
             .expect("should not fail");
-        assert_eq!(result.objects[0].checksum_algorithm, None);
-        assert_eq!(result.objects[1].checksum_algorithm, Some(ChecksumAlgorithm::Sha1));
+        assert_eq!(result.objects[0].checksum_algorithms, vec![]);
+        assert_eq!(result.objects[1].checksum_algorithms, vec![ChecksumAlgorithm::Sha1]);
     }
 
     #[tokio::test]

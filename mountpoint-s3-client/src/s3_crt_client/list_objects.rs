@@ -64,8 +64,8 @@ fn parse_result_from_bytes(bytes: &[u8]) -> Result<ListObjectsResult, ParseError
 fn parse_result_from_xml(element: &mut xmltree::Element) -> Result<ListObjectsResult, ParseError> {
     let mut objects = Vec::new();
 
-    while let Some(content) = element.take_child("Contents") {
-        objects.push(parse_object_info_from_xml(&content)?);
+    while let Some(mut content) = element.take_child("Contents") {
+        objects.push(parse_object_info_from_xml(&mut content)?);
     }
 
     let mut common_prefixes = Vec::new();
@@ -115,23 +115,26 @@ fn parse_restore_status(element: &xmltree::Element) -> Result<Option<RestoreStat
     }))
 }
 
-fn parse_checksum_algorithm(element: &xmltree::Element) -> Result<Option<ChecksumAlgorithm>, ParseError> {
-    let Some(checksum_algorithm) = get_field(element, "ChecksumAlgorithm").ok() else {
-        return Ok(None);
-    };
+fn parse_checksum_algorithm(element: &mut xmltree::Element) -> Result<Vec<ChecksumAlgorithm>, ParseError> {
+    // We expect there only to be at most one algorithm.
+    let mut algorithms = Vec::with_capacity(1);
 
-    let checksum_algorithm = match checksum_algorithm.as_str() {
-        "CRC32" => ChecksumAlgorithm::Crc32,
-        "CRC32C" => ChecksumAlgorithm::Crc32c,
-        "SHA1" => ChecksumAlgorithm::Sha1,
-        "SHA256" => ChecksumAlgorithm::Sha256,
-        _ => ChecksumAlgorithm::Unknown(checksum_algorithm.clone()),
-    };
+    while let Some(content) = element.take_child("ChecksumAlgorithm") {
+        let algo_string = get_text(&content)?;
+        let checksum_algorithm = match algo_string.as_str() {
+            "CRC32" => ChecksumAlgorithm::Crc32,
+            "CRC32C" => ChecksumAlgorithm::Crc32c,
+            "SHA1" => ChecksumAlgorithm::Sha1,
+            "SHA256" => ChecksumAlgorithm::Sha256,
+            _ => ChecksumAlgorithm::Unknown(algo_string),
+        };
+        algorithms.push(checksum_algorithm);
+    }
 
-    Ok(Some(checksum_algorithm))
+    Ok(algorithms)
 }
 
-fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, ParseError> {
+fn parse_object_info_from_xml(element: &mut xmltree::Element) -> Result<ObjectInfo, ParseError> {
     let key = get_field(element, "Key")?;
 
     let size = get_field(element, "Size")?;
@@ -151,7 +154,7 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
 
     let etag = get_field(element, "ETag")?;
 
-    let checksum_algorithm = parse_checksum_algorithm(element)?;
+    let checksum_algorithms = parse_checksum_algorithm(element)?;
 
     Ok(ObjectInfo {
         key,
@@ -160,7 +163,7 @@ fn parse_object_info_from_xml(element: &xmltree::Element) -> Result<ObjectInfo, 
         storage_class,
         restore_status,
         etag,
-        checksum_algorithm,
+        checksum_algorithms,
     })
 }
 
