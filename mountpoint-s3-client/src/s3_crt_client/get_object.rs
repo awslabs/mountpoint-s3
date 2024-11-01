@@ -87,12 +87,9 @@ impl S3CrtClient {
                     let object_metadata = headers
                         .iter()
                         .filter_map(|(key, value)| {
-                            // Headers will always be UTF-8 when received from S3, so this is safe
-                            key.to_string_lossy()
-                                .strip_prefix("x-amz-meta-")
-                                .map(|metadata_header| {
-                                    (metadata_header.to_string(), value.to_string_lossy().to_string())
-                                })
+                            let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
+                            let value = value.to_str()?;
+                            Some((metadata_header.to_string(), value.to_string()))
                         })
                         .collect();
                     // Doesn't matter if receiver's gone away. Either way we don't need to do anything.
