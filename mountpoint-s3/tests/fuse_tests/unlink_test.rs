@@ -1,18 +1,13 @@
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
-use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
-fn simple_unlink_tests<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: true,
@@ -20,7 +15,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Add a file directly to the bucket
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -62,10 +59,7 @@ fn simple_unlink_test_mock(prefix: &str) {
 }
 
 /// Testing behavior when a file is unlinked in the middle of reading
-fn unlink_readhandle_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: true,
@@ -73,7 +67,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
@@ -118,10 +114,7 @@ fn unlink_readhandle_test_mock(prefix: &str) {
 }
 
 /// Testing behavior when a file is unlinked during and after writing
-fn unlink_writehandle_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: true,
@@ -129,7 +122,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_config);
+    let test_session = creator_fn(prefix, test_session_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Add a file directly to the bucket
     test_client.put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
@@ -185,10 +180,7 @@ fn unlink_writehandle_test_mock(prefix: &str) {
     unlink_writehandle_test(fuse::mock_session::new, prefix);
 }
 
-fn unlink_fail_on_delete_not_allowed_test<F>(creator_fn: F)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             allow_delete: false,
@@ -196,7 +188,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(Default::default(), test_session_config);
+    let test_session = creator_fn(Default::default(), test_session_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     test_client.put_object("dir/file.txt", &[0u8; 4]).unwrap();
 

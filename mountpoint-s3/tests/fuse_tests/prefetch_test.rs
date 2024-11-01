@@ -1,17 +1,14 @@
-use fuser::BackgroundSession;
 use mountpoint_s3::data_cache::InMemoryDataCache;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 
-fn read_test<F>(creator_fn: F, object_size: usize)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(Default::default(), Default::default());
+fn read_test(creator_fn: impl TestSessionCreator, object_size: usize) {
+    let test_session = creator_fn(Default::default(), Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let file_name = "hello.bin";
     let object = vec![255u8; object_size];
@@ -69,19 +66,17 @@ fn read_test_mock_with_cache(object_size: usize) {
 /// When we read the first block, it prefetches the data with a window size enough to fulfill the request
 /// then increase the window size when needed.
 /// If object is mutated, reading a part from the next read window would fail from pre-condition (ETag) error.
-fn prefetch_test_etag<F>(
-    creator_fn: F,
+fn prefetch_test_etag(
+    creator_fn: impl TestSessionCreator,
     prefix: &str,
     part_size: usize,
     initial_read_window_size: usize,
     read_size: usize,
-) where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+) {
     // Object needs to be larger than part size because the CRT returns data in chunks of part size,
     // we would not be able to see the failures if it's smaller.
     let object_size = part_size * 2;
-    let (mount_point, _session, mut test_client) = creator_fn(
+    let test_session = creator_fn(
         prefix,
         TestSessionConfig {
             part_size,
@@ -89,6 +84,9 @@ fn prefetch_test_etag<F>(
             ..Default::default()
         },
     );
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
+
     let original_data_buf = vec![0u8; object_size];
 
     test_client.put_object("dir/hello.txt", &original_data_buf).unwrap();
