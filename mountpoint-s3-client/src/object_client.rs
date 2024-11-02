@@ -686,7 +686,7 @@ impl fmt::Display for ObjectAttribute {
 ///
 /// See [Checksum](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Checksum.html) in the *Amazon
 /// S3 API Reference* for more details.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checksum {
     /// Base64-encoded, 32-bit CRC32 checksum of the object
     pub checksum_crc32: Option<String>,
