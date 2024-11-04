@@ -18,13 +18,13 @@ Now install Mountpoint if you don't already have it:
 
 To generate and upload the training shards to an S3 bucket, run:
 
-    python resnet.py make s3://DOC-EXAMPLE-BUCKET/shard-data/ --num-images 50000
+    python resnet.py make s3://amzn-s3-demo-bucket/shard-data/ --num-images 50000
 
 This will upload about 5GB worth of shards to your bucket.
 
 Now to run the training loop:
 
-    python resnet.py train s3://DOC-EXAMPLE-BUCKET/shard-data/ --source-kind mountpoint --batch-size 256 --max-epochs 3
+    python resnet.py train s3://amzn-s3-demo-bucket/shard-data/ --source-kind mountpoint --batch-size 256 --max-epochs 3
 
 The `--source-kind` argument controls how the data is loaded from S3:
 * `mountpoint` spawns a Mountpoint instance and accesses it as a local file system with the [`FileOpener`](https://pytorch.org/data/beta/generated/torchdata.datapipes.iter.FileOpener.html#torchdata.datapipes.iter.FileOpener) datapipe from torchdata

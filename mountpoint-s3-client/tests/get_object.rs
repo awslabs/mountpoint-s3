@@ -222,7 +222,7 @@ async fn test_get_object_404_bucket() {
     let client: S3CrtClient = get_test_client();
 
     let mut result = client
-        .get_object("DOC-EXAMPLE-BUCKET", &key, None, None)
+        .get_object("amzn-s3-demo-bucket", &key, None, None)
         .await
         .expect("get_object failed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");

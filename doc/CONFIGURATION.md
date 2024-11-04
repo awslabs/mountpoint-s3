@@ -1,8 +1,8 @@
 # Configuring Mountpoint for Amazon S3
 
-In most scenarios, you can use Mountpoint by running the following command, where you should replace `DOC-EXAMPLE-BUCKET` with the name of your Amazon S3 bucket, and `/path/to/mount` with the directory you want to mount your bucket into:
+In most scenarios, you can use Mountpoint by running the following command, where you should replace `amzn-s3-demo-bucket` with the name of your Amazon S3 bucket, and `/path/to/mount` with the directory you want to mount your bucket into:
 
-    mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount
+    mount-s3 amzn-s3-demo-bucket /path/to/mount
 
 We've tried hard to make this simple command adopt good defaults for most scenarios. However, some scenarios may need additional configuration. This document shows how to configure these elements of Mountpoint:
 * [AWS credentials](#aws-credentials)
@@ -51,7 +51,7 @@ More details on permissions required when using SSE-KMS can be found in the [SSE
 
 If you only [mount a prefix of your S3 bucket](#mounting-a-bucket-prefix) rather than the entire bucket, you need these IAM permissions only for the prefix you mount. You can scope down your IAM permissions to a prefix using the `Resource` element of the policy statement for most of these permissions, but for `s3:ListBucket` you must use the `s3:prefix` condition key instead.
 
-Here is an example least-privilege policy document to add to an IAM user or role that allows full access to your S3 bucket for Mountpoint. Replace `DOC-EXAMPLE-BUCKET` with the name of your bucket. Alternatively, you can use the [`AmazonS3FullAccess`](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-iam-awsmanpol.html) managed policy, but the managed policy grants more permissions than needed for Mountpoint.
+Here is an example least-privilege policy document to add to an IAM user or role that allows full access to your S3 bucket for Mountpoint. Replace `amzn-s3-demo-bucket` with the name of your bucket. Alternatively, you can use the [`AmazonS3FullAccess`](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-iam-awsmanpol.html) managed policy, but the managed policy grants more permissions than needed for Mountpoint.
 
 ```
 {
@@ -64,7 +64,7 @@ Here is an example least-privilege policy document to add to an IAM user or role
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::DOC-EXAMPLE-BUCKET"
+                "arn:aws:s3:::amzn-s3-demo-bucket"
             ]
         },
         {
@@ -77,7 +77,7 @@ Here is an example least-privilege policy document to add to an IAM user or role
                 "s3:DeleteObject"
             ],
             "Resource": [
-                "arn:aws:s3:::DOC-EXAMPLE-BUCKET/*"
+                "arn:aws:s3:::amzn-s3-demo-bucket/*"
             ]
         }
    ]
@@ -93,7 +93,7 @@ Directory buckets, introduced with the S3 Express One Zone storage class, use a 
         {
             "Effect": "Allow",
             "Action": "s3express:CreateSession",
-            "Resource": "arn:aws:s3express:REGION:ACCOUNT-ID:bucket/DOC-EXAMPLE-BUCKET--az_id--x-s3"
+            "Resource": "arn:aws:s3express:REGION:ACCOUNT-ID:bucket/amzn-s3-demo-bucket--az_id--x-s3"
         }
     ]
 }
@@ -250,7 +250,7 @@ A tracking issue is open for `fstab` support: [#44](https://github.com/awslabs/m
 
 Until this support is implemented, we recommend using a service manager like systemd to manage the mount process and mount during boot.
 Below is an example of a systemd unit that launches Mountpoint at boot time.
-Replace `/home/ec2-user/s3-bucket-mount` and `DOC-EXAMPLE-BUCKET` with your mount directory and S3 bucket.
+Replace `/home/ec2-user/s3-bucket-mount` and `amzn-s3-demo-bucket` with your mount directory and S3 bucket.
 
 ```ini
 [Unit]
@@ -262,7 +262,7 @@ AssertPathIsDirectory=/home/ec2-user/s3-bucket-mount
 Type=forking
 User=ec2-user
 Group=ec2-user
-ExecStart=/usr/bin/mount-s3 DOC-EXAMPLE-BUCKET /home/ec2-user/s3-bucket-mount
+ExecStart=/usr/bin/mount-s3 amzn-s3-demo-bucket /home/ec2-user/s3-bucket-mount
 ExecStop=/usr/bin/fusermount -u /home/ec2-user/s3-bucket-mount
 
 [Install]
@@ -305,7 +305,7 @@ and we recommend setting the permissions on the file system to not allow reads b
 You can then start Mountpoint using the cache directory you mounted:
 
 ```
-mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/mp-cache
+mount-s3 amzn-s3-demo-bucket /path/to/mount --cache /mnt/mp-cache
 ```
 
 ### Caching object content to memory
@@ -326,7 +326,7 @@ The size is configurable using the `size` option.
 You can then start Mountpoint using the directory where the RAM disk was mounted.
 
 ```
-mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --cache /mnt/mp-cache-tmpfs
+mount-s3 amzn-s3-demo-bucket /path/to/mount --cache /mnt/mp-cache-tmpfs
 ```
 
 ### Using multiple Mountpoint processes on a host
@@ -345,7 +345,7 @@ This argument can be specified multiple times to allow requests to be fanned-out
 As an example, this command binds to two network interfaces and Mountpoint traffic will be distributed over them both:
 
 ```
-mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount --bind ens0 --bind ens1
+mount-s3 amzn-s3-demo-bucket /path/to/mount --bind ens0 --bind ens1
 ```
 
 This feature is a work-in-progress.

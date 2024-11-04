@@ -5,11 +5,11 @@ images.
 
 Run it like this to upload the training shards to an S3 bucket:
 
-    python resnet.py make s3://DOC-EXAMPLE-BUCKET/shard-data/ --num-images 10000
+    python resnet.py make s3://amzn-s3-demo-bucket/shard-data/ --num-images 10000
 
 And then run it like this to run the training loop:
 
-    python resnet.py train s3://DOC-EXAMPLE-BUCKET/shard-data/ --source-kind mountpoint --batch-size 256
+    python resnet.py train s3://amzn-s3-demo-bucket/shard-data/ --source-kind mountpoint --batch-size 256
 
 The --source-kind argument controls how the data is loaded from S3:
 * `mountpoint` spawns a Mountpoint instance and accesses it as a local file system

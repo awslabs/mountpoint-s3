@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn parse_404_no_such_bucket() {
-        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>DOC-EXAMPLE-BUCKET</BucketName><RequestId>4VAGDP5HMYTDNB3Y</RequestId></Error>"#;
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>amzn-s3-demo-bucket</BucketName><RequestId>4VAGDP5HMYTDNB3Y</RequestId></Error>"#;
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_get_object_attributes_error(&result);
         assert_eq!(result, Some(GetObjectAttributesError::NoSuchBucket));
