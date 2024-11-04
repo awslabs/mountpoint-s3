@@ -23,7 +23,7 @@ use crate::upload::UploadWriteError;
 /// include its source. For example:
 ///
 /// ```ignore
-/// let err = client.head_object("DOC-EXAMPLE-BUCKET", "mykey").await.expect_err("failed");
+/// let err = client.head_object("amzn-s3-demo-bucket", "mykey").await.expect_err("failed");
 /// return Err(err!(libc::ENOENT, source:err, "file does not exist"));
 /// ```
 /// will print "file does not exist: service error: ...".

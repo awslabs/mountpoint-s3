@@ -275,12 +275,12 @@ mod test {
     fn test_virtual_addr() {
         let endpoint_config = EndpointConfig::new("eu-west-1").addressing_style(AddressingStyle::Automatic);
         let endpoint_uri = endpoint_config
-            .resolve_for_bucket("doc-example-bucket")
+            .resolve_for_bucket("amzn-s3-demo-bucket")
             .unwrap()
             .uri()
             .unwrap();
         assert_eq!(
-            "https://doc-example-bucket.s3.eu-west-1.amazonaws.com",
+            "https://amzn-s3-demo-bucket.s3.eu-west-1.amazonaws.com",
             endpoint_uri.as_os_str()
         );
     }
@@ -291,22 +291,22 @@ mod test {
             .addressing_style(AddressingStyle::Path)
             .endpoint(Uri::new_from_str(&Allocator::default(), "https://example.com").unwrap());
         let endpoint_uri = endpoint_config
-            .resolve_for_bucket("doc-example-bucket")
+            .resolve_for_bucket("amzn-s3-demo-bucket")
             .unwrap()
             .uri()
             .unwrap();
-        assert_eq!("https://example.com/doc-example-bucket", endpoint_uri.as_os_str());
+        assert_eq!("https://example.com/amzn-s3-demo-bucket", endpoint_uri.as_os_str());
     }
 
     #[test]
     fn test_endpoint_arg_with_region() {
         let endpoint_config = EndpointConfig::new("us-east-1")
             .endpoint(Uri::new_from_str(&Allocator::default(), "https://s3.eu-west-1.amazonaws.com").unwrap());
-        let resolved_endpoint = endpoint_config.resolve_for_bucket("doc-example-bucket").unwrap();
+        let resolved_endpoint = endpoint_config.resolve_for_bucket("amzn-s3-demo-bucket").unwrap();
         let endpoint_uri = resolved_endpoint.uri().unwrap();
         // region is ignored when endpoint_url is specified
         assert_eq!(
-            "https://doc-example-bucket.s3.eu-west-1.amazonaws.com",
+            "https://amzn-s3-demo-bucket.s3.eu-west-1.amazonaws.com",
             endpoint_uri.as_os_str()
         );
         let endpoint_auth_scheme = resolved_endpoint.auth_scheme().unwrap();
@@ -319,12 +319,12 @@ mod test {
     fn test_fips_dual_stack() {
         let endpoint_config = EndpointConfig::new("eu-west-1").use_fips(true).use_dual_stack(true);
         let endpoint_uri = endpoint_config
-            .resolve_for_bucket("doc-example-bucket")
+            .resolve_for_bucket("amzn-s3-demo-bucket")
             .unwrap()
             .uri()
             .unwrap();
         assert_eq!(
-            "https://doc-example-bucket.s3-fips.dualstack.eu-west-1.amazonaws.com",
+            "https://amzn-s3-demo-bucket.s3-fips.dualstack.eu-west-1.amazonaws.com",
             endpoint_uri.as_os_str()
         );
     }
@@ -335,12 +335,12 @@ mod test {
             .use_accelerate(true)
             .use_dual_stack(true);
         let endpoint_uri = endpoint_config
-            .resolve_for_bucket("doc-example-bucket")
+            .resolve_for_bucket("amzn-s3-demo-bucket")
             .unwrap()
             .uri()
             .unwrap();
         assert_eq!(
-            "https://doc-example-bucket.s3-accelerate.dualstack.amazonaws.com",
+            "https://amzn-s3-demo-bucket.s3-accelerate.dualstack.amazonaws.com",
             endpoint_uri.as_os_str()
         );
     }
@@ -351,12 +351,12 @@ mod test {
             .use_dual_stack(true)
             .addressing_style(AddressingStyle::Path);
         let endpoint_uri = endpoint_config
-            .resolve_for_bucket("doc-example-bucket")
+            .resolve_for_bucket("amzn-s3-demo-bucket")
             .unwrap()
             .uri()
             .unwrap();
         assert_eq!(
-            "https://s3.dualstack.eu-west-1.amazonaws.com/doc-example-bucket",
+            "https://s3.dualstack.eu-west-1.amazonaws.com/amzn-s3-demo-bucket",
             endpoint_uri.as_os_str()
         );
     }

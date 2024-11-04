@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn parse_404_no_such_bucket() {
-        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>DOC-EXAMPLE-BUCKET</BucketName><RequestId>4YAYHJ0E82DDDNF0</RequestId><HostId>Ajn9+i3d3VWQi339YrGqBbJqQlj5HaX2vplXp9IlDPAxsJ4vsIAsje0P2gJ0of/mTKKz/fv9pNy9RqhbLUBc/g==</HostId></Error>"#;
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>amzn-s3-demo-bucket</BucketName><RequestId>4YAYHJ0E82DDDNF0</RequestId><HostId>Ajn9+i3d3VWQi339YrGqBbJqQlj5HaX2vplXp9IlDPAxsJ4vsIAsje0P2gJ0of/mTKKz/fv9pNy9RqhbLUBc/g==</HostId></Error>"#;
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_list_objects_error(&result);
         assert_eq!(result, Some(ListObjectsError::NoSuchBucket));
