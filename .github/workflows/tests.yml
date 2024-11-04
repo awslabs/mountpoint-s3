@@ -54,7 +54,10 @@ jobs:
 
   macos-test:
     name: Tests (MacOS)
-    runs-on: macos-12
+
+    # We don't strictly support macOS,
+    # checking latest macOS version passes unit tests is enough.
+    runs-on: macos-latest
 
     steps:
     - name: Checkout code
