@@ -5,19 +5,16 @@ use std::{
     time::Duration,
 };
 
-use fuser::BackgroundSession;
 use mountpoint_s3::{fs::CacheConfig, S3FilesystemConfig};
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
 
 /// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
-fn lookup_directory_overlap_test<F>(creator_fn: F, prefix: &str, subdir: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &str, subdir: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     test_client
         .put_object(&format!("dir/{subdir}hello.txt"), b"hello world")
@@ -51,11 +48,10 @@ fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
     lookup_directory_overlap_test(fuse::mock_session::new, prefix, subdir);
 }
 
-fn lookup_weird_characters_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let keys = &[
         "weird$dir name",
@@ -105,10 +101,7 @@ fn lookup_directory_weird_characters_mock() {
     lookup_weird_characters_test(fuse::mock_session::new, "lookup_weird_characters_test");
 }
 
-fn lookup_previously_shadowed_file_test<F>(creator_fn: F)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
     let filesystem_config = S3FilesystemConfig {
         cache_config: CacheConfig {
             serve_lookup_from_cache: false,
@@ -118,13 +111,15 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(
+    let test_session = creator_fn(
         Default::default(),
         TestSessionConfig {
             filesystem_config,
             ..Default::default()
         },
     );
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let name = "foo";
     let nested = format!("{name}/bar");
@@ -152,11 +147,10 @@ fn lookup_previously_shadowed_file_test_mock() {
     lookup_previously_shadowed_file_test(fuse::mock_session::new);
 }
 
-fn lookup_unicode_keys_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let keys = &["مرحبًا", "こんにちは/", "🇦🇺", "🐈/🦀"];
 
@@ -200,10 +194,7 @@ fn lookup_unicode_keys_mock() {
     lookup_unicode_keys_test(fuse::mock_session::new, "lookup_unicode_keys_test");
 }
 
-fn lookup_with_negative_cache<F>(creator_fn: F)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
     const FILE_NAME: &str = "hello.txt";
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -217,7 +208,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn("lookup_with_negative_cache", config);
+    let test_session = creator_fn("lookup_with_negative_cache", config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Check negative caching
     let file_path = mount_point.path().join(FILE_NAME);

@@ -1,21 +1,18 @@
 use std::fs::File;
 use std::os::unix::prelude::FileExt;
 
-use fuser::BackgroundSession;
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, TestSessionCreator};
 use mountpoint_s3::data_cache::InMemoryDataCache;
 
-fn page_cache_sharing_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     // Big enough to avoid readahead
     const OBJECT_SIZE: usize = 512 * 1024;
 
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Create the first version of the file
     let old_contents = vec![0xaau8; OBJECT_SIZE];

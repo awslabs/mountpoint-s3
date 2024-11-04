@@ -4,11 +4,9 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use filetime::FileTime;
-use fuser::BackgroundSession;
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, TestSessionCreator};
 
 fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -20,11 +18,10 @@ fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File>
     options.create(true).open(path)
 }
 
-fn setattr_test<F>(creator_fn: F, prefix: &str, append: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();

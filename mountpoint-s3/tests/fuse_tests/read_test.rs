@@ -6,7 +6,6 @@ use std::path::Path;
 #[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
-use fuser::BackgroundSession;
 use mountpoint_s3::data_cache::InMemoryDataCache;
 use mountpoint_s3::S3FilesystemConfig;
 #[cfg(not(feature = "s3express_tests"))]
@@ -14,10 +13,9 @@ use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
 
 fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -27,13 +25,12 @@ fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<Fil
     options.read(true).open(path)
 }
 
-fn basic_read_test<F>(creator_fn: F, prefix: &str, read_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only: bool) {
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     test_client.put_object("hello.txt", b"hello world").unwrap();
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
@@ -129,11 +126,15 @@ enum RestorationOptions {
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-fn read_flexible_retrieval_test<F>(creator_fn: F, prefix: &str, files: &[&str], restore: RestorationOptions)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn read_flexible_retrieval_test(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    files: &[&str],
+    restore: RestorationOptions,
+) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     for file in files {
         let mut put_params = PutObjectParams::default();
@@ -250,10 +251,7 @@ fn read_flexible_retrieval_restoring_test_s3() {
     );
 }
 
-fn read_errors_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -262,7 +260,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     test_client.put_object("hello.txt", b"hello world").unwrap();
 
@@ -311,12 +311,11 @@ fn read_errors_test_mock(prefix: &str) {
     read_errors_test(fuse::mock_session::new, prefix);
 }
 
-fn read_after_flush_test<F>(creator_fn: F)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "data.bin";
-    let (mount_point, _session, mut test_client) = creator_fn("read_after_flush_test", Default::default());
+    let test_session = creator_fn("read_after_flush_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];

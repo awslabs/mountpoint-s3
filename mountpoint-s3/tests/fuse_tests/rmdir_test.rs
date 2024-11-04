@@ -1,15 +1,11 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
-use fuser::BackgroundSession;
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionCreator};
 use std::fs::{self, DirBuilder, File};
 use std::io::Write;
-use tempfile::TempDir;
 use test_case::test_case;
 
-fn rmdir_local_dir_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, _test_client) = creator_fn(prefix, Default::default());
+fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
 
     // Create local directory
     let main_dirname = "test_dir";
@@ -79,11 +75,10 @@ fn rmdir_local_dir_test_s3(prefix: &str) {
     rmdir_local_dir_test(fuse::s3_session::new, prefix);
 }
 
-fn rmdir_remote_dir_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let main_dirname = "test_dir";
     let main_path = mount_point.path().join(main_dirname);
@@ -140,11 +135,10 @@ fn rmdir_remote_dir_test_s3(prefix: &str) {
     rmdir_remote_dir_test(fuse::s3_session::new, prefix);
 }
 
-fn create_after_rmdir_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, _test_client) = creator_fn(prefix, Default::default());
+fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+
     // Create local directory
     let main_dirname = "test_dir";
     let main_path = mount_point.path().join(main_dirname);
