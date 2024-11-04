@@ -6,7 +6,6 @@ use test_case::test_case;
 fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
     let mount_point = test_session.mount_dir;
-    let _test_client = test_session.test_client;
 
     // Create local directory
     let main_dirname = "test_dir";
@@ -139,7 +138,6 @@ fn rmdir_remote_dir_test_s3(prefix: &str) {
 fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
     let mount_point = test_session.mount_dir;
-    let _test_client = test_session.test_client;
 
     // Create local directory
     let main_dirname = "test_dir";

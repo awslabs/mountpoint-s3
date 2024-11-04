@@ -329,7 +329,6 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
     };
     let test_session = creator_fn("fstat_after_writing", session_config);
     let mount_point = test_session.mount_dir;
-    let _test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -390,7 +389,6 @@ fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
     };
     let test_session = creator_fn("write_too_big_test", config);
     let mount_point = test_session.mount_dir;
-    let _test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -434,7 +432,6 @@ fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64) {
 
     let test_session = creator_fn("out_of_order_write_test", Default::default());
     let mount_point = test_session.mount_dir;
-    let _test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -534,7 +531,6 @@ fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, st
     };
     let test_session = creator_fn("write_with_storage_class_test", config);
     let mount_point = test_session.mount_dir;
-    let _test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
     write_file(path).expect_err("write with invalid storage class should fail");
