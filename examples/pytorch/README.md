@@ -17,12 +17,15 @@ Perform a simple clone of this repository if you don't already have it available
 
     git clone https://github.com/awslabs/mountpoint-s3.git
 
-With this repository cloned,
-change to this directory (`examples/pytorch`) and install the dependencies for the example code:
+Move to the PyTorch example directory (`examples/pytorch`) within the Mountpoint repository:
+
+    cd mountpoint-s3/examples/pytorch
+
+Install the dependencies for the example code:
 
     python -m pip install -r requirements.txt
 
-Now install Mountpoint if you don't already have it:
+Install Mountpoint if you don't already have it:
 
     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
     sudo yum install ./mount-s3.rpm
