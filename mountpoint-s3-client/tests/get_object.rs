@@ -366,18 +366,13 @@ async fn test_get_object_user_metadata(size: usize, metadata: HashMap<String, St
         .get_object(&bucket, &key, None, None)
         .await
         .expect("get_object should succeed");
-    pin_mut!(result);
-    let actual_metadata = result
-        .as_ref()
-        .get_object_metadata()
-        .await
-        .expect("should return metadata");
+    let actual_metadata = result.get_object_metadata().await.expect("should return metadata");
     let actual_metadata_2 = result
-        .as_ref()
         .get_object_metadata()
         .await
         .expect("should return metadata multiple times");
 
+    pin_mut!(result);
     let expected = &body;
     check_get_result(result, None, expected).await;
     assert_eq!(actual_metadata, metadata);
@@ -408,10 +403,65 @@ async fn test_get_object_user_metadata_with_zero_backpressure(size: usize, metad
         .get_object(&bucket, &key, Some(1..5), None)
         .await
         .expect("get_object should succeed");
-    pin_mut!(result);
     result
-        .as_ref()
         .get_object_metadata()
         .await
         .expect_err("should not return metadata for empty read window");
+}
+
+#[tokio::test]
+async fn test_get_object_metadata_404() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_metadata_404");
+
+    let key = format!("{prefix}/test");
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
+    result
+        .get_object_metadata()
+        .await
+        .expect_err("should not return metadata");
+}
+
+#[test_case(1, HashMap::from([("foo".to_string(), "bar".to_string())]); "1-byte object with metadata")]
+#[test_case(10, HashMap::from([("foo".to_string(), "bar".to_string())]); "small object with metadata")]
+#[test_case(30000000, HashMap::from([("foo".to_string(), "bar".to_string())]); "large object with metadata")]
+#[tokio::test]
+async fn test_get_object_user_metadata_after_stream(size: usize, metadata: HashMap<String, String>) {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_user_metadata");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .set_metadata(Some(metadata.clone()))
+        .body(ByteStream::from(body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .get_object(&bucket, &key, None, None)
+        .await
+        .expect("get_object should succeed");
+
+    pin_mut!(result);
+    while let Some(r) = result.next().await {
+        let _ = r.expect("get_object body part failed");
+    }
+    let actual_metadata = result
+        .as_ref()
+        .get_object_metadata()
+        .await
+        .expect("should return metadata");
+    assert_eq!(actual_metadata, metadata);
 }

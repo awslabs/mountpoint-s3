@@ -66,11 +66,11 @@ pub struct ThroughputGetObjectRequest {
     rate_limiter: LeakyBucket,
 }
 
-#[async_trait]
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(self: Pin<&Self>) -> Result<ObjectMetadata, Self::ClientError> {
+    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
         Ok(self.request.object.object_metadata.clone())
     }
 

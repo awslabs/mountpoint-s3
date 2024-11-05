@@ -530,11 +530,11 @@ impl MockGetObjectRequest {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(self: Pin<&Self>) -> Result<ObjectMetadata, Self::ClientError> {
+    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
         Ok(self.object.object_metadata.clone())
     }
 
@@ -1105,8 +1105,7 @@ mod tests {
         let expected_range = expected_range.start as usize..expected_range.end as usize;
         assert_eq!(&accum[..], &body[expected_range], "body does not match");
 
-        pin_mut!(get_request);
-        assert_eq!(get_request.as_ref().get_object_metadata().await, Ok(object_metadata));
+        assert_eq!(get_request.get_object_metadata().await, Ok(object_metadata));
     }
 
     #[tokio::test]

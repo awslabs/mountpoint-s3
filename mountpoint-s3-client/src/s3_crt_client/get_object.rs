@@ -6,6 +6,7 @@ use std::ops::Deref;
 use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::UnboundedReceiver;
@@ -74,32 +75,41 @@ impl S3CrtClient {
         options.part_size(self.inner.read_part_size as u64);
 
         let (object_metadata_sender, object_metadata_receiver) = oneshot::channel::<HashMap<String, String>>();
-        let mut object_metadata_sender_holder = Some(object_metadata_sender);
-        let object_metadata_cb = Lazy::new(object_metadata_receiver);
+        let object_metadata_sender_holder = Arc::new(Mutex::new(Some(object_metadata_sender)));
+        let object_metadata_sender_on_headers = object_metadata_sender_holder.clone();
+        let object_metadata_sender_on_finish = object_metadata_sender_holder.clone();
+        let lazy_object_metadata = Lazy::new(object_metadata_receiver);
+
         let request = self.inner.make_meta_request_from_options(
             options,
             span,
             |_| (),
-            move |headers, _status| {
+            move |headers, status| {
                 // Headers can be returned multiple times, but the object metadata doesn't change.
                 // Explicitly ignore the case where we've already set object metadata.
-                if let Some(object_metadata_sender) = object_metadata_sender_holder.take() {
-                    let object_metadata = headers
-                        .iter()
-                        .filter_map(|(key, value)| {
-                            let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
-                            let value = value.to_str()?;
-                            Some((metadata_header.to_string(), value.to_string()))
-                        })
-                        .collect();
-                    // Doesn't matter if receiver's gone away. Either way we don't need to do anything.
-                    let _ = object_metadata_sender.send(object_metadata);
+                if let Some(object_metadata_sender) = object_metadata_sender_on_headers.lock().unwrap().take() {
+                    // On a 4xx / 5xx, don't send anything and cancel the future.
+                    // TODO - What happens on a 3xx status code?
+                    if status / 100 == 2 {
+                        let object_metadata = headers
+                            .iter()
+                            .filter_map(|(key, value)| {
+                                let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
+                                let value = value.to_str()?;
+                                Some((metadata_header.to_string(), value.to_string()))
+                            })
+                            .collect();
+                        // Doesn't matter if receiver's gone away. Either way we don't need to do anything.
+                        let _ = object_metadata_sender.send(object_metadata);
+                    }
                 }
             },
             move |offset, data| {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
             move |result| {
+                // Drop the sender when the request is done. Don't send anything to cancel
+                object_metadata_sender_on_finish.lock().unwrap().take();
                 if result.is_err() {
                     Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
                 } else {
@@ -113,7 +123,8 @@ impl S3CrtClient {
             finish_receiver: receiver,
             finished: false,
             enable_backpressure: self.inner.enable_backpressure,
-            object_metadata_cb,
+            lazy_object_metadata,
+            initial_read_window_empty: self.inner.initial_read_window_size == 0,
             next_offset,
             read_window_end_offset,
         })
@@ -134,7 +145,8 @@ pub struct S3GetObjectRequest {
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
     enable_backpressure: bool,
-    object_metadata_cb: Lazy<Result<ObjectMetadata, Canceled>, Receiver<ObjectMetadata>>,
+    lazy_object_metadata: Lazy<Result<ObjectMetadata, Canceled>, Receiver<ObjectMetadata>>,
+    initial_read_window_empty: bool,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
     /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
@@ -142,18 +154,17 @@ pub struct S3GetObjectRequest {
     read_window_end_offset: u64,
 }
 
-#[async_trait]
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
-    async fn get_object_metadata(self: Pin<&Self>) -> Result<ObjectMetadata, Self::ClientError> {
-        let empty_read_window = self.read_window_end_offset <= self.next_offset;
-        let request_required = self.object_metadata_cb.try_get().is_none();
-        if self.enable_backpressure && empty_read_window && request_required {
+    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
+        let request_required = self.lazy_object_metadata.try_get().is_none();
+        if self.enable_backpressure && self.initial_read_window_empty && request_required {
             return Err(S3RequestError::EmptyReadWindow);
         }
 
-        self.object_metadata_cb
+        self.lazy_object_metadata
             .get_unpin()
             .await
             .clone()
