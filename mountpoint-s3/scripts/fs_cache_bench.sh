@@ -169,7 +169,6 @@ cache_benchmark () {
       --cache=${cache_dir} \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
-      --part-size=16777216 \
       ${optional_args}
     mount_status=$?
     set -e
