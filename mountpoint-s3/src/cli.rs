@@ -1113,7 +1113,7 @@ impl MountPoint {
             // some reason.
             match Process::myself().and_then(|me| me.mountinfo()) {
                 Ok(mounts) => {
-                    if mounts.0.iter().any(|mount| &mount.mount_point == path) {
+                    if mounts.0.iter().any(|mount| mount.mount_point == path) {
                         return Err(anyhow!("mount point {} is already mounted", path.display()));
                     }
                 }
