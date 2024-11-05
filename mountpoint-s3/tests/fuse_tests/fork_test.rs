@@ -4,10 +4,12 @@
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
+use fuser::{Mount, MountOption};
 use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
 use std::io::{self, BufRead, BufReader, Cursor, Write};
+use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::process::{Child, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -49,6 +51,40 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     // verify mount status and mount entry
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn run_in_background_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_with_passed_fuse_fd");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let (fd, _mount) = Mount::new(
+        mount_point.path(),
+        &[MountOption::FSName("mountpoint-s3-fd".to_string())],
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .arg(format!("--prefix={prefix}"))
+        .arg(format!("--region={region}"))
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3-fd", mount_point.path().to_str().unwrap()));
 
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
 
@@ -152,6 +188,74 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_foreground_with_passed_fuse_fd");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let (fd, _mount) = Mount::new(
+        mount_point.path(),
+        &[MountOption::FSName("mountpoint-s3-fd".to_string())],
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut child = cmd
+        .arg(&bucket)
+        .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .arg(format!("--prefix={prefix}"))
+        .arg("--foreground")
+        .arg(format!("--region={region}"))
+        .spawn()
+        .expect("unable to spawn child");
+
+    wait_for_mount("mountpoint-s3-fd", mount_point.path().to_str().unwrap());
+
+    // verify that process is still alive
+    let child_status = child.try_wait().unwrap();
+    assert_eq!(None, child_status);
+
+    assert!(mount_exists("mountpoint-s3-fd", mount_point.path().to_str().unwrap()));
+
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
+    // the mount would fail from error 403 on HeadBucket
+    let bucket = get_test_bucket_forbidden();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let (fd, mount) = Mount::new(
+        mount_point.path(),
+        &[MountOption::FSName("mountpoint-s3-fd".to_string())],
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // Drop `Mount` to trigger unmount.
+    drop(mount);
+
+    // verify mount status and mount entry
+    assert!(!exit_status.success());
+    assert!(!mount_exists("mountpoint-s3-fd", mount_point.path().to_str().unwrap()));
+
+    Ok(())
+}
+
+#[test]
 fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     // the mount would fail from error 403 on HeadBucket
     let bucket = get_test_bucket_forbidden();
@@ -237,6 +341,50 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!exit_status.success());
 
     unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_existent_fd");
+    let region = get_test_region();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg("/dev/fd/42")
+        .arg(format!("--prefix={prefix}"))
+        .arg(format!("--region={region}"))
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status
+    assert!(!exit_status.success());
+
+    Ok(())
+}
+
+#[test]
+fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_fuse_fd");
+    let region = get_test_region();
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let child = cmd
+        .arg(&bucket)
+        .arg("/dev/fd/1") // fd for stdout
+        .arg(format!("--prefix={prefix}"))
+        .arg(format!("--region={region}"))
+        .spawn()
+        .expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status
+    assert!(!exit_status.success());
 
     Ok(())
 }

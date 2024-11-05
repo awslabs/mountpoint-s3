@@ -1,16 +1,17 @@
 use std::env;
 use std::ffi::OsString;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser, ValueEnum};
-use fuser::{MountOption, Session};
+use fuser::{MountOption, Session, SessionACL};
 use futures::executor::block_on;
 use futures::task::Spawn;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
@@ -522,7 +523,8 @@ impl CliArgs {
         }
     }
 
-    fn fuse_session_config(&self) -> FuseSessionConfig {
+    fn fuse_session_config(&self) -> anyhow::Result<FuseSessionConfig> {
+        let mount_point = MountPoint::new(&self.mount_point).context("Failed to create mount point")?;
         let fs_name = String::from("mountpoint-s3");
         let mut options = vec![
             MountOption::DefaultPermissions,
@@ -533,6 +535,9 @@ impl CliArgs {
             options.push(MountOption::RO);
         }
         if self.auto_unmount {
+            if matches!(mount_point, MountPoint::FileDescriptor(_)) {
+                return Err(anyhow!("--auto-unmount is not supported with FUSE file descriptors"));
+            }
             options.push(MountOption::AutoUnmount);
         }
         if self.allow_root {
@@ -542,13 +547,12 @@ impl CliArgs {
             options.push(MountOption::AllowOther);
         }
 
-        let mount_point = self.mount_point.to_owned();
         let max_threads = self.max_threads as usize;
-        FuseSessionConfig {
+        Ok(FuseSessionConfig {
             mount_point,
             options,
             max_threads,
-        }
+        })
     }
 }
 
@@ -831,15 +835,14 @@ where
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
 
-    validate_mount_point(&args.mount_point)?;
+    let fuse_config = args.fuse_session_config()?;
+
     validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
 
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
-
-    let fuse_config = args.fuse_session_config();
 
     let mut filesystem_config = S3FilesystemConfig::default();
     if let Some(uid) = args.uid {
@@ -1011,15 +1014,20 @@ where
 {
     let fuse_fs = S3FuseFilesystem::new(fs);
     tracing::debug!(?fuse_session_config, "creating fuse session");
-    let session = Session::new(fuse_fs, &fuse_session_config.mount_point, &fuse_session_config.options)
-        .context("Failed to create FUSE session")?;
+    let mount_point_path = format!("{}", &fuse_session_config.mount_point);
+    let session = match fuse_session_config.mount_point {
+        MountPoint::Directory(path) => {
+            Session::new(fuse_fs, path, &fuse_session_config.options).context("Failed to create FUSE session")?
+        }
+        MountPoint::FileDescriptor(fd) => Session::from_fd(
+            fuse_fs,
+            fd,
+            session_acl_from_mount_options(&fuse_session_config.options),
+        ),
+    };
     let session = FuseSession::new(session, fuse_session_config.max_threads).context("Failed to start FUSE session")?;
 
-    tracing::info!(
-        "successfully mounted {} at {}",
-        bucket_description,
-        fuse_session_config.mount_point.display()
-    );
+    tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
 
     Ok(session)
 }
@@ -1027,9 +1035,105 @@ where
 /// Configuration for a FUSE background session.
 #[derive(Debug)]
 struct FuseSessionConfig {
-    pub mount_point: PathBuf,
+    pub mount_point: MountPoint,
     pub options: Vec<MountOption>,
     pub max_threads: usize,
+}
+
+#[derive(Debug)]
+enum MountPoint {
+    Directory(PathBuf),
+    FileDescriptor(OwnedFd),
+}
+
+impl MountPoint {
+    const FUSE_DEV: &'static str = "/dev/fuse";
+
+    fn new(mount_point: impl AsRef<Path>) -> anyhow::Result<Self> {
+        match parse_fd_from_mount_point(&mount_point) {
+            Some(fd) => MountPoint::new_fd(fd),
+            None => MountPoint::new_directory(mount_point),
+        }
+    }
+
+    fn new_fd(fd: RawFd) -> anyhow::Result<Self> {
+        if !cfg!(target_os = "linux") {
+            return Err(anyhow!("Passing a FUSE file descriptor only supported on Linux"));
+        }
+
+        use procfs::process::{FDPermissions, FDTarget, Process};
+
+        let process = Process::myself().unwrap();
+        let fd_info = process.fd_from_fd(fd)?;
+        let FDTarget::Path(path) = &fd_info.target else {
+            return Err(anyhow!(
+                "expected a device file descriptor but got {:?}",
+                fd_info.target
+            ));
+        };
+        if path != &PathBuf::from(Self::FUSE_DEV) {
+            return Err(anyhow!(
+                "expected {} file descriptor but got {}",
+                Self::FUSE_DEV,
+                path.display()
+            ));
+        }
+
+        if !fd_info.mode().contains(FDPermissions::READ | FDPermissions::WRITE) {
+            return Err(anyhow!(
+                "expected {} file descriptor to have read and write permissions but got {:?}",
+                Self::FUSE_DEV,
+                fd_info.mode()
+            ));
+        }
+
+        // SAFETY: `fd` is validated to be a valid FUSE file descriptor, and it is documented
+        // for users of this feature to give ownership of this file descriptor to Mountpoint.
+        let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+
+        Ok(MountPoint::FileDescriptor(owned_fd))
+    }
+
+    fn new_directory(mount_point: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = mount_point.as_ref();
+
+        if !path.exists() {
+            return Err(anyhow!("mount point {} does not exist", path.display()));
+        }
+
+        if !path.is_dir() {
+            return Err(anyhow!("mount point {} is not a directory", path.display()));
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            use procfs::process::Process;
+
+            // This is a best-effort validation, so don't fail if we can't read /proc/self/mountinfo for
+            // some reason.
+            match Process::myself().and_then(|me| me.mountinfo()) {
+                Ok(mounts) => {
+                    if mounts.0.iter().any(|mount| &mount.mount_point == path) {
+                        return Err(anyhow!("mount point {} is already mounted", path.display()));
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("failed to read mountinfo, not checking for existing mounts: {e:?}");
+                }
+            };
+        }
+
+        Ok(MountPoint::Directory(mount_point.as_ref().to_owned()))
+    }
+}
+
+impl std::fmt::Display for MountPoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            MountPoint::Directory(path) => write!(f, "{}", path.display()),
+            MountPoint::FileDescriptor(fd) => write!(f, "/dev/fd/{}", fd.as_raw_fd()),
+        }
+    }
 }
 
 /// Create a client for a bucket in the given region and send a ListObjectsV2 request to validate
@@ -1190,39 +1294,6 @@ fn infer_s3_personality(
     }
 }
 
-fn validate_mount_point(path: impl AsRef<Path>) -> anyhow::Result<()> {
-    let mount_point = path.as_ref();
-
-    if !mount_point.exists() {
-        return Err(anyhow!("mount point {} does not exist", mount_point.display()));
-    }
-
-    if !mount_point.is_dir() {
-        return Err(anyhow!("mount point {} is not a directory", mount_point.display()));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        use procfs::process::Process;
-
-        // This is a best-effort validation, so don't fail if we can't read /proc/self/mountinfo for
-        // some reason.
-        let mounts = match Process::myself().and_then(|me| me.mountinfo()) {
-            Ok(mounts) => mounts,
-            Err(e) => {
-                tracing::debug!("failed to read mountinfo, not checking for existing mounts: {e:?}");
-                return Ok(());
-            }
-        };
-
-        if mounts.0.iter().any(|mount| mount.mount_point == mount_point) {
-            return Err(anyhow!("mount point {} is already mounted", mount_point.display()));
-        }
-    }
-
-    Ok(())
-}
-
 /// Disallow specifying `--sse-kms-key-id` when `--sse=AES256` as this is not allowed by the S3 API.
 /// We are not able to perform this check via clap API (the closest it has is `conflicts_with` method),
 /// thus having a custom validation.
@@ -1231,6 +1302,24 @@ fn validate_sse_args(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> an
         Err(anyhow!("--sse-kms-key-id can not be used with --sse AES256"))
     } else {
         Ok(())
+    }
+}
+
+fn parse_fd_from_mount_point(path: impl AsRef<Path>) -> Option<RawFd> {
+    let re = Regex::new(r"^/dev/fd/(?<fd>\d+)$").unwrap();
+    let path = path.as_ref().to_str()?;
+    let caps = re.captures(path)?;
+    let fd = &caps["fd"];
+    fd.parse().ok()
+}
+
+fn session_acl_from_mount_options(options: &[MountOption]) -> SessionACL {
+    if options.contains(&MountOption::AllowRoot) {
+        SessionACL::RootAndOwner
+    } else if options.contains(&MountOption::AllowOther) {
+        SessionACL::All
+    } else {
+        SessionACL::Owner
     }
 }
 
@@ -1274,5 +1363,24 @@ mod tests {
         } else {
             parsed.expect_err("invalid kms key identifier");
         }
+    }
+
+    #[test_case("/dev/fd/3", Some(3); "valid file descriptor")]
+    #[test_case("/dev/fd/378", Some(378); "long valid file descriptor")]
+    #[test_case("/dev/fd/-1", None; "invalid file descriptor")]
+    #[test_case("/mnt/fd/3", None; "a folder with number")]
+    #[test_case("/mnt/fd/378", None; "a folder with a longer number")]
+    #[test_case("/mnt/mp", None; "a folder")]
+    #[test_case("", None; "empty")]
+    fn test_parsing_fuse_fd_from_mount_point(mount_point: &str, expected: Option<RawFd>) {
+        assert_eq!(expected, parse_fd_from_mount_point(mount_point));
+    }
+
+    #[test_case(&[], SessionACL::Owner; "empty options")]
+    #[test_case(&[MountOption::AllowOther], SessionACL::All; "only allows other")]
+    #[test_case(&[MountOption::AllowRoot], SessionACL::RootAndOwner; "only allows root")]
+    #[test_case(&[MountOption::AllowOther, MountOption::AllowRoot], SessionACL::RootAndOwner; "allows root and other")]
+    fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: SessionACL) {
+        assert_eq!(expected, session_acl_from_mount_options(mount_options));
     }
 }
