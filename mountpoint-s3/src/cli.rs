@@ -1046,7 +1046,7 @@ struct FuseSessionConfig {
 enum MountPoint {
     Directory(PathBuf),
     #[cfg(target_os = "linux")]
-    FileDescriptor(OwnedFd),
+    FileDescriptor(std::os::fd::OwnedFd),
 }
 
 impl MountPoint {
@@ -1077,10 +1077,10 @@ impl MountPoint {
                 fd_info.target
             ));
         };
-        if path != &PathBuf::from(Self::FUSE_DEV) {
+        if path != &PathBuf::from(FUSE_DEV) {
             return Err(anyhow!(
                 "expected {} file descriptor but got {}",
-                Self::FUSE_DEV,
+                FUSE_DEV,
                 path.display()
             ));
         }
@@ -1088,7 +1088,7 @@ impl MountPoint {
         if !fd_info.mode().contains(FDPermissions::READ | FDPermissions::WRITE) {
             return Err(anyhow!(
                 "expected {} file descriptor to have read and write permissions but got {:?}",
-                Self::FUSE_DEV,
+                FUSE_DEV,
                 fd_info.mode()
             ));
         }
@@ -1384,11 +1384,12 @@ mod tests {
         assert_eq!(expected, parse_fd_from_mount_point(mount_point));
     }
 
-    #[test_case(&[], SessionACL::Owner; "empty options")]
-    #[test_case(&[MountOption::AllowOther], SessionACL::All; "only allows other")]
-    #[test_case(&[MountOption::AllowRoot], SessionACL::RootAndOwner; "only allows root")]
-    #[test_case(&[MountOption::AllowOther, MountOption::AllowRoot], SessionACL::RootAndOwner; "allows root and other")]
-    fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: SessionACL) {
+    #[cfg(target_os = "linux")]
+    #[test_case(&[], fuser::SessionACL::Owner; "empty options")]
+    #[test_case(&[MountOption::AllowOther], fuser::SessionACL::All; "only allows other")]
+    #[test_case(&[MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "only allows root")]
+    #[test_case(&[MountOption::AllowOther, MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "allows root and other")]
+    fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: fuser::SessionACL) {
         assert_eq!(expected, session_acl_from_mount_options(mount_options));
     }
 }
