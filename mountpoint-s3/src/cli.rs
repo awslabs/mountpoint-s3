@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -535,6 +535,7 @@ impl CliArgs {
             options.push(MountOption::RO);
         }
         if self.auto_unmount {
+            #[cfg(target_os = "linux")]
             if matches!(mount_point, MountPoint::FileDescriptor(_)) {
                 return Err(anyhow!("--auto-unmount is not supported with FUSE file descriptors"));
             }
@@ -1019,6 +1020,7 @@ where
         MountPoint::Directory(path) => {
             Session::new(fuse_fs, path, &fuse_session_config.options).context("Failed to create FUSE session")?
         }
+        #[cfg(target_os = "linux")]
         MountPoint::FileDescriptor(fd) => Session::from_fd(
             fuse_fs,
             fd,
@@ -1043,12 +1045,11 @@ struct FuseSessionConfig {
 #[derive(Debug)]
 enum MountPoint {
     Directory(PathBuf),
+    #[cfg(target_os = "linux")]
     FileDescriptor(OwnedFd),
 }
 
 impl MountPoint {
-    const FUSE_DEV: &'static str = "/dev/fuse";
-
     fn new(mount_point: impl AsRef<Path>) -> anyhow::Result<Self> {
         match parse_fd_from_mount_point(&mount_point) {
             Some(fd) => MountPoint::new_fd(fd),
@@ -1056,12 +1057,17 @@ impl MountPoint {
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    fn new_fd(_: RawFd) -> anyhow::Result<Self> {
+        return Err(anyhow!("Passing a FUSE file descriptor only supported on Linux"));
+    }
+
+    #[cfg(target_os = "linux")]
     fn new_fd(fd: RawFd) -> anyhow::Result<Self> {
-        if !cfg!(target_os = "linux") {
-            return Err(anyhow!("Passing a FUSE file descriptor only supported on Linux"));
-        }
+        const FUSE_DEV: &'static str = "/dev/fuse";
 
         use procfs::process::{FDPermissions, FDTarget, Process};
+        use std::os::fd::{FromRawFd, OwnedFd};
 
         let process = Process::myself().unwrap();
         let fd_info = process.fd_from_fd(fd)?;
@@ -1131,6 +1137,7 @@ impl std::fmt::Display for MountPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             MountPoint::Directory(path) => write!(f, "{}", path.display()),
+            #[cfg(target_os = "linux")]
             MountPoint::FileDescriptor(fd) => write!(f, "/dev/fd/{}", fd.as_raw_fd()),
         }
     }
@@ -1313,13 +1320,14 @@ fn parse_fd_from_mount_point(path: impl AsRef<Path>) -> Option<RawFd> {
     fd.parse().ok()
 }
 
-fn session_acl_from_mount_options(options: &[MountOption]) -> SessionACL {
+#[cfg(target_os = "linux")]
+fn session_acl_from_mount_options(options: &[MountOption]) -> fuser::SessionACL {
     if options.contains(&MountOption::AllowRoot) {
-        SessionACL::RootAndOwner
+        fuser::SessionACL::RootAndOwner
     } else if options.contains(&MountOption::AllowOther) {
-        SessionACL::All
+        fuser::SessionACL::All
     } else {
-        SessionACL::Owner
+        fuser::SessionACL::Owner
     }
 }
 
