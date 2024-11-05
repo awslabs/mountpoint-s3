@@ -26,9 +26,8 @@ use nix::unistd::ForkResult;
 use regex::Regex;
 use sysinfo::{RefreshKind, System};
 
-use crate::build_info;
 use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ManagedCacheDir};
-use crate::fs::{CacheConfig, S3FilesystemConfig, ServerSideEncryption, TimeToLive};
+use crate::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
@@ -36,7 +35,7 @@ use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
-use crate::{autoconfigure, metrics};
+use crate::{autoconfigure, build_info, metrics, S3Filesystem, S3FilesystemConfig};
 
 const CLIENT_OPTIONS_HEADER: &str = "Client options";
 const MOUNT_OPTIONS_HEADER: &str = "Mount options";
@@ -928,9 +927,10 @@ where
     Prefetcher: Prefetch + Send + Sync + 'static,
 {
     tracing::trace!(?filesystem_config, "creating file system");
-    let fs = S3FuseFilesystem::new(client, prefetcher, bucket_name, prefix, filesystem_config);
+    let fs = S3Filesystem::new(client, prefetcher, bucket_name, prefix, filesystem_config);
+    let fuse_fs = S3FuseFilesystem::new(fs);
     tracing::debug!(?fuse_session_config, "creating fuse session");
-    let session = Session::new(fs, &fuse_session_config.mount_point, &fuse_session_config.options)
+    let session = Session::new(fuse_fs, &fuse_session_config.mount_point, &fuse_session_config.options)
         .context("Failed to create FUSE session")?;
     let session = FuseSession::new(session, fuse_session_config.max_threads).context("Failed to start FUSE session")?;
 

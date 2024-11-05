@@ -8,7 +8,7 @@ use mountpoint_s3::data_cache::DataCache;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3::prefix::Prefix;
-use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{ObjectPart, PutObjectParams};
 use mountpoint_s3_client::ObjectClient;
@@ -110,7 +110,13 @@ where
 
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let session = Session::new(
-        S3FuseFilesystem::new(client, prefetcher, bucket, &prefix, filesystem_config),
+        S3FuseFilesystem::new(S3Filesystem::new(
+            client,
+            prefetcher,
+            bucket,
+            &prefix,
+            filesystem_config,
+        )),
         mount_dir,
         &options,
     )
