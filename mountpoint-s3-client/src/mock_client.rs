@@ -1734,8 +1734,7 @@ mod tests {
         let s3_key = "key1";
         let content = vec![42u8; 512];
         let content_checksum = crc32c::checksum(&content);
-        let put_object_params =
-            PutObjectSingleParams::new().checksum(Some(UploadChecksum::Crc32c(content_checksum.clone())));
+        let put_object_params = PutObjectSingleParams::new().checksum(Some(UploadChecksum::Crc32c(content_checksum)));
         let _put_result = client
             .put_object_single("test_bucket", s3_key, &put_object_params, &content)
             .await
@@ -1772,7 +1771,7 @@ mod tests {
         let s3_key = "key1";
         let put_object_params = PutObjectParams::new().trailing_checksums(trailing_checksums);
         let mut put_request = client
-            .put_object("test_bucket", &s3_key, &put_object_params)
+            .put_object("test_bucket", s3_key, &put_object_params)
             .await
             .expect("should be able to initiate meta put_object");
 
