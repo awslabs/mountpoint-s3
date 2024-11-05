@@ -820,14 +820,7 @@ impl ObjectClient for MockClient {
             for attribute in object_attributes.iter() {
                 match attribute {
                     ObjectAttribute::ETag => result.etag = Some("TODO".to_owned()),
-                    ObjectAttribute::Checksum => {
-                        result.checksum = Some(Checksum {
-                            checksum_crc32: Some("TODO".to_owned()),
-                            checksum_crc32c: Some("TODO".to_owned()),
-                            checksum_sha1: Some("TODO".to_owned()),
-                            checksum_sha256: Some("TODO".to_owned()),
-                        })
-                    }
+                    ObjectAttribute::Checksum => result.checksum = Some(object.checksum.clone()),
                     ObjectAttribute::ObjectParts => {
                         let parts = match &object.parts {
                             Some(MockObjectParts::Count(num_parts)) => Some(GetObjectAttributesParts {
@@ -1950,7 +1943,13 @@ mod tests {
 
         // GetObjectAttributes returns checksums
         let attrs = client
-            .get_object_attributes(bucket, key, None, None, &[ObjectAttribute::ObjectParts])
+            .get_object_attributes(
+                bucket,
+                key,
+                None,
+                None,
+                &[ObjectAttribute::ObjectParts, ObjectAttribute::Checksum],
+            )
             .await
             .unwrap();
 
@@ -1977,6 +1976,19 @@ mod tests {
                     .expect("crc32c should be present");
                 assert_eq!(&expected_checksum, actual_checksum);
             }
+
+            // We trust that other tests will cover checksum correctness,
+            // so let's just check the right checksums are set.
+            let Checksum {
+                checksum_crc32,
+                checksum_crc32c,
+                checksum_sha1,
+                checksum_sha256,
+            } = attrs.checksum.expect("object checksum should be present");
+            assert!(checksum_crc32.is_none(), "CRC32 should not be set");
+            assert!(checksum_crc32c.is_some(), "CRC32C should be set");
+            assert!(checksum_sha1.is_none(), "SHA1 should not be set");
+            assert!(checksum_sha256.is_none(), "SHA256 should not be set");
         } else {
             assert!(
                 parts.parts.is_none(),
