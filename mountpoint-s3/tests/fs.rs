@@ -10,7 +10,7 @@ use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
 #[cfg(feature = "s3_tests")]
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::config::S3ClientConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
@@ -40,7 +40,7 @@ use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
 
 #[cfg(feature = "s3_tests")]
-use crate::common::s3::{get_test_bucket_and_prefix, get_test_region};
+use crate::common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -1487,7 +1487,7 @@ async fn test_lookup_404_not_an_error() {
     let name = "test_lookup_404_not_an_error";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
     let client_config = S3ClientConfig::default()
-        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true);
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
     let fs = make_test_filesystem_with_client(
@@ -1522,7 +1522,7 @@ async fn test_lookup_forbidden() {
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
         .auth_config(auth_config)
-        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true);
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
 

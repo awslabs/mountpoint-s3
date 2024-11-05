@@ -301,11 +301,13 @@ pub mod s3_session {
     use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
     use aws_sdk_s3::Client;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
-    use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+    use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
     use mountpoint_s3_client::S3CrtClient;
 
-    use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
+    use crate::common::s3::{
+        get_test_bucket_and_prefix, get_test_endpoint_config, get_test_region, get_test_sdk_client,
+    };
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
@@ -316,7 +318,7 @@ pub mod s3_session {
 
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
-            .endpoint_config(EndpointConfig::new(&region))
+            .endpoint_config(get_test_endpoint_config())
             .auth_config(test_config.auth_config)
             .read_backpressure(true)
             .initial_read_window(test_config.initial_read_window_size);
@@ -353,7 +355,7 @@ pub mod s3_session {
 
             let client_config = S3ClientConfig::default()
                 .part_size(test_config.part_size)
-                .endpoint_config(EndpointConfig::new(&region))
+                .endpoint_config(get_test_endpoint_config())
                 .read_backpressure(true)
                 .initial_read_window(test_config.initial_read_window_size);
             let client = S3CrtClient::new(client_config).unwrap();
