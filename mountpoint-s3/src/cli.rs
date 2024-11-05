@@ -1081,7 +1081,7 @@ impl MountPoint {
 
     #[cfg(target_os = "linux")]
     fn new_fd(fd: RawFd) -> anyhow::Result<Self> {
-        const FUSE_DEV: &'static str = "/dev/fuse";
+        const FUSE_DEV: &str = "/dev/fuse";
 
         use procfs::process::{FDPermissions, FDTarget, Process};
         use std::os::fd::{FromRawFd, OwnedFd};
