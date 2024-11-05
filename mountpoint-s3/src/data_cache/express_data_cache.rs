@@ -82,15 +82,18 @@ where
         // TODO: optimize for the common case of a single chunk.
         let mut buffer = BytesMut::default();
         while let Some(chunk) = result.next().await {
-            let (offset, body) = chunk?;
-            if offset != buffer.len() as u64 {
-                return Err(DataCacheError::InvalidBlockOffset);
-            }
-            buffer.extend_from_slice(&body);
+            match chunk {
+                Ok((offset, body)) => {
+                    if offset != buffer.len() as u64 {
+                        return Err(DataCacheError::InvalidBlockOffset);
+                    }
+                    buffer.extend_from_slice(&body);
 
-            // Ensure the flow-control window is large enough.
-            // TODO: review if/when we add a header to the block.
-            result.as_mut().increment_read_window(self.block_size as usize);
+                    result.as_mut().increment_read_window(self.block_size as usize);
+                }
+                Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            }
         }
         let buffer = buffer.freeze();
         DataCacheResult::Ok(Some(buffer.into()))
