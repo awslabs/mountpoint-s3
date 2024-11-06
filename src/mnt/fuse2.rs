@@ -21,6 +21,9 @@ fn ensure_last_os_error() -> io::Error {
     }
 }
 
+/// An active FUSE mount.
+///
+/// This struct manages the lifecycle of the mount, unmounting when dropped.
 #[derive(Debug)]
 pub(crate) struct MountImpl {
     mountpoint: CString,
