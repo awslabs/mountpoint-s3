@@ -36,6 +36,10 @@ if [[ -n "${S3_ENDPOINT_URL}" ]]; then
   optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
 fi
 
+if [[ -n "${S3_DEBUG}" ]]; then
+  optional_args+=" --debug"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -104,8 +108,20 @@ should_run_job() {
     fi
 }
 
-read_benchmark () {
-  jobs_dir=mountpoint-s3/scripts/fio/read
+# Run all benchmarks within a category.  Fio job definitions should exist under a directory
+# with the category name, passed as first argument, inside mountpoint-s3/scripts/fio.
+#
+# Params:
+# $1: benchmark category.
+run_benchmarks() {
+  category=$1
+  jobs_dir=mountpoint-s3/scripts/fio/$category
+
+  if [ $category == "read" ]; then
+    part_size="--part-size=16777216"
+  else
+    part_size=""
+  fi
 
   for job_file in "${jobs_dir}"/*.fio; do
 
@@ -122,7 +138,7 @@ read_benchmark () {
 
     # cleanup mount directory and log directory
     cleanup() {
-      echo "read_benchmark:cleanup"
+      echo "${category}_benchmark:cleanup"
       # unmount file system only if it is mounted
       ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
       rm -rf ${mount_dir}
@@ -139,11 +155,10 @@ read_benchmark () {
     set +e
     cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
-      --debug \
       --allow-delete \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
-      --part-size=16777216 \
+      $part_size \
       ${optional_args}
     mount_status=$?
     set -e
@@ -153,10 +168,14 @@ read_benchmark () {
     fi
 
     # set bench file
-    bench_file=${S3_BUCKET_BENCH_FILE}
-    # run against small file if the job file ends with small.fio
-    if [[ $job_file == *small.fio ]]; then
-      bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
+    if [[ $category == "write" ]]; then
+      bench_file=${job_name}_${RANDOM}.dat
+    else
+      bench_file=${S3_BUCKET_BENCH_FILE}
+      # run against small file if the job file ends with small.fio
+      if [[ $job_file == *small.fio ]]; then
+        bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
+      fi
     fi
 
     # run the benchmark
@@ -166,73 +185,13 @@ read_benchmark () {
     cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name}
 
     cleanup
+    trap - EXIT
 
   done
 }
 
-write_benchmark () {
-  jobs_dir=mountpoint-s3/scripts/fio/write
-
-  for job_file in "${jobs_dir}"/*.fio; do
-
-    if ! should_run_job "${job_file}"; then
-      echo "Skipping job ${job_file} because it does not match ${S3_JOB_NAME_FILTER}"
-      continue
-    fi
-
-    job_name=$(basename "${job_file}")
-    job_name="${job_name%.*}"
-    log_dir=logs/${job_name}
-
-
-    # cleanup mount directory and log directory
-    cleanup() {
-      echo "write_benchmark:cleanup"
-      # unmount file system only if it is mounted
-      ! mountpoint -q ${mount_dir} || sudo umount ${mount_dir}
-      rm -rf ${mount_dir}
-      rm -rf ${log_dir}
-    }
-
-    # trap cleanup on exit
-    trap 'cleanup' EXIT
-
-    rm -rf ${log_dir}
-    mkdir -p ${log_dir}
-
-    # mount file system
-    mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-    set +e
-    cargo run --quiet --release -- \
-      ${S3_BUCKET_NAME} ${mount_dir} \
-      --debug \
-      --allow-delete \
-      --log-directory=${log_dir} \
-      --prefix=${S3_BUCKET_TEST_PREFIX} \
-      ${optional_args}
-    mount_status=$?
-    set -e
-    if [ $mount_status -ne 0 ]; then
-      echo "Failed to mount file system"
-      exit 1
-    fi
-
-    # set bench file
-    bench_file=${job_name}_${RANDOM}.dat
-
-    # run the benchmark
-    run_fio_job $job_file $bench_file $mount_dir $log_dir
-
-    # collect resource utilization metrics (peak memory usage)
-    cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name}
-
-    cleanup
-
-  done
-}
-
-read_benchmark
-write_benchmark
+run_benchmarks read
+run_benchmarks write
 
 # combine all bench results into one json file
 echo "Throughput:"

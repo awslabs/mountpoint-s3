@@ -36,6 +36,10 @@ if [[ -n "${S3_ENDPOINT_URL}" ]]; then
   optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
 fi
 
+if [[ -n "${S3_DEBUG}" ]]; then
+  optional_args+=" --debug"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -164,7 +168,6 @@ cache_benchmark () {
     set +e
     cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
-      --debug \
       --allow-delete \
       --cache=${cache_dir} \
       --log-directory=${log_dir} \
