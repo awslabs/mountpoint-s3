@@ -58,7 +58,7 @@ lazy_static! {
     static ref RAMP_BYTES: Vec<u8> = ramp_bytes(0, RAMP_BUFFER_SIZE + RAMP_MODULUS);
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MockClientConfig {
     /// The bucket name this client will connect to
     pub bucket: String,
@@ -74,7 +74,7 @@ pub struct MockClientConfig {
 
 /// A mock implementation of an object client that we can manually add objects to, and then query
 /// via the [ObjectClient] APIs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MockClient {
     config: MockClientConfig,
     objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
@@ -105,6 +105,16 @@ impl MockClient {
     /// Remove object for the mock client's bucket
     pub fn remove_object(&self, key: &str) {
         self.objects.write().unwrap().remove(key);
+    }
+
+    /// Remove all objects for the mock client's bucket
+    pub fn remove_all_objects(&self) {
+        self.objects.write().unwrap().clear();
+    }
+
+    /// Number of objects in the mock client's bucket
+    pub fn object_count(&self) -> usize {
+        self.objects.write().unwrap().len()
     }
 
     /// Returns `true` if this mock client's bucket contains the specified key
