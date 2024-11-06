@@ -23,12 +23,18 @@ fn ensure_last_os_error() -> io::Error {
     }
 }
 
+/// An active FUSE mount.
+///
+/// This struct manages the lifecycle of the mount, unmounting and destroying the session when dropped.
 #[derive(Debug)]
 pub struct Mount {
     fuse_session: *mut c_void,
     mountpoint: CString,
 }
 impl Mount {
+    /// Mounts the filesystem at the given path, with the given options.
+    ///
+    /// Returns the mounted FUSE file descriptor along with a [Mount] for handling the mount lifecycle.
     pub fn new(mnt: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mnt = CString::new(mnt.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
