@@ -14,12 +14,19 @@ use mountpoint_s3_crt::common::error::Error;
 use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
+use thiserror::Error;
 
 use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult, ObjectMetadata};
 use crate::s3_crt_client::{
     GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
 };
 
+/// Failures to return object metadata
+#[derive(Clone, Error, Debug)]
+pub enum ObjectMetadataError {
+    #[error("error occurred fetching object metadata")]
+    ObjectMetadataError,
+}
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
     /// body parts of the object, which will be delivered in order.
@@ -107,7 +114,7 @@ impl S3CrtClient {
             },
             move |result| {
                 // FIXME - Ideally we'd include a reason why we failed here.
-                object_metadata_setter_on_finish.or_set(Err(()));
+                object_metadata_setter_on_finish.or_set(Err(ObjectMetadataError::ObjectMetadataError));
                 if result.is_err() {
                     Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
                 } else {
@@ -143,7 +150,7 @@ pub struct S3GetObjectRequest {
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
     enable_backpressure: bool,
-    object_metadata: Arc<AsyncCell<Result<ObjectMetadata, ()>>>,
+    object_metadata: Arc<AsyncCell<Result<ObjectMetadata, ObjectMetadataError>>>,
     initial_read_window_empty: bool,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
