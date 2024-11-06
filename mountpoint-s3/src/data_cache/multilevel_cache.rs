@@ -9,9 +9,6 @@ use crate::object::ObjectId;
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// A data cache which uses both the local disk and S3 Express One Zone bucket as a storage.
-/// Disk cache is assumed to be faster so this is quiried first on `get_block` requests. An
-/// S3 Express One Zone cache is checked when data is missing on disk. Both caches are
-/// populated on `put_block`.
 pub struct MultilevelDataCache<DiskCache, ExpressCache, Runtime> {
     disk_cache: Arc<DiskCache>,
     express_cache: ExpressCache,
@@ -21,11 +18,9 @@ pub struct MultilevelDataCache<DiskCache, ExpressCache, Runtime> {
 impl<DiskCache: DataCache, ExpressCache: DataCache, Runtime: Spawn>
     MultilevelDataCache<DiskCache, ExpressCache, Runtime>
 {
+    /// Both the `disk_cache` and `express_cache` must be configured with the same `block_size`.
     pub fn new(disk_cache: Arc<DiskCache>, express_cache: ExpressCache, runtime: Runtime) -> Self {
-        // Method `MultilevelDataCache::block_size` relies on block sizes of both caches to be equal.
-        // `CachingPartStream`, being the user of cache, uses this method to split S3 object into blocks.
-        // Allowing non-matching block sizes would mean splitting objects in 2 different ways and imply
-        // the different interface for the `MultilevelDataCache`.
+        // The same blocks are written to both caches. The `block_size`-s must match.
         assert_eq!(
             disk_cache.block_size(),
             express_cache.block_size(),
@@ -46,6 +41,7 @@ where
     ExpressCache: DataCache + Sync,
     Runtime: Spawn + Sync,
 {
+    /// Gets a block from one of the underlying caches. Populates the disk cache with data fetched from the S3 Express cache.
     async fn get_block(
         &self,
         cache_key: &ObjectId,
@@ -82,6 +78,7 @@ where
         DataCacheResult::Ok(None)
     }
 
+    /// Puts a block to both caches.
     async fn put_block(
         &self,
         cache_key: ObjectId,

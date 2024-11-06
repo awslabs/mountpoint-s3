@@ -309,7 +309,7 @@ pub struct CliArgs {
     #[cfg(feature = "block_size")]
     #[clap(
         long,
-        help = "Size of a cache block in KiB [Default: 1024 (1 MiB) for disk cache and for S3 Express cache]",
+        help = "Size of a cache block in KiB [Default: 1024 (1 MiB)]",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "KiB",
         requires = "cache_group",

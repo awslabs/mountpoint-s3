@@ -78,6 +78,8 @@ where
         };
 
         pin_mut!(result);
+        // Guarantee that the request will start even in case of `initial_read_window == 0`.
+        result.as_mut().increment_read_window(self.block_size as usize);
 
         // TODO: optimize for the common case of a single chunk.
         let mut buffer = BytesMut::default();
@@ -89,6 +91,7 @@ where
                     }
                     buffer.extend_from_slice(&body);
 
+                    // Ensure the flow-control window is large enough.
                     result.as_mut().increment_read_window(self.block_size as usize);
                 }
                 Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
