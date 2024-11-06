@@ -8,12 +8,13 @@ use std::option::Option::None;
 use std::str::FromStr;
 
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::ChecksumAlgorithm;
 use bytes::Bytes;
 use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{ETag, GetObjectParams, GetObjectRequest};
+use mountpoint_s3_client::types::{Checksum, ChecksumMode, ETag, GetObjectParams, GetObjectRequest};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 use test_case::test_case;
@@ -464,4 +465,89 @@ async fn test_get_object_user_metadata_after_stream(size: usize, metadata: HashM
         .await
         .expect("should return metadata");
     assert_eq!(actual_metadata, metadata);
+}
+
+#[test_case(ChecksumAlgorithm::Crc32; "Checksum CRC32")]
+#[test_case(ChecksumAlgorithm::Crc32C; "Checksum CRC32C")]
+#[test_case(ChecksumAlgorithm::Sha1; "Checksum SHA1")]
+#[test_case(ChecksumAlgorithm::Sha256; "Checksum SHA256")]
+#[tokio::test]
+async fn test_get_object_checksum(checksum_algorithm: ChecksumAlgorithm) {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_checksum");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; 42];
+    let put_object_output = sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .checksum_algorithm(checksum_algorithm.clone())
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .get_object(
+            &bucket,
+            &key,
+            &GetObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+        )
+        .await
+        .expect("get_object should succeed");
+
+    let checksum: Checksum = result.get_object_checksum().await.expect("should return checksum");
+
+    match checksum_algorithm {
+        ChecksumAlgorithm::Crc32 => assert_eq!(
+            checksum.checksum_crc32,
+            put_object_output.checksum_crc32().map(|s| s.to_string())
+        ),
+        ChecksumAlgorithm::Crc32C => assert_eq!(
+            checksum.checksum_crc32c,
+            put_object_output.checksum_crc32_c().map(|s| s.to_string())
+        ),
+        ChecksumAlgorithm::Sha1 => assert_eq!(
+            checksum.checksum_sha1,
+            put_object_output.checksum_sha1().map(|s| s.to_string())
+        ),
+        ChecksumAlgorithm::Sha256 => assert_eq!(
+            checksum.checksum_sha256,
+            put_object_output.checksum_sha256().map(|s| s.to_string())
+        ),
+        _ => unimplemented!("This algorithm is not supported"),
+    }
+}
+
+#[tokio::test]
+async fn test_get_object_checksum_checksums_disabled() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_checksum");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; 42];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .checksum_algorithm(ChecksumAlgorithm::Crc32)
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = get_test_client();
+
+    let result = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect("get_object should succeed");
+
+    result
+        .get_object_checksum()
+        .await
+        .expect_err("should not return a checksum object as not requested");
 }

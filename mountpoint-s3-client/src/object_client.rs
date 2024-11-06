@@ -189,6 +189,7 @@ pub enum GetObjectError {
 pub struct GetObjectParams {
     pub range: Option<Range<u64>>,
     pub if_match: Option<ETag>,
+    pub checksum_mode: Option<ChecksumMode>,
 }
 
 impl GetObjectParams {
@@ -206,6 +207,12 @@ impl GetObjectParams {
     /// Set the required etag on the object
     pub fn if_match(mut self, value: Option<ETag>) -> Self {
         self.if_match = value;
+        self
+    }
+
+    /// Set option to retrieve checksum as part of the GetObject request
+    pub fn checksum_mode(mut self, value: Option<ChecksumMode>) -> Self {
+        self.checksum_mode = value;
         self
     }
 }
@@ -256,7 +263,7 @@ impl HeadObjectParams {
 
 /// Enable [ChecksumMode] to retrieve object checksums
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ChecksumMode {
     /// Retrieve checksums
     Enabled,
@@ -561,6 +568,9 @@ pub trait GetObjectRequest:
     /// If the metadata has already been read, return immediately. Otherwise, resolve the future
     /// when they're read.
     async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError>;
+
+    /// Get the object's checksum, if uploaded with one
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError>;
 
     /// Increment the flow-control window, so that response data continues downloading.
     ///

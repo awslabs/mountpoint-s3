@@ -538,6 +538,10 @@ impl GetObjectRequest for MockGetObjectRequest {
         Ok(self.object.object_metadata.clone())
     }
 
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+        Ok(self.object.checksum.clone())
+    }
+
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
         self.read_window_end_offset += len as u64;
     }
