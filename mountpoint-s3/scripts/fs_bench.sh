@@ -16,16 +16,6 @@ if [[ -z "${S3_BUCKET_TEST_PREFIX}" ]]; then
   exit 1
 fi
 
-if [[ -z "${S3_BUCKET_BENCH_FILE}" ]]; then
-  echo "Set S3_BUCKET_BENCH_FILE to run this benchmark"
-  exit 1
-fi
-
-if [[ -z "${S3_BUCKET_SMALL_BENCH_FILE}" ]]; then
-  echo "Set S3_BUCKET_SMALL_BENCH_FILE to run this benchmark"
-  exit 1
-fi
-
 if [[ -n "${S3_JOB_NAME_FILTER}" ]]; then
   echo "Will only run fio jobs which match $S3_JOB_NAME_FILTER"
 fi
@@ -54,9 +44,8 @@ mkdir -p ${results_dir}
 
 run_fio_job() {
   job_file=$1
-  bench_file=$2
-  mount_dir=$3
-  log_dir=$4
+  mount_dir=$2
+  log_dir=$3
 
   job_name=$(basename "${job_file}")
   job_name="${job_name%.*}"
@@ -73,7 +62,6 @@ run_fio_job() {
       --output=${results_dir}/${job_name}_iter${i}.json \
       --output-format=json \
       --directory=${mount_dir} \
-      --filename=${bench_file} \
       --eta=never \
       ${job_file}
     job_status=$?
@@ -117,12 +105,6 @@ run_benchmarks() {
   category=$1
   jobs_dir=mountpoint-s3/scripts/fio/$category
 
-  if [ $category == "read" ]; then
-    part_size="--part-size=16777216"
-  else
-    part_size=""
-  fi
-
   for job_file in "${jobs_dir}"/*.fio; do
 
     if ! should_run_job "${job_file}"; then
@@ -151,14 +133,20 @@ run_benchmarks() {
     rm -rf ${log_dir}
     mkdir -p ${log_dir}
 
-    # mount file system
+    # Mount file system first with a large part size if needed
+    if [[ $job_file != *small.fio ]]; then
+      part_size_option="--part-size=16777216"
+    else
+      unset part_size_option
+    fi
     set +e
     cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
+      --allow-overwrite \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
-      $part_size \
+      $part_size_option \
       ${optional_args}
     mount_status=$?
     set -e
@@ -167,19 +155,17 @@ run_benchmarks() {
       exit 1
     fi
 
-    # set bench file
-    if [[ $category == "write" ]]; then
-      bench_file=${job_name}_${RANDOM}.dat
-    else
-      bench_file=${S3_BUCKET_BENCH_FILE}
-      # run against small file if the job file ends with small.fio
-      if [[ $job_file == *small.fio ]]; then
-        bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
-      fi
-    fi
+    # Lay out files for the test:
+    echo >&2 Laying out files for $job_file
+    fio --thread \
+      --directory=${mount_dir} \
+      --create_only=1 \
+      --eta=never \
+      ${job_file}
 
     # run the benchmark
-    run_fio_job $job_file $bench_file $mount_dir $log_dir
+    echo >&2 Running $job_file
+    run_fio_job $job_file $mount_dir $log_dir
 
     # collect resource utilization metrics (peak memory usage)
     cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name}

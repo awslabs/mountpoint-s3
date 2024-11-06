@@ -141,6 +141,7 @@ for job_file in "${jobs_dir}"/*.fio; do
   # mount file system
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
     --allow-delete \
+    --allow-overwrite \
     --log-directory=$log_dir \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
     ${optional_args}
@@ -150,19 +151,20 @@ for job_file in "${jobs_dir}"/*.fio; do
     exit 1
   fi
 
-  # set bench file
-  bench_file=${S3_BUCKET_BENCH_FILE}
-  # run against small file if the job file ends with small.fio
-  if [[ $job_file == *small.fio ]]; then
-    bench_file=${S3_BUCKET_SMALL_BENCH_FILE}
-  fi
+  # Lay out files for the test:
+  echo >&2 Laying out files for $job_file
+  fio --thread \
+    --directory=${mount_dir} \
+    --create_only=1 \
+    --eta=never \
+    ${job_file}
 
-  # time to first byte should not be longer than 5 minutes
+  # run the benchmark
+  echo >&2 Running $job_file
   timeout 300s fio --thread \
     --output=${results_dir}/${job_name}.json \
     --output-format=json \
     --directory=${mount_dir} \
-    --filename=${bench_file} \
     ${job_file}
   job_status=$?
   if [ $job_status -ne 0 ]; then
