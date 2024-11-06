@@ -70,7 +70,7 @@ pub struct ThroughputGetObjectRequest {
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
         Ok(self.request.object.object_metadata.clone())
     }
 

@@ -143,7 +143,7 @@ pub trait ObjectClient {
 ///
 /// [`ServiceError`]: ObjectClientError::ServiceError
 /// [`ClientError`]: ObjectClientError::ClientError
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ObjectClientError<S, C> {
     /// An error returned by the service itself
     #[error("Service error")]
@@ -534,7 +534,7 @@ pub trait GetObjectRequest:
     /// Get the object's user defined metadata.
     /// If the metadata has already been read, return immediately. Otherwise, resolve the future
     /// when they're read.
-    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError>;
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError>;
 
     /// Increment the flow-control window, so that response data continues downloading.
     ///

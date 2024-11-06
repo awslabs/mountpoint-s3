@@ -1,17 +1,14 @@
-use async_once_cell::Lazy;
+use async_cell::sync::AsyncCell;
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::future::Future;
 use std::ops::Deref;
 use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::UnboundedReceiver;
-use futures::channel::oneshot;
-use futures::channel::oneshot::{Canceled, Receiver};
 use futures::Stream;
 use mountpoint_s3_crt::common::error::Error;
 use mountpoint_s3_crt::http::request_response::Header;
@@ -74,11 +71,10 @@ impl S3CrtClient {
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
         options.part_size(self.inner.read_part_size as u64);
 
-        let (object_metadata_sender, object_metadata_receiver) = oneshot::channel::<HashMap<String, String>>();
-        let object_metadata_sender_holder = Arc::new(Mutex::new(Some(object_metadata_sender)));
-        let object_metadata_sender_on_headers = object_metadata_sender_holder.clone();
-        let object_metadata_sender_on_finish = object_metadata_sender_holder.clone();
-        let lazy_object_metadata = Lazy::new(object_metadata_receiver);
+        let object_metadata = AsyncCell::shared();
+
+        let object_metadata_setter_on_headers = object_metadata.clone();
+        let object_metadata_setter_on_finish = object_metadata.clone();
 
         let request = self.inner.make_meta_request_from_options(
             options,
@@ -87,10 +83,12 @@ impl S3CrtClient {
             move |headers, status| {
                 // Headers can be returned multiple times, but the object metadata doesn't change.
                 // Explicitly ignore the case where we've already set object metadata.
+
+                // Only set metadata if we have a 2xx status code. If we only get other status
+                // codes, then on_finish cancels.
                 if (200..300).contains(&status) {
-                    // Only take the sender if we have a 2xx status code. If we only get other
-                    // status codes, then on_finish cancels the sender
-                    if let Some(object_metadata_sender) = object_metadata_sender_on_headers.lock().unwrap().take() {
+                    // This isn't to do with safety, only minor performance gains.
+                    if !object_metadata_setter_on_headers.is_set() {
                         let object_metadata = headers
                             .iter()
                             .filter_map(|(key, value)| {
@@ -99,8 +97,8 @@ impl S3CrtClient {
                                 Some((metadata_header.to_string(), value.to_string()))
                             })
                             .collect();
-                        // Doesn't matter if receiver's gone away. Either way we don't need to do anything.
-                        let _ = object_metadata_sender.send(object_metadata);
+                        // Don't overwrite if already set.
+                        object_metadata_setter_on_headers.or_set(Ok(object_metadata));
                     }
                 }
             },
@@ -108,8 +106,8 @@ impl S3CrtClient {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
             move |result| {
-                // Drop the sender when the request is done. Don't send anything to cancel
-                object_metadata_sender_on_finish.lock().unwrap().take();
+                // FIXME - Ideally we'd include a reason why we failed here.
+                object_metadata_setter_on_finish.or_set(Err(()));
                 if result.is_err() {
                     Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
                 } else {
@@ -123,7 +121,7 @@ impl S3CrtClient {
             finish_receiver: receiver,
             finished: false,
             enable_backpressure: self.inner.enable_backpressure,
-            lazy_object_metadata,
+            object_metadata,
             initial_read_window_empty: self.inner.initial_read_window_size == 0,
             next_offset,
             read_window_end_offset,
@@ -145,7 +143,7 @@ pub struct S3GetObjectRequest {
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
     enable_backpressure: bool,
-    lazy_object_metadata: Lazy<Result<ObjectMetadata, Canceled>, Receiver<ObjectMetadata>>,
+    object_metadata: Arc<AsyncCell<Result<ObjectMetadata, ()>>>,
     initial_read_window_empty: bool,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
@@ -158,17 +156,17 @@ pub struct S3GetObjectRequest {
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
-    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
-        match self.lazy_object_metadata.try_get() {
-            Some(result) => result.clone(),
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        match self.object_metadata.try_get() {
+            Some(result) => result,
             None => {
                 if self.enable_backpressure && self.initial_read_window_empty {
-                    return Err(S3RequestError::EmptyReadWindow);
+                    return Err(ObjectClientError::ClientError(S3RequestError::EmptyReadWindow));
                 }
-                self.lazy_object_metadata.get_unpin().await.clone()
+                self.object_metadata.get().await
             }
         }
-        .map_err(|_| S3RequestError::RequestCanceled)
+        .map_err(|_| ObjectClientError::ClientError(S3RequestError::RequestCanceled))
     }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {

@@ -228,7 +228,7 @@ impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectReques
 {
     type ClientError = Client::ClientError;
 
-    async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
         self.request.get_object_metadata().await
     }
 
