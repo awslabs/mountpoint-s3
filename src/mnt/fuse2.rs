@@ -55,7 +55,6 @@ impl Drop for Mount {
                     target_os = "freebsd",
                     target_os = "dragonfly",
                     target_os = "openbsd",
-                    target_os = "bitrig",
                     target_os = "netbsd"
                 )))]
                 unsafe {

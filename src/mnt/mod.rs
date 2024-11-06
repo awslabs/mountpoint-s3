@@ -64,7 +64,6 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     ))]
     let r = unsafe { libc::unmount(mnt.as_ptr(), 0) };
@@ -74,7 +73,6 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     )))]
     let r = unsafe { libc::umount(mnt.as_ptr()) };

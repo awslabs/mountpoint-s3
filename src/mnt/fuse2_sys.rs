@@ -27,7 +27,6 @@ extern "C" {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     )))]
     pub fn fuse_unmount_compat22(mountpoint: *const c_char);
