@@ -87,10 +87,10 @@ impl S3CrtClient {
             move |headers, status| {
                 // Headers can be returned multiple times, but the object metadata doesn't change.
                 // Explicitly ignore the case where we've already set object metadata.
-                if let Some(object_metadata_sender) = object_metadata_sender_on_headers.lock().unwrap().take() {
-                    // On a 4xx / 5xx, don't send anything and cancel the future.
-                    // TODO - What happens on a 3xx status code?
-                    if status / 100 == 2 {
+                if (200..300).contains(&status) {
+                    // Only take the sender if we have a 2xx status code. If we only get other
+                    // status codes, then on_finish cancels the sender
+                    if let Some(object_metadata_sender) = object_metadata_sender_on_headers.lock().unwrap().take() {
                         let object_metadata = headers
                             .iter()
                             .filter_map(|(key, value)| {
@@ -159,16 +159,16 @@ impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
     async fn get_object_metadata(&self) -> Result<ObjectMetadata, Self::ClientError> {
-        let request_required = self.lazy_object_metadata.try_get().is_none();
-        if self.enable_backpressure && self.initial_read_window_empty && request_required {
-            return Err(S3RequestError::EmptyReadWindow);
+        match self.lazy_object_metadata.try_get() {
+            Some(result) => result.clone(),
+            None => {
+                if self.enable_backpressure && self.initial_read_window_empty {
+                    return Err(S3RequestError::EmptyReadWindow);
+                }
+                self.lazy_object_metadata.get_unpin().await.clone()
+            }
         }
-
-        self.lazy_object_metadata
-            .get_unpin()
-            .await
-            .clone()
-            .map_err(|_| S3RequestError::RequestCanceled)
+        .map_err(|_| S3RequestError::RequestCanceled)
     }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
