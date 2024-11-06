@@ -5,7 +5,12 @@ fn main() {
     #[cfg(all(not(feature = "libfuse"), not(target_os = "linux")))]
     unimplemented!("Building without libfuse is only supported on Linux");
 
-    if cfg!(feature = "libfuse") {
+    #[cfg(not(feature = "libfuse"))]
+    {
+        println!("cargo:rustc-cfg=fuser_mount_impl=\"pure-rust\"");
+    }
+    #[cfg(feature = "libfuse")]
+    {
         if cfg!(target_os = "macos") {
             if pkg_config::Config::new()
                 .atleast_version("2.6.0")
@@ -42,7 +47,5 @@ fn main() {
                 println!("cargo:rustc-cfg=fuser_mount_impl=\"libfuse2\"");
             }
         }
-    } else {
-        println!("cargo:rustc-cfg=fuser_mount_impl=\"pure-rust\"");
     }
 }
