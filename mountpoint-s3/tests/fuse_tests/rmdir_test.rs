@@ -5,11 +5,10 @@ use test_case::test_case;
 
 fn rmdir_local_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
 
     // Create local directory
     let main_dirname = "test_dir";
-    let main_path = mount_point.path().join(main_dirname);
+    let main_path = test_session.mount_path().join(main_dirname);
     let empty_dirname = "local_empty_dir";
     let non_empty_dirname = "local_non_empty_dir";
     let empty_dirpath = main_path.join(empty_dirname);
@@ -77,14 +76,13 @@ fn rmdir_local_dir_test_s3(prefix: &str) {
 
 fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let main_dirname = "test_dir";
-    let main_path = mount_point.path().join(main_dirname);
+    let main_path = test_session.mount_path().join(main_dirname);
     // explicitly testing remote directories not getting removed
     let remote_dirname = "remote_dir";
-    test_client
+    test_session
+        .client()
         .put_object(&format!("{main_dirname}/{remote_dirname}/hello.txt"), b"hello world")
         .unwrap();
     let remote_path = main_path.join(remote_dirname);
@@ -98,7 +96,8 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 
     let empty_remote_dirname = "empty_remote_dir";
     // adding zero byte directory marker
-    test_client
+    test_session
+        .client()
         .put_object(&format!("{main_dirname}/{empty_remote_dirname}/"), b"")
         .unwrap();
     let empty_remote_path = main_path.join(empty_remote_dirname);
@@ -106,7 +105,8 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 
     let remote_filename = "remote_file";
-    test_client
+    test_session
+        .client()
         .put_object(&format!("{main_dirname}/{remote_filename}"), b"Hello World")
         .unwrap();
     let remote_file_path = main_path.join(remote_filename);
@@ -137,11 +137,10 @@ fn rmdir_remote_dir_test_s3(prefix: &str) {
 
 fn create_after_rmdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
 
     // Create local directory
     let main_dirname = "test_dir";
-    let main_path = mount_point.path().join(main_dirname);
+    let main_path = test_session.mount_path().join(main_dirname);
     let empty_dirname = "local_empty_dir";
     let empty_dirpath = main_path.join(empty_dirname);
 

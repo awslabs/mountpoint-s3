@@ -50,20 +50,27 @@ fn list_dir_recursive(path: impl AsRef<Path>, files: bool) -> Result<Vec<String>
 ///     * `list.txt` (file)
 fn basic_directory_structure(creator_fn: impl TestSessionCreator) {
     let test_session = creator_fn("basic_directory_structure", Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("colors/blue/image.jpg", b"hello world").unwrap();
-    test_client.put_object("colors/red/image.jpg", b"hello world").unwrap();
-    test_client.put_object("colors/list.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("colors/blue/image.jpg", b"hello world")
+        .unwrap();
+    test_session
+        .client()
+        .put_object("colors/red/image.jpg", b"hello world")
+        .unwrap();
+    test_session
+        .client()
+        .put_object("colors/list.txt", b"hello world")
+        .unwrap();
 
-    let files = list_dir_recursive(mount_point.path(), true).unwrap();
+    let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
     assert_eq!(
         &files[..],
         &["colors/blue/image.jpg", "colors/list.txt", "colors/red/image.jpg"]
     );
 
-    let dirs = list_dir_recursive(mount_point.path(), false).unwrap();
+    let dirs = list_dir_recursive(test_session.mount_path(), false).unwrap();
     assert_eq!(&dirs[..], &["colors", "colors/blue", "colors/red"]);
 }
 
@@ -91,17 +98,18 @@ fn basic_directory_structure_s3() {
 /// creating directories in a bucket, and so these directories will work as expected.
 fn keys_ending_in_delimiter(creator_fn: impl TestSessionCreator) {
     let test_session = creator_fn("keys_ending_in_delimiter", Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("blue/", b"hello world").unwrap();
-    test_client.put_object("blue/image.jpg", b"hello world").unwrap();
-    test_client.put_object("red/", b"hello world").unwrap();
+    test_session.client().put_object("blue/", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("blue/image.jpg", b"hello world")
+        .unwrap();
+    test_session.client().put_object("red/", b"hello world").unwrap();
 
-    let files = list_dir_recursive(mount_point.path(), true).unwrap();
+    let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
     assert_eq!(&files[..], &["blue/image.jpg"]);
 
-    let dirs = list_dir_recursive(mount_point.path(), false).unwrap();
+    let dirs = list_dir_recursive(test_session.mount_path(), false).unwrap();
     assert_eq!(&dirs[..], &["blue", "red"]);
 }
 
@@ -127,16 +135,17 @@ fn keys_ending_in_delimiter_s3() {
 /// remove the `blue` directory, and cause the `blue` file to become visible.
 fn files_shadowed_by_directories(creator_fn: impl TestSessionCreator) {
     let test_session = creator_fn("files_shadowed_by_directories", Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("blue", b"hello world").unwrap();
-    test_client.put_object("blue/image.jpg", b"hello world").unwrap();
+    test_session.client().put_object("blue", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("blue/image.jpg", b"hello world")
+        .unwrap();
 
-    let files = list_dir_recursive(mount_point.path(), true).unwrap();
+    let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
     assert_eq!(&files[..], &["blue/image.jpg"]);
 
-    let dirs = list_dir_recursive(mount_point.path(), false).unwrap();
+    let dirs = list_dir_recursive(test_session.mount_path(), false).unwrap();
     assert_eq!(&dirs[..], &["blue"]);
 }
 

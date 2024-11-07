@@ -38,8 +38,6 @@ fn perm_test(
             ..Default::default()
         },
     );
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -48,42 +46,45 @@ fn perm_test(
     let file_mode = file_mode.unwrap_or(0o644) as u32;
 
     // verify mount point metadata
-    let m = metadata(mount_point.path()).unwrap();
+    let m = metadata(test_session.mount_path()).unwrap();
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    test_client.put_object("file1.txt", b"hello world").unwrap();
-    test_client.put_object("dir/file2.txt", b"hello world").unwrap();
+    test_session.client().put_object("file1.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/file2.txt", b"hello world")
+        .unwrap();
 
     // verify readdir works on mount point
-    let read_dir_iter = fs::read_dir(&mount_point).unwrap();
+    let read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["dir", "file1.txt"]);
 
     // verify inner directory metadata
-    let m = metadata(mount_point.path().join("dir")).unwrap();
+    let m = metadata(test_session.mount_path().join("dir")).unwrap();
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
     // verify readdir works
-    let read_dir_iter = fs::read_dir(mount_point.path().join("dir")).unwrap();
+    let read_dir_iter = fs::read_dir(test_session.mount_path().join("dir")).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["file2.txt"]);
 
     // verify file metadata
-    let m = metadata(mount_point.path().join("file1.txt")).unwrap();
+    let m = metadata(test_session.mount_path().join("file1.txt")).unwrap();
     assert!(m.file_type().is_file());
     assert_perm(m, uid, gid, file_mode);
 
-    let m = metadata(mount_point.path().join("dir/file2.txt")).unwrap();
+    let m = metadata(test_session.mount_path().join("dir/file2.txt")).unwrap();
     assert!(m.file_type().is_file());
     assert_perm(m, uid, gid, file_mode);
 
     // verify read file works
-    let file_content = fs::read_to_string(mount_point.path().join("file1.txt")).unwrap();
+    let file_content = fs::read_to_string(test_session.mount_path().join("file1.txt")).unwrap();
     assert_eq!(file_content, "hello world");
 
-    let file_content = fs::read_to_string(mount_point.path().join("dir/file2.txt")).unwrap();
+    let file_content = fs::read_to_string(test_session.mount_path().join("dir/file2.txt")).unwrap();
     assert_eq!(file_content, "hello world");
 }
 
@@ -115,8 +116,6 @@ fn perm_test_negative(
             ..Default::default()
         },
     );
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -124,30 +123,33 @@ fn perm_test_negative(
     let dir_mode = dir_mode.unwrap_or(0o755) as u32;
 
     // verify mount point metadata
-    let m = metadata(mount_point.path()).unwrap();
+    let m = metadata(test_session.mount_path()).unwrap();
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    test_client.put_object("file1.txt", b"hello world").unwrap();
-    test_client.put_object("dir/file2.txt", b"hello world").unwrap();
+    test_session.client().put_object("file1.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/file2.txt", b"hello world")
+        .unwrap();
 
     // verify readdir returns permission denied on mount point
-    let readdir_result = fs::read_dir(&mount_point).map_err(|e| e.kind());
+    let readdir_result = fs::read_dir(test_session.mount_path()).map_err(|e| e.kind());
     assert!(readdir_result.is_err());
     assert_eq!(io::ErrorKind::PermissionDenied, readdir_result.unwrap_err());
 
     // verify access control works on inner directories
-    let metadata_result = metadata(mount_point.path().join("dir")).map_err(|e| e.kind());
+    let metadata_result = metadata(test_session.mount_path().join("dir")).map_err(|e| e.kind());
     assert!(metadata_result.is_err());
     assert_eq!(io::ErrorKind::PermissionDenied, metadata_result.unwrap_err());
-    let readdir_result = fs::read_dir(mount_point.path().join("dir")).map_err(|e| e.kind());
+    let readdir_result = fs::read_dir(test_session.mount_path().join("dir")).map_err(|e| e.kind());
     assert_eq!(io::ErrorKind::PermissionDenied, readdir_result.unwrap_err());
 
     // verify access control works on files
-    let metadata_result = metadata(mount_point.path().join("file1.txt")).map_err(|e| e.kind());
+    let metadata_result = metadata(test_session.mount_path().join("file1.txt")).map_err(|e| e.kind());
     assert!(metadata_result.is_err());
     assert_eq!(io::ErrorKind::PermissionDenied, metadata_result.unwrap_err());
-    let read_result = fs::read_to_string(mount_point.path().join("file1.txt")).map_err(|e| e.kind());
+    let read_result = fs::read_to_string(test_session.mount_path().join("file1.txt")).map_err(|e| e.kind());
     assert!(read_result.is_err());
     assert_eq!(io::ErrorKind::PermissionDenied, read_result.unwrap_err());
 }
