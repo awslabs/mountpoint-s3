@@ -86,6 +86,7 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
+        summary-always: true
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -159,6 +160,7 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: false
         max-items-in-chart: 20
+        summary-always: true
 
   cache-bench:
     name: Benchmark (Cache)
@@ -219,6 +221,7 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: false
         max-items-in-chart: 20
+        summary-always: true
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
       with:
