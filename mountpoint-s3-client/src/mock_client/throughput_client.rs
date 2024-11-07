@@ -17,7 +17,7 @@ use crate::object_client::{
     CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
     HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
+    ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
 };
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
@@ -66,8 +66,13 @@ pub struct ThroughputGetObjectRequest {
     rate_limiter: LeakyBucket,
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        Ok(self.request.object.object_metadata.clone())
+    }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();

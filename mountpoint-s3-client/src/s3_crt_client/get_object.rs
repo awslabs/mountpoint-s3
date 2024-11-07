@@ -1,8 +1,11 @@
+use async_cell::sync::AsyncCell;
+use async_trait::async_trait;
 use std::future::Future;
 use std::ops::Deref;
 use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::UnboundedReceiver;
@@ -11,11 +14,19 @@ use mountpoint_s3_crt::common::error::Error;
 use mountpoint_s3_crt::http::request_response::Header;
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
+use thiserror::Error;
 
-use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
+use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult, ObjectMetadata};
 use crate::s3_crt_client::{
     GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
 };
+
+/// Failures to return object metadata
+#[derive(Clone, Error, Debug)]
+pub enum ObjectMetadataError {
+    #[error("error occurred fetching object metadata")]
+    ObjectMetadataError,
+}
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
@@ -67,15 +78,44 @@ impl S3CrtClient {
 
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
         options.part_size(self.inner.read_part_size as u64);
+
+        let object_metadata = AsyncCell::shared();
+
+        let object_metadata_setter_on_headers = object_metadata.clone();
+        let object_metadata_setter_on_finish = object_metadata.clone();
+
         let request = self.inner.make_meta_request_from_options(
             options,
             span,
             |_| (),
-            |_, _| (),
+            move |headers, status| {
+                // Headers can be returned multiple times, but the object metadata doesn't change.
+                // Explicitly ignore the case where we've already set object metadata.
+
+                // Only set metadata if we have a 2xx status code. If we only get other status
+                // codes, then on_finish cancels.
+                if (200..300).contains(&status) {
+                    // This isn't to do with safety, only minor performance gains.
+                    if !object_metadata_setter_on_headers.is_set() {
+                        let object_metadata = headers
+                            .iter()
+                            .filter_map(|(key, value)| {
+                                let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
+                                let value = value.to_str()?;
+                                Some((metadata_header.to_string(), value.to_string()))
+                            })
+                            .collect();
+                        // Don't overwrite if already set.
+                        object_metadata_setter_on_headers.or_set(Ok(object_metadata));
+                    }
+                }
+            },
             move |offset, data| {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
             move |result| {
+                // FIXME - Ideally we'd include a reason why we failed here.
+                object_metadata_setter_on_finish.or_set(Err(ObjectMetadataError::ObjectMetadataError));
                 if result.is_err() {
                     Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
                 } else {
@@ -89,6 +129,8 @@ impl S3CrtClient {
             finish_receiver: receiver,
             finished: false,
             enable_backpressure: self.inner.enable_backpressure,
+            object_metadata,
+            initial_read_window_empty: self.inner.initial_read_window_size == 0,
             next_offset,
             read_window_end_offset,
         })
@@ -109,6 +151,8 @@ pub struct S3GetObjectRequest {
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
     enable_backpressure: bool,
+    object_metadata: Arc<AsyncCell<Result<ObjectMetadata, ObjectMetadataError>>>,
+    initial_read_window_empty: bool,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
     /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
@@ -116,8 +160,22 @@ pub struct S3GetObjectRequest {
     read_window_end_offset: u64,
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        match self.object_metadata.try_get() {
+            Some(result) => result,
+            None => {
+                if self.enable_backpressure && self.initial_read_window_empty {
+                    return Err(ObjectClientError::ClientError(S3RequestError::EmptyReadWindow));
+                }
+                self.object_metadata.get().await
+            }
+        }
+        .map_err(|_| ObjectClientError::ClientError(S3RequestError::RequestCanceled))
+    }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
         self.read_window_end_offset += len as u64;

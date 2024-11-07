@@ -18,8 +18,8 @@ use crate::object_client::{
     CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
     HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
-    ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
-    PutObjectSingleParams, UploadReview,
+    ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectRequest,
+    PutObjectResult, PutObjectSingleParams, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -222,8 +222,15 @@ pub struct FailureGetRequest<Client: ObjectClient, GetWrapperState> {
     request: Client::GetObjectRequest,
 }
 
-impl<Client: ObjectClient, FailState: Send> GetObjectRequest for FailureGetRequest<Client, FailState> {
+#[cfg_attr(not(docsrs), async_trait)]
+impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRequest
+    for FailureGetRequest<Client, FailState>
+{
     type ClientError = Client::ClientError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        self.request.get_object_metadata().await
+    }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();

@@ -143,7 +143,7 @@ pub trait ObjectClient {
 ///
 /// [`ServiceError`]: ObjectClientError::ServiceError
 /// [`ClientError`]: ObjectClientError::ClientError
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ObjectClientError<S, C> {
     /// An error returned by the service itself
     #[error("Service error")]
@@ -357,6 +357,8 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
+pub type ObjectMetadata = HashMap<String, String>;
+
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
@@ -373,7 +375,7 @@ pub struct PutObjectParams {
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
-    pub object_metadata: HashMap<String, String>,
+    pub object_metadata: ObjectMetadata,
 }
 
 impl PutObjectParams {
@@ -413,7 +415,7 @@ impl PutObjectParams {
     }
 
     /// Set user defined object metadata.
-    pub fn object_metadata(mut self, value: HashMap<String, String>) -> Self {
+    pub fn object_metadata(mut self, value: ObjectMetadata) -> Self {
         self.object_metadata = value;
         self
     }
@@ -456,7 +458,7 @@ pub struct PutObjectSingleParams {
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
-    pub object_metadata: HashMap<String, String>,
+    pub object_metadata: ObjectMetadata,
 }
 
 impl PutObjectSingleParams {
@@ -496,7 +498,7 @@ impl PutObjectSingleParams {
     }
 
     /// Set user defined object metadata.
-    pub fn object_metadata(mut self, value: HashMap<String, String>) -> Self {
+    pub fn object_metadata(mut self, value: ObjectMetadata) -> Self {
         self.object_metadata = value;
         self
     }
@@ -525,9 +527,14 @@ impl UploadChecksum {
 /// object.
 #[cfg_attr(not(docsrs), async_trait)]
 pub trait GetObjectRequest:
-    Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send
+    Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {
     type ClientError: std::error::Error + Send + Sync + 'static;
+
+    /// Get the object's user defined metadata.
+    /// If the metadata has already been read, return immediately. Otherwise, resolve the future
+    /// when they're read.
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError>;
 
     /// Increment the flow-control window, so that response data continues downloading.
     ///
