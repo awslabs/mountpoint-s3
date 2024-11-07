@@ -1,5 +1,4 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
-use fuser::BackgroundSession;
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig, TestSessionCreator};
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::StdRng;
@@ -7,7 +6,6 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
 use std::fs;
-use tempfile::TempDir;
 
 // Unit Tests
 // Generate a filesystem with many entries
@@ -34,10 +32,7 @@ fn prepare_fs(mut test_client: TestClientBox, map: &HashMap<String, File>) {
     }
 }
 
-fn readdir<F>(creator_fn: F, prefix: &str, rng_seed: usize)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn readdir(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: usize) {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
         readdir_size,
@@ -55,13 +50,15 @@ where
     }
     expected_list.sort();
 
-    let (mount_point, _session, test_client) = creator_fn(
+    let test_session = creator_fn(
         prefix,
         TestSessionConfig {
             filesystem_config,
             ..Default::default()
         },
     );
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     prepare_fs(test_client, &map);
 
@@ -73,10 +70,7 @@ where
     );
 }
 
-fn readdir_while_writing<F>(creator_fn: F, prefix: &str, rng_seed: usize)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: usize) {
     let readdir_size = 5;
     let filesystem_config = S3FilesystemConfig {
         readdir_size,
@@ -93,13 +87,15 @@ where
         expected_list.push(file_name);
     }
 
-    let (mount_point, _session, test_client) = creator_fn(
+    let test_session = creator_fn(
         prefix,
         TestSessionConfig {
             filesystem_config,
             ..Default::default()
         },
     );
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     prepare_fs(test_client, &map);
 

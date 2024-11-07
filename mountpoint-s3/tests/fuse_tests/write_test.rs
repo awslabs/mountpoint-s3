@@ -6,10 +6,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use fuser::BackgroundSession;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use tempfile::TempDir;
 use test_case::test_case;
 
 use mountpoint_s3::fs::CacheConfig;
@@ -17,7 +15,7 @@ use mountpoint_s3::S3FilesystemConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3::ServerSideEncryption;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use crate::common::{creds::get_scoped_down_credentials, s3::get_test_kms_key_id};
 
@@ -35,14 +33,13 @@ fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std
     options.create(true).open(path)
 }
 
-fn sequential_write_test<F>(creator_fn: F, prefix: &str, append: bool, write_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn sequential_write_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool, write_only: bool) {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
 
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -114,11 +111,10 @@ fn sequential_write_test_mock(prefix: &str, append: bool, write_only: bool) {
     sequential_write_test(fuse::mock_session::new, prefix, append, write_only);
 }
 
-fn write_errors_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn write_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
 
@@ -191,13 +187,12 @@ fn write_errors_test_mock(prefix: &str) {
     write_errors_test(fuse::mock_session::new, prefix);
 }
 
-fn sequential_write_streaming_test<F>(creator_fn: F, object_size: usize, write_chunk_size: usize)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_size: usize, write_chunk_size: usize) {
     const KEY: &str = "dir/new.txt";
 
-    let (mount_point, _session, mut test_client) = creator_fn("sequential_write_streaming_test", Default::default());
+    let test_session = creator_fn("sequential_write_streaming_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -261,14 +256,13 @@ fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: us
     sequential_write_streaming_test(fuse::mock_session::new, object_size, write_chunk_size);
 }
 
-fn fsync_test<F>(creator_fn: F, write_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn fsync_test(creator_fn: impl TestSessionCreator, write_only: bool) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
-    let (mount_point, _session, test_client) = creator_fn("fsync_test", Default::default());
+    let test_session = creator_fn("fsync_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -317,10 +311,7 @@ fn fsync_test_mock(write_only: bool) {
     fsync_test(fuse::mock_session::new, write_only);
 }
 
-fn fstat_after_writing<F>(creator_fn: F, with_fsync: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
@@ -336,7 +327,8 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, _test_client) = creator_fn("fstat_after_writing", session_config);
+    let test_session = creator_fn("fstat_after_writing", session_config);
+    let mount_point = test_session.mount_dir;
 
     let path = mount_point.path().join(KEY);
 
@@ -386,10 +378,7 @@ fn fstat_after_writing_mock(with_fsync: bool) {
     fstat_after_writing(fuse::mock_session::new, with_fsync);
 }
 
-fn write_too_big_test<F>(creator_fn: F, write_size: usize)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
     const KEY: &str = "new.txt";
     const PART_SIZE: usize = 64;
     const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
@@ -398,7 +387,8 @@ where
         part_size: PART_SIZE,
         ..Default::default()
     };
-    let (mount_point, _session, _test_client) = creator_fn("write_too_big_test", config);
+    let test_session = creator_fn("write_too_big_test", config);
+    let mount_point = test_session.mount_dir;
 
     let path = mount_point.path().join(KEY);
 
@@ -436,14 +426,12 @@ fn write_too_big_test_mock(write_size: usize) {
     write_too_big_test(fuse::mock_session::new, write_size);
 }
 
-fn out_of_order_write_test<F>(creator_fn: F, offset: i64)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
-    let (mount_point, _session, _test_client) = creator_fn("out_of_order_write_test", Default::default());
+    let test_session = creator_fn("out_of_order_write_test", Default::default());
+    let mount_point = test_session.mount_dir;
 
     let path = mount_point.path().join(KEY);
 
@@ -489,10 +477,7 @@ fn out_of_order_write_test_mock(offset: i64) {
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-fn write_with_storage_class_test<F>(creator_fn: F, storage_class: Option<&str>)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_class: Option<&str>) {
     const KEY: &str = "new.txt";
 
     let config = TestSessionConfig {
@@ -502,7 +487,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, test_client) = creator_fn("write_with_storage_class_test", config);
+    let test_session = creator_fn("write_with_storage_class_test", config);
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -532,10 +519,7 @@ fn write_with_storage_class_test_s3_mock(storage_class: Option<&str>) {
 }
 
 #[cfg_attr(not(feature = "s3_tests"), allow(unused))] // Mock client doesn't validate storage classes
-fn write_with_invalid_storage_class_test<F>(creator_fn: F, storage_class: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, storage_class: &str) {
     const KEY: &str = "new.txt";
 
     let config = TestSessionConfig {
@@ -545,7 +529,8 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, _test_client) = creator_fn("write_with_storage_class_test", config);
+    let test_session = creator_fn("write_with_storage_class_test", config);
+    let mount_point = test_session.mount_dir;
 
     let path = mount_point.path().join(KEY);
     write_file(path).expect_err("write with invalid storage class should fail");
@@ -565,15 +550,14 @@ fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
     write_with_invalid_storage_class_test(fuse::s3_session::new, storage_class);
 }
 
-fn flush_test<F>(creator_fn: F, append: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn flush_test(creator_fn: impl TestSessionCreator, append: bool) {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
     const KEY: &str = "new.txt";
 
-    let (mount_point, _session, test_client) = creator_fn("flush_test", Default::default());
+    let test_session = creator_fn("flush_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -615,13 +599,12 @@ fn flush_test_mock(append: bool) {
     flush_test(fuse::mock_session::new, append);
 }
 
-fn touch_test<F>(creator_fn: F)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn touch_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "new.txt";
 
-    let (mount_point, _session, test_client) = creator_fn("touch_test", Default::default());
+    let test_session = creator_fn("touch_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -659,14 +642,13 @@ fn touch_test_mock() {
     touch_test(fuse::mock_session::new);
 }
 
-fn dd_test<F>(creator_fn: F)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn dd_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "new.txt";
     const SIZE: u64 = 128;
 
-    let (mount_point, _session, test_client) = creator_fn("dd_test", Default::default());
+    let test_session = creator_fn("dd_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
 
@@ -700,7 +682,8 @@ fn dd_test_mock() {
 #[test]
 fn spawn_test() {
     const KEY: &str = "new.txt";
-    let (mount_point, _session, _test_client) = fuse::mock_session::new("spawn_test", Default::default());
+    let test_session = fuse::mock_session::new("spawn_test", Default::default());
+    let mount_point = test_session.mount_dir;
 
     let path = mount_point.path().join(KEY);
     let mut f = open_for_write(&path, false, true).unwrap();
@@ -722,7 +705,9 @@ fn spawn_test() {
 #[test]
 fn multi_thread_test() {
     const KEY: &str = "new.txt";
-    let (mount_point, _session, test_client) = fuse::mock_session::new("spawn_test", Default::default());
+    let test_session = fuse::mock_session::new("spawn_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let path = mount_point.path().join(KEY);
     let mut f = open_for_write(&path, false, true).unwrap();
@@ -744,10 +729,7 @@ fn multi_thread_test() {
     .unwrap();
 }
 
-fn overwrite_test<F>(creator_fn: F, prefix: &str, write_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only: bool) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -756,7 +738,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -796,10 +780,7 @@ fn overwrite_test_mock(write_only: bool) {
     overwrite_test(fuse::mock_session::new, "overwrite_test", write_only);
 }
 
-fn overwrite_disallowed_on_concurrent_read_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -808,7 +789,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -854,10 +837,7 @@ fn overwrite_disallowed_on_concurrent_read_test_mock() {
     );
 }
 
-fn overwrite_fail_on_write_without_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn overwrite_fail_on_write_without_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only: bool) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -866,7 +846,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -916,10 +898,7 @@ fn overwrite_fail_on_write_without_truncate_test_mock(write_only: bool) {
     );
 }
 
-fn overwrite_truncate_test<F>(creator_fn: F, prefix: &str, write_only: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only: bool) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -928,7 +907,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -968,10 +949,7 @@ fn overwrite_truncate_test_mock(write_only: bool) {
     overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", write_only);
 }
 
-fn overwrite_after_read_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -980,7 +958,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();
@@ -1018,10 +998,11 @@ fn overwrite_after_read_test_mock(prefix: &str) {
     overwrite_after_read_test(fuse::mock_session::new, prefix);
 }
 
-fn write_handle_no_update_existing_empty_file<F>(creator_fn: F, prefix: &str, allow_overwrite: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn write_handle_no_update_existing_empty_file(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    allow_overwrite: bool,
+) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite,
         ..Default::default()
@@ -1030,7 +1011,9 @@ where
         filesystem_config,
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_config);
+    let test_session = creator_fn(prefix, test_config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
     test_client.put_object("dir/hello.txt", b"").unwrap();
@@ -1124,7 +1107,9 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
     let mut test_config =
         TestSessionConfig::default().with_credentials(tokio_block_on(get_scoped_down_credentials(&policy)));
     test_config.filesystem_config.server_side_encryption = sse;
-    let (mount_point, _session, test_client) = fuse::s3_session::new("sse_with_policy_test", test_config);
+    let test_session = fuse::s3_session::new("sse_with_policy_test", test_config);
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
     let file_name = "hello";
     let path = mount_point.path().join(file_name);
     let mut f = open_for_write(&path, false, true).unwrap();
@@ -1152,8 +1137,9 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 #[cfg(feature = "s3_tests")]
 #[test_case(200)]
 fn concurrent_open_for_write_test(max_files: usize) {
-    let (mount_point, _session, test_client) =
-        fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
+    let test_session = fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
+    let mount_point = test_session.mount_dir;
+    let test_client = test_session.test_client;
 
     let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
 
@@ -1181,10 +1167,7 @@ fn concurrent_open_for_write_test(max_files: usize) {
     }
 }
 
-fn write_checksums_test<F>(creator_fn: F, use_upload_checksums: bool)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksums: bool) {
     const OBJECT_SIZE: usize = 20 * 1024 * 1024;
     const PART_SIZE: usize = 8 * 1024 * 1024;
     const KEY: &str = "dir/new.txt";
@@ -1196,7 +1179,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn("write_checksums_test", config);
+    let test_session = creator_fn("write_checksums_test", config);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
     test_client.put_object("dir/hello.txt", b"hello world").unwrap();

@@ -20,7 +20,7 @@ use proptest_derive::Arbitrary;
 use tempfile::TempDir;
 use tracing::{info, info_span};
 
-use crate::common::fuse::{mock_session, TestClient, TestSessionConfig};
+use crate::common::fuse::{mock_session, TestClient, TestSession, TestSessionConfig};
 
 const MAX_NUM_FILES: usize = 10;
 const MAX_FILE_SIZE: usize = 1024 * 1024;
@@ -73,7 +73,11 @@ impl MountpointFileSystem {
             filesystem_config: config,
             ..Default::default()
         };
-        let (mountpoint, session, client) = mock_session::new("", test_config);
+        let TestSession {
+            mount_dir: mountpoint,
+            session,
+            test_client: client,
+        } = mock_session::new("", test_config);
         Ok(Self {
             mountpoint,
             session: Some(session),

@@ -1,5 +1,7 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
+use mountpoint_s3_client::config::EndpointConfig;
+use mountpoint_s3_crt::common::{allocator::Allocator, uri::Uri};
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
 
@@ -33,6 +35,26 @@ pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
 }
 
+/// Optional config for testing against a custom endpoint url
+pub fn get_test_endpoint_url() -> Option<String> {
+    if cfg!(feature = "s3express_tests") {
+        std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT_URL")
+            .ok()
+            .filter(|str| !str.is_empty())
+    } else {
+        std::env::var("S3_ENDPOINT_URL").ok().filter(|str| !str.is_empty())
+    }
+}
+
+pub fn get_test_endpoint_config() -> EndpointConfig {
+    let mut endpoint_config = EndpointConfig::new(&get_test_region());
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        let endpoint = Uri::new_from_str(&Allocator::default(), endpoint_url.clone()).expect("invalid endpoint url");
+        endpoint_config = endpoint_config.endpoint(endpoint);
+    }
+    endpoint_config
+}
+
 // Get a region other than what configured in S3_REGION
 pub fn get_non_test_region() -> String {
     match get_test_region().as_str() {
@@ -42,11 +64,11 @@ pub fn get_non_test_region() -> String {
 }
 
 pub async fn get_test_sdk_client(region: &str) -> aws_sdk_s3::Client {
-    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
-        .region(Region::new(region.to_owned()))
-        .load()
-        .await;
-    aws_sdk_s3::Client::new(&sdk_config)
+    let mut sdk_config = aws_config::defaults(BehaviorVersion::latest()).region(Region::new(region.to_owned()));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        sdk_config = sdk_config.endpoint_url(endpoint_url);
+    }
+    aws_sdk_s3::Client::new(&sdk_config.load().await)
 }
 
 pub fn get_test_kms_key_id() -> String {

@@ -4,18 +4,19 @@ use std::{
     os::unix::prelude::{MetadataExt, PermissionsExt},
 };
 
-use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use nix::unistd::{getgid, getuid};
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
 
-fn perm_test<F>(creator_fn: F, uid: Option<u32>, gid: Option<u32>, dir_mode: Option<u16>, file_mode: Option<u16>)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn perm_test(
+    creator_fn: impl TestSessionCreator,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    dir_mode: Option<u16>,
+    file_mode: Option<u16>,
+) {
     let mut config = S3FilesystemConfig::default();
     if let Some(id) = uid {
         config.uid = id;
@@ -30,13 +31,15 @@ where
         config.file_mode = mode;
     }
 
-    let (mount_point, _session, mut test_client) = creator_fn(
+    let test_session = creator_fn(
         "",
         TestSessionConfig {
             filesystem_config: config,
             ..Default::default()
         },
     );
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -84,15 +87,13 @@ where
     assert_eq!(file_content, "hello world");
 }
 
-fn perm_test_negative<F>(
-    creator_fn: F,
+fn perm_test_negative(
+    creator_fn: impl TestSessionCreator,
     uid: Option<u32>,
     gid: Option<u32>,
     dir_mode: Option<u16>,
     file_mode: Option<u16>,
-) where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+) {
     let mut config = S3FilesystemConfig::default();
     if let Some(id) = uid {
         config.uid = id;
@@ -107,13 +108,15 @@ fn perm_test_negative<F>(
         config.file_mode = mode;
     }
 
-    let (mount_point, _session, mut test_client) = creator_fn(
+    let test_session = creator_fn(
         "",
         TestSessionConfig {
             filesystem_config: config,
             ..Default::default()
         },
     );
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());

@@ -34,9 +34,9 @@ To launch Mountpoint in an interactive container, run this command:
     docker run -ti --cap-add SYS_ADMIN --device /dev/fuse --entrypoint bash mountpoint-s3
 
 Within the container you can run this command to mount a bucket to the `/mnt` directory,
-replacing `DOC-EXAMPLE-BUCKET` with the name of your S3 bucket:
+replacing `amzn-s3-demo-bucket` with the name of your S3 bucket:
 
-    mount-s3 DOC-EXAMPLE-BUCKET /mnt
+    mount-s3 amzn-s3-demo-bucket /mnt
 
 ### Running as a service
 
@@ -44,13 +44,13 @@ You can also run the Docker container as a service,
 and access the mounted directory from your host or other Docker containers.
 To do so, first create a directory `/path/to/mount` in your host filesystem,
 and a subdirectory `/path/to/mount/bucket` to be the target of the mount.
-Then run this command, replacing DOC-EXAMPLE-BUCKET with the name of your S3 bucket,
+Then run this command, replacing amzn-s3-demo-bucket with the name of your S3 bucket,
 and `/path/to/mount` with the directory you created:
 
     docker run -d --cap-add SYS_ADMIN --device /dev/fuse \
         --mount type=bind,source=/path/to/mount,target=/mountpoint,bind-propagation=shared \
         mountpoint-s3 \
-        DOC-EXAMPLE-BUCKET /mountpoint/bucket
+        amzn-s3-demo-bucket /mountpoint/bucket
 
 Your bucket is now mounted in the `/path/to/mount/bucket` directory on the host.
 By default, only the user used by the container (likely `root`) will have access to the mount.

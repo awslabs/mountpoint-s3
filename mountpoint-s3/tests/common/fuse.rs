@@ -8,7 +8,7 @@ use mountpoint_s3::data_cache::DataCache;
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3::prefix::Prefix;
-use mountpoint_s3::S3FilesystemConfig;
+use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{ObjectPart, PutObjectParams};
 use mountpoint_s3_client::ObjectClient;
@@ -75,6 +75,20 @@ impl TestSessionConfig {
     }
 }
 
+// Holds resources for the testing session and cleans them on drop.
+pub struct TestSession {
+    pub mount_dir: TempDir,
+    pub session: BackgroundSession,
+    pub test_client: TestClientBox,
+}
+
+pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
+
+// Since trait aliases are not stable yet, we can't just `type TestSessionCreator = FnOnce(...)`.
+// As a workaround we can subtrait `FnOnce(...)` and have this blank impl to allow
+// `FnOnce(...)` in place of `impl TestSessionCreator`.
+impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
+
 fn create_fuse_session<Client, Prefetcher>(
     client: Client,
     prefetcher: Prefetcher,
@@ -96,7 +110,13 @@ where
 
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let session = Session::new(
-        S3FuseFilesystem::new(client, prefetcher, bucket, &prefix, filesystem_config),
+        S3FuseFilesystem::new(S3Filesystem::new(
+            client,
+            prefetcher,
+            bucket,
+            &prefix,
+            filesystem_config,
+        )),
         mount_dir,
         &options,
     )
@@ -116,7 +136,7 @@ pub mod mock_session {
     const BUCKET_NAME: &str = "test_bucket";
 
     /// Create a FUSE mount backed by a mock object client that does not talk to S3
-    pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
+    pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let prefix = if test_name.is_empty() {
@@ -145,13 +165,15 @@ pub mod mock_session {
         );
         let test_client = create_test_client(client, &prefix);
 
-        (mount_dir, session, test_client)
+        TestSession {
+            mount_dir,
+            session,
+            test_client,
+        }
     }
 
     /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
-    pub fn new_with_cache<Cache>(
-        cache: Cache,
-    ) -> impl FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox)
+    pub fn new_with_cache<Cache>(cache: Cache) -> impl TestSessionCreator
     where
         Cache: DataCache + Send + Sync + 'static,
     {
@@ -184,7 +206,11 @@ pub mod mock_session {
             );
             let test_client = create_test_client(client, &prefix);
 
-            (mount_dir, session, test_client)
+            TestSession {
+                mount_dir,
+                session,
+                test_client,
+            }
         }
     }
 
@@ -275,14 +301,16 @@ pub mod s3_session {
     use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
     use aws_sdk_s3::Client;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
-    use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+    use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
     use mountpoint_s3_client::S3CrtClient;
 
-    use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
+    use crate::common::s3::{
+        get_test_bucket_and_prefix, get_test_endpoint_config, get_test_region, get_test_sdk_client,
+    };
 
     /// Create a FUSE mount backed by a real S3 client
-    pub fn new(test_name: &str, test_config: TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox) {
+    pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
@@ -290,7 +318,7 @@ pub mod s3_session {
 
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
-            .endpoint_config(EndpointConfig::new(&region))
+            .endpoint_config(get_test_endpoint_config())
             .auth_config(test_config.auth_config)
             .read_backpressure(true)
             .initial_read_window(test_config.initial_read_window_size);
@@ -307,13 +335,15 @@ pub mod s3_session {
         );
         let test_client = create_test_client(&region, &bucket, &prefix);
 
-        (mount_dir, session, test_client)
+        TestSession {
+            mount_dir,
+            session,
+            test_client,
+        }
     }
 
     /// Create a FUSE mount backed by a real S3 client, with caching
-    pub fn new_with_cache<Cache>(
-        cache: Cache,
-    ) -> impl FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox)
+    pub fn new_with_cache<Cache>(cache: Cache) -> impl TestSessionCreator
     where
         Cache: DataCache + Send + Sync + 'static,
     {
@@ -325,7 +355,7 @@ pub mod s3_session {
 
             let client_config = S3ClientConfig::default()
                 .part_size(test_config.part_size)
-                .endpoint_config(EndpointConfig::new(&region))
+                .endpoint_config(get_test_endpoint_config())
                 .read_backpressure(true)
                 .initial_read_window(test_config.initial_read_window_size);
             let client = S3CrtClient::new(client_config).unwrap();
@@ -341,7 +371,11 @@ pub mod s3_session {
             );
             let test_client = create_test_client(&region, &bucket, &prefix);
 
-            (mount_dir, session, test_client)
+            TestSession {
+                mount_dir,
+                session,
+                test_client,
+            }
         }
     }
 

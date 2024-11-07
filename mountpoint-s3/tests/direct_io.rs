@@ -11,18 +11,13 @@ use std::fs::File;
 use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use std::{fs::OpenOptions, time::Duration};
 
-use crate::common::fuse::{self, TestClientBox, TestSessionConfig};
-use fuser::BackgroundSession;
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 use mountpoint_s3::data_cache::InMemoryDataCache;
 use mountpoint_s3::fs::{CacheConfig, S3FilesystemConfig};
 use serial_test::serial;
-use tempfile::TempDir;
 use test_case::test_case;
 
-fn cache_and_direct_io_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
+fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     const OBJECT_SIZE: usize = 8;
 
     let test_session_conf = TestSessionConfig {
@@ -37,7 +32,9 @@ where
         },
         ..Default::default()
     };
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, test_session_conf);
+    let test_session = creator_fn(prefix, test_session_conf);
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     let file_name = "file.bin";
 

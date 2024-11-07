@@ -54,7 +54,7 @@ async fn test_head_bucket_forbidden() {
 async fn test_head_bucket_not_found() {
     let client = get_test_client();
     // Buckets are case sensitive. This bucket will use path-style access and 404.
-    let bucket = "DOC-EXAMPLE-BUCKET";
+    let bucket = "amzn-s3-demo-bucket";
 
     let result = client.head_bucket(bucket).await;
 

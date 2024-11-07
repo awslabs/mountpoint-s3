@@ -12,7 +12,9 @@ use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::GetObjectRequest;
 use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use mountpoint_s3_crt::common::uri::Uri;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::ops::Range;
@@ -70,14 +72,13 @@ pub fn get_test_kms_key_id() -> String {
 }
 
 pub fn get_test_client() -> S3CrtClient {
-    let endpoint_config = EndpointConfig::new(&get_test_region());
-    S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("could not create test client")
+    S3CrtClient::new(S3ClientConfig::new().endpoint_config(get_test_endpoint_config()))
+        .expect("could not create test client")
 }
 
 pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Option<usize>) -> S3CrtClient {
-    let endpoint_config = EndpointConfig::new(&get_test_region());
     let mut config = S3ClientConfig::new()
-        .endpoint_config(endpoint_config)
+        .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true)
         .initial_read_window(initial_read_window);
     if let Some(part_size) = part_size {
@@ -123,6 +124,26 @@ pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
 }
 
+/// Optional config for testing against a custom endpoint url
+fn get_test_endpoint_url() -> Option<String> {
+    if cfg!(feature = "s3express_tests") {
+        std::env::var("S3_EXPRESS_ONE_ZONE_ENDPOINT_URL")
+            .ok()
+            .filter(|str| !str.is_empty())
+    } else {
+        std::env::var("S3_ENDPOINT_URL").ok().filter(|str| !str.is_empty())
+    }
+}
+
+pub fn get_test_endpoint_config() -> EndpointConfig {
+    let mut endpoint_config = EndpointConfig::new(&get_test_region());
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        let endpoint = Uri::new_from_str(&Allocator::default(), endpoint_url.clone()).expect("invalid endpoint url");
+        endpoint_config = endpoint_config.endpoint(endpoint);
+    }
+    endpoint_config
+}
+
 pub fn get_test_bucket_without_permissions() -> String {
     std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
 }
@@ -136,11 +157,11 @@ pub fn get_test_domain() -> String {
 }
 
 pub async fn get_test_sdk_client() -> s3::Client {
-    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
-        .region(Region::new(get_test_region()))
-        .load()
-        .await;
-    s3::Client::new(&sdk_config)
+    let mut sdk_config = aws_config::defaults(BehaviorVersion::latest()).region(Region::new(get_test_region()));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        sdk_config = sdk_config.endpoint_url(endpoint_url);
+    }
+    s3::Client::new(&sdk_config.load().await)
 }
 
 /// Create some objects in a prefix for testing.

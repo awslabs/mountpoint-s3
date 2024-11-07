@@ -18,7 +18,8 @@ use test_case::test_case;
 use crate::common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use crate::common::fuse::read_dir_to_entry_names;
 use crate::common::s3::{
-    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_region, get_test_sdk_client,
+    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_endpoint_url, get_test_region,
+    get_test_sdk_client,
 };
 use crate::common::tokio_block_on;
 #[cfg(not(feature = "s3express_tests"))]
@@ -33,15 +34,16 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -62,15 +64,16 @@ fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>>
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
-        .env("AWS_REGION", region.clone())
-        .spawn()
-        .expect("unable to spawn child");
+        .env("AWS_REGION", region.clone());
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -93,14 +96,15 @@ fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::er
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
-        .spawn()
-        .expect("unable to spawn child");
+        .arg("--auto-unmount");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -121,16 +125,17 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg("--foreground")
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let mut child = cmd.spawn().expect("unable to spawn child");
     wait_for_mount("mountpoint-s3", mount_point.path().to_str().unwrap());
 
     // verify that process is still alive
@@ -153,13 +158,16 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg("--auto-unmount")
         .spawn()
         .expect("unable to spawn child");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -176,14 +184,15 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg("--auto-unmount")
-        .arg("--foreground")
-        .spawn()
-        .expect("unable to spawn child");
+        .arg("--foreground");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -200,15 +209,16 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let first_mount = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let first_mount = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(first_mount);
 
     // verify mount status and mount entry
@@ -216,14 +226,17 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let second_mount = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .spawn()
         .expect("unable to spawn child");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let second_mount = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(second_mount);
 
     // verify mount status
@@ -241,17 +254,18 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg("--foreground")
         .arg("--read-only")
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let mut child = cmd.spawn().expect("unable to spawn child");
     wait_for_mount("mountpoint-s3", mount_point.path().to_str().unwrap());
 
     // verify that process is still alive
@@ -288,8 +302,11 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
     if allow_delete {
         cmd.arg("--allow-delete");
     }
-    let child = cmd.spawn().expect("unable to spawn child");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -327,8 +344,11 @@ fn mount_disable_checksums(disable_checksums: bool) -> Result<(), Box<dyn std::e
     if disable_checksums {
         cmd.arg("--upload-checksums=off");
     }
-    let child = cmd.spawn().expect("unable to spawn child");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -401,8 +421,11 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(token) = credentials.session_token() {
         cmd.env("AWS_SESSION_TOKEN", token);
     }
-    let child = cmd.spawn().expect("unable to spawn child");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // verify mount status and mount entry
@@ -462,6 +485,10 @@ fn mount_with_sse(
             cmd.env("AWS_SESSION_TOKEN", token);
         }
     }
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
     let child = cmd.spawn().expect("unable to spawn child");
     wait_for_mount("mountpoint-s3", mount_point.to_str().unwrap());
     child
@@ -479,8 +506,7 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&region))?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
@@ -489,10 +515,12 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
         .env("AWS_PROFILE", profile_name)
         .env_remove("AWS_ACCESS_KEY_ID")
         .env_remove("AWS_SECRET_ACCESS_KEY")
-        .env_remove("AWS_SESSION_TOKEN")
-        .spawn()
-        .expect("unable to spawn child");
+        .env_remove("AWS_SESSION_TOKEN");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // Verify mount status and mount entry
@@ -525,8 +553,7 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(invalid_region))?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
@@ -537,10 +564,12 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
         .env_remove("AWS_SESSION_TOKEN")
         .env("AWS_EC2_METADATA_DISABLED", "true")
         .env_remove("AWS_REGION")
-        .env_remove("AWS_DEFAULT_REGION")
-        .spawn()
-        .expect("unable to spawn child");
+        .env_remove("AWS_DEFAULT_REGION");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // Verify mount status and mount entry
@@ -551,8 +580,7 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&other_region))?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
@@ -563,10 +591,12 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
         .env_remove("AWS_SESSION_TOKEN")
         .env("AWS_EC2_METADATA_DISABLED", "true")
         .env_remove("AWS_REGION")
-        .env_remove("AWS_DEFAULT_REGION")
-        .spawn()
-        .expect("unable to spawn child");
+        .env_remove("AWS_DEFAULT_REGION");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // Verify mount status and mount entry.
@@ -601,8 +631,7 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, None)?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
@@ -613,10 +642,12 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
         .env_remove("AWS_SESSION_TOKEN")
         .env("AWS_EC2_METADATA_DISABLED", "true")
         .env_remove("AWS_REGION")
-        .env_remove("AWS_DEFAULT_REGION")
-        .spawn()
-        .expect("unable to spawn child");
+        .env_remove("AWS_DEFAULT_REGION");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     assert!(exit_status.success());
@@ -642,8 +673,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
 
     // First, make sure we can mount with the default profile
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
@@ -652,10 +682,12 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
         .env("AWS_PROFILE", "default")
         .env_remove("AWS_ACCESS_KEY_ID")
         .env_remove("AWS_SECRET_ACCESS_KEY")
-        .env_remove("AWS_SESSION_TOKEN")
-        .spawn()
-        .expect("unable to spawn child");
+        .env_remove("AWS_SESSION_TOKEN");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // Verify mount status and mount entry
@@ -668,8 +700,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
 
     // Then we will test with the profile with invalid arn
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
@@ -678,10 +709,12 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
         .env("AWS_PROFILE", profile_with_bad_arn)
         .env_remove("AWS_ACCESS_KEY_ID")
         .env_remove("AWS_SECRET_ACCESS_KEY")
-        .env_remove("AWS_SESSION_TOKEN")
-        .spawn()
-        .expect("unable to spawn child");
+        .env_remove("AWS_SESSION_TOKEN");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
 
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
 
     // Verify mount status and mount entry
@@ -819,8 +852,7 @@ fn write_with_sse_kms_key_id_unsupported(key_id: &str) {
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
     let region = get_test_region();
     let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
-    let child = cmd
-        .stdout(Stdio::piped())
+    cmd.stdout(Stdio::piped())
         .arg(bucket)
         .arg(mount_point.path())
         .arg(format!("--region={region}"))
@@ -828,9 +860,12 @@ fn write_with_sse_kms_key_id_unsupported(key_id: &str) {
         .arg("--sse=aws:kms:dsse")
         .arg(format!("--sse-kms-key-id={key_id}"))
         .arg("--auto-unmount")
-        .arg("--foreground")
-        .spawn()
-        .expect("must be able to fork mountpoint");
+        .arg("--foreground");
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().expect("unable to spawn child");
     let exit_status = wait_for_exit(child);
     assert!(!exit_status.success());
     assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));

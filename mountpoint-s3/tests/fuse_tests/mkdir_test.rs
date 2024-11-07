@@ -1,16 +1,13 @@
 use std::fs::{self, metadata, DirBuilder, File};
 
-use fuser::BackgroundSession;
-use tempfile::TempDir;
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionCreator};
 
-fn mkdir_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> (TempDir, BackgroundSession, TestClientBox),
-{
-    let (mount_point, _session, mut test_client) = creator_fn(prefix, Default::default());
+fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+    let mount_point = test_session.mount_dir;
+    let mut test_client = test_session.test_client;
 
     // Create local directory
     let dirname = "local_dir";

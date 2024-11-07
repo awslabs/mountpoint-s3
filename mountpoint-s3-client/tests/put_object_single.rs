@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use common::*;
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::types::{ChecksumAlgorithm, PutObjectResult, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use rand::Rng;
@@ -73,7 +73,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
     let client_config = S3ClientConfig::new()
         .part_size(PART_SIZE)
-        .endpoint_config(EndpointConfig::new(&get_test_region()));
+        .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
 
@@ -124,7 +124,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
 #[tokio::test]
 async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, String>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_happy");
-    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
 
@@ -151,7 +151,7 @@ async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, St
 #[tokio::test]
 async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<String, String>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_bad_header");
-    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let key = format!("{prefix}hello");
 
@@ -265,7 +265,7 @@ async fn check_sse(
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>) {
     let bucket = get_test_bucket();
-    let client_config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&get_test_region()));
+    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(client_config).expect("could not create test client");
     let request_params = PutObjectSingleParams::new()
         .server_side_encryption(sse_type.map(|value| value.to_owned()))

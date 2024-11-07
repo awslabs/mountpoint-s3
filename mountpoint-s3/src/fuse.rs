@@ -8,9 +8,8 @@ use std::time::SystemTime;
 use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
 
-use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, S3FilesystemConfig, ToErrno};
+use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno};
 use crate::prefetch::Prefetch;
-use crate::prefix::Prefix;
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
@@ -76,15 +75,7 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch,
 {
-    pub fn new(
-        client: Client,
-        prefetcher: Prefetcher,
-        bucket: &str,
-        prefix: &Prefix,
-        config: S3FilesystemConfig,
-    ) -> Self {
-        let fs = S3Filesystem::new(client, prefetcher, bucket, prefix, config);
-
+    pub fn new(fs: S3Filesystem<Client, Prefetcher>) -> Self {
         Self { fs }
     }
 }

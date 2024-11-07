@@ -9,7 +9,7 @@ use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientConf
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use test_case::test_case;
 
-async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket: String) {
+async fn run_test(endpoint_config: EndpointConfig, prefix: &str, bucket: String) {
     let sdk_client = get_test_sdk_client().await;
 
     // Create one object named "hello"
@@ -24,8 +24,6 @@ async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket:
         .await
         .unwrap();
 
-    let region = get_test_region();
-    let endpoint_config = f(&region);
     let config = S3ClientConfig::new().endpoint_config(endpoint_config.clone());
     let client = S3CrtClient::new(config).expect("could not create test client");
 
@@ -41,7 +39,7 @@ async fn run_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket:
 #[tokio::test]
 async fn test_addressing_style(addressing_style: AddressingStyle, prefix: &str) {
     run_test(
-        |region| EndpointConfig::new(region).addressing_style(addressing_style),
+        get_test_endpoint_config().addressing_style(addressing_style),
         &get_unique_test_prefix(prefix),
         get_test_bucket(),
     )
@@ -54,12 +52,7 @@ async fn test_addressing_style(addressing_style: AddressingStyle, prefix: &str) 
 #[tokio::test]
 async fn test_use_fips() {
     let prefix = get_unique_test_prefix("test_fips");
-    run_test(
-        |region| EndpointConfig::new(region).use_fips(true),
-        &prefix,
-        get_test_bucket(),
-    )
-    .await;
+    run_test(get_test_endpoint_config().use_fips(true), &prefix, get_test_bucket()).await;
 }
 
 // S3 Express One Zone does not support S3 Transfer Acceleration
@@ -69,7 +62,7 @@ async fn test_use_fips() {
 async fn test_use_accelerate() {
     let prefix = get_unique_test_prefix("test_transfer_acceleration");
     run_test(
-        |region| EndpointConfig::new(region).use_accelerate(true),
+        get_test_endpoint_config().use_accelerate(true),
         &prefix,
         get_test_bucket(),
     )
@@ -84,11 +77,9 @@ async fn test_use_accelerate() {
 async fn test_addressing_style_dualstack_option(addressing_style: AddressingStyle, prefix: &str) {
     let prefix = get_unique_test_prefix(prefix);
     run_test(
-        |region| {
-            EndpointConfig::new(region)
-                .addressing_style(addressing_style)
-                .use_dual_stack(true)
-        },
+        get_test_endpoint_config()
+            .addressing_style(addressing_style)
+            .use_dual_stack(true),
         &prefix,
         get_test_bucket(),
     )
@@ -102,7 +93,7 @@ async fn test_addressing_style_dualstack_option(addressing_style: AddressingStyl
 async fn test_fips_dual_stack_mount_option() {
     let prefix = get_unique_test_prefix("test_fips_dual_stack");
     run_test(
-        |region| EndpointConfig::new(region).use_fips(true).use_dual_stack(true),
+        get_test_endpoint_config().use_fips(true).use_dual_stack(true),
         &prefix,
         get_test_bucket(),
     )
@@ -119,7 +110,7 @@ async fn test_fips_dual_stack_mount_option() {
 #[tokio::test]
 async fn test_single_region_access_point(addressing_style: AddressingStyle, arn: bool, prefix: &str) {
     run_test(
-        |region| EndpointConfig::new(region).addressing_style(addressing_style),
+        get_test_endpoint_config().addressing_style(addressing_style),
         &get_unique_test_prefix(prefix),
         get_test_access_point(arn, AccessPointType::SingleRegion),
     )
@@ -129,9 +120,7 @@ async fn test_single_region_access_point(addressing_style: AddressingStyle, arn:
 #[cfg(not(feature = "s3express_tests"))]
 // For Object Lambda Access Point, PutObject is not supported,
 // For multi region access points, Rust SDK is not supported. Hence different helper method for these tests.
-async fn run_list_objects_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: &str, bucket: &str) {
-    let region = get_test_region();
-    let endpoint_config = f(&region);
+async fn run_list_objects_test(endpoint_config: EndpointConfig, prefix: &str, bucket: &str) {
     let config = S3ClientConfig::new().endpoint_config(endpoint_config.clone());
     let client = S3CrtClient::new(config).expect("could not create test client");
 
@@ -149,7 +138,7 @@ async fn run_list_objects_test<F: FnOnce(&str) -> EndpointConfig>(f: F, prefix: 
 #[tokio::test]
 async fn test_object_lambda_access_point(arn: bool, prefix: &str) {
     run_list_objects_test(
-        EndpointConfig::new,
+        get_test_endpoint_config(),
         &get_unique_test_prefix(prefix),
         &get_test_access_point(arn, AccessPointType::ObjectLambda),
     )
@@ -164,7 +153,7 @@ async fn test_object_lambda_access_point(arn: bool, prefix: &str) {
 async fn test_multi_region_access_point() {
     let prefix = "test_MRAP";
     run_list_objects_test(
-        EndpointConfig::new,
+        get_test_endpoint_config(),
         &get_unique_test_prefix(prefix),
         &get_test_access_point(true, AccessPointType::MultiRegion),
     )

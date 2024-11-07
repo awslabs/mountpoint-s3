@@ -116,7 +116,7 @@ async fn test_list_objects_404_bucket() {
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .list_objects("DOC-EXAMPLE-BUCKET", None, "/", 1000, &prefix)
+        .list_objects("amzn-s3-demo-bucket", None, "/", 1000, &prefix)
         .await;
     assert!(matches!(
         result,
@@ -218,5 +218,5 @@ async fn test_checksum_attribute(upload_checksum_algorithm: ChecksumAlgorithm) {
         _ => todo!("update with new checksum algorithm should one come available"),
     };
 
-    assert_eq!(Some(expected_checksum_algorithm), object.checksum_algorithm);
+    assert_eq!(vec![expected_checksum_algorithm], object.checksum_algorithms);
 }

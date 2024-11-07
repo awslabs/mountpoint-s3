@@ -73,7 +73,7 @@ async fn test_delete_object_404_bucket() {
 
     let client: S3CrtClient = get_test_client();
 
-    let result = client.delete_object("DOC-EXAMPLE-BUCKET", &key).await;
+    let result = client.delete_object("amzn-s3-demo-bucket", &key).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(DeleteObjectError::NoSuchBucket))

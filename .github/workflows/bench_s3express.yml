@@ -23,6 +23,8 @@ env:
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
   S3_BUCKET_BENCH_FILE: ${{ vars.BENCH_FILE_NAME || 'bench100GB.bin' }}
   S3_BUCKET_SMALL_BENCH_FILE: ${{ vars.SMALL_BENCH_FILE_NAME || 'bench5MB.bin' }}
+  # Optional endpoint url, can be empty
+  S3_ENDPOINT_URL: ${{ vars.S3_EXPRESS_ONE_ZONE_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_BENCH_REGION }}
 
 jobs:
@@ -72,6 +74,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Throughput Benchmark (S3 Express One Zone)
         tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/s3-express/bench
@@ -83,9 +86,11 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
+        summary-always: true
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)
         tool: 'customSmallerIsBetter'
         output-file-path: results/peak_mem_usage.json
         benchmark-data-dir-path: dev/s3-express/bench/peak_mem_usage
@@ -98,6 +103,7 @@ jobs:
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
+        summary-always: true
 
   latency-bench:
     name: Benchmark (Latency)
@@ -145,6 +151,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Latency Benchmark (S3 Express One Zone)
         tool: 'customSmallerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/s3-express/latency_bench
@@ -156,3 +163,4 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: false
         max-items-in-chart: 20
+        summary-always: true

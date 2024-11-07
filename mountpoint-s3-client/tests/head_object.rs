@@ -166,7 +166,7 @@ async fn test_head_object_404_bucket() {
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .head_object("DOC-EXAMPLE-BUCKET", &key, &HeadObjectParams::new())
+        .head_object("amzn-s3-demo-bucket", &key, &HeadObjectParams::new())
         .await;
     assert!(matches!(
         result,

@@ -1396,7 +1396,7 @@ mod tests {
 
         let mut message = client
             .inner
-            .new_request_template("GET", "doc-example-bucket")
+            .new_request_template("GET", "amzn-s3-demo-bucket")
             .expect("new request template expected");
 
         let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
@@ -1479,7 +1479,7 @@ mod tests {
 
         let mut message = client
             .inner
-            .new_request_template("GET", "doc-example-bucket")
+            .new_request_template("GET", "amzn-s3-demo-bucket")
             .expect("new request template expected");
 
         let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
@@ -1517,7 +1517,7 @@ mod tests {
 
         let mut message = client
             .inner
-            .new_request_template("GET", "doc-example-bucket")
+            .new_request_template("GET", "amzn-s3-demo-bucket")
             .expect("new request template expected");
 
         let headers = message.inner.get_headers().expect("Expected a block of HTTP headers");
@@ -1552,7 +1552,7 @@ mod tests {
 
     #[test]
     fn parse_301_redirect() {
-        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>PermanentRedirect</Code><Message>The bucket you are attempting to access must be addressed using the specified endpoint. Please send all future requests to this endpoint.</Message><Endpoint>DOC-EXAMPLE-BUCKET.s3-us-west-2.amazonaws.com</Endpoint><Bucket>DOC-EXAMPLE-BUCKET</Bucket><RequestId>CM0Z9YFABRVSWXDJ</RequestId><HostId>HHmbUixasrJ02DlkOSCvJId897Jm0ERHuE2XMkSn2Oax1J/ad2+AU9nFrODN1ay13cWFgIAYBnI=</HostId></Error>"#;
+        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>PermanentRedirect</Code><Message>The bucket you are attempting to access must be addressed using the specified endpoint. Please send all future requests to this endpoint.</Message><Endpoint>amzn-s3-demo-bucket.s3-us-west-2.amazonaws.com</Endpoint><Bucket>amzn-s3-demo-bucket</Bucket><RequestId>CM0Z9YFABRVSWXDJ</RequestId><HostId>HHmbUixasrJ02DlkOSCvJId897Jm0ERHuE2XMkSn2Oax1J/ad2+AU9nFrODN1ay13cWFgIAYBnI=</HostId></Error>"#;
         let result = make_result(301, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::IncorrectRegion(region)) = result else {
