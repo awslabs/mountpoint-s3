@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1730983593017,
+  "lastUpdate": 1730984355909,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -2423,6 +2423,115 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/awslabs/mountpoint-s3/commit/cc3b46b7e44d8566a85b9f78fe8c77dca008ede2"
         },
         "date": 1730983592979,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 0,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e48c6bfd515632ecee03519c7e8aa71fa6736038",
+          "message": "Update README example bucket name (#1113)\n\n## Description of change\n\nThe Mountpoint README currently uses an outdated example bucket name.\nAWS documentation is using the bucket name prefix `amzn-s3-demo-bucket`\nacross all documentation.\n\nThis is a change missed in #1099.\n\nRelevant issues: #1099\n\n## Does this change impact existing behavior?\n\nNo, changes documentation and unit test source code only.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-11-07T11:00:41Z",
+          "tree_id": "868424b4905a6dcd36c15bde173a738cdf8def85",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e48c6bfd515632ecee03519c7e8aa71fa6736038"
+        },
+        "date": 1730984355871,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
