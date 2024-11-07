@@ -201,7 +201,7 @@ impl Headers {
         Ok(Header::new(name, value))
     }
 
-    /// Get a single header by name as a string.
+    /// Get a single header by name as a [String].
     pub fn get_as_string<H: AsRef<OsStr>>(&self, name: H) -> Result<String, HeadersError> {
         let header = self.get(name)?;
         let value = header.value();
@@ -212,7 +212,7 @@ impl Headers {
         }
     }
 
-    /// Get an optional header by name as a string.
+    /// Get an optional header by name as a [String].
     pub fn get_as_optional_string<H: AsRef<OsStr>>(&self, name: H) -> Result<Option<String>, HeadersError> {
         Ok(if self.has_header(&name) {
             Some(self.get_as_string(name)?)
