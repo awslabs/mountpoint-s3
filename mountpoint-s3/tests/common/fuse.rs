@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
-use std::fs::ReadDir;
-use std::os::fd::AsFd;
+use std::fs::{File, ReadDir};
+use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -15,6 +15,7 @@ use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_client::ObjectClient;
+use nix::fcntl::{self, FdFlag};
 use tempfile::TempDir;
 
 use crate::common::{get_crt_client_auth_config, tokio_block_on};
@@ -174,7 +175,7 @@ where
         filesystem_config,
     ));
     let (session, mount) = if pass_fuse_fd {
-        let (fd, mount) = Mount::new(mount_dir, &options).unwrap();
+        let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
         (Session::from_fd(fs, owned_fd, fuser::SessionACL::All), Some(mount))
     } else {
@@ -182,6 +183,24 @@ where
     };
 
     (BackgroundSession::new(session).unwrap(), mount)
+}
+
+// Opens `/dev/fuse` and calls `mount` syscall with given `mount_point`.
+// The mount gets automatically unmounted once `Mount` drops.
+pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) -> (Arc<File>, Mount) {
+    let (file, mount) = Mount::new(mount_point, options).unwrap();
+
+    // fuser sets `FD_CLOEXEC` (i.e., close-on-exec) flag on the file descriptor in its libfuse3 implementation.
+    // Since we're forking the process in some of our test cases, this prevents child process to inherit the FUSE fd and causes our tests to fail.
+    // Here we're clearing this flag if its set on the FUSE fd.
+    let fd = file.as_raw_fd();
+    let mut flags = FdFlag::from_bits_retain(fcntl::fcntl(fd, fcntl::F_GETFD).unwrap());
+    if flags.contains(FdFlag::FD_CLOEXEC) {
+        flags.remove(FdFlag::FD_CLOEXEC);
+        let _ = fcntl::fcntl(fd, fcntl::F_SETFD(flags)).unwrap();
+    }
+
+    (file, mount)
 }
 
 pub mod mock_session {
