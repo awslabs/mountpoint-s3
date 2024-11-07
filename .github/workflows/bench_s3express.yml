@@ -74,6 +74,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Throughput Benchmark (S3 Express One Zone)
         tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/s3-express/bench
@@ -89,6 +90,7 @@ jobs:
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)
         tool: 'customSmallerIsBetter'
         output-file-path: results/peak_mem_usage.json
         benchmark-data-dir-path: dev/s3-express/bench/peak_mem_usage
@@ -148,6 +150,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Latency Benchmark (S3 Express One Zone)
         tool: 'customSmallerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/s3-express/latency_bench
