@@ -104,6 +104,7 @@ jobs:
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
+        summary-always: true
 
   latency-bench:
     name: Benchmark (Latency)
@@ -242,3 +243,4 @@ jobs:
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
+        summary-always: true
