@@ -4,7 +4,7 @@
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
-use fuser::{Mount, MountOption};
+use fuser::MountOption;
 use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
@@ -18,7 +18,7 @@ use tempfile::NamedTempFile;
 use test_case::test_case;
 
 use crate::common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
-use crate::common::fuse::read_dir_to_entry_names;
+use crate::common::fuse::{mount_for_passing_fuse_fd, read_dir_to_entry_names};
 use crate::common::s3::{
     create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_endpoint_url, get_test_region,
     get_test_sdk_client,
@@ -65,11 +65,10 @@ fn run_in_background_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let (fd, _mount) = Mount::new(
+    let (fd, _mount) = mount_for_passing_fuse_fd(
         mount_point.path(),
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
-    )
-    .unwrap();
+    );
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let child = cmd
@@ -193,11 +192,10 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let (fd, _mount) = Mount::new(
+    let (fd, _mount) = mount_for_passing_fuse_fd(
         mount_point.path(),
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
-    )
-    .unwrap();
+    );
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let mut child = cmd
@@ -230,11 +228,10 @@ fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn s
     let bucket = get_test_bucket_forbidden();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let (fd, mount) = Mount::new(
+    let (fd, mount) = mount_for_passing_fuse_fd(
         mount_point.path(),
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
-    )
-    .unwrap();
+    );
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let child = cmd
