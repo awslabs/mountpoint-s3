@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1730981208188,
+  "lastUpdate": 1730982512757,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -2405,6 +2405,125 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/awslabs/mountpoint-s3/commit/011043e1a336888254df2c5451d644eba4742341"
         },
         "date": 1730981208150,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 0,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0faeac4f7a4e8c7378ad00ab22f021a347069aa6",
+          "message": "Add GitHub runner architecture to CI cache key (#1110)\n\n<!--\nThe title and description of pull requests will be used when creating a\nsquash commit to the base branch (usually `main`).\nPlease keep them both up-to-date as the code change evolves, to ensure\nthat the commit message is useful for future readers.\n-->\n\n## Description of change\n\nThis change adds the architecture of the runner to the cache key. In a\nprevious change where we upgraded macOS runners from macOS 12 to macOS\n15, the architecture changed however the cache was not invalidated.\n\nLikely we should find a way to key the cache on the actual operating\nsystem version used however there doesn't seem to be an obvious way to\ndo that right now. This quick fix should at least protect us from\narchitecture changes (which macOS runners do have, but I understand its\nonly for larger runners at this time).\n\nRelevant issues: #1097\n\n## Does this change impact existing behavior?\n\nNo, only CI change.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo, only CI change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-11-07T10:33:22Z",
+          "tree_id": "ebd89a8ffd256c498bb1a40f7fb715bc7f630360",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0faeac4f7a4e8c7378ad00ab22f021a347069aa6"
+        },
+        "date": 1730982512719,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
