@@ -107,6 +107,42 @@ pub struct DirectoryEntry {
     lookup: LookedUp,
 }
 
+#[derive(Debug)]
+/// Reply to a 'statfs' call
+pub struct StatFs {
+    /// Total number of blocks
+    pub total_blocks: u64,
+    /// Number of free blocks
+    pub free_blocks: u64,
+    /// Number of free blocks available to unprivileged user
+    pub available_blocks: u64,
+    /// Number of inodes in file system
+    pub total_inodes: u64,
+    /// Available inodes
+    pub free_inodes: u64,
+    /// Optimal transfer block size
+    pub block_size: u32,
+    /// Maximum name length
+    pub maximum_name_length: u32,
+    /// Fragement size
+    pub fragment_size: u32,
+}
+
+impl Default for StatFs {
+    fn default() -> Self {
+        Self {
+            total_blocks: 0,
+            free_blocks: 0,
+            available_blocks: 0,
+            total_inodes: 0,
+            free_inodes: 0,
+            block_size: 512,
+            maximum_name_length: 255,
+            fragment_size: 0,
+        }
+    }
+}
+
 impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -839,6 +875,24 @@ where
             ));
         }
         Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
+    }
+
+    pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
+        const FREE_BLOCKS: u64 = u64::MAX / 2;
+        const FREE_INODES: u64 = u64::MAX / 2;
+        // According to https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html any S3 object name can be at most
+        // 1024 bytes.
+        const MAX_NAME_LENGTH: u32 = 1024;
+
+        let reply = StatFs {
+            free_blocks: FREE_BLOCKS,
+            available_blocks: FREE_BLOCKS,
+            free_inodes: FREE_INODES,
+            maximum_name_length: MAX_NAME_LENGTH,
+            total_blocks: FREE_BLOCKS,
+            ..Default::default()
+        };
+        Ok(reply)
     }
 }
 

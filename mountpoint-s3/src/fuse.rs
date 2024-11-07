@@ -14,7 +14,7 @@ use crate::prefetch::Prefetch;
 use fuser::ReplyXTimes;
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyEmpty, ReplyEntry, ReplyIoctl,
-    ReplyLock, ReplyLseek, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
 pub mod session;
@@ -579,5 +579,22 @@ where
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
     fn getxtimes(&self, _req: &Request<'_>, ino: u64, reply: ReplyXTimes) {
         fuse_unsupported!("getxtimes", reply);
+    }
+
+    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
+    fn statfs(&self, _req: &Request<'_>, ino: u64, reply: ReplyStatfs) {
+        match block_on(self.fs.statfs(ino).in_current_span()) {
+            Ok(statfs) => reply.statfs(
+                statfs.total_blocks,
+                statfs.free_blocks,
+                statfs.available_blocks,
+                statfs.total_inodes,
+                statfs.free_inodes,
+                statfs.block_size,
+                statfs.maximum_name_length,
+                statfs.fragment_size,
+            ),
+            Err(e) => fuse_error!("statfs", reply, e),
+        }
     }
 }
