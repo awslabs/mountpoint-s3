@@ -406,6 +406,10 @@ where
             .superblock
             .create(&self.client, parent, name, InodeKind::File)
             .await?;
+        // Log newly created Inode number
+        let inode_nr = lookup.inode.ino();
+        debug!("mknod: created inode number {inode_nr}");
+
         let attr = self.make_attr(&lookup);
         Ok(Entry {
             ttl: lookup.validity(),
