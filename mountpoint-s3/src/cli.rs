@@ -79,7 +79,7 @@ In this case, it's callers responsibility to:
     2) Performing 'mount' syscall with desired mount point and the file descriptor
     3) Spawning Mountpoint with the file descriptor using '/dev/fd/N' syntax as mount point
     4) Closing the file descriptor in the parent process
-    5) Perform 'unmount' syscall with the file descriptor once Mountpoint process terminates
+    5) Performing 'unmount' syscall on the mount point once its desired and/or Mountpoint process terminates
         ",
         value_name = "DIRECTORY"
     )]
@@ -552,10 +552,6 @@ impl CliArgs {
             options.push(MountOption::RO);
         }
         if self.auto_unmount {
-            #[cfg(target_os = "linux")]
-            if matches!(mount_point, MountPoint::FileDescriptor(_)) {
-                return Err(anyhow!("--auto-unmount is not supported with FUSE file descriptors"));
-            }
             options.push(MountOption::AutoUnmount);
         }
         if self.allow_root {
@@ -563,6 +559,28 @@ impl CliArgs {
         }
         if self.allow_other {
             options.push(MountOption::AllowOther);
+        }
+
+        #[cfg(target_os = "linux")]
+        if matches!(mount_point, MountPoint::FileDescriptor(_)) {
+            let passed_mount_options = &[
+                (self.read_only, "--read-only"),
+                (self.auto_unmount, "--auto-unmount"),
+                (self.allow_root, "--allow-root"),
+                (self.allow_other, "--allow-other"),
+            ]
+            .iter()
+            .filter(|o| o.0)
+            .map(|o| o.1)
+            .collect::<Vec<_>>();
+
+            if !passed_mount_options.is_empty() {
+                tracing::warn!(
+                    "Mount options: {} are ignored with FUSE fd mount point.\
+                    Mount options should be passed while performing `mount` syscall in the caller process.",
+                    passed_mount_options.join(", ")
+                );
+            }
         }
 
         let max_threads = self.max_threads as usize;
@@ -1076,7 +1094,7 @@ impl MountPoint {
 
     #[cfg(not(target_os = "linux"))]
     fn new_fd(_: RawFd) -> anyhow::Result<Self> {
-        return Err(anyhow!("Passing a FUSE file descriptor only supported on Linux"));
+        Err(anyhow!("Passing a FUSE file descriptor only supported on Linux"))
     }
 
     #[cfg(target_os = "linux")]
