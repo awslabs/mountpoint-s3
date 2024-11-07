@@ -27,6 +27,7 @@ pub enum ObjectMetadataError {
     #[error("error occurred fetching object metadata")]
     ObjectMetadataError,
 }
+
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
     /// body parts of the object, which will be delivered in order.
