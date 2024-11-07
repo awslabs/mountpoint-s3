@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser, ValueEnum};
-use fuser::{MountOption, Session, SessionACL};
+use fuser::{MountOption, Session};
 use futures::executor::block_on;
 use futures::task::Spawn;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
