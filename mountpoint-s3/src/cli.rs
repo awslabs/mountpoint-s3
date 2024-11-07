@@ -80,6 +80,8 @@ In this case, it's callers responsibility to:
     3) Spawning Mountpoint with the file descriptor using '/dev/fd/N' syntax as mount point
     4) Closing the file descriptor in the parent process
     5) Performing 'unmount' syscall on the mount point once its desired and/or Mountpoint process terminates
+See examples/fuse-fd-mount-point/mounthelper.go as an example.
+
         ",
         value_name = "DIRECTORY"
     )]
