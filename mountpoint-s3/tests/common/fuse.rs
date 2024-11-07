@@ -131,7 +131,10 @@ impl TestSession {
 
 impl Drop for TestSession {
     fn drop(&mut self) {
-        // Unmount first by dropping the background session
+        // If the session created with a pre-existing mount (e.g., with `pass_fuse_fd`),
+        // this will unmount it explicitly...
+        let _ = self.mount.take();
+        // ...if not, the background session will have a mount here, and dropping it will unmount it.
         self.session.take();
     }
 }
