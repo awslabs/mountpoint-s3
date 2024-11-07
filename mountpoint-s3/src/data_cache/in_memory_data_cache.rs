@@ -38,6 +38,7 @@ impl DataCache for InMemoryDataCache {
         cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
+        _object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if block_offset != block_idx * self.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
@@ -53,6 +54,7 @@ impl DataCache for InMemoryDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
         bytes: ChecksummedBytes,
+        _object_size: usize,
     ) -> DataCacheResult<()> {
         if block_offset != block_idx * self.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
@@ -84,12 +86,18 @@ mod tests {
         let data_3 = Bytes::from_static(b"Baz");
         let data_3 = ChecksummedBytes::new(data_3.clone());
 
+        let object_1_size = data_1.len() + data_3.len();
+        let object_2_size = data_2.len();
+
         let block_size = 8 * 1024 * 1024;
         let cache = InMemoryDataCache::new(block_size);
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
         let cache_key_2 = ObjectId::new("b".into(), ETag::for_tests());
 
-        let block = cache.get_block(&cache_key_1, 0, 0).await.expect("cache is accessible");
+        let block = cache
+            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .await
+            .expect("cache is accessible");
         assert!(
             block.is_none(),
             "no entry should be available to return but got {:?}",
@@ -98,11 +106,11 @@ mod tests {
 
         // PUT and GET, OK?
         cache
-            .put_block(cache_key_1.clone(), 0, 0, data_1.clone())
+            .put_block(cache_key_1.clone(), 0, 0, data_1.clone(), object_1_size)
             .await
             .expect("cache is accessible");
         let entry = cache
-            .get_block(&cache_key_1, 0, 0)
+            .get_block(&cache_key_1, 0, 0, object_1_size)
             .await
             .expect("cache is accessible")
             .expect("cache entry should be returned");
@@ -113,11 +121,11 @@ mod tests {
 
         // PUT AND GET a second file, OK?
         cache
-            .put_block(cache_key_2.clone(), 0, 0, data_2.clone())
+            .put_block(cache_key_2.clone(), 0, 0, data_2.clone(), object_2_size)
             .await
             .expect("cache is accessible");
         let entry = cache
-            .get_block(&cache_key_2, 0, 0)
+            .get_block(&cache_key_2, 0, 0, object_2_size)
             .await
             .expect("cache is accessible")
             .expect("cache entry should be returned");
@@ -128,11 +136,11 @@ mod tests {
 
         // PUT AND GET a second block in a cache entry, OK?
         cache
-            .put_block(cache_key_1.clone(), 1, block_size, data_3.clone())
+            .put_block(cache_key_1.clone(), 1, block_size, data_3.clone(), object_1_size)
             .await
             .expect("cache is accessible");
         let entry = cache
-            .get_block(&cache_key_1, 1, block_size)
+            .get_block(&cache_key_1, 1, block_size, object_1_size)
             .await
             .expect("cache is accessible")
             .expect("cache entry should be returned");
@@ -143,7 +151,7 @@ mod tests {
 
         // Entry 1's first block still intact
         let entry = cache
-            .get_block(&cache_key_1, 0, 0)
+            .get_block(&cache_key_1, 0, 0, object_1_size)
             .await
             .expect("cache is accessible")
             .expect("cache entry should be returned");

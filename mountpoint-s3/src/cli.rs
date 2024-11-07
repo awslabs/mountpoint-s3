@@ -29,6 +29,7 @@ use sysinfo::{RefreshKind, System};
 
 use crate::data_cache::{
     CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ManagedCacheDir, MultilevelDataCache,
+    EXPRESS_CACHE_MAX_OBJECT_SIZE,
 };
 use crate::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
@@ -888,6 +889,7 @@ where
                 client.clone(),
                 &args.bucket_name,
                 args.cache_block_size_in_bytes(),
+                EXPRESS_CACHE_MAX_OBJECT_SIZE,
             );
 
             let prefetcher = caching_prefetch(express_cache, runtime, prefetcher_config);
@@ -932,6 +934,7 @@ where
                 client.clone(),
                 &args.bucket_name,
                 args.cache_block_size_in_bytes(),
+                EXPRESS_CACHE_MAX_OBJECT_SIZE,
             );
             let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
 
