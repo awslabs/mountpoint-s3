@@ -9,7 +9,7 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::GetObjectRequest;
 use mountpoint_s3_client::{OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
