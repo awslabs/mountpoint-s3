@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
@@ -15,7 +14,7 @@ use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
+    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
@@ -36,8 +35,7 @@ pub struct FailureClient<Client: ObjectClient, State, RequestWrapperState> {
         &mut State,
         &str,
         &str,
-        Option<Range<u64>>,
-        Option<ETag>,
+        &GetObjectParams,
     ) -> Result<
         FailureRequestWrapper<Client::ClientError, RequestWrapperState>,
         ObjectClientError<GetObjectError, Client::ClientError>,
@@ -125,13 +123,7 @@ where
         key: &str,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        let wrapper = (self.get_object_cb)(
-            &mut *self.state.lock().unwrap(),
-            bucket,
-            key,
-            params.range.clone(),
-            params.if_match.clone(),
-        )?;
+        let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, params)?;
         let request = self.client.get_object(bucket, key, params).await?;
         Ok(FailureGetRequest {
             state: wrapper.state,
@@ -363,7 +355,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
     FailureClient {
         client,
         state,
-        get_object_cb: |state, _bucket, _key, _range, _if_match| {
+        get_object_cb: |state, _bucket, _key, _get_object_params| {
             state.get_count += 1;
             let (fail_count, error) = if let Some(result) = state.get_failures.remove(&state.get_count) {
                 let (fail_count, error) = result?;
@@ -442,6 +434,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
 mod tests {
     use super::*;
     use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject};
+    use crate::types::ETag;
     use std::collections::HashSet;
 
     #[tokio::test]
