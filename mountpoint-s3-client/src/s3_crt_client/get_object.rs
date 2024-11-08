@@ -38,7 +38,7 @@ impl S3CrtClient {
         key: &str,
         params: &GetObjectParams,
     ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
-        let span = request_span!(self.inner, "get_object", bucket, key, ?params.range, ?params.if_match);
+        let span = request_span!(self.inner, "get_object", bucket, key, range=?params.range, if_match=?params.if_match);
 
         let mut message = self
             .inner
