@@ -78,8 +78,7 @@ pub trait ObjectClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
@@ -182,6 +181,33 @@ pub enum GetObjectError {
 
     #[error("At least one of the preconditions specified did not hold")]
     PreconditionFailed,
+}
+
+/// Parameters to a [`get_object`](ObjectClient::get_object) request
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct GetObjectParams {
+    pub range: Option<Range<u64>>,
+    pub if_match: Option<ETag>,
+}
+
+impl GetObjectParams {
+    /// Create a default [GetObjectParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the range retrieved by the GetObject request
+    pub fn range(mut self, value: Option<Range<u64>>) -> Self {
+        self.range = value;
+        self
+    }
+
+    /// Set the required etag on the object
+    pub fn if_match(mut self, value: Option<ETag>) -> Self {
+        self.if_match = value;
+        self
+    }
 }
 
 /// Result of a [`list_objects`](ObjectClient::list_objects) request

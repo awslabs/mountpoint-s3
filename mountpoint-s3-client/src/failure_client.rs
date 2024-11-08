@@ -16,10 +16,10 @@ use pin_project::pin_project;
 
 use crate::object_client::{
     CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
-    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
-    ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, PutObjectSingleParams, UploadReview,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
+    HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
+    ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -123,17 +123,16 @@ where
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
         let wrapper = (self.get_object_cb)(
             &mut *self.state.lock().unwrap(),
             bucket,
             key,
-            range.clone(),
-            if_match.clone(),
+            params.range.clone(),
+            params.if_match.clone(),
         )?;
-        let request = self.client.get_object(bucket, key, range, if_match).await?;
+        let request = self.client.get_object(bucket, key, params).await?;
         Ok(FailureGetRequest {
             state: wrapper.state,
             result_fn: wrapper.result_fn,
@@ -486,7 +485,7 @@ mod tests {
 
         let fail_set = HashSet::from([2, 4, 5]);
         for i in 1..=6 {
-            let r = fail_client.get_object(bucket, key, None, None).await;
+            let r = fail_client.get_object(bucket, key, &GetObjectParams::new()).await;
             if fail_set.contains(&i) {
                 assert!(r.is_err());
             } else {

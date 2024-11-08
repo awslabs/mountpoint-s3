@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{GetObjectRequest, PutObjectParams};
+use mountpoint_s3_client::types::{GetObjectParams, GetObjectRequest, PutObjectParams};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
@@ -71,7 +71,11 @@ where
         }
 
         let object_key = block_key(&self.prefix, cache_key, block_idx);
-        let result = match self.client.get_object(&self.bucket_name, &object_key, None, None).await {
+        let result = match self
+            .client
+            .get_object(&self.bucket_name, &object_key, &GetObjectParams::new())
+            .await
+        {
             Ok(result) => result,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
             Err(e) => return Err(e.into()),

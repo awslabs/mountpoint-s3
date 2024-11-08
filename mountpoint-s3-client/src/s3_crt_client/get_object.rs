@@ -2,7 +2,6 @@ use async_cell::sync::AsyncCell;
 use async_trait::async_trait;
 use std::future::Future;
 use std::ops::Deref;
-use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -16,7 +15,9 @@ use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
 use thiserror::Error;
 
-use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult, ObjectMetadata};
+use crate::object_client::{
+    GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError, ObjectClientResult, ObjectMetadata,
+};
 use crate::s3_crt_client::{
     GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
 };
@@ -35,10 +36,9 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
-        let span = request_span!(self.inner, "get_object", bucket, key, ?range, ?if_match);
+        let span = request_span!(self.inner, "get_object", bucket, key, ?params.range, ?params.if_match);
 
         let mut message = self
             .inner
@@ -50,14 +50,14 @@ impl S3CrtClient {
             .set_header(&Header::new("accept", "*/*"))
             .map_err(S3RequestError::construction_failure)?;
 
-        if let Some(etag) = if_match {
+        if let Some(etag) = params.if_match.as_ref() {
             // Return the object only if its entity tag (ETag) is matched
             message
                 .set_header(&Header::new("If-Match", etag.as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        let next_offset = if let Some(range) = range {
+        let next_offset = if let Some(range) = params.range.as_ref() {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message

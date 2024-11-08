@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use common::*;
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
 use mountpoint_s3_client::config::S3ClientConfig;
-use mountpoint_s3_client::types::{ChecksumAlgorithm, PutObjectResult, PutObjectSingleParams, UploadChecksum};
+use mountpoint_s3_client::types::{
+    ChecksumAlgorithm, GetObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
+};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use rand::Rng;
 use test_case::test_case;
@@ -31,7 +33,11 @@ async fn test_put_object_single(
         .expect("put_object should succeed");
 
     let result = client
-        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
+        .get_object(
+            bucket,
+            key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &contents[..]).await;
@@ -55,7 +61,11 @@ async fn test_put_object_single_empty(
         .expect("put_object should succeed");
 
     let result = client
-        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
+        .get_object(
+            bucket,
+            key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &[]).await;
