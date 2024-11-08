@@ -159,6 +159,7 @@ run_benchmarks() {
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       $part_size \
+      --log-metrics \
       ${optional_args}
     mount_status=$?
     set -e
