@@ -81,7 +81,6 @@ In this case, it's callers responsibility to:
     4) Closing the file descriptor in the parent process
     5) Performing 'unmount' syscall on the mount point once its desired and/or Mountpoint process terminates
 See examples/fuse-fd-mount-point/mounthelper.go as an example.
-
         ",
         value_name = "DIRECTORY"
     )]
@@ -1079,6 +1078,7 @@ struct FuseSessionConfig {
     pub max_threads: usize,
 }
 
+/// A Mount point to mount, can be a directory or a FUSE file descriptor (only on Linux).
 #[derive(Debug)]
 enum MountPoint {
     Directory(PathBuf),
@@ -1349,6 +1349,9 @@ fn validate_sse_args(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> an
     }
 }
 
+/// Parses file descriptor from given mount point.
+/// The syntax for passing file descriptors as mount points is "/dev/fd/N",
+/// and this function basically returns "N".
 fn parse_fd_from_mount_point(path: impl AsRef<Path>) -> Option<RawFd> {
     let re = Regex::new(r"^/dev/fd/(?<fd>\d+)$").unwrap();
     let path = path.as_ref().to_str()?;
@@ -1358,6 +1361,8 @@ fn parse_fd_from_mount_point(path: impl AsRef<Path>) -> Option<RawFd> {
 }
 
 #[cfg(target_os = "linux")]
+/// Determines "SessionACL" to use from given mount options.
+/// The logic is same as what fuser's "Mount" does.
 fn session_acl_from_mount_options(options: &[MountOption]) -> fuser::SessionACL {
     if options.contains(&MountOption::AllowRoot) {
         fuser::SessionACL::RootAndOwner

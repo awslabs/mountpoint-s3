@@ -1,4 +1,10 @@
 // An example script showing usage of FUSE file descriptor as a mount point.
+//
+// Example usage:
+// 	$ go build mounthelper.go
+// 	$ sudo /sbin/setcap 'cap_sys_admin=ep' ./mounthelper # `mount` syscall requires `CAP_SYS_ADMIN`, alternatively, `mounthelper` can be run as root
+//  $ ./mounthelper -mountpoint /tmp/mountpoint -bucket bucketname
+//  $ # Mountpoint mounted at /tmp/mountpoint until `mounthelper` is terminated with ctrl+c.
 package main
 
 import (
