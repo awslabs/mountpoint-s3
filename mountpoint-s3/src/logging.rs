@@ -159,8 +159,8 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
 
     let registry = tracing_subscriber::registry()
         .with(syslog_layer)
-        .with(console_layer)
         .with(file_layer)
+        .with(console_layer)
         .with(metrics_tracing_span_layer());
 
     registry.init();
