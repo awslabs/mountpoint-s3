@@ -1,5 +1,11 @@
 ## Unreleased
 
+### New features
+
+* Mountpoint now supports specifying open FUSE file descriptors as mount points with `/dev/fd/N` syntax.
+  See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples/fuse-fd-mount-point/mounthelper.go) as an example usage of this feature.
+  ([#1103](https://github.com/awslabs/mountpoint-s3/pull/1103))
+
 ## v1.13.0 (December 2, 2024)
 
 ### New features
