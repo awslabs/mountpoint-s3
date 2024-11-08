@@ -8,12 +8,15 @@ use base64ct::{Base64, Encoding};
 use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{GetObjectParams, GetObjectRequest, PutObjectSingleParams, UploadChecksum};
+use mountpoint_s3_client::types::{
+    ChecksumMode, GetObjectParams, GetObjectRequest, PutObjectSingleParams, UploadChecksum,
+};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
 
+use mountpoint_s3_client::checksums::crc32c_from_base64;
 #[cfg(test)]
 use proptest_derive::Arbitrary;
 
@@ -135,8 +138,6 @@ impl BlockHeader {
         source_bucket_name: &str,
     ) -> Crc32c {
         let mut hasher = crc32c::Hasher::new();
-        // We only ever need to compare against the current version. Callers need to pre-validate
-        // the version is the current version.
         hasher.update(CACHE_VERSION.as_bytes());
         hasher.update(&block_idx.to_be_bytes());
         hasher.update(&block_offset.to_be_bytes());
@@ -213,7 +214,15 @@ where
         let headers = BlockHeader::new(block_idx, block_offset, cache_key, &self.bucket_name);
 
         let object_key = headers.to_s3_key(&self.prefix);
-        let result = match self.client.get_object(&self.bucket_name, &object_key, &GetObjectParams::new()).await {
+        let result = match self
+            .client
+            .get_object(
+                &self.bucket_name,
+                &object_key,
+                &GetObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+            )
+            .await
+        {
             Ok(result) => result,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -224,6 +233,13 @@ where
             .await
             .map_err(|err| DataCacheError::IoFailure(err.into()))?;
         headers.validate_headers(&object_metadata)?;
+
+        let checksum = result
+            .get_object_checksum()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+        let crc32 = crc32c_from_base64(&checksum.checksum_crc32c.ok_or(DataCacheError::BlockChecksumMissing)?)
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
 
         pin_mut!(result);
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
@@ -247,8 +263,7 @@ where
             }
         }
         let buffer = buffer.freeze();
-        // TODO - Use CRC32 here
-        Ok(Some(buffer.into()))
+        Ok(Some(ChecksummedBytes::new_from_inner_data(buffer, crc32)))
     }
 
     async fn put_block(
@@ -353,6 +368,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_1, entry,
             "cache entry returned should match original bytes after put"
@@ -368,6 +384,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_2, entry,
             "cache entry returned should match original bytes after put"
@@ -383,6 +400,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_3, entry,
             "cache entry returned should match original bytes after put"
@@ -394,6 +412,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_1, entry,
             "cache entry returned should match original bytes after put"
@@ -450,6 +469,12 @@ mod tests {
             } else {
                 prop_assert!(block_header2.validate_headers(&block_header.to_headers()).is_err());
             }
+        }
+
+        #[test]
+        fn proptest_block_header_validates_headers_is_equal(block_header: BlockHeader) {
+            // More checks to verify the equals path, as generating lots of equals examples may be hard
+            prop_assert!(block_header.validate_headers(&block_header.to_headers()).is_ok());
         }
     }
 }

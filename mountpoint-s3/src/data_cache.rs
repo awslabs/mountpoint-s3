@@ -32,6 +32,8 @@ pub enum DataCacheError {
     IoFailure(#[source] anyhow::Error),
     #[error("Block header was not valid: {0}")]
     InvalidBlockHeader(String),
+    #[error("Block checksum was not present")]
+    BlockChecksumMissing,
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
     #[error("Block offset does not match block index")]
