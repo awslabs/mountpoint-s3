@@ -745,6 +745,9 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
     if let Some(interfaces) = &args.bind {
         user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
     }
+    if args.cache_express_bucket_name().is_some() {
+        user_agent.value("mp-cache-express");
+    }
 
     // This is a weird looking number! We really want our first request size to be 1MiB,
     // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
