@@ -11,9 +11,9 @@ use time::OffsetDateTime;
 use tracing::error;
 
 use crate::object_client::{
-    Checksum, HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
+    HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
 };
-use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+use crate::s3_crt_client::{parse_checksum, S3CrtClient, S3Operation, S3RequestError};
 
 use super::ChecksumMode;
 
@@ -65,20 +65,6 @@ impl HeadObjectResult {
         Ok(Some(RestoreStatus::Restored { expiry: expiry.into() }))
     }
 
-    fn parse_checksum(headers: &Headers) -> Result<Checksum, ParseError> {
-        let checksum_crc32 = headers.get_as_optional_string("x-amz-checksum-crc32")?;
-        let checksum_crc32c = headers.get_as_optional_string("x-amz-checksum-crc32c")?;
-        let checksum_sha1 = headers.get_as_optional_string("x-amz-checksum-sha1")?;
-        let checksum_sha256 = headers.get_as_optional_string("x-amz-checksum-sha256")?;
-
-        Ok(Checksum {
-            checksum_crc32,
-            checksum_crc32c,
-            checksum_sha1,
-            checksum_sha256,
-        })
-    }
-
     /// Parse from HeadObject headers
     fn parse_from_hdr(headers: &Headers) -> Result<Self, ParseError> {
         let last_modified = OffsetDateTime::parse(&headers.get_as_string("Last-Modified")?, &Rfc2822)
@@ -88,7 +74,7 @@ impl HeadObjectResult {
         let etag = headers.get_as_string("Etag")?;
         let storage_class = headers.get_as_optional_string("x-amz-storage-class")?;
         let restore_status = Self::parse_restore_status(headers)?;
-        let checksum = Self::parse_checksum(headers)?;
+        let checksum = parse_checksum(headers)?;
         let result = HeadObjectResult {
             size,
             last_modified,
@@ -234,24 +220,6 @@ mod tests {
         let Some(RestoreStatus::InProgress) = restore_status else {
             panic!("unexpected restore_status");
         };
-    }
-
-    #[test]
-    fn test_checksum_sha256() {
-        let mut headers = Headers::new(&Allocator::default()).unwrap();
-        let value = "QwzjTQIHJO11oZbfwq1nx3dy0Wk=";
-        let header = Header::new("x-amz-checksum-sha256", value.to_owned());
-        headers.add_header(&header).unwrap();
-
-        let checksum = HeadObjectResult::parse_checksum(&headers).expect("failed to parse headers");
-        assert_eq!(checksum.checksum_crc32, None, "other checksums shouldn't be set");
-        assert_eq!(checksum.checksum_crc32c, None, "other checksums shouldn't be set");
-        assert_eq!(checksum.checksum_sha1, None, "other checksums shouldn't be set");
-        assert_eq!(
-            checksum.checksum_sha256,
-            Some(value.to_owned()),
-            "sha256 header should match"
-        );
     }
 
     #[test]
