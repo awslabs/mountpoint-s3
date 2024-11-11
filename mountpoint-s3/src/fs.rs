@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use tracing::{debug, trace, Level};
 
 use fuser::consts::FOPEN_DIRECT_IO;
+//use fuser::consts::FOPEN_NOFLUSH;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::ObjectClient;
 
@@ -333,6 +334,11 @@ where
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
+        let is_read_filehandle = match state {
+            FileHandleState::Read{..} => true,
+            _                        => false
+        };
+        debug!("{}", if is_read_filehandle {"opening for read"} else {"not opening for read"});
         let fh = self.next_handle();
         let handle = FileHandle {
             inode,
@@ -342,8 +348,8 @@ where
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
-        let reply_flags = if direct_io { FOPEN_DIRECT_IO } else { 0 };
-
+        let reply_flags = (if direct_io { FOPEN_DIRECT_IO } else { 0 }) | (if is_read_filehandle {1 << 5} else {0});
+        debug!("Set flags as {reply_flags}");
         Ok(Opened { fh, flags: reply_flags })
     }
 
@@ -711,6 +717,7 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
+        debug!("Called flush on {_ino}");
         logging::record_name(file_handle.inode.name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
