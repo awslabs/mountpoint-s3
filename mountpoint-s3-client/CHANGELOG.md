@@ -26,6 +26,10 @@
 * Both `ObjectInfo` and `ChecksumAlgorithm` structs are now marked `non_exhaustive`, to indicate that new fields may be added in the future.
   `ChecksumAlgorithm` no longer implements `Copy`.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
+* `get_object` method now requires a `GetObjectParams` parameter.
+  Two of the existing parameters, `range` and `if_match` have been moved to `GetObjectParams`.
+  ([#1121](https://github.com/awslabs/mountpoint-s3/pull/1121))
+
 
 ## v0.11.0 (October 17, 2024)
 

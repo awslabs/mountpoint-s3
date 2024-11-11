@@ -13,7 +13,7 @@ use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{ETag, GetObjectRequest};
+use mountpoint_s3_client::types::{ETag, GetObjectParams, GetObjectRequest};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 use test_case::test_case;
@@ -44,7 +44,7 @@ async fn test_get_object(size: usize, range: Option<Range<u64>>) {
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .get_object(&bucket, &key, range.clone(), None)
+        .get_object(&bucket, &key, &GetObjectParams::new().range(range.clone()))
         .await
         .expect("get_object should succeed");
     let expected = match range {
@@ -81,7 +81,7 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
     let client: S3CrtClient = get_test_backpressure_client(initial_window_size, None);
 
     let request = client
-        .get_object(&bucket, &key, range.clone(), None)
+        .get_object(&bucket, &key, &GetObjectParams::new().range(range.clone()))
         .await
         .expect("get_object should succeed");
     let expected = match range {
@@ -115,7 +115,7 @@ async fn verify_backpressure_get_object() {
         .unwrap();
 
     let mut get_request = client
-        .get_object(&bucket, &key, Some(range.clone()), None)
+        .get_object(&bucket, &key, &GetObjectParams::new().range(Some(range.clone())))
         .await
         .expect("should not fail");
 
@@ -159,7 +159,7 @@ async fn test_mutated_during_get_object_backpressure() {
         .unwrap();
 
     let mut get_request = client
-        .get_object(&bucket, &key, Some(range.clone()), None)
+        .get_object(&bucket, &key, &GetObjectParams::new().range(Some(range.clone())))
         .await
         .expect("should not fail");
 
@@ -202,7 +202,7 @@ async fn test_get_object_404_key() {
     let client: S3CrtClient = get_test_client();
 
     let mut result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
@@ -223,7 +223,7 @@ async fn test_get_object_404_bucket() {
     let client: S3CrtClient = get_test_client();
 
     let mut result = client
-        .get_object("amzn-s3-demo-bucket", &key, None, None)
+        .get_object("amzn-s3-demo-bucket", &key, &GetObjectParams::new())
         .await
         .expect("get_object failed");
     let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
@@ -255,7 +255,7 @@ async fn test_get_object_success_if_match() {
     let etag = Some(ETag::from_str(response.e_tag().expect("E-Tag should be set")).unwrap());
 
     let result = client
-        .get_object(&bucket, &key, None, etag)
+        .get_object(&bucket, &key, &GetObjectParams::new().if_match(etag))
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
@@ -282,7 +282,7 @@ async fn test_get_object_412_if_match() {
     let etag = Some(ETag::from_str("incorrect_etag").unwrap());
 
     let mut result = client
-        .get_object(&bucket, &key, None, etag)
+        .get_object(&bucket, &key, &GetObjectParams::new().if_match(etag))
         .await
         .expect("get_object should succeed");
 
@@ -318,7 +318,7 @@ async fn test_get_object_cancel(read: bool) {
     let client: S3CrtClient = get_test_client();
 
     let mut request = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
 
@@ -363,7 +363,7 @@ async fn test_get_object_user_metadata(size: usize, metadata: HashMap<String, St
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     let actual_metadata = result.get_object_metadata().await.expect("should return metadata");
@@ -400,7 +400,7 @@ async fn test_get_object_user_metadata_with_zero_backpressure(size: usize, metad
     let client: S3CrtClient = get_test_backpressure_client(0, None);
 
     let result = client
-        .get_object(&bucket, &key, Some(1..5), None)
+        .get_object(&bucket, &key, &GetObjectParams::new().range(Some(1..5)))
         .await
         .expect("get_object should succeed");
     result
@@ -418,7 +418,7 @@ async fn test_get_object_metadata_404() {
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     result
@@ -450,7 +450,7 @@ async fn test_get_object_user_metadata_after_stream(size: usize, metadata: HashM
     let client: S3CrtClient = get_test_client();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
 

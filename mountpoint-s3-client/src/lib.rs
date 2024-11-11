@@ -21,7 +21,7 @@
 //!
 //! let client = S3CrtClient::new(Default::default()).expect("client construction failed");
 //!
-//! let response = client.get_object("my-bucket", "my-key", None, None).await.expect("get_object failed");
+//! let response = client.get_object("my-bucket", "my-key", &GetObjectParams::new().await.expect("get_object failed"));
 //! let body = response.map_ok(|(offset, body)| body.to_vec()).try_concat().await.expect("body streaming failed");
 //! # }
 //! ```
@@ -73,9 +73,9 @@ pub mod config {
 pub mod types {
     pub use super::object_client::{
         Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectParams, CopyObjectResult, DeleteObjectResult, ETag,
-        GetBodyPart, GetObjectAttributesParts, GetObjectAttributesResult, GetObjectRequest, HeadObjectParams,
-        HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult, ObjectInfo, ObjectPart,
-        PutObjectParams, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus,
+        GetBodyPart, GetObjectAttributesParts, GetObjectAttributesResult, GetObjectParams, GetObjectRequest,
+        HeadObjectParams, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult, ObjectInfo,
+        ObjectPart, PutObjectParams, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus,
         UploadChecksum, UploadReview, UploadReviewPart,
     };
 }

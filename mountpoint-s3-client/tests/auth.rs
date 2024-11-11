@@ -15,6 +15,7 @@ use common::*;
 use futures::StreamExt;
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::types::GetObjectParams;
 #[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
@@ -56,7 +57,7 @@ async fn test_static_provider() {
     let client = S3CrtClient::new(config).unwrap();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
@@ -76,7 +77,7 @@ async fn test_static_provider() {
     let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object request should be sent");
 
@@ -138,7 +139,7 @@ async fn test_profile_provider_static_async() {
     let client = S3CrtClient::new(config).unwrap();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
@@ -154,7 +155,7 @@ async fn test_profile_provider_static_async() {
     let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should be sent");
 
@@ -219,7 +220,7 @@ async fn test_profile_provider_assume_role_async() {
     let client = S3CrtClient::new(config).unwrap();
 
     let mut request = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should be sent");
 
@@ -234,7 +235,7 @@ async fn test_profile_provider_assume_role_async() {
     let client = S3CrtClient::new(config).unwrap();
 
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
@@ -430,7 +431,7 @@ async fn test_scoped_credentials() {
 
     // Inside the prefix, things should be fine
     let _result = client
-        .get_object(&bucket, &format!("{prefix}foo/foo.txt"), None, None)
+        .get_object(&bucket, &format!("{prefix}foo/foo.txt"), &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     let _result = client
@@ -440,7 +441,7 @@ async fn test_scoped_credentials() {
 
     // Outside the prefix, requests should fail with permissions errors
     let mut request = client
-        .get_object(&bucket, &format!("{prefix}baz.txt"), None, None)
+        .get_object(&bucket, &format!("{prefix}baz.txt"), &GetObjectParams::new())
         .await
         .expect("request should be sent");
     let err = request

@@ -1281,12 +1281,9 @@ impl ObjectClient for S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
-        // TODO: If more arguments are added to get object, make a request struct having those arguments
-        // along with bucket and key.
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        self.get_object(bucket, key, range, if_match)
+        self.get_object(bucket, key, params)
     }
 
     async fn list_objects(
