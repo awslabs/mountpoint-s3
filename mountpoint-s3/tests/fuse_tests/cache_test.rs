@@ -24,11 +24,13 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 #[test_case("key", 1024, 1024; "long key")]
 #[test_case("key", 100, 1024 * 1024; "big file")]
 fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
+    let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE);
     cache_write_read_base(
+        client.clone(),
         key_suffix,
         key_size,
         object_size,
-        express_cache_factory,
+        express_cache_factory(client),
         "express_cache_write_read",
     )
 }
@@ -39,7 +41,9 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
 #[test_case("key", 100, 1024 * 1024; "big file")]
 fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
     let cache_dir = tempfile::tempdir().unwrap();
+    let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE);
     cache_write_read_base(
+        client,
         key_suffix,
         key_size,
         object_size,
@@ -49,6 +53,7 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 }
 
 fn cache_write_read_base<Cache, CacheFactory>(
+    client: S3CrtClient,
     key_suffix: &str,
     key_size: usize,
     object_size: usize,
@@ -56,7 +61,7 @@ fn cache_write_read_base<Cache, CacheFactory>(
     test_name: &str,
 ) where
     Cache: DataCache + Send + Sync + 'static,
-    CacheFactory: FnOnce(S3CrtClient) -> Cache,
+    CacheFactory: FnOnce() -> Cache,
 {
     let region = get_test_region();
     let bucket = get_standard_bucket();
@@ -72,7 +77,8 @@ fn cache_write_read_base<Cache, CacheFactory>(
         },
         ..Default::default()
     };
-    let (mount_point, _session) = new_fuse_session_with_cache(&bucket, &prefix, cache_factory, filesystem_config);
+    let (mount_point, _session) =
+        new_fuse_session_with_cache(client, &bucket, &prefix, cache_factory, filesystem_config);
 
     // Write an object, no caching happens yet
     let key = get_object_key(&prefix, key_suffix, key_size);
@@ -93,10 +99,10 @@ fn cache_write_read_base<Cache, CacheFactory>(
     // at the point of the next read. This assumption must be valid since there are no other
     // FS operations done before the read. Currently, an entry in the metadata cache may be
     // invalidated by TTL expiry or a READDIR(PLUS) call.
-    let client = create_test_client(&region, &bucket, &prefix);
-    client.remove_object(&key).expect("remove must succeed");
+    let test_client = create_test_client(&region, &bucket, &prefix);
+    test_client.remove_object(&key).expect("remove must succeed");
     assert!(
-        !client.contains_key(&key).expect("head object must succeed"),
+        !test_client.contains_key(&key).expect("head object must succeed"),
         "object should not exist in the source bucket"
     );
 
@@ -105,13 +111,15 @@ fn cache_write_read_base<Cache, CacheFactory>(
     assert_eq!(read, written);
 }
 
-fn express_cache_factory(client: S3CrtClient) -> ExpressDataCache<S3CrtClient> {
-    let express_bucket_name = get_express_cache_bucket();
-    ExpressDataCache::new(&express_bucket_name, client, &express_bucket_name, CACHE_BLOCK_SIZE)
+fn express_cache_factory(client: S3CrtClient) -> impl FnOnce() -> ExpressDataCache<S3CrtClient> {
+    move || {
+        let express_bucket_name = get_express_cache_bucket();
+        ExpressDataCache::new(&express_bucket_name, client, &express_bucket_name, CACHE_BLOCK_SIZE)
+    }
 }
 
-fn disk_cache_factory(cache_dir: PathBuf) -> impl FnOnce(S3CrtClient) -> DiskDataCache {
-    move |_| {
+fn disk_cache_factory(cache_dir: PathBuf) -> impl FnOnce() -> DiskDataCache {
+    move || {
         let cache_config = DiskDataCacheConfig {
             block_size: CACHE_BLOCK_SIZE,
             limit: Default::default(),
@@ -142,6 +150,7 @@ fn get_object_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
 /// Create a FUSE mount backed by a real S3 client with a cache.
 /// Note, that the mount uses S3 Standard as a source bucket.
 fn new_fuse_session_with_cache<Cache, CacheFactory>(
+    client: S3CrtClient,
     bucket: &str,
     prefix: &str,
     cache_factory: CacheFactory,
@@ -149,11 +158,10 @@ fn new_fuse_session_with_cache<Cache, CacheFactory>(
 ) -> (TempDir, BackgroundSession)
 where
     Cache: DataCache + Send + Sync + 'static,
-    CacheFactory: FnOnce(S3CrtClient) -> Cache,
+    CacheFactory: FnOnce() -> Cache,
 {
     let mount_dir = tempfile::tempdir().unwrap();
-    let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE);
-    let cache = cache_factory(client.clone());
+    let cache = cache_factory();
     let runtime = client.event_loop_group();
     let prefetcher = caching_prefetch(cache, runtime, Default::default());
     let session = create_fuse_session(client, prefetcher, bucket, prefix, mount_dir.path(), filesystem_config);
