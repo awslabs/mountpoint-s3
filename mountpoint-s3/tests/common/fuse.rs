@@ -101,8 +101,8 @@ impl TestSession {
 
 impl Drop for TestSession {
     fn drop(&mut self) {
-        // Explicitly unmount so we know the background thread is gone
-        self.session.take().unwrap().join();
+        // Unmount first by dropping the background session
+        self.session.take();
     }
 }
 
