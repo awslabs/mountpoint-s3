@@ -28,8 +28,8 @@ use regex::Regex;
 use sysinfo::{RefreshKind, System};
 
 use crate::data_cache::{
-    CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ManagedCacheDir, MultilevelDataCache,
-    EXPRESS_CACHE_MAX_OBJECT_SIZE,
+    CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig, ManagedCacheDir,
+    MultilevelDataCache, EXPRESS_CACHE_MAX_OBJECT_SIZE,
 };
 use crate::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::session::FuseSession;
@@ -444,6 +444,18 @@ impl CliArgs {
             return Some(bucket_name);
         }
         None
+    }
+
+    fn express_data_cache_config(&self) -> Option<ExpressDataCacheConfig> {
+        let express_bucket_name = self.cache_express_bucket_name()?;
+        let config = ExpressDataCacheConfig {
+            bucket_name: express_bucket_name.to_owned(),
+            source_bucket_name: self.bucket_name.clone(),
+            block_size: self.cache_block_size_in_bytes(),
+            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
+        };
+
+        Some(config)
     }
 
     fn disk_data_cache_config(&self) -> Option<(&Path, DiskDataCacheConfig)> {
@@ -881,16 +893,10 @@ where
     tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
 
-    match (args.disk_data_cache_config(), args.cache_express_bucket_name()) {
-        (None, Some(express_bucket_name)) => {
+    match (args.disk_data_cache_config(), args.express_data_cache_config()) {
+        (None, Some(config)) => {
             tracing::trace!("using S3 Express One Zone bucket as a cache for object content");
-            let express_cache = ExpressDataCache::new(
-                express_bucket_name,
-                client.clone(),
-                &args.bucket_name,
-                args.cache_block_size_in_bytes(),
-                EXPRESS_CACHE_MAX_OBJECT_SIZE,
-            );
+            let express_cache = ExpressDataCache::new(client.clone(), config);
 
             let prefetcher = caching_prefetch(express_cache, runtime, prefetcher_config);
             let fuse_session = create_filesystem(
@@ -926,16 +932,10 @@ where
 
             Ok(fuse_session)
         }
-        (Some((cache_dir_path, disk_data_cache_config)), Some(express_bucket_name)) => {
+        (Some((cache_dir_path, disk_data_cache_config)), Some(config)) => {
             tracing::trace!("using both local disk and S3 Express One Zone bucket as a cache for object content");
             let (managed_cache_dir, disk_cache) = create_disk_cache(cache_dir_path, disk_data_cache_config)?;
-            let express_cache = ExpressDataCache::new(
-                express_bucket_name,
-                client.clone(),
-                &args.bucket_name,
-                args.cache_block_size_in_bytes(),
-                EXPRESS_CACHE_MAX_OBJECT_SIZE,
-            );
+            let express_cache = ExpressDataCache::new(client.clone(), config);
             let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
 
             let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);

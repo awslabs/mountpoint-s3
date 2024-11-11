@@ -119,7 +119,8 @@ mod tests {
     use super::*;
     use crate::checksums::ChecksummedBytes;
     use crate::data_cache::{
-        CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, EXPRESS_CACHE_MAX_OBJECT_SIZE,
+        CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig,
+        EXPRESS_CACHE_MAX_OBJECT_SIZE,
     };
 
     use futures::executor::ThreadPool;
@@ -153,16 +154,13 @@ mod tests {
             ..Default::default()
         };
         let client = MockClient::new(config);
-        (
-            client.clone(),
-            ExpressDataCache::new(
-                bucket,
-                client,
-                "unique source description",
-                BLOCK_SIZE,
-                EXPRESS_CACHE_MAX_OBJECT_SIZE,
-            ),
-        )
+        let config = ExpressDataCacheConfig {
+            bucket_name: bucket.to_owned(),
+            source_bucket_name: "unique source description".to_owned(),
+            block_size: BLOCK_SIZE,
+            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
+        };
+        (client.clone(), ExpressDataCache::new(client, config))
     }
 
     #[test_case(false, true; "get from local")]
@@ -357,5 +355,34 @@ mod tests {
             data, entry,
             "cache entry returned should match original bytes after put"
         );
+    }
+
+    #[tokio::test]
+    async fn large_object_bypassed() {
+        let (cache_dir, disk_cache) = create_disk_cache();
+        let (client, express_cache) = create_express_cache();
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
+
+        let data = vec![0u8; 1024 * 1024 + 1];
+        let data = ChecksummedBytes::new(data.into());
+        let object_size = data.len();
+        let cache_key = ObjectId::new("a".into(), ETag::for_tests());
+
+        // put in both caches, this must be a no-op for the express cache
+        cache
+            .put_block(cache_key.clone(), 0, 0, data.clone(), object_size)
+            .await
+            .expect("put should succeed");
+
+        assert_eq!(client.object_count(), 0, "cache must be empty");
+
+        // try to get from the cache, assuming it is missing in local
+        cache_dir.close().expect("should clean up local cache");
+        let entry = cache
+            .get_block(&cache_key, 0, 0, object_size)
+            .await
+            .expect("cache should be accessible");
+        assert!(entry.is_none(), "cache miss is expected for a large object");
     }
 }

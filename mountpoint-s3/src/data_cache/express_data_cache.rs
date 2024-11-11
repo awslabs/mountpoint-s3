@@ -14,13 +14,24 @@ use tracing::Instrument;
 const CACHE_VERSION: &str = "V1";
 pub const EXPRESS_CACHE_MAX_OBJECT_SIZE: usize = 1024 * 1024; // 1MiB
 
+/// Configuration for a [ExpressDataCache].
+#[derive(Debug)]
+pub struct ExpressDataCacheConfig {
+    /// Name of the S3 Express bucket to store the blocks.
+    pub bucket_name: String,
+    /// Name of the mounted bucket.
+    pub source_bucket_name: String,
+    /// Size of data blocks.
+    pub block_size: u64,
+    /// The maximum size of an object to be cached.
+    pub max_object_size: usize,
+}
+
 /// A data cache on S3 Express One Zone that can be shared across Mountpoint instances.
 pub struct ExpressDataCache<Client: ObjectClient> {
     client: Client,
-    bucket_name: String,
     prefix: String,
-    block_size: u64,
-    max_object_size: usize,
+    config: ExpressDataCacheConfig,
 }
 
 impl<S, C> From<ObjectClientError<S, C>> for DataCacheError
@@ -40,27 +51,15 @@ where
     /// Create a new instance.
     ///
     /// TODO: consider adding some validation of the bucket.
-    pub fn new(
-        bucket_name: &str,
-        client: Client,
-        source_description: &str,
-        block_size: u64,
-        max_object_size: usize,
-    ) -> Self {
+    pub fn new(client: Client, config: ExpressDataCacheConfig) -> Self {
         let prefix = hex::encode(
             Sha256::new()
                 .chain_update(CACHE_VERSION.as_bytes())
-                .chain_update(block_size.to_be_bytes())
-                .chain_update(source_description.as_bytes())
+                .chain_update(config.block_size.to_be_bytes())
+                .chain_update(config.source_bucket_name.as_bytes())
                 .finalize(),
         );
-        Self {
-            client,
-            bucket_name: bucket_name.to_owned(),
-            prefix,
-            block_size,
-            max_object_size,
-        }
+        Self { client, prefix, config }
     }
 }
 
@@ -76,18 +75,18 @@ where
         block_offset: u64,
         object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        if object_size > self.max_object_size {
+        if object_size > self.config.max_object_size {
             return Ok(None);
         }
 
-        if block_offset != block_idx * self.block_size {
+        if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
 
         let object_key = block_key(&self.prefix, cache_key, block_idx);
         let result = match self
             .client
-            .get_object(&self.bucket_name, &object_key, &GetObjectParams::new())
+            .get_object(&self.config.bucket_name, &object_key, &GetObjectParams::new())
             .await
         {
             Ok(result) => result,
@@ -97,7 +96,7 @@ where
 
         pin_mut!(result);
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
-        result.as_mut().increment_read_window(self.block_size as usize);
+        result.as_mut().increment_read_window(self.config.block_size as usize);
 
         // TODO: optimize for the common case of a single chunk.
         let mut buffer = BytesMut::default();
@@ -110,7 +109,7 @@ where
                     buffer.extend_from_slice(&body);
 
                     // Ensure the flow-control window is large enough.
-                    result.as_mut().increment_read_window(self.block_size as usize);
+                    result.as_mut().increment_read_window(self.config.block_size as usize);
                 }
                 Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
                 Err(e) => return Err(e.into()),
@@ -128,11 +127,11 @@ where
         bytes: ChecksummedBytes,
         object_size: usize,
     ) -> DataCacheResult<()> {
-        if object_size > self.max_object_size {
+        if object_size > self.config.max_object_size {
             return Ok(());
         }
 
-        if block_offset != block_idx * self.block_size {
+        if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
 
@@ -142,7 +141,7 @@ where
         let params = PutObjectParams::new();
         let mut req = self
             .client
-            .put_object(&self.bucket_name, &object_key, &params)
+            .put_object(&self.config.bucket_name, &object_key, &params)
             .in_current_span()
             .await?;
         let (data, _crc) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
@@ -153,7 +152,7 @@ where
     }
 
     fn block_size(&self) -> u64 {
-        self.block_size
+        self.config.block_size
     }
 }
 
@@ -192,13 +191,14 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(config));
 
-        let cache = ExpressDataCache::new(
-            bucket,
-            client,
-            "unique source description",
+        let config = ExpressDataCacheConfig {
+            bucket_name: bucket.to_owned(),
+            source_bucket_name: "unique source description".to_owned(),
             block_size,
-            EXPRESS_CACHE_MAX_OBJECT_SIZE,
-        );
+            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
+        };
+
+        let cache = ExpressDataCache::new(client, config);
 
         let data_1 = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
@@ -291,13 +291,13 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let cache = ExpressDataCache::new(
-            bucket,
-            client,
-            "unique source description",
-            1024 * 1024,
-            EXPRESS_CACHE_MAX_OBJECT_SIZE,
-        );
+        let config = ExpressDataCacheConfig {
+            bucket_name: bucket.to_owned(),
+            source_bucket_name: "unique source description".to_owned(),
+            block_size: 1024 * 1024,
+            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
+        };
+        let cache = ExpressDataCache::new(client.clone(), config);
         let data_1 = vec![0u8; 1024 * 1024 + 1];
         let data_1 = ChecksummedBytes::new(data_1.into());
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
@@ -311,5 +311,6 @@ mod tests {
             .await
             .expect("cache should be accessible");
         assert!(get_result.is_none());
+        assert_eq!(client.object_count(), 0, "cache must be empty");
     }
 }
