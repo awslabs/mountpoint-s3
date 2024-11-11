@@ -100,11 +100,11 @@ impl S3CrtClient {
             span,
             |_| (),
             move |headers, status| {
-                // Headers can be returned multiple times, but the object metadata doesn't change.
+                // Headers can be returned multiple times, but the metadata/checksums don't change.
                 // Explicitly ignore the case where we've already set object metadata.
 
-                // Only set metadata if we have a 2xx status code. If we only get other status
-                // codes, then on_finish cancels.
+                // Only set headers if we have a 2xx status code. If we only get other status codes,
+                // then on_finish sets an error.
                 if (200..300).contains(&status) {
                     // Don't overwrite if already set - the first headers are fine.
                     object_headers_setter_on_headers.or_set(Ok(headers.clone()));

@@ -467,10 +467,10 @@ async fn test_get_object_user_metadata_after_stream(size: usize, metadata: HashM
     assert_eq!(actual_metadata, metadata);
 }
 
-#[test_case(ChecksumAlgorithm::Crc32; "Checksum CRC32")]
-#[test_case(ChecksumAlgorithm::Crc32C; "Checksum CRC32C")]
-#[test_case(ChecksumAlgorithm::Sha1; "Checksum SHA1")]
-#[test_case(ChecksumAlgorithm::Sha256; "Checksum SHA256")]
+#[test_case(ChecksumAlgorithm::Crc32)]
+#[test_case(ChecksumAlgorithm::Crc32C)]
+#[test_case(ChecksumAlgorithm::Sha1)]
+#[test_case(ChecksumAlgorithm::Sha256)]
 #[tokio::test]
 async fn test_get_object_checksum(checksum_algorithm: ChecksumAlgorithm) {
     let sdk_client = get_test_sdk_client().await;
