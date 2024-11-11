@@ -17,18 +17,18 @@ use tempfile::TempDir;
 use crate::common::{get_crt_client_auth_config, tokio_block_on};
 
 pub trait TestClient: Send {
-    fn put_object(&mut self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn put_object(&self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         self.put_object_params(key, value, PutObjectParams::default())
     }
 
     fn put_object_params(
-        &mut self,
+        &self,
         key: &str,
         value: &[u8],
         params: PutObjectParams,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
+    fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
 
     fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
@@ -40,12 +40,10 @@ pub trait TestClient: Send {
 
     fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>>;
 
-    fn restore_object(&mut self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
+    fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn is_object_restored(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
-
-pub type TestClientBox = Box<dyn TestClient>;
 
 pub struct TestSessionConfig {
     pub part_size: usize,
@@ -77,9 +75,35 @@ impl TestSessionConfig {
 
 // Holds resources for the testing session and cleans them on drop.
 pub struct TestSession {
-    pub mount_dir: TempDir,
-    pub session: BackgroundSession,
-    pub test_client: TestClientBox,
+    mount_dir: TempDir,
+    test_client: Box<dyn TestClient>,
+    // Option so we can explicitly unmount
+    session: Option<BackgroundSession>,
+}
+
+impl TestSession {
+    pub fn new(mount_dir: TempDir, session: BackgroundSession, test_client: impl TestClient + 'static) -> Self {
+        Self {
+            mount_dir,
+            test_client: Box::new(test_client),
+            session: Some(session),
+        }
+    }
+
+    pub fn mount_path(&self) -> &Path {
+        self.mount_dir.path()
+    }
+
+    pub fn client(&self) -> &dyn TestClient {
+        self.test_client.as_ref()
+    }
+}
+
+impl Drop for TestSession {
+    fn drop(&mut self) {
+        // Explicitly unmount so we know the background thread is gone
+        self.session.take().unwrap().join();
+    }
 }
 
 pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
@@ -165,11 +189,7 @@ pub mod mock_session {
         );
         let test_client = create_test_client(client, &prefix);
 
-        TestSession {
-            mount_dir,
-            session,
-            test_client,
-        }
+        TestSession::new(mount_dir, session, test_client)
     }
 
     /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
@@ -206,21 +226,15 @@ pub mod mock_session {
             );
             let test_client = create_test_client(client, &prefix);
 
-            TestSession {
-                mount_dir,
-                session,
-                test_client,
-            }
+            TestSession::new(mount_dir, session, test_client)
         }
     }
 
-    fn create_test_client(client: Arc<MockClient>, prefix: &str) -> TestClientBox {
-        let test_client = MockTestClient {
+    fn create_test_client(client: Arc<MockClient>, prefix: &str) -> impl TestClient {
+        MockTestClient {
             prefix: prefix.to_owned(),
             client,
-        };
-
-        Box::new(test_client)
+        }
     }
 
     struct MockTestClient {
@@ -230,7 +244,7 @@ pub mod mock_session {
 
     impl TestClient for MockTestClient {
         fn put_object_params(
-            &mut self,
+            &self,
             key: &str,
             value: &[u8],
             params: PutObjectParams,
@@ -242,7 +256,7 @@ pub mod mock_session {
             Ok(())
         }
 
-        fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             self.client.remove_object(&full_key);
             Ok(())
@@ -280,12 +294,12 @@ pub mod mock_session {
             Ok(attrs.object_parts.and_then(|parts| parts.parts))
         }
 
-        fn restore_object(&mut self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
+        fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.restore_object(&full_key)?)
         }
 
-        fn is_object_restored(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.is_object_restored(&full_key)?)
         }
@@ -335,11 +349,7 @@ pub mod s3_session {
         );
         let test_client = create_test_client(&region, &bucket, &prefix);
 
-        TestSession {
-            mount_dir,
-            session,
-            test_client,
-        }
+        TestSession::new(mount_dir, session, test_client)
     }
 
     /// Create a FUSE mount backed by a real S3 client, with caching
@@ -371,23 +381,17 @@ pub mod s3_session {
             );
             let test_client = create_test_client(&region, &bucket, &prefix);
 
-            TestSession {
-                mount_dir,
-                session,
-                test_client,
-            }
+            TestSession::new(mount_dir, session, test_client)
         }
     }
 
-    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> TestClientBox {
+    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {
         let sdk_client = tokio_block_on(async { get_test_sdk_client(region).await });
-        let test_client = SDKTestClient {
+        SDKTestClient {
             prefix: prefix.to_owned(),
             bucket: bucket.to_owned(),
             sdk_client,
-        };
-
-        Box::new(test_client)
+        }
     }
 
     struct SDKTestClient {
@@ -398,7 +402,7 @@ pub mod s3_session {
 
     impl TestClient for SDKTestClient {
         fn put_object_params(
-            &mut self,
+            &self,
             key: &str,
             value: &[u8],
             params: PutObjectParams,
@@ -420,7 +424,7 @@ pub mod s3_session {
             Ok(tokio_block_on(request.send()).map(|_| ())?)
         }
 
-        fn remove_object(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let request = self
                 .sdk_client
@@ -512,9 +516,9 @@ pub mod s3_session {
             Ok(Some(parts))
         }
 
-        // Schudule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.
+        // Schedule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.
         // https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html?icmpid=docs_amazons3_console#restoring-objects-upgrade-tier
-        fn restore_object(&mut self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
+        fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let tier = if expedited { Tier::Expedited } else { Tier::Bulk };
             let request = self
@@ -532,7 +536,7 @@ pub mod s3_session {
             Ok(tokio_block_on(request).map(|_| ())?)
         }
 
-        fn is_object_restored(&mut self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send())?;
             Ok(head_object.restore().unwrap().contains("ongoing-request=\"false\""))

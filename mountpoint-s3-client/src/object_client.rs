@@ -78,8 +78,7 @@ pub trait ObjectClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
@@ -143,7 +142,7 @@ pub trait ObjectClient {
 ///
 /// [`ServiceError`]: ObjectClientError::ServiceError
 /// [`ClientError`]: ObjectClientError::ClientError
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ObjectClientError<S, C> {
     /// An error returned by the service itself
     #[error("Service error")]
@@ -182,6 +181,40 @@ pub enum GetObjectError {
 
     #[error("At least one of the preconditions specified did not hold")]
     PreconditionFailed,
+}
+
+/// Parameters to a [`get_object`](ObjectClient::get_object) request
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct GetObjectParams {
+    pub range: Option<Range<u64>>,
+    pub if_match: Option<ETag>,
+    pub checksum_mode: Option<ChecksumMode>,
+}
+
+impl GetObjectParams {
+    /// Create a default [GetObjectParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the range retrieved by the GetObject request
+    pub fn range(mut self, value: Option<Range<u64>>) -> Self {
+        self.range = value;
+        self
+    }
+
+    /// Set the required etag on the object
+    pub fn if_match(mut self, value: Option<ETag>) -> Self {
+        self.if_match = value;
+        self
+    }
+
+    /// Set option to retrieve checksum as part of the GetObject request
+    pub fn checksum_mode(mut self, value: Option<ChecksumMode>) -> Self {
+        self.checksum_mode = value;
+        self
+    }
 }
 
 /// Result of a [`list_objects`](ObjectClient::list_objects) request
@@ -230,7 +263,7 @@ impl HeadObjectParams {
 
 /// Enable [ChecksumMode] to retrieve object checksums
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ChecksumMode {
     /// Retrieve checksums
     Enabled,
@@ -357,6 +390,8 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
+pub type ObjectMetadata = HashMap<String, String>;
+
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
@@ -373,7 +408,7 @@ pub struct PutObjectParams {
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
-    pub object_metadata: HashMap<String, String>,
+    pub object_metadata: ObjectMetadata,
 }
 
 impl PutObjectParams {
@@ -413,7 +448,7 @@ impl PutObjectParams {
     }
 
     /// Set user defined object metadata.
-    pub fn object_metadata(mut self, value: HashMap<String, String>) -> Self {
+    pub fn object_metadata(mut self, value: ObjectMetadata) -> Self {
         self.object_metadata = value;
         self
     }
@@ -456,7 +491,7 @@ pub struct PutObjectSingleParams {
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
-    pub object_metadata: HashMap<String, String>,
+    pub object_metadata: ObjectMetadata,
 }
 
 impl PutObjectSingleParams {
@@ -496,7 +531,7 @@ impl PutObjectSingleParams {
     }
 
     /// Set user defined object metadata.
-    pub fn object_metadata(mut self, value: HashMap<String, String>) -> Self {
+    pub fn object_metadata(mut self, value: ObjectMetadata) -> Self {
         self.object_metadata = value;
         self
     }
@@ -525,9 +560,17 @@ impl UploadChecksum {
 /// object.
 #[cfg_attr(not(docsrs), async_trait)]
 pub trait GetObjectRequest:
-    Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send
+    Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {
     type ClientError: std::error::Error + Send + Sync + 'static;
+
+    /// Get the object's user defined metadata.
+    /// If the metadata has already been read, return immediately. Otherwise, resolve the future
+    /// when they're read.
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError>;
+
+    /// Get the object's checksum, if uploaded with one
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError>;
 
     /// Increment the flow-control window, so that response data continues downloading.
     ///

@@ -2,7 +2,7 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::{types::GetObjectRequest, ObjectClient};
+use mountpoint_s3_client::{types::GetObjectParams, types::GetObjectRequest, ObjectClient};
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
@@ -360,7 +360,7 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         let request = client
-            .get_object(&bucket, id.key(), Some(request_range.clone()), Some(id.etag().clone()))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(PrefetchReadError::GetRequestFailed)?;

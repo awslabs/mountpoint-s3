@@ -369,6 +369,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async_cell"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "834eee9ce518130a3b4d5af09ecc43e9d6b57ee76613f227a1ddd6b77c7a62bc"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2421,6 +2427,7 @@ dependencies = [
  "async-io",
  "async-lock",
  "async-trait",
+ "async_cell",
  "auto_impl",
  "aws-config",
  "aws-credential-types",

@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -10,7 +9,6 @@ use futures::channel::oneshot::{self, Receiver};
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, RequestType, UploadReview};
-use thiserror::Error;
 use tracing::error;
 
 use super::{
@@ -267,38 +265,19 @@ enum S3PutObjectRequestState {
     Idle,
 }
 
-fn try_get_header_value(headers: &Headers, key: &str) -> Option<String> {
-    headers.get(key).ok()?.value().clone().into_string().ok()
-}
-
-fn get_etag(response_headers: &Headers) -> Result<ETag, ParseError> {
-    Ok(response_headers
-        .get(ETAG_HEADER_NAME)?
-        .value()
-        .clone()
-        .into_string()
-        .map_err(ParseError::Invalid)?
-        .into())
-}
-
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum ParseError {
-    #[error("Header response error: {0}")]
-    Header(#[from] HeadersError),
-
-    #[error("Header string was not valid: {0:?}")]
-    Invalid(OsString),
+fn get_etag(response_headers: &Headers) -> Result<ETag, HeadersError> {
+    Ok(response_headers.get_as_string(ETAG_HEADER_NAME)?.into())
 }
 
 fn extract_result(response_headers: Headers) -> Result<PutObjectResult, S3RequestError> {
-    let etag = get_etag(&response_headers).map_err(|e| S3RequestError::InternalError(Box::new(e)))?;
-
-    Ok(PutObjectResult {
-        etag,
-        sse_type: try_get_header_value(&response_headers, SSE_TYPE_HEADER_NAME),
-        sse_kms_key_id: try_get_header_value(&response_headers, SSE_KEY_ID_HEADER_NAME),
-    })
+    fn extract_result_headers_err(response_headers: Headers) -> Result<PutObjectResult, HeadersError> {
+        Ok(PutObjectResult {
+            etag: get_etag(&response_headers)?,
+            sse_type: response_headers.get_as_optional_string(SSE_TYPE_HEADER_NAME)?,
+            sse_kms_key_id: response_headers.get_as_optional_string(SSE_KEY_ID_HEADER_NAME)?,
+        })
+    }
+    extract_result_headers_err(response_headers).map_err(|e| S3RequestError::InternalError(Box::new(e)))
 }
 
 /// Creates `on_headers` callback that will send the response headers to the matching `Receiver`.

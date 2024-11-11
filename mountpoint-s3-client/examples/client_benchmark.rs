@@ -9,7 +9,7 @@ use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
-use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_client::types::{ETag, GetObjectParams};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use tracing_subscriber::fmt::Subscriber;
@@ -46,7 +46,7 @@ fn run_benchmark(
                 scope.spawn(|| {
                     futures::executor::block_on(async move {
                         let mut request = client
-                            .get_object(bucket, key, None, None)
+                            .get_object(bucket, key, &GetObjectParams::new())
                             .await
                             .expect("couldn't create get request");
                         let mut request = pin!(request);

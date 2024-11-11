@@ -12,7 +12,6 @@ use std::os::fd::IntoRawFd;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use fuser::BackgroundSession;
 use mountpoint_s3::S3FilesystemConfig;
 use proptest::collection;
 use proptest::prelude::*;
@@ -20,7 +19,7 @@ use proptest_derive::Arbitrary;
 use tempfile::TempDir;
 use tracing::{info, info_span};
 
-use crate::common::fuse::{mock_session, TestClient, TestSession, TestSessionConfig};
+use crate::common::fuse::{mock_session, TestSession, TestSessionConfig};
 
 const MAX_NUM_FILES: usize = 10;
 const MAX_FILE_SIZE: usize = 1024 * 1024;
@@ -60,12 +59,7 @@ impl Filesystem for DirectoryFileSystem {
 }
 
 /// A file system backed by Mountpoint
-struct MountpointFileSystem {
-    mountpoint: TempDir,
-    // Option so we can explicitly unmount
-    session: Option<BackgroundSession>,
-    client: Box<dyn TestClient>,
-}
+struct MountpointFileSystem(TestSession);
 
 impl MountpointFileSystem {
     fn new(config: S3FilesystemConfig) -> anyhow::Result<Self> {
@@ -73,36 +67,22 @@ impl MountpointFileSystem {
             filesystem_config: config,
             ..Default::default()
         };
-        let TestSession {
-            mount_dir: mountpoint,
-            session,
-            test_client: client,
-        } = mock_session::new("", test_config);
-        Ok(Self {
-            mountpoint,
-            session: Some(session),
-            client,
-        })
+        let session = mock_session::new("", test_config);
+        Ok(Self(session))
     }
 }
 
 impl Filesystem for MountpointFileSystem {
     fn root(&self) -> &Path {
-        self.mountpoint.path()
+        self.0.mount_path()
     }
 
     fn put(&mut self, path: impl AsRef<Path>, contents: &[u8]) -> anyhow::Result<()> {
         let key = path.as_ref().to_str().unwrap();
-        self.client
+        self.0
+            .client()
             .put_object(key, contents)
             .map_err(|e| anyhow::anyhow!("put failed: {:?}", e))
-    }
-}
-
-impl Drop for MountpointFileSystem {
-    fn drop(&mut self) {
-        // Explicitly unmount so we know the background thread is gone
-        self.session.take().unwrap().join();
     }
 }
 

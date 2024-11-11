@@ -1,21 +1,36 @@
+use async_cell::sync::AsyncCell;
+use async_trait::async_trait;
 use std::future::Future;
 use std::ops::Deref;
-use std::ops::Range;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::Stream;
 use mountpoint_s3_crt::common::error::Error;
-use mountpoint_s3_crt::http::request_response::Header;
+use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
+use thiserror::Error;
 
-use crate::object_client::{ETag, GetBodyPart, GetObjectError, ObjectClientError, ObjectClientResult};
-use crate::s3_crt_client::{
-    GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+use crate::object_client::{
+    Checksum, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError, ObjectClientResult, ObjectMetadata,
 };
+use crate::s3_crt_client::{
+    parse_checksum, GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+};
+use crate::types::ChecksumMode;
+
+/// Failures to return object metadata
+#[derive(Clone, Error, Debug)]
+pub enum ObjectHeadersError {
+    #[error("unknown error occurred receiving object headers")]
+    UnknownError,
+    #[error("requested object checksums, but did not specify it in the request")]
+    DidNotRequestChecksums,
+}
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
@@ -24,10 +39,9 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
-        let span = request_span!(self.inner, "get_object", bucket, key, ?range, ?if_match);
+        let span = request_span!(self.inner, "get_object", bucket, key, range=?params.range, if_match=?params.if_match);
 
         let mut message = self
             .inner
@@ -39,14 +53,22 @@ impl S3CrtClient {
             .set_header(&Header::new("accept", "*/*"))
             .map_err(S3RequestError::construction_failure)?;
 
-        if let Some(etag) = if_match {
+        let requested_checksums = params.checksum_mode.as_ref() == Some(&ChecksumMode::Enabled);
+        if requested_checksums {
+            // Add checksum header to receive object checksums.
+            message
+                .set_header(&Header::new("x-amz-checksum-mode", "enabled"))
+                .map_err(S3RequestError::construction_failure)?;
+        }
+
+        if let Some(etag) = params.if_match.as_ref() {
             // Return the object only if its entity tag (ETag) is matched
             message
                 .set_header(&Header::new("If-Match", etag.as_str()))
                 .map_err(S3RequestError::construction_failure)?;
         }
 
-        let next_offset = if let Some(range) = range {
+        let next_offset = if let Some(range) = params.range.as_ref() {
             // Range HTTP header is bounded below *inclusive*
             let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
             message
@@ -67,15 +89,33 @@ impl S3CrtClient {
 
         let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
         options.part_size(self.inner.read_part_size as u64);
+
+        let object_headers = AsyncCell::shared();
+
+        let object_headers_setter_on_headers = object_headers.clone();
+        let object_headers_setter_on_finish = object_headers.clone();
+
         let request = self.inner.make_meta_request_from_options(
             options,
             span,
             |_| (),
-            |_, _| (),
+            move |headers, status| {
+                // Headers can be returned multiple times, but the metadata/checksums don't change.
+                // Explicitly ignore the case where we've already set object metadata.
+
+                // Only set headers if we have a 2xx status code. If we only get other status codes,
+                // then on_finish sets an error.
+                if (200..300).contains(&status) {
+                    // Don't overwrite if already set - the first headers are fine.
+                    object_headers_setter_on_headers.or_set(Ok(headers.clone()));
+                }
+            },
             move |offset, data| {
                 let _ = sender.unbounded_send(Ok((offset, data.into())));
             },
             move |result| {
+                // FIXME - Ideally we'd include a reason why we failed here.
+                object_headers_setter_on_finish.or_set(Err(ObjectHeadersError::UnknownError));
                 if result.is_err() {
                     Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
                 } else {
@@ -88,7 +128,10 @@ impl S3CrtClient {
             request,
             finish_receiver: receiver,
             finished: false,
+            requested_checksums,
             enable_backpressure: self.inner.enable_backpressure,
+            headers: object_headers,
+            initial_read_window_empty: self.inner.initial_read_window_size == 0,
             next_offset,
             read_window_end_offset,
         })
@@ -108,7 +151,10 @@ pub struct S3GetObjectRequest {
     #[pin]
     finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
     finished: bool,
+    requested_checksums: bool,
     enable_backpressure: bool,
+    headers: Arc<AsyncCell<Result<Headers, ObjectHeadersError>>>,
+    initial_read_window_empty: bool,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
     /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
@@ -116,8 +162,47 @@ pub struct S3GetObjectRequest {
     read_window_end_offset: u64,
 }
 
+impl S3GetObjectRequest {
+    async fn get_object_headers(&self) -> ObjectClientResult<Headers, GetObjectError, S3RequestError> {
+        match self.headers.try_get() {
+            Some(result) => result,
+            None => {
+                if self.enable_backpressure && self.initial_read_window_empty {
+                    return Err(ObjectClientError::ClientError(S3RequestError::EmptyReadWindow));
+                }
+                self.headers.get().await
+            }
+        }
+        .map_err(|_| ObjectClientError::ClientError(S3RequestError::RequestCanceled))
+    }
+}
+
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        let headers = self.get_object_headers().await?;
+        Ok(headers
+            .iter()
+            .filter_map(|(key, value)| {
+                let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
+                let value = value.to_str()?;
+                Some((metadata_header.to_string(), value.to_string()))
+            })
+            .collect())
+    }
+
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+        if !self.requested_checksums {
+            return Err(ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(
+                ObjectHeadersError::DidNotRequestChecksums,
+            ))));
+        }
+
+        let headers = self.get_object_headers().await?;
+        parse_checksum(&headers).map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+    }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
         self.read_window_end_offset += len as u64;

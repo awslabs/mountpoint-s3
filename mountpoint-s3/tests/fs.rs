@@ -15,7 +15,7 @@ use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
-use mountpoint_s3_client::types::{ETag, RestoreStatus};
+use mountpoint_s3_client::types::{ETag, GetObjectParams, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
@@ -600,7 +600,7 @@ async fn test_sequential_write(write_size: usize) {
 
     // Check that the object made it to S3 as we expected
     let get = client
-        .get_object(BUCKET_NAME, "dir1/file2.bin", None, None)
+        .get_object(BUCKET_NAME, "dir1/file2.bin", &GetObjectParams::new())
         .await
         .unwrap();
     let actual = get.collect().await.unwrap();

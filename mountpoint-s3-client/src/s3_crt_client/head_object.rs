@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -12,9 +11,9 @@ use time::OffsetDateTime;
 use tracing::error;
 
 use crate::object_client::{
-    Checksum, HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
+    HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
 };
-use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+use crate::s3_crt_client::{parse_checksum, S3CrtClient, S3Operation, S3RequestError};
 
 use super::ChecksumMode;
 
@@ -24,9 +23,6 @@ pub enum ParseError {
     #[error("Header response error: {0}")]
     Header(#[from] HeadersError),
 
-    #[error("Header string was not valid: {0:?}")]
-    Invalid(OsString),
-
     #[error("Failed to parse field {1} as OffsetDateTime: {0:?}")]
     OffsetDateTime(#[source] time::error::Parse, String),
 
@@ -35,24 +31,6 @@ pub enum ParseError {
 
     #[error("Header x-amz-restore is invalid: {0:?}")]
     InvalidRestore(String),
-}
-
-fn get_field(headers: &Headers, name: &str) -> Result<String, ParseError> {
-    let header = headers.get(name)?;
-    let value = header.value();
-    if let Some(s) = value.to_str() {
-        Ok(s.to_string())
-    } else {
-        Err(ParseError::Invalid(value.clone()))
-    }
-}
-
-fn get_optional_field(headers: &Headers, name: &str) -> Result<Option<String>, ParseError> {
-    Ok(if headers.has_header(name) {
-        Some(get_field(headers, name)?)
-    } else {
-        None
-    })
 }
 
 lazy_static! {
@@ -66,7 +44,7 @@ lazy_static! {
 
 impl HeadObjectResult {
     fn parse_restore_status(headers: &Headers) -> Result<Option<RestoreStatus>, ParseError> {
-        let Some(header) = get_optional_field(headers, "x-amz-restore")? else {
+        let Some(header) = headers.get_as_optional_string("x-amz-restore")? else {
             return Ok(None);
         };
 
@@ -87,30 +65,16 @@ impl HeadObjectResult {
         Ok(Some(RestoreStatus::Restored { expiry: expiry.into() }))
     }
 
-    fn parse_checksum(headers: &Headers) -> Result<Checksum, ParseError> {
-        let checksum_crc32 = get_optional_field(headers, "x-amz-checksum-crc32")?;
-        let checksum_crc32c = get_optional_field(headers, "x-amz-checksum-crc32c")?;
-        let checksum_sha1 = get_optional_field(headers, "x-amz-checksum-sha1")?;
-        let checksum_sha256 = get_optional_field(headers, "x-amz-checksum-sha256")?;
-
-        Ok(Checksum {
-            checksum_crc32,
-            checksum_crc32c,
-            checksum_sha1,
-            checksum_sha256,
-        })
-    }
-
     /// Parse from HeadObject headers
     fn parse_from_hdr(headers: &Headers) -> Result<Self, ParseError> {
-        let last_modified = OffsetDateTime::parse(&get_field(headers, "Last-Modified")?, &Rfc2822)
+        let last_modified = OffsetDateTime::parse(&headers.get_as_string("Last-Modified")?, &Rfc2822)
             .map_err(|e| ParseError::OffsetDateTime(e, "LastModified".into()))?;
-        let size = u64::from_str(&get_field(headers, "Content-Length")?)
+        let size = u64::from_str(&headers.get_as_string("Content-Length")?)
             .map_err(|e| ParseError::Int(e, "ContentLength".into()))?;
-        let etag = get_field(headers, "Etag")?;
-        let storage_class = get_optional_field(headers, "x-amz-storage-class")?;
+        let etag = headers.get_as_string("Etag")?;
+        let storage_class = headers.get_as_optional_string("x-amz-storage-class")?;
         let restore_status = Self::parse_restore_status(headers)?;
-        let checksum = Self::parse_checksum(headers)?;
+        let checksum = parse_checksum(headers)?;
         let result = HeadObjectResult {
             size,
             last_modified,
@@ -196,6 +160,8 @@ fn parse_head_object_error(result: &MetaRequestResult) -> Option<HeadObjectError
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use mountpoint_s3_crt::common::allocator::Allocator;
     use mountpoint_s3_crt::http::request_response::Header;
 
@@ -254,24 +220,6 @@ mod tests {
         let Some(RestoreStatus::InProgress) = restore_status else {
             panic!("unexpected restore_status");
         };
-    }
-
-    #[test]
-    fn test_checksum_sha256() {
-        let mut headers = Headers::new(&Allocator::default()).unwrap();
-        let value = "QwzjTQIHJO11oZbfwq1nx3dy0Wk=";
-        let header = Header::new("x-amz-checksum-sha256", value.to_owned());
-        headers.add_header(&header).unwrap();
-
-        let checksum = HeadObjectResult::parse_checksum(&headers).expect("failed to parse headers");
-        assert_eq!(checksum.checksum_crc32, None, "other checksums shouldn't be set");
-        assert_eq!(checksum.checksum_crc32c, None, "other checksums shouldn't be set");
-        assert_eq!(checksum.checksum_sha1, None, "other checksums shouldn't be set");
-        assert_eq!(
-            checksum.checksum_sha256,
-            Some(value.to_owned()),
-            "sha256 header should match"
-        );
     }
 
     #[test]

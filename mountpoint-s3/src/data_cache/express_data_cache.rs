@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{GetObjectRequest, PutObjectParams};
+use mountpoint_s3_client::types::{GetObjectParams, GetObjectRequest, PutObjectParams};
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
@@ -71,26 +71,36 @@ where
         }
 
         let object_key = block_key(&self.prefix, cache_key, block_idx);
-        let result = match self.client.get_object(&self.bucket_name, &object_key, None, None).await {
+        let result = match self
+            .client
+            .get_object(&self.bucket_name, &object_key, &GetObjectParams::new())
+            .await
+        {
             Ok(result) => result,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
             Err(e) => return Err(e.into()),
         };
 
         pin_mut!(result);
+        // Guarantee that the request will start even in case of `initial_read_window == 0`.
+        result.as_mut().increment_read_window(self.block_size as usize);
 
         // TODO: optimize for the common case of a single chunk.
         let mut buffer = BytesMut::default();
         while let Some(chunk) = result.next().await {
-            let (offset, body) = chunk?;
-            if offset != buffer.len() as u64 {
-                return Err(DataCacheError::InvalidBlockOffset);
-            }
-            buffer.extend_from_slice(&body);
+            match chunk {
+                Ok((offset, body)) => {
+                    if offset != buffer.len() as u64 {
+                        return Err(DataCacheError::InvalidBlockOffset);
+                    }
+                    buffer.extend_from_slice(&body);
 
-            // Ensure the flow-control window is large enough.
-            // TODO: review if/when we add a header to the block.
-            result.as_mut().increment_read_window(self.block_size as usize);
+                    // Ensure the flow-control window is large enough.
+                    result.as_mut().increment_read_window(self.block_size as usize);
+                }
+                Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            }
         }
         let buffer = buffer.freeze();
         DataCacheResult::Ok(Some(buffer.into()))

@@ -13,23 +13,23 @@ use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, Test
 /// See [mountpoint_s3::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &str, subdir: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client
+    test_session
+        .client()
         .put_object(&format!("dir/{subdir}hello.txt"), b"hello world")
         .unwrap();
-    test_client
+    test_session
+        .client()
         .put_object(&format!("dir-1/{subdir}hello.txt"), b"hello world")
         .unwrap();
 
-    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["dir", "dir-1"]);
 
-    let m = metadata(mount_point.path().join("dir")).unwrap();
+    let m = metadata(test_session.mount_path().join("dir")).unwrap();
     assert!(m.file_type().is_dir());
-    let m = metadata(mount_point.path().join("dir-1")).unwrap();
+    let m = metadata(test_session.mount_path().join("dir-1")).unwrap();
     assert!(m.file_type().is_dir());
 }
 
@@ -50,8 +50,6 @@ fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
 
 fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let keys = &[
         "weird$dir name",
@@ -62,31 +60,32 @@ fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &st
     ];
 
     for (i, key) in keys.iter().enumerate() {
-        test_client
+        test_session
+            .client()
             .put_object(key, format!("hello world {i}").as_bytes())
             .unwrap();
     }
 
-    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["weird$dir name", "weirder_.-@dir +name"]);
 
-    let m = metadata(mount_point.path().join(keys[0])).unwrap();
+    let m = metadata(test_session.mount_path().join(keys[0])).unwrap();
     assert!(m.file_type().is_dir());
-    let m = metadata(mount_point.path().join(keys[3])).unwrap();
+    let m = metadata(test_session.mount_path().join(keys[3])).unwrap();
     assert!(m.file_type().is_dir());
 
-    let read_dir_iter = read_dir(mount_point.path().join(keys[0])).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path().join(keys[0])).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(
         dir_entry_names,
         vec!["my 1st file~.jpg", "my 2nd file: the better one.jpg"]
     );
 
-    let f = read_to_string(mount_point.path().join(keys[1])).unwrap();
+    let f = read_to_string(test_session.mount_path().join(keys[1])).unwrap();
     assert_eq!(f, "hello world 1");
 
-    let f = read_to_string(mount_point.path().join(keys[2])).unwrap();
+    let f = read_to_string(test_session.mount_path().join(keys[2])).unwrap();
     assert_eq!(f, "hello world 2");
 }
 
@@ -118,19 +117,17 @@ fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
             ..Default::default()
         },
     );
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let name = "foo";
     let nested = format!("{name}/bar");
-    test_client.put_object(&nested, b"bar").unwrap();
+    test_session.client().put_object(&nested, b"bar").unwrap();
 
-    let path = mount_point.path().join(name);
+    let path = test_session.mount_path().join(name);
     let m = metadata(&path).unwrap();
     assert!(m.file_type().is_dir());
 
-    test_client.remove_object(&nested).unwrap();
-    test_client.put_object(name, b"foo").unwrap();
+    test_session.client().remove_object(&nested).unwrap();
+    test_session.client().put_object(name, b"foo").unwrap();
 
     let m = metadata(&path).unwrap();
     assert!(m.file_type().is_file());
@@ -149,34 +146,33 @@ fn lookup_previously_shadowed_file_test_mock() {
 
 fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let keys = &["مرحبًا", "こんにちは/", "🇦🇺", "🐈/🦀"];
 
     for (i, key) in keys.iter().enumerate() {
-        test_client
+        test_session
+            .client()
             .put_object(key, format!("hello world {i}").as_bytes())
             .unwrap();
     }
 
-    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["مرحبًا", "こんにちは", "🇦🇺", "🐈"]);
 
-    let m = metadata(mount_point.path().join("こんにちは")).unwrap();
+    let m = metadata(test_session.mount_path().join("こんにちは")).unwrap();
     assert!(m.file_type().is_dir());
-    let m = metadata(mount_point.path().join("🐈")).unwrap();
+    let m = metadata(test_session.mount_path().join("🐈")).unwrap();
     assert!(m.file_type().is_dir());
 
     // Not really a "lookup" test, but since we're playing with Unicode, may as well do it here
-    let new_path = mount_point.path().join("🐈/👻");
+    let new_path = test_session.mount_path().join("🐈/👻");
     let mut f = OpenOptions::new().write(true).create_new(true).open(&new_path).unwrap();
     f.write_all("hello world 4".as_bytes()).unwrap();
     f.sync_all().unwrap();
     drop(f);
 
-    let f = read_to_string(mount_point.path().join(keys[0])).unwrap();
+    let f = read_to_string(test_session.mount_path().join(keys[0])).unwrap();
     assert_eq!(f, "hello world 0");
 
     let f = read_to_string(new_path).unwrap();
@@ -209,19 +205,17 @@ fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
         ..Default::default()
     };
     let test_session = creator_fn("lookup_with_negative_cache", config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Check negative caching
-    let file_path = mount_point.path().join(FILE_NAME);
+    let file_path = test_session.mount_path().join(FILE_NAME);
     metadata(&file_path).expect_err("should fail as no object exists");
 
-    test_client.put_object(FILE_NAME, b"hello").unwrap();
+    test_session.client().put_object(FILE_NAME, b"hello").unwrap();
 
     metadata(&file_path).expect_err("should fail as mountpoint should use negative cache");
 
     // Use read dir to discover the new file
-    let dir_entry_names = read_dir_to_entry_names(read_dir(mount_point.path()).unwrap());
+    let dir_entry_names = read_dir_to_entry_names(read_dir(test_session.mount_path()).unwrap());
     assert_eq!(dir_entry_names, vec![FILE_NAME]);
 
     let m = metadata(&file_path).expect("should succeed as object is cached and exists");

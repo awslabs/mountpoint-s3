@@ -16,16 +16,17 @@ fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
-    test_client.put_object("dir/foo.txt", b"bar").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
+    test_session.client().put_object("dir/foo.txt", b"bar").unwrap();
 
-    let main_dir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
-    let nonexistent_path = mount_point.path().join("dir/not-here.txt");
+    let main_dir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
+    let nonexistent_path = test_session.mount_path().join("dir/not-here.txt");
 
     // files should be visible in readdir
     let read_dir_iter = fs::read_dir(&main_dir).unwrap();
@@ -68,16 +69,17 @@ fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
-    test_client.put_object("dir/this.txt", &[0u8; B_IN_MB * 128]).unwrap();
-    test_client.put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_session
+        .client()
+        .put_object("dir/this.txt", &[0u8; B_IN_MB * 128])
+        .unwrap();
+    test_session.client().put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
 
-    let main_dir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/this.txt");
+    let main_dir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/this.txt");
 
     let mut f = File::options()
         .read(true)
@@ -123,13 +125,11 @@ fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_session.client().put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
 
-    let main_dir = mount_point.path().join("dir");
+    let main_dir = test_session.mount_path().join("dir");
     let path = main_dir.join("writing.txt");
 
     let mut f = File::options()
@@ -189,12 +189,10 @@ fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
         ..Default::default()
     };
     let test_session = creator_fn(Default::default(), test_session_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("dir/file.txt", &[0u8; 4]).unwrap();
+    test_session.client().put_object("dir/file.txt", &[0u8; 4]).unwrap();
 
-    let main_dir = mount_point.path().join("dir");
+    let main_dir = test_session.mount_path().join("dir");
     let path = main_dir.join("file.txt");
     let err = fs::remove_file(path).expect_err("file remove/unlink should fail when delete is not allowed");
     let raw_os_err = err.raw_os_error().expect("err should be OS-level err");

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use clap::{Arg, Command};
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::types::GetObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use regex::Regex;
@@ -58,7 +59,7 @@ fn main() {
     let last_offset_clone = Arc::clone(&last_offset);
     futures::executor::block_on(async move {
         let mut request = client
-            .get_object(bucket, key, range, None)
+            .get_object(bucket, key, &GetObjectParams::new().range(range))
             .await
             .expect("couldn't create get request");
         loop {

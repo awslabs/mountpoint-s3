@@ -29,25 +29,23 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("hello.txt", b"hello world").unwrap();
+    test_session.client().put_object("hello.txt", b"hello world").unwrap();
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
-    test_client.put_object("test2MiB.bin", &two_mib_body).unwrap();
+    test_session.client().put_object("test2MiB.bin", &two_mib_body).unwrap();
 
-    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["hello.txt", "test2MiB.bin"]);
 
-    let mut hello_fh1 = open_for_read(mount_point.path().join("hello.txt"), read_only).unwrap();
+    let mut hello_fh1 = open_for_read(test_session.mount_path().join("hello.txt"), read_only).unwrap();
     let mut hello_contents = String::new();
     hello_fh1.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
 
     // We can read from a file more than once at the same time.
-    let mut hello_fh2 = open_for_read(mount_point.path().join("hello.txt"), read_only).unwrap();
+    let mut hello_fh2 = open_for_read(test_session.mount_path().join("hello.txt"), read_only).unwrap();
     let mut hello_contents = String::new();
     hello_fh2.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
@@ -57,7 +55,7 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
 
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
     // so we can make it weird.
-    let mut bin = open_for_read(mount_point.path().join("test2MiB.bin"), read_only).unwrap();
+    let mut bin = open_for_read(test_session.mount_path().join("test2MiB.bin"), read_only).unwrap();
     let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
@@ -73,7 +71,7 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     assert_eq!(bytes_read, 2 * 1024 * 1024);
     assert_eq!(two_mib_body, two_mib_read);
 
-    let mut hello = File::open(mount_point.path().join("hello.txt")).unwrap();
+    let mut hello = File::open(test_session.mount_path().join("hello.txt")).unwrap();
     hello.seek(SeekFrom::Start(50)).unwrap();
     let result = hello.read(&mut [0; 4]).unwrap();
     assert_eq!(result, 0);
@@ -133,8 +131,6 @@ fn read_flexible_retrieval_test(
     restore: RestorationOptions,
 ) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     for file in files {
         let mut put_params = PutObjectParams::default();
@@ -142,16 +138,20 @@ fn read_flexible_retrieval_test(
             put_params.storage_class = Some(file.to_string());
         }
         let key = format!("{file}.txt");
-        test_client.put_object_params(&key, b"hello world", put_params).unwrap();
+        test_session
+            .client()
+            .put_object_params(&key, b"hello world", put_params)
+            .unwrap();
         match restore {
             RestorationOptions::None => (),
             RestorationOptions::RestoreAndWait => {
-                test_client.restore_object(&key, true).unwrap();
+                test_session.client().restore_object(&key, true).unwrap();
                 let timeout = Duration::from_secs(300);
                 let start = Instant::now();
                 let mut timeouted = true;
                 while start.elapsed() < timeout {
-                    if test_client
+                    if test_session
+                        .client()
                         .is_object_restored(&key)
                         .expect("failed to check restoration status")
                     {
@@ -162,11 +162,11 @@ fn read_flexible_retrieval_test(
                 }
                 assert!(!timeouted, "timeouted while waiting for object become restored");
             }
-            RestorationOptions::RestoreInProgress => test_client.restore_object(&key, false).unwrap(),
+            RestorationOptions::RestoreInProgress => test_session.client().restore_object(&key, false).unwrap(),
         }
     }
 
-    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     for file in read_dir_iter {
         let file = file.unwrap();
         let file_name = file.file_name().to_string_lossy().into_owned();
@@ -261,14 +261,12 @@ fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("hello.txt", b"hello world").unwrap();
+    test_session.client().put_object("hello.txt", b"hello world").unwrap();
 
-    let file_path = mount_point.path().join("hello.txt");
+    let file_path = test_session.mount_path().join("hello.txt");
 
-    let read_dir_iter = read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["hello.txt"]);
 
@@ -314,15 +312,13 @@ fn read_errors_test_mock(prefix: &str) {
 fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "data.bin";
     let test_session = creator_fn("read_after_flush_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
-    test_client.put_object(KEY, &two_mib_body).unwrap();
+    test_session.client().put_object(KEY, &two_mib_body).unwrap();
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
     let mut f = open_for_read(path, true).unwrap();
 
     let mut content = vec![0; 128];

@@ -38,14 +38,15 @@ fn sequential_write_test(creator_fn: impl TestSessionCreator, prefix: &str, appe
     const WRITE_SIZE: usize = 1024;
 
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/new.txt");
+    let subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/new.txt");
 
     let mut f = open_for_write(&path, append, write_only).unwrap();
 
@@ -113,12 +114,13 @@ fn sequential_write_test_mock(prefix: &str, append: bool, write_only: bool) {
 
 fn write_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let path = mount_point.path().join("dir/hello.txt");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // Existing files should not be writable even in O_APPEND
     let err = open_for_write(&path, true, true).expect_err("can't append existing file");
@@ -191,13 +193,14 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
     const KEY: &str = "dir/new.txt";
 
     let test_session = creator_fn("sequential_write_streaming_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(&path, false, true).unwrap();
 
@@ -222,7 +225,8 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
 
     if object_size > 0 {
         // The upload starts after the first write at the latest
-        let status = test_client
+        let status = test_session
+            .client()
             .is_upload_in_progress(KEY)
             .expect("the upload should be in-progress");
         assert!(status);
@@ -261,10 +265,8 @@ fn fsync_test(creator_fn: impl TestSessionCreator, write_only: bool) {
     const KEY: &str = "new.txt";
 
     let test_session = creator_fn("fsync_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(&path, false, write_only).unwrap();
 
@@ -278,11 +280,11 @@ fn fsync_test(creator_fn: impl TestSessionCreator, write_only: bool) {
 
     f.write_all(&body).unwrap();
 
-    assert!(test_client.is_upload_in_progress(KEY).unwrap());
+    assert!(test_session.client().is_upload_in_progress(KEY).unwrap());
 
     f.sync_all().unwrap();
 
-    assert!(!test_client.is_upload_in_progress(KEY).unwrap());
+    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), body.len() as u64);
@@ -328,9 +330,8 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
         ..Default::default()
     };
     let test_session = creator_fn("fstat_after_writing", session_config);
-    let mount_point = test_session.mount_dir;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(&path, false, true).unwrap();
 
@@ -388,9 +389,8 @@ fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
         ..Default::default()
     };
     let test_session = creator_fn("write_too_big_test", config);
-    let mount_point = test_session.mount_dir;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(&path, false, true).unwrap();
 
@@ -431,9 +431,8 @@ fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64) {
     const KEY: &str = "new.txt";
 
     let test_session = creator_fn("out_of_order_write_test", Default::default());
-    let mount_point = test_session.mount_dir;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(&path, false, true).unwrap();
 
@@ -488,16 +487,14 @@ fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_cl
         ..Default::default()
     };
     let test_session = creator_fn("write_with_storage_class_test", config);
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     write_file(path).unwrap();
 
     assert_eq!(
         storage_class.map(String::from),
-        test_client.get_object_storage_class(KEY).unwrap()
+        test_session.client().get_object_storage_class(KEY).unwrap()
     );
 }
 
@@ -530,9 +527,8 @@ fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, st
         ..Default::default()
     };
     let test_session = creator_fn("write_with_storage_class_test", config);
-    let mount_point = test_session.mount_dir;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
     write_file(path).expect_err("write with invalid storage class should fail");
 }
 
@@ -556,10 +552,8 @@ fn flush_test(creator_fn: impl TestSessionCreator, append: bool) {
     const KEY: &str = "new.txt";
 
     let test_session = creator_fn("flush_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(&path, append, true).unwrap();
 
@@ -571,12 +565,12 @@ fn flush_test(creator_fn: impl TestSessionCreator, append: bool) {
         f.write_all(part).unwrap();
     }
 
-    assert!(test_client.is_upload_in_progress(KEY).unwrap());
+    assert!(test_session.client().is_upload_in_progress(KEY).unwrap());
 
     // Close the file. Will trigger a call to flush.
     drop(f);
 
-    assert!(!test_client.is_upload_in_progress(KEY).unwrap());
+    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -603,10 +597,8 @@ fn touch_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "new.txt";
 
     let test_session = creator_fn("touch_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let exit_status = Command::new("touch")
         .arg(&path)
@@ -621,7 +613,9 @@ fn touch_test(creator_fn: impl TestSessionCreator) {
         if st.elapsed() > MAX_WAIT_DURATION {
             panic!("wait for result timeout")
         }
-        if !test_client.is_upload_in_progress(KEY).unwrap() && test_client.contains_key(KEY).unwrap() {
+        if !test_session.client().is_upload_in_progress(KEY).unwrap()
+            && test_session.client().contains_key(KEY).unwrap()
+        {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -647,10 +641,8 @@ fn dd_test(creator_fn: impl TestSessionCreator) {
     const SIZE: u64 = 128;
 
     let test_session = creator_fn("dd_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let exit_status = Command::new("dd")
         .arg("if=/dev/random")
@@ -661,8 +653,8 @@ fn dd_test(creator_fn: impl TestSessionCreator) {
         .expect("Unable to spawn dd");
     assert!(exit_status.success());
 
-    assert!(!test_client.is_upload_in_progress(KEY).unwrap());
-    assert!(test_client.contains_key(KEY).unwrap());
+    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(test_session.client().contains_key(KEY).unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), SIZE);
@@ -683,9 +675,8 @@ fn dd_test_mock() {
 fn spawn_test() {
     const KEY: &str = "new.txt";
     let test_session = fuse::mock_session::new("spawn_test", Default::default());
-    let mount_point = test_session.mount_dir;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
     let mut f = open_for_write(&path, false, true).unwrap();
 
     let data = vec![0xaa; 32];
@@ -706,10 +697,8 @@ fn spawn_test() {
 fn multi_thread_test() {
     const KEY: &str = "new.txt";
     let test_session = fuse::mock_session::new("spawn_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
     let mut f = open_for_write(&path, false, true).unwrap();
 
     let data = vec![0xaa; 32 * 1024 * 1024];
@@ -719,8 +708,8 @@ fn multi_thread_test() {
         f.write_all(&data).unwrap();
         drop(f);
 
-        assert!(!test_client.is_upload_in_progress(KEY).unwrap());
-        assert!(test_client.contains_key(KEY).unwrap());
+        assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
+        assert!(test_session.client().contains_key(KEY).unwrap());
 
         let m = metadata(&path).unwrap();
         assert_eq!(m.len(), (data.len() * 2) as u64);
@@ -739,14 +728,15 @@ fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only:
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // Open with O_TRUNC and write something to the file
     let mut options = File::options();
@@ -790,14 +780,15 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // We can't write to the file that is being read
     // from both the same file handle or a new one
@@ -847,14 +838,15 @@ fn overwrite_fail_on_write_without_truncate_test(creator_fn: impl TestSessionCre
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // Open should fail without truncate flag
     let mut options = File::options();
@@ -908,14 +900,15 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, wr
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // File should be empty when opened with O_TRUNC even without any write
     let mut options = File::options();
@@ -959,14 +952,15 @@ fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) 
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // Read first
     let mut read_fh = File::options().read(true).open(&path).unwrap();
@@ -1012,14 +1006,12 @@ fn write_handle_no_update_existing_empty_file(
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory and a file
-    test_client.put_object("dir/hello.txt", b"").unwrap();
+    test_session.client().put_object("dir/hello.txt", b"").unwrap();
 
-    let _subdir = mount_point.path().join("dir");
-    let path = mount_point.path().join("dir/hello.txt");
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // Open the file in non-truncate mode and do nothing
     File::options()
@@ -1108,10 +1100,8 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
         TestSessionConfig::default().with_credentials(tokio_block_on(get_scoped_down_credentials(&policy)));
     test_config.filesystem_config.server_side_encryption = sse;
     let test_session = fuse::s3_session::new("sse_with_policy_test", test_config);
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
     let file_name = "hello";
-    let path = mount_point.path().join(file_name);
+    let path = test_session.mount_path().join(file_name);
     let mut f = open_for_write(&path, false, true).unwrap();
     let data = vec![0xaa; 32];
     let write_result = f.write_all(&data);
@@ -1131,22 +1121,23 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
         data.len() as u64,
         "filesystem must report correct size for the file"
     );
-    assert!(test_client.contains_key(file_name).unwrap(), "object must exist in S3");
+    assert!(
+        test_session.client().contains_key(file_name).unwrap(),
+        "object must exist in S3"
+    );
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(200)]
 fn concurrent_open_for_write_test(max_files: usize) {
     let test_session = fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
     let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
 
     // Open many files for write.
     let mut open_files = Vec::new();
     for file_name in &file_names {
-        let path = mount_point.path().join(file_name);
+        let path = test_session.mount_path().join(file_name);
         let f = open_for_write(&path, false, true).expect("open should succeed");
         open_files.push(f);
     }
@@ -1163,7 +1154,10 @@ fn concurrent_open_for_write_test(max_files: usize) {
     }
 
     for file_name in file_names {
-        assert!(test_client.contains_key(&file_name).unwrap(), "object must exist in S3");
+        assert!(
+            test_session.client().contains_key(&file_name).unwrap(),
+            "object must exist in S3"
+        );
     }
 }
 
@@ -1180,13 +1174,14 @@ fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksum
         ..Default::default()
     };
     let test_session = creator_fn("write_checksums_test", config);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let path = mount_point.path().join(KEY);
+    let path = test_session.mount_path().join(KEY);
 
     let mut f = open_for_write(path, false, true).unwrap();
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
@@ -1204,7 +1199,7 @@ fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksum
     drop(f);
 
     // Now it's fsync'ed and closed, it should be present in S3
-    let parts = test_client.get_object_parts(KEY).unwrap();
+    let parts = test_session.client().get_object_parts(KEY).unwrap();
     if use_upload_checksums {
         let parts = parts.expect("parts should be non-empty");
         assert_eq!(parts.len(), (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE);

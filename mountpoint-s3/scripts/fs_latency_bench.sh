@@ -31,6 +31,10 @@ if [[ -n "${S3_ENDPOINT_URL}" ]]; then
   optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
 fi
 
+if [[ -n "${S3_DEBUG}" ]]; then
+  optional_args+=" --debug"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -64,6 +68,7 @@ do
         --allow-delete \
         --log-directory=$log_dir \
         --prefix=${S3_BUCKET_TEST_PREFIX} \
+        --log-metrics \
         ${optional_args}
     mount_status=$?
     if [ $mount_status -ne 0 ]; then
@@ -116,7 +121,7 @@ do
 
     # cleanup mount directory
     rm -rf ${mount_dir}
-    
+
     # increase directory size
     dir_size=$(awk "BEGIN {print $dir_size*10}")
 done
@@ -136,10 +141,10 @@ for job_file in "${jobs_dir}"/*.fio; do
 
   # mount file system
   cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
-    --debug \
     --allow-delete \
     --log-directory=$log_dir \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
+    --log-metrics \
     ${optional_args}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then

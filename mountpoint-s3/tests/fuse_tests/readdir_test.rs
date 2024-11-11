@@ -1,4 +1,4 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClientBox, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClient, TestSessionConfig, TestSessionCreator};
 use mountpoint_s3::S3FilesystemConfig;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::StdRng;
@@ -25,7 +25,7 @@ impl File {
     }
 }
 
-fn prepare_fs(mut test_client: TestClientBox, map: &HashMap<String, File>) {
+fn prepare_fs(test_client: &dyn TestClient, map: &HashMap<String, File>) {
     for (name, file) in map {
         let content = vec![file.pat; file.len];
         test_client.put_object(name, &content).unwrap();
@@ -57,12 +57,10 @@ fn readdir(creator_fn: impl TestSessionCreator, prefix: &str, rng_seed: usize) {
             ..Default::default()
         },
     );
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    prepare_fs(test_client, &map);
+    prepare_fs(test_session.client(), &map);
 
-    let read_dir_iter = fs::read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(
         dir_entry_names, expected_list,
@@ -94,10 +92,8 @@ fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_
             ..Default::default()
         },
     );
-    let mount_point = test_session.mount_dir;
-    let test_client = test_session.test_client;
 
-    prepare_fs(test_client, &map);
+    prepare_fs(test_session.client(), &map);
 
     const OBJECT_SIZE: usize = 1024;
     // open some new files for write and leave it open
@@ -106,7 +102,7 @@ fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_
         let mut rng = StdRng::seed_from_u64((rng_seed + map.len() + i) as u64);
         let random_str = Alphanumeric.sample_string(&mut rng, 8);
         let file_name = format!("file_{random_str}_{i}");
-        let path = mount_point.path().join(&file_name);
+        let path = test_session.mount_path().join(&file_name);
         let mut options = fs::File::options();
         options.write(true);
         options.create(true);
@@ -121,7 +117,7 @@ fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_
     }
     expected_list.sort();
 
-    let read_dir_iter = fs::read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(
         dir_entry_names, expected_list,

@@ -7,14 +7,12 @@ use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 
 fn read_test(creator_fn: impl TestSessionCreator, object_size: usize) {
     let test_session = creator_fn(Default::default(), Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let file_name = "hello.bin";
     let object = vec![255u8; object_size];
-    test_client.put_object(file_name, &object).unwrap();
+    test_session.client().put_object(file_name, &object).unwrap();
 
-    let file_path = mount_point.path().join(file_name);
+    let file_path = test_session.mount_path().join(file_name);
     let buf = {
         let mut buf = Vec::new();
         let mut file = File::open(file_path).unwrap();
@@ -84,14 +82,15 @@ fn prefetch_test_etag(
             ..Default::default()
         },
     );
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let original_data_buf = vec![0u8; object_size];
 
-    test_client.put_object("dir/hello.txt", &original_data_buf).unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", &original_data_buf)
+        .unwrap();
 
-    let mut path = mount_point.path().join("dir/hello.txt");
+    let mut path = test_session.mount_path().join("dir/hello.txt");
 
     let mut f = OpenOptions::new()
         .read(true)
@@ -104,7 +103,10 @@ fn prefetch_test_etag(
 
     // changed the value of data buf to distinguish it from previous data of the object.
     let final_data_buf = vec![255u8; object_size];
-    test_client.put_object("dir/hello.txt", &final_data_buf).unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", &final_data_buf)
+        .unwrap();
     let mut dest_buf = vec![0u8; read_size];
 
     // Reading the file until we keep getting the prefetched data or we get an IO error where E-Tag did not match.
@@ -128,7 +130,7 @@ fn prefetch_test_etag(
     drop(f);
 
     // Since we are reopening the file, prefetching will start again. So, it will be able to read new data in the object.
-    path = mount_point.path().join("dir/hello.txt");
+    path = test_session.mount_path().join("dir/hello.txt");
     let mut f = OpenOptions::new()
         .read(true)
         .open(path)

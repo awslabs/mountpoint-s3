@@ -72,6 +72,10 @@ pub enum HeadersError {
     /// Internal CRT error
     #[error("CRT error: {0}")]
     CrtError(#[source] Error),
+
+    /// Header value could not be converted to String
+    #[error("Header string was not valid: {0:?}")]
+    Invalid(OsString),
 }
 
 // Convert CRT error into HeadersError, mapping the HEADER_NOT_FOUND to HeadersError::HeaderNotFound.
@@ -195,6 +199,26 @@ impl Headers {
         let value = unsafe { OsStr::from_bytes(aws_byte_cursor_as_slice(&value)).to_owned() };
 
         Ok(Header::new(name, value))
+    }
+
+    /// Get a single header by name as a [String].
+    pub fn get_as_string<H: AsRef<OsStr>>(&self, name: H) -> Result<String, HeadersError> {
+        let header = self.get(name)?;
+        let value = header.value();
+        if let Some(s) = value.to_str() {
+            Ok(s.to_string())
+        } else {
+            Err(HeadersError::Invalid(value.clone()))
+        }
+    }
+
+    /// Get an optional header by name as a [String].
+    pub fn get_as_optional_string<H: AsRef<OsStr>>(&self, name: H) -> Result<Option<String>, HeadersError> {
+        Ok(if self.has_header(&name) {
+            Some(self.get_as_string(name)?)
+        } else {
+            None
+        })
     }
 
     /// Iterate over the headers as (name, value) pairs.
@@ -380,6 +404,9 @@ mod test {
         assert_eq!(headers.get("a").unwrap().name(), "a");
         assert_eq!(headers.get("a").unwrap().value(), "1");
 
+        assert_eq!(headers.get_as_string("a"), Ok("1".to_string()));
+        assert_eq!(headers.get_as_optional_string("a"), Ok(Some("1".to_string())));
+
         let map: HashMap<OsString, OsString> = headers.iter().collect();
 
         assert_eq!(map.len(), 3);
@@ -393,6 +420,16 @@ mod test {
         assert!(!headers.has_header("a"));
         let error = headers.get("a").expect_err("should fail because header is not present");
         assert_eq!(error, HeadersError::HeaderNotFound, "should fail with HeaderNotFound");
+
+        let error = headers
+            .get_as_string("a")
+            .expect_err("should fail because header is not present");
+        assert_eq!(error, HeadersError::HeaderNotFound, "should fail with HeaderNotFound");
+
+        let header = headers
+            .get_as_optional_string("a")
+            .expect("Should not fail as optional is expected here");
+        assert_eq!(header, None, "should return None");
     }
 
     /// Test setting the same header twice, which should overwrite with the second value.
