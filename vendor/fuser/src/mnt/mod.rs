@@ -2,24 +2,24 @@
 //!
 //! Raw communication channel to the FUSE kernel driver.
 
-#[cfg(feature = "libfuse2")]
+#[cfg(fuser_mount_impl = "libfuse2")]
 mod fuse2;
 #[cfg(any(feature = "libfuse", test))]
 mod fuse2_sys;
-#[cfg(feature = "libfuse3")]
+#[cfg(fuser_mount_impl = "libfuse3")]
 mod fuse3;
-#[cfg(feature = "libfuse3")]
+#[cfg(fuser_mount_impl = "libfuse3")]
 mod fuse3_sys;
 
-#[cfg(not(feature = "libfuse"))]
+#[cfg(fuser_mount_impl = "pure-rust")]
 mod fuse_pure;
 pub mod mount_options;
 
-#[cfg(any(feature = "libfuse", test))]
+#[cfg(any(test, feature = "libfuse"))]
 use fuse2_sys::fuse_args;
 #[cfg(any(test, not(feature = "libfuse")))]
 use std::fs::File;
-#[cfg(any(test, not(feature = "libfuse"), not(feature = "libfuse3")))]
+#[cfg(any(test, fuser_mount_impl = "pure-rust", fuser_mount_impl = "libfuse2"))]
 use std::io;
 
 #[cfg(any(feature = "libfuse", test))]
@@ -47,16 +47,16 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) 
     })
 }
 
-#[cfg(feature = "libfuse2")]
+#[cfg(fuser_mount_impl = "libfuse2")]
 pub use fuse2::Mount;
-#[cfg(feature = "libfuse3")]
+#[cfg(fuser_mount_impl = "libfuse3")]
 pub use fuse3::Mount;
-#[cfg(not(feature = "libfuse"))]
+#[cfg(fuser_mount_impl = "pure-rust")]
 pub use fuse_pure::Mount;
-#[cfg(not(feature = "libfuse3"))]
+#[cfg(not(fuser_mount_impl = "libfuse3"))]
 use std::ffi::CStr;
 
-#[cfg(not(feature = "libfuse3"))]
+#[cfg(not(fuser_mount_impl = "libfuse3"))]
 #[inline]
 fn libc_umount(mnt: &CStr) -> io::Result<()> {
     #[cfg(any(
@@ -64,7 +64,6 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     ))]
     let r = unsafe { libc::unmount(mnt.as_ptr(), 0) };
@@ -74,7 +73,6 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     )))]
     let r = unsafe { libc::umount(mnt.as_ptr()) };
@@ -87,7 +85,7 @@ fn libc_umount(mnt: &CStr) -> io::Result<()> {
 
 /// Warning: This will return true if the filesystem has been detached (lazy unmounted), but not
 /// yet destroyed by the kernel.
-#[cfg(any(test, not(feature = "libfuse")))]
+#[cfg(any(test, fuser_mount_impl = "pure-rust"))]
 fn is_mounted(fuse_device: &File) -> bool {
     use libc::{poll, pollfd};
     use std::os::unix::prelude::AsRawFd;

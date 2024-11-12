@@ -18,11 +18,17 @@ fn ensure_last_os_error() -> io::Error {
     }
 }
 
+/// An active FUSE mount.
+///
+/// This struct manages the lifecycle of the mount, unmounting when dropped.
 #[derive(Debug)]
 pub struct Mount {
     mountpoint: CString,
 }
 impl Mount {
+    /// Mounts the filesystem at the given path, with the given options.
+    ///
+    /// Returns the mounted FUSE file descriptor along with a [Mount] for handling the mount lifecycle.
     pub fn new(mountpoint: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mountpoint = CString::new(mountpoint.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
@@ -55,7 +61,6 @@ impl Drop for Mount {
                     target_os = "freebsd",
                     target_os = "dragonfly",
                     target_os = "openbsd",
-                    target_os = "bitrig",
                     target_os = "netbsd"
                 )))]
                 unsafe {
