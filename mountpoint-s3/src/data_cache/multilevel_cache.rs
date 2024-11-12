@@ -118,10 +118,7 @@ where
 mod tests {
     use super::*;
     use crate::checksums::ChecksummedBytes;
-    use crate::data_cache::{
-        CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig,
-        EXPRESS_CACHE_MAX_OBJECT_SIZE,
-    };
+    use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache};
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
@@ -154,13 +151,8 @@ mod tests {
             ..Default::default()
         };
         let client = MockClient::new(config);
-        let config = ExpressDataCacheConfig {
-            bucket_name: bucket.to_owned(),
-            source_bucket_name: "unique source description".to_owned(),
-            block_size: BLOCK_SIZE,
-            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
-        };
-        (client.clone(), ExpressDataCache::new(client, config))
+        let cache = ExpressDataCache::new(client.clone(), Default::default(), "unique source description", bucket);
+        (client, cache)
     }
 
     #[test_case(false, true; "get from local")]

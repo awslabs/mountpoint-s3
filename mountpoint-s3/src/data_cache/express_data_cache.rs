@@ -12,19 +12,23 @@ use sha2::{Digest, Sha256};
 use tracing::Instrument;
 
 const CACHE_VERSION: &str = "V1";
-pub const EXPRESS_CACHE_MAX_OBJECT_SIZE: usize = 1024 * 1024; // 1MiB
 
 /// Configuration for a [ExpressDataCache].
 #[derive(Debug)]
 pub struct ExpressDataCacheConfig {
-    /// Name of the S3 Express bucket to store the blocks.
-    pub bucket_name: String,
-    /// Name of the mounted bucket.
-    pub source_bucket_name: String,
     /// Size of data blocks.
     pub block_size: u64,
     /// The maximum size of an object to be cached.
     pub max_object_size: usize,
+}
+
+impl Default for ExpressDataCacheConfig {
+    fn default() -> Self {
+        Self {
+            block_size: 1024 * 1024,      // 1 MiB
+            max_object_size: 1024 * 1024, // 1 MiB
+        }
+    }
 }
 
 /// A data cache on S3 Express One Zone that can be shared across Mountpoint instances.
@@ -32,6 +36,8 @@ pub struct ExpressDataCache<Client: ObjectClient> {
     client: Client,
     prefix: String,
     config: ExpressDataCacheConfig,
+    /// Name of the S3 Express bucket to store the blocks.
+    bucket_name: String,
 }
 
 impl<S, C> From<ObjectClientError<S, C>> for DataCacheError
@@ -51,15 +57,20 @@ where
     /// Create a new instance.
     ///
     /// TODO: consider adding some validation of the bucket.
-    pub fn new(client: Client, config: ExpressDataCacheConfig) -> Self {
+    pub fn new(client: Client, config: ExpressDataCacheConfig, source_bucket_name: &str, bucket_name: &str) -> Self {
         let prefix = hex::encode(
             Sha256::new()
                 .chain_update(CACHE_VERSION.as_bytes())
                 .chain_update(config.block_size.to_be_bytes())
-                .chain_update(config.source_bucket_name.as_bytes())
+                .chain_update(source_bucket_name.as_bytes())
                 .finalize(),
         );
-        Self { client, prefix, config }
+        Self {
+            client,
+            prefix,
+            config,
+            bucket_name: bucket_name.to_owned(),
+        }
     }
 }
 
@@ -86,7 +97,7 @@ where
         let object_key = block_key(&self.prefix, cache_key, block_idx);
         let result = match self
             .client
-            .get_object(&self.config.bucket_name, &object_key, &GetObjectParams::new())
+            .get_object(&self.bucket_name, &object_key, &GetObjectParams::new())
             .await
         {
             Ok(result) => result,
@@ -141,7 +152,7 @@ where
         let params = PutObjectParams::new();
         let mut req = self
             .client
-            .put_object(&self.config.bucket_name, &object_key, &params)
+            .put_object(&self.bucket_name, &object_key, &params)
             .in_current_span()
             .await?;
         let (data, _crc) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
@@ -192,13 +203,10 @@ mod tests {
         let client = Arc::new(MockClient::new(config));
 
         let config = ExpressDataCacheConfig {
-            bucket_name: bucket.to_owned(),
-            source_bucket_name: "unique source description".to_owned(),
             block_size,
-            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
+            ..Default::default()
         };
-
-        let cache = ExpressDataCache::new(client, config);
+        let cache = ExpressDataCache::new(client, config, "unique source description", bucket);
 
         let data_1 = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
@@ -291,13 +299,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let config = ExpressDataCacheConfig {
-            bucket_name: bucket.to_owned(),
-            source_bucket_name: "unique source description".to_owned(),
-            block_size: 1024 * 1024,
-            max_object_size: EXPRESS_CACHE_MAX_OBJECT_SIZE,
-        };
-        let cache = ExpressDataCache::new(client.clone(), config);
+        let cache = ExpressDataCache::new(client.clone(), Default::default(), "unique source description", bucket);
         let data_1 = vec![0u8; 1024 * 1024 + 1];
         let data_1 = ChecksummedBytes::new(data_1.into());
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
