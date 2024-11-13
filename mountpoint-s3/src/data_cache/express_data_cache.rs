@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{GetObjectParams, GetObjectRequest, PutObjectParams};
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
+use mountpoint_s3_client::types::{GetObjectParams, GetObjectRequest, PutObjectSingleParams};
+use mountpoint_s3_client::ObjectClient;
 use sha2::{Digest, Sha256};
-use tracing::Instrument;
+use tracing::{error, Instrument};
 
 const CACHE_VERSION: &str = "V1";
 
@@ -140,7 +140,7 @@ where
         let (sse_type, sse_kms_key_id) = result
             .get_object_sse()
             .await
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?; // TODO: avoid PUTing the block after this?
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
         self.sse
             .verify_response(sse_type.as_deref(), sse_kms_key_id.as_deref())
             .map_err(|err| DataCacheError::IoFailure(err.into()))?;
@@ -167,26 +167,35 @@ where
 
         let object_key = block_key(&self.prefix, &cache_key, block_idx);
 
-        // TODO: ideally we should use a simple Put rather than MPU.
-        let mut params = PutObjectParams::new();
+        let mut params = PutObjectSingleParams::new();
         let (sse_type, key_id) = self
             .sse
             .clone()
             .into_inner()
             .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-        // TODO: In the Zonal endpoint API calls (except CopyObject and UploadPartCopy), you can't override the values of the encryption settings (x-amz-server-side-encryption, x-amz-server-side-encryption-aws-kms-key-id, ...) from the CreateSession request.
         params = params.server_side_encryption(sse_type);
         params = params.ssekms_key_id(key_id);
 
-        let mut req = self
+        let (data, _crc) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
+        let req = self
             .client
-            .put_object(&self.bucket_name, &object_key, &params)
+            .put_object_single(&self.bucket_name, &object_key, &params, data)
             .in_current_span()
             .await?;
-        let (data, _crc) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
-        req.write(&data).await?;
-        req.complete().await?;
-        // TODO: verify that headers of the PUT response match the expected SSE; what to do on error though?
+
+        // Verify that headers of the PUT response match the expected SSE
+        if let Err(err) = self
+            .sse
+            .verify_response(req.sse_type.as_deref(), req.sse_kms_key_id.as_deref())
+        {
+            error!(key=?cache_key, error=?err, "A cache block was stored with wrong encryption settings");
+            // Reaching this point is very unlikely and means that SSE settings were corrupted in transit or on S3 side, this may be a sign of a bug
+            // in CRT code or S3. Thus, we terminate Mountpoint to send the most noticeable signal to customer about the issue. We prefer exiting
+            // instead of returning an error because:
+            // 1. this error would only be reported to logs because the cache population is an async process
+            // 2. the reported error is severe as the object was already uploaded to S3.
+            std::process::exit(1);
+        }
 
         DataCacheResult::Ok(())
     }

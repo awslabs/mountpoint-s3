@@ -1,35 +1,27 @@
 use std::{
     fs,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    thread::sleep,
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 
-use async_trait::async_trait;
-use mountpoint_s3::{
-    data_cache::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult, ExpressDataCache},
-    object::ObjectId,
-    prefetch::caching_prefetch,
-    ServerSideEncryption,
-};
+use mountpoint_s3::{data_cache::ExpressDataCache, prefetch::caching_prefetch, ServerSideEncryption};
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use test_case::test_case;
 
 use crate::common::{
+    cache::CacheTestWrapper,
     fuse::{create_fuse_session, s3_session::create_crt_client},
     s3::{get_express_bucket, get_standard_bucket, get_test_prefix},
 };
 
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 
-#[test_case("aws:sse", true; "value does not match the default for the bucket")]
-#[test_case("AES256", false; "value match the default for the bucket")]
-fn express_cache_sse_put(sse: &str, should_fail: bool) {
-    // let region = get_test_region();
+/// We want data to be stored in the cache with the provided SSE settings.
+/// In some cases this is not possible, thus we expect a failure.
+#[test_case("aws:sse", true; "Invalid SSE (does not match the default)")]
+#[test_case("AES256", false; "Valid SSE (matches the default)")]
+fn express_cache_put_enforced_sse(sse: &str, should_fail: bool) {
     let bucket_name = get_standard_bucket();
     let prefix = get_test_prefix("express_cache_bad_sse");
     let express_bucket_name = get_express_bucket();
@@ -67,33 +59,20 @@ fn express_cache_sse_put(sse: &str, should_fail: bool) {
     assert_eq!(read, written);
 
     // Cache writes are async, wait for that to happen
-    const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
-    let st = std::time::Instant::now();
-    loop {
-        if st.elapsed() > MAX_WAIT_DURATION {
-            panic!("timeout on waiting for data being stored to the cache")
-        }
-        if should_fail && express_cache.put_block_failed_count.load(Ordering::SeqCst) > 1 {
-            break;
-        }
-        if !should_fail && express_cache.put_block_count.load(Ordering::SeqCst) > 1 {
-            break;
-        }
-        sleep(Duration::from_millis(100));
-    }
+    express_cache.wait_for_put(Duration::from_secs(10), should_fail);
 
     // Depending on the test case check that either or writes failed or all were successful
-    let put_block_count = express_cache.put_block_count.load(Ordering::SeqCst);
-    let put_block_failed_count = express_cache.put_block_failed_count.load(Ordering::SeqCst);
     if should_fail {
-        assert!(put_block_count == put_block_failed_count)
+        assert_eq!(express_cache.put_block_ok_count.load(Ordering::SeqCst), 0)
     } else {
-        assert!(put_block_failed_count == 0);
+        assert_eq!(express_cache.put_block_failed_count.load(Ordering::SeqCst), 0);
     }
+
+    // TODO: check with sdk client that data is stored with the right settings or not stored at all
 }
 
 // #[test]
-// fn express_cache_good_sse() {
+// fn express_cache_get_enforced_sse() {
 //     // put
 //     // get
 // }
@@ -106,76 +85,6 @@ fn express_cache_sse_put(sse: &str, should_fail: bool) {
 
 // #[test]
 // fn express_cache_wrong_etag() {}
-
-struct CacheTestWrapper<Cache> {
-    cache: Arc<Cache>,
-    cache_hit_count: Arc<AtomicU64>,
-    put_block_count: Arc<AtomicU64>,
-    put_block_failed_count: Arc<AtomicU64>,
-}
-
-impl<Cache> Clone for CacheTestWrapper<Cache> {
-    fn clone(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            cache_hit_count: self.cache_hit_count.clone(),
-            put_block_count: self.put_block_count.clone(),
-            put_block_failed_count: self.put_block_failed_count.clone(),
-        }
-    }
-}
-
-impl<Cache> CacheTestWrapper<Cache> {
-    fn new(cache: Arc<Cache>) -> Self {
-        CacheTestWrapper {
-            cache,
-            cache_hit_count: Arc::new(AtomicU64::new(0)),
-            put_block_count: Arc::new(AtomicU64::new(0)),
-            put_block_failed_count: Arc::new(AtomicU64::new(0)),
-        }
-    }
-}
-
-#[async_trait]
-impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Cache> {
-    async fn get_block(
-        &self,
-        cache_key: &ObjectId,
-        block_idx: BlockIndex,
-        block_offset: u64,
-        object_size: usize,
-    ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        let result = self
-            .cache
-            .get_block(cache_key, block_idx, block_offset, object_size)
-            .await?
-            .inspect(|_| {
-                self.cache_hit_count.fetch_add(1, Ordering::SeqCst);
-            });
-        Ok(result)
-    }
-
-    async fn put_block(
-        &self,
-        cache_key: ObjectId,
-        block_idx: BlockIndex,
-        block_offset: u64,
-        bytes: ChecksummedBytes,
-        object_size: usize,
-    ) -> DataCacheResult<()> {
-        self.put_block_count.fetch_add(1, Ordering::SeqCst);
-        self.cache
-            .put_block(cache_key, block_idx, block_offset, bytes, object_size)
-            .await
-            .inspect_err(|_| {
-                self.put_block_failed_count.fetch_add(1, Ordering::SeqCst);
-            })
-    }
-
-    fn block_size(&self) -> u64 {
-        self.cache.block_size()
-    }
-}
 
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::thread_rng().gen();
