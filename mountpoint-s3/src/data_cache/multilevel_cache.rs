@@ -151,7 +151,13 @@ mod tests {
             ..Default::default()
         };
         let client = MockClient::new(config);
-        let cache = ExpressDataCache::new(client.clone(), Default::default(), "unique source description", bucket);
+        let cache = ExpressDataCache::new(
+            client.clone(),
+            Default::default(),
+            "unique source description",
+            bucket,
+            Default::default(),
+        );
         (client, cache)
     }
 

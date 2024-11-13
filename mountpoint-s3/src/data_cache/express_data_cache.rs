@@ -1,4 +1,5 @@
 use crate::object::ObjectId;
+use crate::ServerSideEncryption;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 
@@ -38,6 +39,7 @@ pub struct ExpressDataCache<Client: ObjectClient> {
     config: ExpressDataCacheConfig,
     /// Name of the S3 Express bucket to store the blocks.
     bucket_name: String,
+    sse: ServerSideEncryption,
 }
 
 impl<S, C> From<ObjectClientError<S, C>> for DataCacheError
@@ -57,7 +59,13 @@ where
     /// Create a new instance.
     ///
     /// TODO: consider adding some validation of the bucket.
-    pub fn new(client: Client, config: ExpressDataCacheConfig, source_bucket_name: &str, bucket_name: &str) -> Self {
+    pub fn new(
+        client: Client,
+        config: ExpressDataCacheConfig,
+        source_bucket_name: &str,
+        bucket_name: &str,
+        sse: ServerSideEncryption,
+    ) -> Self {
         let prefix = hex::encode(
             Sha256::new()
                 .chain_update(CACHE_VERSION.as_bytes())
@@ -65,11 +73,13 @@ where
                 .chain_update(source_bucket_name.as_bytes())
                 .finalize(),
         );
+
         Self {
             client,
             prefix,
             config,
             bucket_name: bucket_name.to_owned(),
+            sse,
         }
     }
 }
@@ -126,6 +136,15 @@ where
                 Err(e) => return Err(e.into()),
             }
         }
+
+        let (sse_type, sse_kms_key_id) = result
+            .get_object_sse()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?; // TODO: avoid PUTing the block after this?
+        self.sse
+            .verify_response(sse_type.as_deref(), sse_kms_key_id.as_deref())
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
         let buffer = buffer.freeze();
         DataCacheResult::Ok(Some(buffer.into()))
     }
@@ -149,7 +168,16 @@ where
         let object_key = block_key(&self.prefix, &cache_key, block_idx);
 
         // TODO: ideally we should use a simple Put rather than MPU.
-        let params = PutObjectParams::new();
+        let mut params = PutObjectParams::new();
+        let (sse_type, key_id) = self
+            .sse
+            .clone()
+            .into_inner()
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+        // TODO: In the Zonal endpoint API calls (except CopyObject and UploadPartCopy), you can't override the values of the encryption settings (x-amz-server-side-encryption, x-amz-server-side-encryption-aws-kms-key-id, ...) from the CreateSession request.
+        params = params.server_side_encryption(sse_type);
+        params = params.ssekms_key_id(key_id);
+
         let mut req = self
             .client
             .put_object(&self.bucket_name, &object_key, &params)
@@ -158,6 +186,7 @@ where
         let (data, _crc) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
         req.write(&data).await?;
         req.complete().await?;
+        // TODO: verify that headers of the PUT response match the expected SSE; what to do on error though?
 
         DataCacheResult::Ok(())
     }
@@ -206,7 +235,7 @@ mod tests {
             block_size,
             ..Default::default()
         };
-        let cache = ExpressDataCache::new(client, config, "unique source description", bucket);
+        let cache = ExpressDataCache::new(client, config, "unique source description", bucket, Default::default());
 
         let data_1 = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
@@ -299,7 +328,13 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let cache = ExpressDataCache::new(client.clone(), Default::default(), "unique source description", bucket);
+        let cache = ExpressDataCache::new(
+            client.clone(),
+            Default::default(),
+            "unique source description",
+            bucket,
+            Default::default(),
+        );
         let data_1 = vec![0u8; 1024 * 1024 + 1];
         let data_1 = ChecksummedBytes::new(data_1.into());
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
