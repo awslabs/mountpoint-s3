@@ -16,7 +16,7 @@ pub struct fuse_args {
     pub allocated: c_int,
 }
 
-#[cfg(feature = "libfuse2")]
+#[cfg(fuser_mount_impl = "libfuse2")]
 extern "C" {
     // *_compat25 functions were introduced in FUSE 2.6 when function signatures changed.
     // Therefore, the minimum version requirement for *_compat25 functions is libfuse-2.6.0.
@@ -27,7 +27,6 @@ extern "C" {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     )))]
     pub fn fuse_unmount_compat22(mountpoint: *const c_char);

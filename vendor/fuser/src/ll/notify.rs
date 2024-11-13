@@ -17,6 +17,7 @@ pub(crate) enum Notification<'a> {
     Bare(NotificationBuf),
 
     /// For notifications that include a buffer of arbitrary data
+    #[allow(dead_code)]
     WithData(NotificationBuf, &'a [u8]),
 
     /// For notifications that include a NUL-terminated name
@@ -122,6 +123,7 @@ impl<'a> Notification<'a> {
         Self::WithName(buf.as_bytes().into(), name)
     }
 
+    #[allow(dead_code)]
     fn from_struct_with_data<T: IntoBytes + Immutable + ?Sized>(buf: &T, data: &'a [u8]) -> Self {
         Self::WithData(buf.as_bytes().into(), data)
     }

@@ -178,7 +178,6 @@ fn receive_fusermount_message(socket: &UnixStream) -> Result<File, Error> {
         target_os = "freebsd",
         target_os = "dragonfly",
         target_os = "openbsd",
-        target_os = "bitrig",
         target_os = "netbsd"
     ))]
     {
