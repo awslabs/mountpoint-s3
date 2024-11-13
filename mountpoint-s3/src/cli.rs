@@ -322,7 +322,7 @@ pub struct CliArgs {
         help = "Enable caching of object content to the specified bucket on S3 Express One Zone (same region only)",
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "BUCKET",
-        value_parser = parse_bucket_name,
+        value_parser = parse_express_bucket_name,
         group = "cache_group",
     )]
     pub cache_express: Option<String>,
@@ -1088,6 +1088,15 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     Ok(bucket_name.to_owned())
 }
 
+/// Validate an express bucket name. Not a full validation, but a simple check to ensure regular buckets aren't passed here.
+fn parse_express_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
+    let bucket_name = parse_bucket_name(bucket_name)?;
+    if !bucket_name.ends_with("--x-s3") {
+        return Err(anyhow!("S3 Express bucket must end in --x-s3"));
+    }
+    Ok(bucket_name)
+}
+
 /// Validate a kms-key-id CLI parameter. Currently, Mountpoint only supports KMS Key ARNs.
 fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
     if kms_key_arn.starts_with("arn:") && kms_key_arn.contains(":key") {
@@ -1224,8 +1233,36 @@ mod tests {
     #[test_case("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap", true; "standard accesspoint ARN in China")]
     #[test_case("arn:aws-us-gov:s3-object-lambda:us-gov-west-1:555555555555:accesspoint/example-olap", true; "S3 object lambda accesspoint in US Gov")]
     #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", true; "S3 outpost accesspoint ARN")]
+    #[test_case("test-bucket--usw2-az1--x-s3", true; "simple express bucket")]
+    #[test_case("test-123.buc_ket--usw2-az1--x-s3", true; "express bucket name with .")]
+    #[test_case("arn:aws:s3:::amzn-s3-demo-bucket--usw2-az1--x-s3", true; "express bucket ARN(maybe rejected by endpoint resolver with error message)")]
+    #[test_case("s3://test-bucket--usw2-az1--x-s3", false; "not providing bare bucket name (S3 Express suffix)")]
+    #[test_case("/mnt--usw2-az1--x-s3", false; "directory name with S3 Express suffic")]
     fn validate_bucket_name(bucket_name: &str, valid: bool) {
         let parsed = parse_bucket_name(bucket_name);
+        if valid {
+            assert_eq!(parsed.expect("valid bucket name"), bucket_name);
+        } else {
+            parsed.expect_err("invalid bucket name");
+        }
+    }
+
+    #[test_case("test-bucket", false; "simple bucket")]
+    #[test_case("test-123.buc_ket", false; "bucket name with .")]
+    #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", false; "access point alias")]
+    #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", false; "object lambda access point alias")]
+    #[test_case("s3://test-bucket", false; "not providing bare bucket name")]
+    #[test_case("~/mnt", false; "directory name in place of bucket")]
+    #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", false; "multiregion accesspoint ARN")]
+    #[test_case("arn:aws:s3:::amzn-s3-demo-bucket", false; "bucket ARN(maybe rejected by endpoint resolver with error message)")]
+    #[test_case("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap", false; "standard accesspoint ARN in China")]
+    #[test_case("arn:aws-us-gov:s3-object-lambda:us-gov-west-1:555555555555:accesspoint/example-olap", false; "S3 object lambda accesspoint in US Gov")]
+    #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", false; "S3 outpost accesspoint ARN")]
+    #[test_case("test-bucket--usw2-az1--x-s3", true; "simple express bucket")]
+    #[test_case("test-123.buc_ket--usw2-az1--x-s3", true; "express bucket name with .")]
+    #[test_case("arn:aws:s3:::amzn-s3-demo-bucket--usw2-az1--x-s3", true; "express bucket ARN(maybe rejected by endpoint resolver with error message)")]
+    fn validate_express_bucket_name(bucket_name: &str, valid: bool) {
+        let parsed = parse_express_bucket_name(bucket_name);
         if valid {
             assert_eq!(parsed.expect("valid bucket name"), bucket_name);
         } else {
