@@ -205,7 +205,6 @@ async fn test_put_object_storage_class(storage_class: &str) {
     assert_eq!(storage_class, attributes.storage_class.unwrap().as_str());
 }
 
-#[cfg(not(feature = "s3express_tests"))]
 async fn check_sse(
     bucket: &String,
     key: &String,
@@ -290,6 +289,52 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
     let key = format!("{prefix}hello");
     let put_object_result = test_put_object_single(&client, &bucket, &key, request_params.clone()).await;
     check_sse(&bucket, &key, sse_type, &kms_key_id, put_object_result).await;
+}
+
+#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()), get_express_sse_kms_bucket(), false)]
+#[test_case(Some("aws:kms"), None, get_express_sse_kms_bucket(), false)]
+#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()), get_express_bucket(), true)] // this may start working in future, requires server-side changes
+#[test_case(Some("aws:kms"), None, get_express_bucket(), true)] // this may start working in future, requires server-side changes
+#[test_case(Some("AES256"), None, get_express_bucket(), false)]
+#[test_case(Some("AES256"), None, get_express_sse_kms_bucket(), true)] // this may start working in future, requires changes in CRT
+#[test_case(None, None, get_express_bucket(), false)]
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>, bucket: String, should_fail: bool) {
+    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let request_params = PutObjectSingleParams::new()
+        .server_side_encryption(sse_type.map(|value| value.to_owned()))
+        .ssekms_key_id(kms_key_id.to_owned());
+
+    // Make a request
+    let prefix = get_unique_test_prefix("test_put_object_sse");
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let put_object_result = client
+        .put_object_single(&bucket, &key, &request_params, &contents)
+        .await;
+
+    if should_fail {
+        assert!(put_object_result.is_err(), "put request should fail");
+        return;
+    } else {
+        assert!(put_object_result.is_ok(), "put request should succeed");
+    }
+
+    // Check sse of the object via SDK and the values returned in response to the PUT
+    check_sse(
+        &bucket,
+        &key,
+        sse_type,
+        &kms_key_id,
+        put_object_result.expect("put request should succeed"),
+    )
+    .await;
 }
 
 #[tokio::test]

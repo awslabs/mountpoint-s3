@@ -572,6 +572,12 @@ pub trait GetObjectRequest:
     /// Get the object's checksum, if uploaded with one
     async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError>;
 
+    /// Get the object's SSE type and KMS Key ARN, as defined in:
+    /// https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-id
+    async fn get_object_sse(
+        &self,
+    ) -> ObjectClientResult<(Option<String>, Option<String>), GetObjectError, Self::ClientError>;
+
     /// Increment the flow-control window, so that response data continues downloading.
     ///
     /// If the client was created with `enable_read_backpressure` set true,

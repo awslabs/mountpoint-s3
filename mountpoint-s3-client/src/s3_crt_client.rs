@@ -1134,6 +1134,14 @@ fn parse_checksum(headers: &Headers) -> Result<Checksum, HeadersError> {
     })
 }
 
+/// Extract the SSE-type and SSE-key information from headers
+fn parse_object_sse(headers: &Headers) -> Result<(Option<String>, Option<String>), HeadersError> {
+    let sse_type = headers.get_as_optional_string("x-amz-server-side-encryption")?;
+    let sse_kms_key_id = headers.get_as_optional_string("x-amz-server-side-encryption-aws-kms-key-id")?;
+
+    Ok((sse_type, sse_kms_key_id))
+}
+
 /// Try to parse a modeled error out of a failing meta request
 fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3RequestError> {
     /// Look for a redirect header pointing to a different region for the bucket

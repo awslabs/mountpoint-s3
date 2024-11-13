@@ -19,7 +19,8 @@ use crate::object_client::{
     Checksum, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError, ObjectClientResult, ObjectMetadata,
 };
 use crate::s3_crt_client::{
-    parse_checksum, GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+    parse_checksum, parse_object_sse, GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation,
+    S3RequestError,
 };
 use crate::types::ChecksumMode;
 
@@ -202,6 +203,14 @@ impl GetObjectRequest for S3GetObjectRequest {
 
         let headers = self.get_object_headers().await?;
         parse_checksum(&headers).map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+    }
+
+    async fn get_object_sse(
+        &self,
+    ) -> ObjectClientResult<(Option<String>, Option<String>), GetObjectError, Self::ClientError> {
+        let headers = self.get_object_headers().await?;
+        parse_object_sse(&headers)
+            .map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
     }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
