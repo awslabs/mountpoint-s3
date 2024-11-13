@@ -11,7 +11,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     #[cfg(not(feature = "s3express_tests"))]
     let bucket = get_standard_bucket();
     #[cfg(feature = "s3express_tests")]
-    let bucket = get_express_cache_bucket();
+    let bucket = get_express_bucket();
 
     let prefix = get_test_prefix(test_name);
 
@@ -30,7 +30,7 @@ pub fn get_test_prefix(test_name: &str) -> String {
 }
 
 #[cfg(feature = "s3express_tests")]
-pub fn get_express_cache_bucket() -> String {
+pub fn get_express_bucket() -> String {
     std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
         .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
 }
