@@ -255,3 +255,76 @@ async fn test_head_object_restored() {
     }
     assert!(!timeout_exceeded, "timeouted while waiting for object become restored");
 }
+
+async fn test_head_object_sse(
+    client: S3CrtClient,
+    bucket: &str,
+    prefix: &str,
+    sse_type: Option<&str>,
+    kms_key_id: Option<String>,
+) {
+    let key = format!("{prefix}hello");
+    let expected_sdk_sse = match sse_type {
+        None => aws_sdk_s3::types::ServerSideEncryption::Aes256,
+        Some("AES256") => aws_sdk_s3::types::ServerSideEncryption::Aes256,
+        Some("aws:kms") => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
+        Some("aws:kms:dsse") => aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse,
+        _ => panic!("unexpected sse type was used in a test"),
+    };
+
+    let sdk_client = get_test_sdk_client().await;
+    let put_output = sdk_client
+        .put_object()
+        .bucket(bucket)
+        .key(&key)
+        .body(ByteStream::from_static(b"test"))
+        .server_side_encryption(expected_sdk_sse)
+        .set_ssekms_key_id(kms_key_id)
+        .send()
+        .await
+        .expect("put object should succeed");
+
+    let result = client
+        .head_object(bucket, &key, &HeadObjectParams::new())
+        .await
+        .expect("head_object failed");
+
+    assert_eq!(
+        result.sse_type.as_deref(),
+        put_output.server_side_encryption().map(|sse| sse.as_str()),
+        "sse_type should match"
+    );
+    assert_eq!(
+        result.sse_kms_key_id, put_output.ssekms_key_id,
+        "kms_key_id should match"
+    );
+}
+
+#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()))]
+#[test_case(Some("aws:kms"), None)]
+#[test_case(Some("aws:kms:dsse"), Some(get_test_kms_key_id()))]
+#[test_case(Some("aws:kms:dsse"), None)]
+#[test_case(None, None)]
+#[test_case(Some("AES256"), None)]
+#[tokio::test]
+#[cfg(not(feature = "s3express_tests"))]
+async fn test_head_object_sse_s3(sse_type: Option<&str>, kms_key_id: Option<String>) {
+    let prefix = get_unique_test_prefix("test_head_object_sse_s3");
+    let bucket = get_test_bucket();
+    let client: S3CrtClient = get_test_client();
+
+    test_head_object_sse(client, &bucket, &prefix, sse_type, kms_key_id).await;
+}
+
+/// See [Server-side encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-data-protection.html#s3-express-ecnryption) for directory buckets.
+#[test_case(None, None)]
+#[test_case(Some("AES256"), None)]
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_head_object_sse_s3express(sse_type: Option<&str>, kms_key_id: Option<String>) {
+    let prefix = get_unique_test_prefix("test_head_object_sse_s3express");
+    let bucket = get_test_bucket();
+    let client: S3CrtClient = get_test_client();
+
+    test_head_object_sse(client, &bucket, &prefix, sse_type, kms_key_id).await;
+}

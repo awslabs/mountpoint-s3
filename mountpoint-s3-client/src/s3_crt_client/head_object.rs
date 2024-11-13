@@ -74,6 +74,8 @@ impl HeadObjectResult {
         let etag = headers.get_as_string("Etag")?;
         let storage_class = headers.get_as_optional_string("x-amz-storage-class")?;
         let restore_status = Self::parse_restore_status(headers)?;
+        let sse_type = headers.get_as_optional_string("x-amz-server-side-encryption")?;
+        let sse_kms_key_id = headers.get_as_optional_string("x-amz-server-side-encryption-aws-kms-key-id")?;
         let checksum = parse_checksum(headers)?;
         let result = HeadObjectResult {
             size,
@@ -82,6 +84,8 @@ impl HeadObjectResult {
             restore_status,
             etag: etag.into(),
             checksum,
+            sse_type,
+            sse_kms_key_id,
         };
         Ok(result)
     }
