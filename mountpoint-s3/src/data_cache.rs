@@ -36,8 +36,6 @@ pub enum DataCacheError {
     InvalidBlockOffset,
     #[error("Error while trying to evict cache content")]
     EvictionFailure,
-    #[error("A block stored with wrong SSE settings")]
-    StoredWithWrongSse,
 }
 
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
