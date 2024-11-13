@@ -169,6 +169,7 @@ cache_benchmark () {
     cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
+      --allow-overwrite \
       --cache=${cache_dir} \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
